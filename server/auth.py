@@ -9,7 +9,12 @@ import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-SECRET_KEY = os.getenv("JWT_SECRET", "change-me-jwt-secret-32chars-min")
+SECRET_KEY = os.getenv("JWT_SECRET")
+if not SECRET_KEY:
+    raise RuntimeError(
+        "JWT_SECRET environment variable is not set. "
+        "Set it to a strong, random secret (32+ chars) before starting the server."
+    )
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_DAYS = 7
 
