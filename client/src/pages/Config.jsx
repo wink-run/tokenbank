@@ -6,6 +6,7 @@ import { getConfig, getGateway } from '../api/adapter';
 import { useLang } from '../store/lang';
 import { useCurrency } from '../store/currency';
 import { useUpdater } from '../store/updater';
+import DecisionPanel from '../components/DecisionPanel';
 import { defaultCurrencyForLang, DEFAULT_USD_CNY_RATE } from '../utils/currency';
 import { SERVER_URL_PLACEHOLDER, normalizeServerBase, syncCloudConfigUrl, bootstrapServerUrl } from '../config';
 
@@ -349,6 +350,8 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
           </Row>
         </div>
       </div>
+
+      <DecisionPanel />
 
       {/* Compression section */}
       <div className="tb-soft-card rounded-2xl overflow-hidden">

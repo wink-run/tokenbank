@@ -11,6 +11,11 @@ function billingAuth() {
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,   // darwin | win32 | linux — 百宝箱说明等平台差异
   version: ipcRenderer.sendSync('app:version'),
+  decision: {
+    status: () => ipcRenderer.invoke('decision:status'),
+    probe: () => ipcRenderer.invoke('decision:probe'),
+    setMode: mode => ipcRenderer.invoke('decision:setMode', mode),
+  },
   app: {
     defaultServerUrl: () => ipcRenderer.sendSync('app:defaultServerUrl'),
     getDeviceIdentity: (opts) => ipcRenderer.sendSync('app:getDeviceIdentity', opts || {}),

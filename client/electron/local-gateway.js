@@ -9,6 +9,7 @@ const path  = require('path');
 const codexTransform = require('./codex-transform');
 const reqRouter = require('./request-router');
 const routingStrategies = require('./routing-strategies');
+const jevShadow = require('./jev-shadow');
 const cooldown = require('./gateway-cooldown');
 const upstreamHints = require('./gateway-upstream-hints');
 const { TIER_ROUTE_RE, parseRoute, STRATEGY_NAMES, SCOPE_NAMES, TIER_NAMES, SHARER_RE } = require('../shared/route-binding');
@@ -532,6 +533,11 @@ function openaiToAnthropic(oai, model) {
 
 // Convert OpenAI request body → Anthropic request body
 function oaiRequestToAnthropic(oai) {
+  if (Number(oai.n) > 1) {
+    throw Object.assign(new Error('Claude only supports n=1. Set SillyTavern "Multiple swipes per generation" to 1.'), {
+      status: 400, apiErrorType: 'invalid_request_error',
+    });
+  }
   const sys  = (oai.messages || []).find(m => m.role === 'system');
   const anth = { model: oai.model, max_tokens: oai.max_tokens || 4096,
     messages: oaiMessagesToAnthropic(oai.messages || []) };
@@ -1197,6 +1203,7 @@ function proxyRequest(provider, reqPath, body, res) {
         // Responses API：usage 在 response.completed / response.usage 事件的 response.usage。
         let usageIn = 0, usageOut = 0, cacheCreate = 0, cacheRead = 0, msgId = null;
         let sseBuf = '';
+        let streamError = null;
         proxyRes.on('data', (chunk) => {
           res.write(chunk);
           sseBuf += chunk.toString();
@@ -1212,6 +1219,8 @@ function proxyRequest(provider, reqPath, body, res) {
             }
             try {
               const obj = JSON.parse(ds);
+              streamError = streamError || extractOpenaiPayloadError(obj)
+                || (obj.type === 'response.failed' ? extractOpenaiPayloadError(obj.response) : null);
               // 上游响应 id：OpenAI chunk 顶层 id；Anthropic message_start；Responses response.id
               if (!msgId) msgId = obj.id || obj.message?.id || obj.response?.id || null;
               // Anthropic 缓存 token 分布在 message_start / message_delta
@@ -1240,8 +1249,13 @@ function proxyRequest(provider, reqPath, body, res) {
           input_tokens: usageIn, output_tokens: usageOut, cache_create_tokens: cacheCreate, cache_read_tokens: cacheRead,
           message_id: msgId, status_code: status, worker_id: workerId };
         };
-        proxyRes.on('end',   () => { res.end();        resolve(done()); });
-        proxyRes.on('error', (err) => { ttftGuard?.dispose(); res.destroy(err); resolve(done()); });
+        proxyRes.on('end', () => {
+          const result = done();
+          res.end();
+          if (streamError) return rejectOpenaiPayloadError(reject, streamError, res);
+          resolve(result);
+        });
+        proxyRes.on('error', (err) => { ttftGuard?.dispose(); res.destroy(err); reject(err); });
       } else {
         // Non-streaming: buffer, forward, then parse usage + id from JSON
         const chunks = [];
@@ -1589,10 +1603,7 @@ function proxyAnthropicSync(provider, oaiBody, model, res) {
       agent: resolveProxyAgent(provider, fullUrl),
     }, (proxyRes) => {
       if (proxyRes.statusCode >= 400) {
-        const errChunks = [];
-        proxyRes.on('data', c => errChunks.push(c));
-        proxyRes.on('end', () => console.warn(`[gateway] proxyAnthropicSync ${proxyRes.statusCode}:`, Buffer.concat(errChunks).toString().slice(0, 200)));
-        return reject(Object.assign(new Error(`HTTP_${proxyRes.statusCode}`), { status: proxyRes.statusCode }));
+        return readProxyError(proxyRes, reject);
       }
       const chunks = [];
       proxyRes.on('data', c => chunks.push(c));
@@ -1648,8 +1659,7 @@ function proxyAnthropicStream(provider, oaiBody, model, res) {
       agent: resolveProxyAgent(provider, fullUrl),
     }, (proxyRes) => {
       if (proxyRes.statusCode >= 400) {
-        proxyRes.resume();
-        return reject(Object.assign(new Error(`HTTP_${proxyRes.statusCode}`), { status: proxyRes.statusCode }));
+        return readProxyError(proxyRes, reject);
       }
       if (res.headersSent) { proxyRes.resume(); return reject(new Error('headers_already_sent')); }
 
@@ -1665,6 +1675,7 @@ function proxyAnthropicStream(provider, oaiBody, model, res) {
 
       let buf = '', usageIn = 0, usageOut = 0, cacheCreate = 0, cacheRead = 0, firstTokenMs = null, msgId = null;
       let stopReason = 'stop';
+      let streamError = null;
       // Anthropic content block index → OpenAI tool_calls index（仅工具块计数，文本块不占）
       const toolIndexByBlock = new Map();
       let toolCounter = 0;
@@ -1679,6 +1690,13 @@ function proxyAnthropicStream(provider, oaiBody, model, res) {
           if (!ds || ds === '[DONE]') continue;
           try {
             const evt = JSON.parse(ds);
+            if (streamError) continue;
+            const error = extractOpenaiPayloadError(evt);
+            if (error) {
+              streamError = error;
+              res.write(`data: ${JSON.stringify({ error })}\n\n`);
+              continue;
+            }
             if (evt.type === 'content_block_start' && evt.content_block?.type === 'tool_use') {
               // 工具块起始：分配 OpenAI tool index，先发带 id+name 的 tool_calls 帧
               if (firstTokenMs === null) firstTokenMs = Date.now() - t0;
@@ -1710,6 +1728,10 @@ function proxyAnthropicStream(provider, oaiBody, model, res) {
       });
 
       proxyRes.on('end', () => {
+        if (streamError) {
+          res.end();
+          return rejectOpenaiPayloadError(reject, streamError, res);
+        }
         res.write(`data: ${JSON.stringify({ id: chatId, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta: {}, finish_reason: stopReason }] })}\n\n`);
         res.write('data: [DONE]\n\n');
         res.end();
@@ -1718,9 +1740,7 @@ function proxyAnthropicStream(provider, oaiBody, model, res) {
           message_id: msgId, status_code: proxyRes.statusCode });
       });
 
-      proxyRes.on('error', (err) => { res.destroy(err); resolve({ provider: provider.id, latency: Date.now() - t0, first_token_ms: firstTokenMs ?? Date.now() - t0,
-          input_tokens: usageIn, output_tokens: usageOut, cache_create_tokens: cacheCreate, cache_read_tokens: cacheRead,
-          message_id: msgId, status_code: proxyRes.statusCode }); });
+      proxyRes.on('error', (err) => { res.destroy(err); reject(err); });
     });
     proxyReq.on('error', reject);
     proxyReq.on('timeout', () => { proxyReq.destroy(); reject(new Error('timeout')); });
@@ -1730,9 +1750,12 @@ function proxyAnthropicStream(provider, oaiBody, model, res) {
 }
 
 // ── Provider API format detection ────────────────────────────────────────────
-// Single source of truth: explicit api_format field wins; URL heuristics are
-// only a fallback for providers created before the field was exposed in UI.
+// OAuth's native protocol wins; other sources honor explicit api_format, with
+// URL heuristics only as a fallback for older providers.
 function providerApiFormat(provider) {
+  // Claude OAuth uses the native Messages API, even when an old account was
+  // persisted with the generic OpenAI default. Do not override API-key sources.
+  if (provider.auth_type === 'oauth' && provider.oauth_provider === 'claude') return 'anthropic';
   if (provider.api_format) return provider.api_format;
   if (/anthropic/i.test(provider.base_url || '')) return 'anthropic';
   if (/generativelanguage\.googleapis\.com/i.test(provider.base_url || '')) return 'gemini';
@@ -2800,7 +2823,10 @@ function evalWhen(when, ctx) {
     case 'input_tokens': cur = ctx.input_tokens; break;
     case 'keyword':      cur = (ctx.keyword_text != null ? ctx.keyword_text : ctx.text); break;
     case 'caller':       cur = ctx.caller; break;
-    case 'classifier':   cur = ctx.classifier_label; break;   // 语义分类结果（懒计算，见 resolveSteps）
+    case 'classifier':
+      // Abstention must not match negative/regex/numeric conditions either.
+      if (ctx.classifier_label == null) return false;
+      cur = ctx.classifier_label; break;
     default: return false;
   }
   switch (op) {
@@ -2853,9 +2879,12 @@ function internalComplete(provider, model, promptOrContent, maxTokens = 8, opts 
     const req = mod.request({
       hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80),
       path: u.pathname + (u.search || ''), method: 'POST', headers, timeout: timeoutMs,
+      signal: opts.signal,
       agent: resolveProxyAgent(provider, u.href),
     }, (rs) => {
       let data = '';
+      rs.on('error', reject);
+      rs.on('aborted', () => reject(new Error('response_aborted')));
       rs.on('data', c => data += c);
       rs.on('end', () => {
         if (rs.statusCode >= 400) {
@@ -2897,29 +2926,95 @@ function internalComplete(provider, model, promptOrContent, maxTokens = 8, opts 
   });
 }
 
-const _classifyCache = new Map();   // key(model|cats|snippet) → { ts, label }；5min 缓存
-async function classifyInput(text, classifier) {
+const _classifyCache = new Map();   // 模型/供给源/类别/输入/预算 → { ts, label }；5min 缓存
+const _classifyPending = new Map(); // Bound LLM fallback load when System One is down.
+
+function routingCfg() {
+  let yamlRouting = {}, runtime = {};
+  try { yamlRouting = require('./config-loader').routing(); } catch {}
+  try { runtime = _getConfig?.()?.routing || {}; } catch {}
+  return jevShadow.effectiveRouting(yamlRouting, runtime);
+}
+
+/** 现有小模型分类器（原 classifyInput 逻辑） */
+async function classifyInputLlm(text, classifier, timeoutMs = 3000) {
   if (!classifier || !classifier.model || !Array.isArray(classifier.categories) || !classifier.categories.length) return null;
   const cats = classifier.categories.map(String);
   const snippet = String(text || '').slice(0, classifier.max_chars || 600);
   if (!snippet) return null;
-  const key = classifier.model + '|' + cats.join(',') + '|' + snippet;
+  const provider = enabledProviders().find(p => providerHasModel(p, classifier.model));
+  if (!provider) return null;
+  const key = JSON.stringify([classifier.model, provider.id, provider.base_url, cats, snippet, timeoutMs]);
   const now = Date.now();
   const hit = _classifyCache.get(key);
   if (hit && now - hit.ts < 300000) return hit.label;
-  const provider = enabledProviders().find(p => providerHasModel(p, classifier.model));
-  if (!provider) return null;
-  const prompt = `把下面这条用户请求归到这些类别之一，只回类别词本身，不要解释。\n类别: ${cats.join(', ')}\n\n请求:\n${snippet}`;
-  let out;
-  try {
-    const r = await internalComplete(provider, classifier.model, prompt, 8);
-    out = typeof r === 'string' ? r : (r && r.text);
-  } catch { return null; }
-  const low = String(out || '').toLowerCase();
-  const label = cats.find(c => low.includes(String(c).toLowerCase())) || null;
-  _classifyCache.set(key, { ts: now, label });
-  if (_classifyCache.size > 500) _classifyCache.delete(_classifyCache.keys().next().value);
-  return label;
+  if (_classifyPending.has(key)) return _classifyPending.get(key);
+  if (_classifyPending.size >= 4) return null;
+  const task = (async () => {
+    const prompt = `把下面这条用户请求归到这些类别之一，只回类别词本身，不要解释。\n类别: ${cats.join(', ')}\n\n请求:\n${snippet}`;
+    let out;
+    try {
+      const r = await jevShadow.withDeadline(timeoutMs, signal =>
+        internalComplete(provider, classifier.model, prompt, 8, { timeoutMs, signal }));
+      out = typeof r === 'string' ? r : (r && r.text);
+    } catch { return null; }
+    const low = String(out || '').trim().replace(/^["'`]|["'`]$/g, '').toLowerCase();
+    const label = cats.find(c => String(c).toLowerCase() === low) || null;
+    if (label) _classifyCache.set(key, { ts: now, label });
+    if (_classifyCache.size > 500) _classifyCache.delete(_classifyCache.keys().next().value);
+    return label;
+  })();
+  _classifyPending.set(key, task);
+  try { return await task; } finally { _classifyPending.delete(key); }
+}
+
+/**
+ * 场景语义分类：可走 systemone（OpenDecision/Jev）做真实路由，失败可回退小模型。
+ * 配置：routing.decision_classifier.engine = llm | systemone
+ */
+async function classifyInput(text, classifier) {
+  if (!classifier || !Array.isArray(classifier.categories) || !classifier.categories.length) return null;
+  const cats = classifier.categories.map(String);
+  const dc = jevShadow.loadDecisionConfig(routingCfg());
+
+  if (dc.engine === 'systemone') {
+    let so;
+    const maxChars = Math.min(dc.maxChars, Number(classifier.max_chars) > 0 ? Number(classifier.max_chars) : dc.maxChars);
+    try { so = await jevShadow.classifyForRouting(text, cats, { ...dc, maxChars }); } catch { so = null; }
+    if (so && so.choice) {
+      try {
+        jevShadow.logDecision({
+          provider: so.provider || dc.provider,
+          endpoint: dc.endpoint,
+          local_label: null,
+          jev_choice: so.choice,
+          jev_confidence: so.confidence,
+          jev_ms: so.ms,
+          used: 'systemone',
+          categories: cats,
+        });
+      } catch {}
+      return so.choice;
+    }
+    const label = dc.fallbackLlm ? await classifyInputLlm(text, classifier, dc.llmTimeoutMs) : null;
+    try {
+      jevShadow.logDecision({
+        provider: dc.provider,
+        endpoint: dc.endpoint,
+        jev_choice: so && so.choice || null,
+        jev_confidence: so && so.confidence,
+        jev_ms: so && so.ms,
+        jev_error: so && so.error || 'no_result',
+        used: label ? 'fallback_llm' : 'abstain',
+        local_label: label,
+        fallback_llm_attempted: dc.fallbackLlm,
+        categories: cats,
+      });
+    } catch {}
+    return label;
+  }
+
+  return classifyInputLlm(text, classifier, dc.llmTimeoutMs);
 }
 
 /**
@@ -3074,9 +3169,36 @@ function unifySteps(scene) {
 async function resolveSteps(scene, ctx) {
   const all = unifySteps(scene);
   if (all.some(s => s && s.when && s.when.type === 'classifier')) {
-    ctx.classifier_label = await classifyInput(ctx.text, scene && scene.classifier);
+    const classifier = scene && scene.classifier;
+    const dc = jevShadow.loadDecisionConfig(routingCfg());
+    // Classify the current user intent, not the prefix of a long chat history.
+    // Empty latest-user text is a real abstention, not a reason to use system text.
+    const text = ctx.keyword_text != null ? ctx.keyword_text : ctx.text;
+    // systemone 决策时不再叠一层 shadow；llm 决策时可旁路并行对比
+    if (dc.engine === 'llm') {
+      const localP = classifyInput(text, classifier);
+      try {
+        jevShadow.observeParallel({
+          text,
+          categories: classifier && classifier.categories,
+          localLabelPromise: localP,
+          routingCfg: routingCfg(),
+          meta: { scene_name: scene && scene.scene_name || null },
+        });
+      } catch {}
+      ctx.classifier_label = await localP;
+    } else {
+      ctx.classifier_label = await classifyInput(text, classifier);
+    }
   }
-  return all.filter(s => s && (!s.when || evalWhen(s.when, ctx)));
+  const selected = all.filter(s => s && (!s.when || evalWhen(s.when, ctx)));
+  if (Object.hasOwn(ctx, 'classifier_label') && ctx.classifier_label == null) {
+    jevShadow.logDecision({
+      scene_name: scene && scene.scene_name,
+      used: selected.some(s => !s.when) ? 'fallback_default' : selected.length ? 'fallback_rules' : 'no_default_route',
+    });
+  }
+  return selected;
 }
 
 // 去掉 Claude 模型名的日期快照后缀：claude-sonnet-4-5-20250929 → claude-sonnet-4-5。
@@ -3180,8 +3302,15 @@ function orderStepsByFlow(steps, flow, reqPath, skipP2P, reqCtx) {
   return out;
 }
 
-/** 解析绑定场景：精确 keyScene > Claude 名/通配 > Codex gpt-* 兜底。
- * 已绑定的多选模型必须精确命中，不能被 gpt 兜底盖成 route_ids[0]。 */
+function resolveClaudeShimScene({ reqPath, origModel, isApiKeyCaller, scene }) {
+  // Legacy CLI shim fallback belongs only to the native Anthropic ingress.
+  // A Claude model name on Chat Completions/Responses is a real model choice,
+  // not evidence that the caller is Claude Code. Explicit key bindings remain.
+  return reqPath === '/v1/messages' && !isApiKeyCaller && /^claude-/i.test(origModel)
+    ? scene : null;
+}
+
+/** 解析绑定场景：shim 兜底 / 精确 keyScene > Claude 名/通配 > Codex gpt-* 兜底。 */
 function resolveBoundScene({
   origModel, callerKey, isApiKeyCaller, isClaudeClientName, claudeKey,
   shimClaudeScene = null, keyScene = {}, codexGptFallback = {},
@@ -3220,11 +3349,11 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
     })();
   // Claude 客户端路由区分（避免 Claude Code 与 Claude Desktop 互相顶掉）：
   //  - Claude Code CLI（anthropic shim）用自己的 claude.ai OAuth 调用、发标准 claude-* 名，
-  //    callerKey 不在 appControls 的 key 集合里 → 它的所有 claude-* 请求走 _claudeShimScene；
+  //    仅 /v1/messages 且 callerKey 不在 appControls 的 key 集合里时走旧 shim 兜底；
   //  - Claude Desktop 等 api-key 应用（callerKey 命中 _appKeys）→ 按各自 keyScene[模型名] 绑定。
   const isClaudeClientName = /^claude-/i.test(origModel);
   const isApiKeyCaller = !!(callerKey && _appKeys.has(callerKey));
-  const shimClaudeScene = (!isApiKeyCaller && isClaudeClientName) ? _claudeShimScene : null;
+  const shimClaudeScene = resolveClaudeShimScene({ reqPath, origModel, isApiKeyCaller, scene: _claudeShimScene });
   // 先解析绑定，再决定是否标记 Claude 透明改写（见下 claudeFrom）
   const boundScene = resolveBoundScene({
     origModel,
@@ -3418,7 +3547,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
         // p2p 所有模型共享同一 provider.id(tokenbank-p2p) 但各是独立 worker，一个挂不代表其它挂，
         // 绝不能因某个 p2p 模型源级失败就拉黑整个 p2p 池（否则会跳过后面能用的 agnes 等）。
         if (isSourceLevelError(err) && !isP2pProvider(c.provider)) deadSources.add(c.provider.id);
-        if (res.headersSent) return;
+        if (res.headersSent) return fail(_stratScene.scene_name, [c.model], routeErrors);
         await pauseBeforeNextProvider(err);
       }
     }
@@ -3446,7 +3575,9 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
     // 链级流转策略：按 scene.flow 重排步序（步之间怎么走），fallback 保持原序
     steps = orderStepsByFlow(steps, scene.flow, reqPath, skipP2P, ruleCtx);
     if (!steps.length) {   // 规则全不命中且无默认链
-      lastErr = new Error(`no rule matched for ${ruleCtx.modality} request and route has no default chain`);
+      lastErr = new Error(Object.hasOwn(ruleCtx, 'classifier_label') && ruleCtx.classifier_label == null
+        ? 'classifier unavailable and no fallback rule matched; configure an unconditional default step for this scene'
+        : `no rule matched for ${ruleCtx.modality} request and route has no default chain`);
       fail(scene.scene_name, null, null);
       return;
     }
@@ -3507,7 +3638,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
             noteCooldown(c.provider, c.model, err, stepSharer);   // 硬失败记冷却
             // 见上：p2p 各模型独立 worker，不能因一个源级失败拉黑整个 tokenbank-p2p 池
             if (isSourceLevelError(err) && !isP2pProvider(c.provider)) deadSources.add(c.provider.id);
-            if (res.headersSent) return;
+            if (res.headersSent) return fail(scene.scene_name, [...failedModels, c.model], stepErrors);
             await pauseBeforeNextProvider(err);
           }
         }
@@ -3604,7 +3735,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
           lastErr = err;
           recordProviderFail(provider, stepModel, err, Date.now() - t0, callerKey, reqPath);
           noteCooldown(provider, stepModel, err, stepMetaSharer);   // 硬失败记冷却，下次请求下沉此源
-          if (res.headersSent) return;
+          if (res.headersSent) return fail(scene.scene_name, [...failedModels, stepModel], stepErrors);
           await pauseBeforeNextProvider(err);
         }
       }
@@ -3741,7 +3872,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
       lastErr = err;
       recordProviderFail(provider, model, err, Date.now() - t0, callerKey, reqPath);
       noteCooldown(provider, model, err, routeMeta && routeMeta.sharer);
-      if (res.headersSent) return;
+      if (res.headersSent) return fail(null, [model], routeErrors);
       await pauseBeforeNextProvider(err);
     }
   }
@@ -4256,7 +4387,7 @@ function getLog() {
 let _keyScene = {};
 function setKeySceneMap(map) { _keyScene = map && typeof map === 'object' ? map : {}; }
 // Claude Code CLI（anthropic shim）绑定的路由。它用 OAuth 调用、无 app key，故单独存放，
-// 只对「非 api-key 调用方」的 claude-* 请求生效，避免顶掉 Claude Desktop 等 api-key 应用的绑定。
+// 只对 /v1/messages 的非 api-key 调用方兜底，不影响 ST 等 OpenAI 协议客户端的真实模型选择。
 let _claudeShimScene = null;
 function setClaudeShimScene(scene) {
   // 接受两类有效场景：① 带 steps/rules 的模型链路由；② 空 steps 的策略/过滤路由（靠 flow/strategy/scope/tier，
@@ -4339,7 +4470,7 @@ module.exports = {
   setKeySceneMap, setClaudeShimScene, setCodexGptFallback, setRouterModelMap, setPeerModels, setBackendConfig, setUserAuth,
   setStatsRecorder, setLocalStats, setLocalConfigReader, setAppControls,
   setClaudeModels,
-  resolveBoundScene,
+  resolveBoundScene, resolveClaudeShimScene,
   // 条件路由规则引擎（供单测/复用）
   pickSteps, evalWhen, modalityOf, estimateInputTokens, extractText, _providerTier,
   stratStepOf, encodeRouteHeader, orderStepsByFlow, buildStrategyCandidates, parsePureCodec, unifySteps,

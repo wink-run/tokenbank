@@ -2807,6 +2807,10 @@ function registerIPC() {
   ipcMain.handle('agent:getLogs', () => [..._agentLogBuf]);
   ipcMain.handle('config:read',  () => readAgentConfig());
   ipcMain.handle('config:write', (_e, cfg) => { writeAgentConfig(cfg); return { ok: true }; });
+  require('./decision-management').registerIpc(ipcMain, {
+    getConfig: readAgentConfig, saveConfig: writeAgentConfig,
+    getYamlRouting: () => require('./config-loader').routing(),
+  });
   // 单独切换 Dock 可见性（设置页即时生效，无需等整页保存）
   ipcMain.handle('app:setHideDockIcon', (_e, hide) => {
     const cfg = readAgentConfig() || {};

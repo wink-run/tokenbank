@@ -164,10 +164,30 @@ async function handleChat(instId, res, body, wantStream) {
   if (!prompt) { sendJson(res, 400, { error: { message: 'empty messages' } }); return; }
   const cid = id('chatcmpl');
   if (wantStream) {
-    res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    // Do not commit a successful stream before the browser produces output.
+    // Login/submit/time-out failures can then return an actual HTTP error.
+    const begin = () => {
+      if (res.headersSent) return;
+      res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+      chunk({ role: 'assistant' });
+    };
     const chunk = (delta, finish) => res.write(`data: ${JSON.stringify({ id: cid, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, delta, finish_reason: finish || null }] })}\n\n`);
-    try { chunk({ role: 'assistant' }); await host.runTurn(instId, prompt, { images: turn.images, onDelta: (d) => chunk({ content: d }) }); chunk({}, 'stop'); }
-    catch (e) { chunk({ content: `\n[错误] ${e.message}` }, 'stop'); }
+    try {
+      let emitted = false;
+      const out = await host.runTurn(instId, prompt, { images: turn.images, onDelta: (d) => {
+        if (!d) return;
+        begin(); emitted = true; chunk({ content: d });
+      } });
+      begin();
+      if (!emitted && out.text) chunk({ content: out.text });
+      chunk({}, 'stop');
+    } catch (e) {
+      const status = e.code === 'NOT_LOGGED_IN' ? 401 : 502;
+      const error = { type: status === 401 ? 'authentication_error' : 'api_error', code: e.code || 'error', message: e.message };
+      if (!res.headersSent) sendJson(res, status, { error });
+      else { res.write(`data: ${JSON.stringify({ error })}\n\n`); res.end(); }
+      return;
+    }
     res.write('data: [DONE]\n\n'); res.end();
     return;
   }
@@ -264,4 +284,5 @@ function status() { return { instances: [...servers.keys()].map(statusOf), model
 module.exports = {
   start, stop, stopAll, forget, statusOf, status, DEFAULT_PORT, WEB_MODELS,
   flattenToTurn, flattenToPrompt, MAX_INPUT_IMAGES, IMAGE_ONLY_PROMPT,
+  handleChat,
 };

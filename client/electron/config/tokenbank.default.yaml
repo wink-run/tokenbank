@@ -24,5 +24,38 @@ claude_models:
   - claude-sonnet-4
   - claude-haiku-4-5
 
+# 场景路由分类器：
+#   decision_classifier.engine = llm（默认，现有小模型）| systemone（OpenDecision / 官方 Jev 做真实决策）
+#   jev_shadow：仅在 engine=llm 时旁路并行对比，不参与决策
+routing:
+  decision_classifier:
+    # 安全默认：未部署/验证 OpenDecision 时沿用旧分类器。
+    # 灰度：保持 llm 并启用下面 jev_shadow；验证后才改 systemone。
+    engine: llm
+    enabled: true  # false 强制回到 llm；完整停用还需 jev_shadow.enabled=false
+    provider: opendecision
+    fallback_llm: true
+    min_confidence: 0.35
+    timeout_ms: 1500  # health + 推理 + 响应体的总预算（不含 LLM 回退）
+    llm_timeout_ms: 3000
+    max_chars: 600
+    # health_check 默认为 opendecision=true，其他 provider=false
+    failure_threshold: 3
+    cooldown_ms: 30000
+    max_concurrent: 2
+    # 本机预设端口为 18080，避免与 ST 的 8000 冲突；需独立部署服务。
+    # endpoint: http://127.0.0.1:18080/v1/systemone
+    # 改官方 Jev：
+    # provider: typesafe
+    # model: jev-latest
+    # api_key_env: TYPESAFE_API_KEY
+    # timeout_ms: 1500
+    # health_check: false
+  jev_shadow:
+    enabled: false
+    provider: opendecision
+    timeout_ms: 1500
+    max_chars: 600
+
 tools: []
 api_key_apps: []
