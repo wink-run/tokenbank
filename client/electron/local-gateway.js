@@ -2684,6 +2684,9 @@ async function callProviderOnce(provider, isAnthropic, streaming, reqPath, body,
     }
     if (providerSupportsResponses(provider)) {
       console.log(`[gateway] → responses native passthrough via "${provider.id}"`);
+      // 纠正历史遗留的坏 message id（resp_..._msg），否则官方 Responses API 会以
+      // invalid_id_prefix 拒收多轮回传的 input。
+      codexTransform.sanitizeResponsesInputIds(rb);
       return await proxyRequest(provider, '/v1/responses', rb, res);
     }
     return await proxyResponsesViaChat(provider, rb, attemptModel, res);

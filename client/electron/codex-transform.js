@@ -127,6 +127,26 @@ function responseIdFromChatId(id) {
   return base.startsWith('resp_') ? base : `resp_${base}`;
 }
 
+// message 条目 id 必须以 'msg' 开头（Responses API 校验），不能沿用 resp_ 前缀。
+// 由 responseId 去掉 resp_ 前缀后加 msg_ 得出，保证与该轮响应可对应。
+function messageIdFromResponseId(responseId) {
+  const base = String(responseId || '').replace(/^resp_/, '') || 'llmproxy';
+  return `msg_${base}`;
+}
+
+// 纠正 Responses 请求 input 里被污染的 message 条目 id：官方要求 message 条目 id 以 'msg'
+// 开头，历史里旧版本写成了 resp_..._msg，多轮回传会被官方以 invalid_id_prefix 拒收。
+// 直通给原生 Responses 上游前调用，把这类坏 id 就地纠正回 msg_ 前缀。
+function sanitizeResponsesInputIds(body) {
+  if (!body || !Array.isArray(body.input)) return body;
+  for (const item of body.input) {
+    if (item && item.type === 'message' && typeof item.id === 'string' && !item.id.startsWith('msg')) {
+      item.id = 'msg_' + item.id.replace(/^resp_/, '').replace(/_msg$/, '');
+    }
+  }
+  return body;
+}
+
 function responseStatusFromFinish(finishReason) {
   return finishReason === 'length' ? 'incomplete' : 'completed';
 }
@@ -909,7 +929,7 @@ function chatMessageToResponseItem(message, responseId) {
     content.push({ type: 'refusal', refusal: message.refusal });
   }
   if (!content.length) return null;
-  return { id: `${responseId}_msg`, type: 'message', status: 'completed', role: 'assistant', content };
+  return { id: messageIdFromResponseId(responseId), type: 'message', status: 'completed', role: 'assistant', content };
 }
 
 function chatToolCallsToResponseItems(message, reasoning, toolContext, freeformToolNames) {
@@ -1240,7 +1260,7 @@ class ChatToResponsesStream {
     let out = '';
     if (!this.text.added) {
       const oi = this._nextIndex();
-      const itemId = `${this.responseId}_msg`;
+      const itemId = messageIdFromResponseId(this.responseId);
       this.text.outputIndex = oi;
       this.text.itemId = itemId;
       this.text.added = true;
@@ -1475,6 +1495,7 @@ module.exports = {
   collectFreeformToolNames,
   buildCodexToolContext,
   summarizeResponsesTools,
+  sanitizeResponsesInputIds,
   // 导出内部 helper 供单测
   _internal: {
     canonicalizeArgs, splitLeadingThinkBlock, extractReasoningFieldText,
