@@ -1,17 +1,24 @@
 // client/electron/cursor-ide-auth.js
-// 从 Cursor IDE 会话共享登录给 cursor-agent（仅读 state.vscdb；可用时再写 auth.json）
+// 从 Cursor IDE 会话共享登录给 cursor-agent（读 state.vscdb → 解密 → auth.json / 钥匙串 / CURSOR_AUTH_TOKEN）
 //
-// 注意：IDE 登录 ≠ Agent CLI 登录。新版 IDE 的 accessToken 可能是非 JWT 密文，
-// 写入 ~/.cursor/auth.json / 注入 CURSOR_AUTH_TOKEN 会被 CLI 判为
-// 「Your stored authentication is invalid」。仅当 token 像可用 JWT 时才共享；
-// 否则让用户走 `agent login` / CURSOR_API_KEY。
+// 新版 IDE 在加密落盘开启时，accessToken 形如 cursor-safe-storage:v1:<base64(v10…)>。
+// macOS 可用钥匙串「Cursor Safe Storage / Cursor Key」按 Chromium 方式解密为 JWT，
+// 再写入 CLI 凭证（darwin: 钥匙串 cursor-*-token；其它平台: ~/.cursor/auth.json），
+// 并注入 CURSOR_AUTH_TOKEN。解密失败时不写密文，避免 CLI 报 invalid。
 'use strict';
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
+const { execFileSync } = require('child_process');
 
 const AUTH_JSON = path.join(os.homedir(), '.cursor', 'auth.json');
+const SAFE_STORAGE_PREFIX = 'cursor-safe-storage:v1:';
+/** Agent CLI 在 darwin 上使用的钥匙串域名（与 CLI domain:"cursor" 一致） */
+const CLI_KEYCHAIN_ACCOUNT = 'cursor-user';
+const CLI_KEYCHAIN_ACCESS = 'cursor-access-token';
+const CLI_KEYCHAIN_REFRESH = 'cursor-refresh-token';
 
 /** 粗判是否为 CLI 可接受的 Bearer JWT（不以内容解码为准，只看形态） */
 function isUsableAccessToken(token) {
@@ -20,6 +27,10 @@ function isUsableAccessToken(token) {
   // 标准 JWT：header.payload.sig，且以 eyJ 开头
   if (!/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t)) return false;
   return true;
+}
+
+function isCursorSafeStorageCipher(raw) {
+  return typeof raw === 'string' && raw.startsWith(SAFE_STORAGE_PREFIX);
 }
 
 /** IDE state.vscdb 路径（macOS / Windows / Linux） */
@@ -59,7 +70,6 @@ function readIdeItem(key) {
   }
 
   try {
-    const { execFileSync } = require('child_process');
     const out = execFileSync(
       'sqlite3',
       [dbPath, `SELECT value FROM ItemTable WHERE key='${k.replace(/'/g, "''")}';`],
@@ -71,20 +81,81 @@ function readIdeItem(key) {
   }
 }
 
+/** 读取 Cursor Safe Storage 主密钥（macOS Keychain） */
+function readCursorSafeStoragePassword() {
+  if (process.platform !== 'darwin') return null;
+  try {
+    const pw = execFileSync(
+      'security',
+      ['find-generic-password', '-s', 'Cursor Safe Storage', '-a', 'Cursor Key', '-w'],
+      { encoding: 'utf8', timeout: 5000 },
+    ).trim();
+    return pw || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * 读取 Cursor IDE 当前登录。
- * @returns {{ accessToken: string, refreshToken: string, email: string|null, usable: boolean }|null}
+ * 解密 IDE encryption-at-rest 密文 → 明文 JWT。
+ * Chromium/Electron macOS：v10 + AES-128-CBC，密钥 = PBKDF2(password, "saltysalt", 1003, 16, sha1)，IV = 16 个空格。
+ */
+function decryptCursorSafeStorage(raw, password = null) {
+  if (!isCursorSafeStorageCipher(raw)) return null;
+  const pw = password ?? readCursorSafeStoragePassword();
+  if (!pw) return null;
+  try {
+    const blob = Buffer.from(raw.slice(SAFE_STORAGE_PREFIX.length), 'base64');
+    if (blob.length < 4 || blob.subarray(0, 3).toString('utf8') !== 'v10') return null;
+    const key = crypto.pbkdf2Sync(Buffer.from(pw, 'utf8'), Buffer.from('saltysalt'), 1003, 16, 'sha1');
+    const iv = Buffer.alloc(16, 0x20);
+    const decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
+    const plain = Buffer.concat([decipher.update(blob.subarray(3)), decipher.final()]);
+    return plain.toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 将 IDE 落盘值解析为可用 JWT：明文 JWT 直接用；密文则尝试解密。
+ * @returns {{ token: string|null, source: 'jwt'|'decrypted'|'cipher'|'empty' }}
+ */
+function resolveUsableToken(raw) {
+  if (!raw || typeof raw !== 'string' || raw.length < 20) {
+    return { token: null, source: 'empty' };
+  }
+  if (isUsableAccessToken(raw)) return { token: raw, source: 'jwt' };
+  if (isCursorSafeStorageCipher(raw)) {
+    const plain = decryptCursorSafeStorage(raw);
+    if (isUsableAccessToken(plain)) return { token: plain, source: 'decrypted' };
+    return { token: null, source: 'cipher' };
+  }
+  return { token: null, source: 'cipher' };
+}
+
+/**
+ * 读取 Cursor IDE 当前登录（自动解密 encryption-at-rest）。
+ * @returns {{ accessToken: string, refreshToken: string, email: string|null, usable: boolean, tokenSource: string }|null}
  */
 function readIdeCursorSession() {
-  const accessToken = readIdeItem('cursorAuth/accessToken');
-  if (!accessToken || accessToken.length < 20) return null;
-  const refreshToken = readIdeItem('cursorAuth/refreshToken') || accessToken;
+  const accessRaw = readIdeItem('cursorAuth/accessToken');
+  if (!accessRaw || accessRaw.length < 20) return null;
+  const refreshRaw = readIdeItem('cursorAuth/refreshToken') || accessRaw;
   const email = readIdeItem('cursorAuth/cachedEmail');
+
+  const access = resolveUsableToken(accessRaw);
+  const refresh = resolveUsableToken(refreshRaw);
+  // 仅当 access 解密/本身为 JWT 时视为可共享
+  const accessToken = access.token || accessRaw;
+  const refreshToken = refresh.token || (access.token ? access.token : refreshRaw);
+
   return {
     accessToken,
     refreshToken,
     email,
-    usable: isUsableAccessToken(accessToken),
+    usable: !!access.token,
+    tokenSource: access.source,
   };
 }
 
@@ -112,8 +183,38 @@ function scrubInvalidAuthJson(authPath = AUTH_JSON) {
   }
 }
 
+/** 将 JWT 写入 Agent CLI 的 macOS 钥匙串条目 */
+function syncCliKeychainTokens(accessToken, refreshToken) {
+  if (process.platform !== 'darwin') return { ok: false, reason: 'not_darwin' };
+  if (!isUsableAccessToken(accessToken)) return { ok: false, reason: 'not_jwt' };
+  const refresh = isUsableAccessToken(refreshToken) ? refreshToken : accessToken;
+
+  function setPass(service, password) {
+    try {
+      execFileSync(
+        'security',
+        ['delete-generic-password', '-s', service, '-a', CLI_KEYCHAIN_ACCOUNT],
+        { stdio: 'ignore', timeout: 5000 },
+      );
+    } catch { /* 条目不存在时忽略 */ }
+    execFileSync(
+      'security',
+      ['add-generic-password', '-U', '-s', service, '-a', CLI_KEYCHAIN_ACCOUNT, '-w', password],
+      { stdio: 'pipe', timeout: 5000 },
+    );
+  }
+
+  try {
+    setPass(CLI_KEYCHAIN_ACCESS, accessToken);
+    setPass(CLI_KEYCHAIN_REFRESH, refresh);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+}
+
 /**
- * 将可用的 IDE JWT 写入 ~/.cursor/auth.json。
+ * 将可用的 IDE JWT 写入 ~/.cursor/auth.json，并在 macOS 同步钥匙串。
  * 非 JWT 不写，避免污染 CLI 凭证。
  */
 function syncIdeAuthJson(session = null) {
@@ -130,15 +231,54 @@ function syncIdeAuthJson(session = null) {
     };
     fs.writeFileSync(AUTH_JSON, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
     try { fs.chmodSync(AUTH_JSON, 0o600); } catch { /* ignore */ }
-    return { ok: true, path: AUTH_JSON, email: s.email || null };
+
+    const keychain = syncCliKeychainTokens(payload.accessToken, payload.refreshToken);
+    return {
+      ok: true,
+      path: AUTH_JSON,
+      email: s.email || null,
+      tokenSource: s.tokenSource || null,
+      keychain,
+    };
   } catch (e) {
     return { ok: false, reason: e.message };
   }
 }
 
 /**
+ * 主动把 IDE 登录共享给 CLI（供 status 探测 / 登录按钮复用）。
+ * @returns {{ ok: boolean, injected?: boolean, reason?: string, email?: string|null }}
+ */
+function shareIdeLoginWithCli() {
+  const session = readIdeCursorSession();
+  if (!session?.accessToken) {
+    scrubInvalidAuthJson();
+    return { ok: false, reason: 'no_ide_session' };
+  }
+  if (!session.usable) {
+    scrubInvalidAuthJson();
+    return {
+      ok: false,
+      email: session.email || null,
+      reason: 'ide_token_not_shareable',
+      tokenSource: session.tokenSource,
+    };
+  }
+  const sync = syncIdeAuthJson(session);
+  if (!sync.ok) return { ok: false, reason: sync.reason, email: session.email || null };
+  return {
+    ok: true,
+    injected: true,
+    accessToken: session.accessToken,
+    email: session.email || null,
+    reason: session.tokenSource === 'decrypted' ? 'ide_decrypted' : 'ide_state_vscdb',
+    keychain: sync.keychain,
+  };
+}
+
+/**
  * 为 spawn cursor-agent 准备环境。
- * - 可用 JWT：注入 CURSOR_AUTH_TOKEN 并同步 auth.json
+ * - 可用 JWT（含解密后）：注入 CURSOR_AUTH_TOKEN 并同步 auth.json / 钥匙串
  * - 非 JWT / 无会话：清理可能被污染的 auth.json，不注入假凭证
  */
 function buildCursorSpawnEnv(baseEnv = process.env) {
@@ -148,40 +288,41 @@ function buildCursorSpawnEnv(baseEnv = process.env) {
     delete env.CURSOR_API_KEY;
   }
 
-  const session = readIdeCursorSession();
-  if (!session?.accessToken) {
-    scrubInvalidAuthJson();
-    return { env, injected: false, reason: 'no_ide_session' };
-  }
-
-  if (!session.usable) {
-    // IDE 有登录痕迹但 token 不能给 CLI 用 → 清掉误写的 auth.json
-    scrubInvalidAuthJson();
+  const shared = shareIdeLoginWithCli();
+  if (!shared.ok || !shared.accessToken) {
     return {
       env,
       injected: false,
-      email: session.email || null,
-      reason: 'ide_token_not_shareable',
+      email: shared.email || null,
+      reason: shared.reason || 'no_ide_session',
     };
   }
 
-  syncIdeAuthJson(session);
-  env.CURSOR_AUTH_TOKEN = session.accessToken;
+  env.CURSOR_AUTH_TOKEN = shared.accessToken;
   return {
     env,
     injected: true,
-    email: session.email || null,
-    reason: 'ide_state_vscdb',
+    email: shared.email || null,
+    reason: shared.reason,
   };
 }
 
 module.exports = {
   AUTH_JSON,
+  SAFE_STORAGE_PREFIX,
+  CLI_KEYCHAIN_ACCOUNT,
+  CLI_KEYCHAIN_ACCESS,
+  CLI_KEYCHAIN_REFRESH,
   resolveIdeStateDb,
   readIdeItem,
   readIdeCursorSession,
   syncIdeAuthJson,
+  syncCliKeychainTokens,
+  shareIdeLoginWithCli,
   scrubInvalidAuthJson,
   buildCursorSpawnEnv,
   isUsableAccessToken,
+  isCursorSafeStorageCipher,
+  decryptCursorSafeStorage,
+  resolveUsableToken,
 };

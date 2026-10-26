@@ -566,7 +566,7 @@ class AgentExecutor extends EventEmitter {
           installed,
           status: installed ? 'active' : 'missing',
         };
-        // Cursor：应用列表看 IDE；游乐场看 CLI 安装 + CLI 登录（IDE 登录不能替代）。
+        // Cursor：应用列表看 IDE；游乐场看 CLI 安装 + 登录（优先共享 IDE 会话）。
         if (id === 'cursor') {
           try {
             entry.idePresent = !!require('./resource-agent-targets').isAgentInstalled('cursor');
@@ -1316,16 +1316,16 @@ class AgentExecutor extends EventEmitter {
         skip_reasons: ['direct_auth'],
       };
 
-    // Cursor：仅当 IDE token 是可用 JWT 时才共享；否则依赖 agent login / CURSOR_API_KEY
+    // Cursor：解密 IDE 会话并共享给 CLI；失败时再依赖 agent login / CURSOR_API_KEY
     if (gatewayAgentId === 'cursor') {
       try {
         const { buildCursorSpawnEnv } = require('./cursor-ide-auth');
         const auth = buildCursorSpawnEnv(spawnEnv);
         spawnEnv = auth.env;
         if (auth.injected) {
-          console.log('[AgentExecutor] Cursor 已共享 IDE JWT', auth.email || '(no email)', auth.reason);
+          console.log('[AgentExecutor] Cursor 已共享 IDE 登录', auth.email || '(no email)', auth.reason);
         } else if (auth.reason === 'ide_token_not_shareable') {
-          console.warn('[AgentExecutor] Cursor IDE 已登录但 token 不可共享给 CLI，请使用 agent login', auth.email || '');
+          console.warn('[AgentExecutor] Cursor IDE 已登录但无法解密/共享给 CLI', auth.email || '');
         } else {
           console.warn('[AgentExecutor] 未共享 IDE 登录，将依赖 agent login / CURSOR_API_KEY', auth.reason);
         }

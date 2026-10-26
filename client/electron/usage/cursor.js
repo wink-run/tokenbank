@@ -187,7 +187,8 @@ function resolveCursorAccessToken(provider) {
   try {
     const ide = require('../cursor-ide-auth');
     const s = ide.readIdeCursorSession();
-    if (s && s.accessToken) return s.accessToken;
+    // 仅用已解密/明文 JWT；密文不能拼 WorkosCursorSessionToken
+    if (s && s.usable && s.accessToken) return s.accessToken;
   } catch { /* ignore */ }
   // 无 API 时仍可读 IDE 落盘的 membership，供展示兜底
   return null;

@@ -115,17 +115,26 @@ async function installCursorAgentCli() {
 
 /**
  * 探测 Agent CLI 是否已登录（`agent status`）。
- * IDE 登录不算数——这里只看 CLI 自己的凭证。
+ * 先尝试把 Cursor IDE 登录解密并写入 CLI 凭证，实现共享登录。
  */
 async function getCursorAgentAuthStatus() {
   const bin = resolveInstalledPath();
   if (!bin) return { ok: false, loggedIn: false, reason: 'cli_not_installed' };
 
-  // 先清掉误同步的非 JWT auth.json，避免 status 误报 invalid
-  try { require('./cursor-ide-auth').scrubInvalidAuthJson(); } catch { /* ignore */ }
+  // IDE → CLI 共享登录（解密 encryption-at-rest + 写钥匙串/auth.json）
+  let shared = null;
+  try {
+    shared = require('./cursor-ide-auth').shareIdeLoginWithCli();
+  } catch {
+    try { require('./cursor-ide-auth').scrubInvalidAuthJson(); } catch { /* ignore */ }
+  }
 
   return await new Promise((resolve) => {
     const env = ensureLocalBinOnPath({ ...process.env });
+    // 若刚共享到 JWT，status 探测也带上 CURSOR_AUTH_TOKEN（非 darwin 主要靠此）
+    if (shared?.ok && shared.accessToken) {
+      env.CURSOR_AUTH_TOKEN = shared.accessToken;
+    }
     execFile(bin, ['status'], {
       timeout: 45000,
       windowsHide: true,
@@ -135,11 +144,11 @@ async function getCursorAgentAuthStatus() {
       const text = `${stdout || ''}\n${stderr || ''}`.trim();
       const lower = text.toLowerCase();
       if (/not logged in|not authenticated|authentication required/i.test(text)) {
-        resolve({ ok: true, loggedIn: false, reason: 'not_logged_in', detail: text.slice(0, 200) });
+        resolve({ ok: true, loggedIn: false, reason: 'not_logged_in', detail: text.slice(0, 200), shared });
         return;
       }
       if (err && !text) {
-        resolve({ ok: false, loggedIn: false, reason: 'status_failed', error: err.message });
+        resolve({ ok: false, loggedIn: false, reason: 'status_failed', error: err.message, shared });
         return;
       }
       // status 成功且非 Not logged in → 视为已登录（文案因版本而异）
@@ -147,22 +156,32 @@ async function getCursorAgentAuthStatus() {
       resolve({
         ok: true,
         loggedIn,
-        reason: loggedIn ? 'logged_in' : 'unknown',
+        reason: loggedIn
+          ? (shared?.ok ? 'shared_ide_login' : 'logged_in')
+          : 'unknown',
         detail: text.slice(0, 200),
+        shared,
       });
     });
   });
 }
 
 /**
- * 打开浏览器走官方 `agent login`（IDE 登录不能替代）。
+ * 打开浏览器走官方 `agent login`（共享 IDE 登录失败时的兜底）。
  * @returns {Promise<{ ok: boolean, already?: boolean, error?: string }>}
  */
 async function loginCursorAgentCli() {
   const bin = resolveInstalledPath();
   if (!bin) return { ok: false, error: 'cli_not_installed' };
 
-  try { require('./cursor-ide-auth').scrubInvalidAuthJson(); } catch { /* ignore */ }
+  // 优先共享 IDE 登录，避免再弹浏览器
+  try {
+    const shared = require('./cursor-ide-auth').shareIdeLoginWithCli();
+    if (shared.ok) {
+      const afterShare = await getCursorAgentAuthStatus();
+      if (afterShare.loggedIn) return { ok: true, already: true, via: 'ide_share' };
+    }
+  } catch { /* ignore */ }
 
   const st = await getCursorAgentAuthStatus();
   if (st.loggedIn) return { ok: true, already: true };
