@@ -821,6 +821,8 @@ export default function Debug() {
   const [agents, setAgents] = useState(() => getCachedAgentsList() || []);
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [loadingAgents, setLoadingAgents] = useState(false);
+  const [installingCursorCli, setInstallingCursorCli] = useState(false);
+  const [cursorInstallError, setCursorInstallError] = useState('');
   const [agentPrompt, setAgentPrompt] = useState('');
   const [agentWorkingDir, setAgentWorkingDir] = useState(() => loadAgentWorkingDir());
   const [dirError, setDirError] = useState('');
@@ -1890,11 +1892,48 @@ export default function Debug() {
         const list = result.agents || [];
         setCachedAgentsList(list);
         setAgents(list);
+        // 若当前选中 Cursor 且已装好 CLI，同步刷新 selectedAgent
+        setSelectedAgent((prev) => {
+          if (!prev?.id) return prev;
+          const next = list.find((a) => a.id === prev.id);
+          return next || prev;
+        });
       }
     } catch (error) {
       console.error('Failed to load agents:', error);
     } finally {
       setLoadingAgents(false);
+    }
+  }
+
+  /** 游乐场一键安装 Cursor Agent CLI（官方脚本） */
+  async function installCursorCli({ confirm = true } = {}) {
+    if (!window.electronAPI?.agent?.installCursorCli) {
+      alert(t('debug.agent.cursorNeedCli'));
+      return false;
+    }
+    if (installingCursorCli) return false;
+    if (confirm && !window.confirm(t('debug.agent.cursorInstallConfirm'))) return false;
+    setInstallingCursorCli(true);
+    setCursorInstallError('');
+    try {
+      const res = await window.electronAPI.agent.installCursorCli();
+      if (!res?.success) {
+        const msg = t('debug.agent.cursorInstallFail', { error: res?.error || 'unknown' });
+        setCursorInstallError(msg);
+        alert(msg);
+        return false;
+      }
+      await loadAgents({ force: true });
+      alert(res.already ? t('debug.agent.cursorInstallAlready') : t('debug.agent.cursorInstallOk'));
+      return true;
+    } catch (err) {
+      const msg = t('debug.agent.cursorInstallFail', { error: err?.message || String(err) });
+      setCursorInstallError(msg);
+      alert(msg);
+      return false;
+    } finally {
+      setInstallingCursorCli(false);
     }
   }
 
@@ -2024,13 +2063,13 @@ export default function Debug() {
     if (activeAgent.custom && isHubMode) {
       return;
     }
-    // 未安装的 CLI 不可执行（Cursor：IDE≠CLI，单独提示安装命令）
+    // 未安装的 CLI 不可执行；Cursor 引导一键安装官方 Agent CLI
     if (activeAgent.type === 'cli' && activeAgent.installed === false) {
-      alert(
-        activeAgent.id === 'cursor' && activeAgent.idePresent
-          ? t('debug.agent.cursorNeedCli')
-          : t('debug.agent.notInstalled', { name: activeAgent.name }),
-      );
+      if (activeAgent.id === 'cursor' && activeAgent.canInstallCli) {
+        await installCursorCli({ confirm: true });
+      } else {
+        alert(t('debug.agent.notInstalled', { name: activeAgent.name }));
+      }
       return;
     }
     // 聚合入口：主 Agent 须支持 MCP 编排（Claude Code / Codex）
@@ -2845,6 +2884,8 @@ export default function Debug() {
             onSetMainAgent={setMainAgent}
             loading={loadingAgents && agents.length === 0}
             runningKeys={runningAgentKeys}
+            onInstallCursorCli={() => installCursorCli({ confirm: true })}
+            installingCursorCli={installingCursorCli}
           />
         )}
 
@@ -3009,6 +3050,40 @@ export default function Debug() {
                   onPreviewImage={setLightbox}
                 />
               )
+            ) : selectedAgent?.id === 'cursor' && selectedAgent.installed === false ? (
+              /* Cursor 缺 Agent CLI：默认展示一键安装引导 */
+              <div className="flex-1 flex items-center justify-center text-center px-6">
+                <div className="max-w-md space-y-3">
+                  <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                    {t('debug.agent.cursorInstallTitle')}
+                  </p>
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                    {t('debug.agent.cursorInstallBody')}
+                  </p>
+                  {selectedAgent.idePresent && (
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                      {t('debug.agent.cursorInstallIdeNote')}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    disabled={installingCursorCli}
+                    onClick={() => installCursorCli({ confirm: true })}
+                    className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-60"
+                  >
+                    {installingCursorCli ? t('debug.tabs.installingCli') : t('debug.tabs.installCli')}
+                  </button>
+                  {cursorInstallError && (
+                    <p className="text-xs text-red-500 dark:text-red-400">{cursorInstallError}</p>
+                  )}
+                  <p className="text-[11px] text-zinc-400 dark:text-zinc-500 font-mono break-all">
+                    {t('debug.agent.cursorInstallManual')}
+                  </p>
+                  <p className="text-[11px] text-zinc-400 dark:text-zinc-500 font-mono break-all">
+                    {t('debug.agent.cursorInstallManualWin')}
+                  </p>
+                </div>
+              </div>
             ) : (
               <ExecutionLog
                 conversationTurns={conversationTurns}

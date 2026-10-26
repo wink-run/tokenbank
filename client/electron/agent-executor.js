@@ -567,8 +567,9 @@ class AgentExecutor extends EventEmitter {
           status: installed ? 'active' : 'missing',
         };
         // Cursor：应用列表「已纳管」看的是 IDE；游乐场看的是 agent/cursor-agent CLI。
-        // IDE 在但 CLI 缺失时标上 idePresent，侧栏给出「需装 CLI」而非笼统「未安装」。
+        // IDE 在但 CLI 缺失时标上 idePresent；均可一键装官方 CLI。
         if (id === 'cursor' && !installed) {
+          entry.canInstallCli = true;
           try {
             entry.idePresent = !!require('./resource-agent-targets').isAgentInstalled('cursor');
           } catch {

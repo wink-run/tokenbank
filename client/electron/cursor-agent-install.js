@@ -1,0 +1,121 @@
+// client/electron/cursor-agent-install.js
+// 一键安装官方 Cursor Agent CLI（游乐场运行时；与 Cursor IDE 无关）
+// mac/linux: curl https://cursor.com/install -fsS | bash
+// windows:   irm 'https://cursor.com/install?win32=true' | iex
+'use strict';
+
+const { execFile } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
+
+function resolveInstalledPath() {
+  try {
+    const shim = require('./shim-installer');
+    shim.clearCommandCache?.('cursor-agent');
+    shim.clearCommandCache?.('agent');
+    return shim.resolveRealCommand('cursor-agent')
+      || shim.resolveRealCommand('agent')
+      || null;
+  } catch {
+    return null;
+  }
+}
+
+function ensureLocalBinOnPath(env) {
+  const localBin = path.join(os.homedir(), '.local', 'bin');
+  const sep = process.platform === 'win32' ? ';' : ':';
+  const parts = String(env.PATH || env.Path || '').split(sep).filter(Boolean);
+  if (!parts.some((p) => path.resolve(p) === path.resolve(localBin))) {
+    parts.unshift(localBin);
+  }
+  const next = { ...env, PATH: parts.join(sep) };
+  if (process.platform === 'win32') next.Path = next.PATH;
+  return next;
+}
+
+function runInstallCommand() {
+  return new Promise((resolve) => {
+    const env = ensureLocalBinOnPath({ ...process.env });
+    let child;
+    try {
+      if (process.platform === 'win32') {
+        const ps = process.env.SystemRoot
+          ? path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+          : 'powershell.exe';
+        child = execFile(
+          ps,
+          ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+            "irm 'https://cursor.com/install?win32=true' | iex"],
+          { timeout: INSTALL_TIMEOUT_MS, windowsHide: true, env, maxBuffer: 4 * 1024 * 1024 },
+          (err, stdout, stderr) => {
+            if (err) {
+              resolve({
+                ok: false,
+                error: String(stderr || err.message || 'install failed').slice(0, 600),
+              });
+            } else {
+              resolve({ ok: true, stdout: String(stdout || '').slice(0, 400) });
+            }
+          },
+        );
+      } else {
+        // 官方安装脚本；用 bash -lc 以便 curl 在精简 PATH 下仍可用
+        const bash = fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash';
+        child = execFile(
+          bash,
+          ['-lc', 'curl -fsSL https://cursor.com/install | bash'],
+          { timeout: INSTALL_TIMEOUT_MS, env, maxBuffer: 4 * 1024 * 1024 },
+          (err, stdout, stderr) => {
+            if (err) {
+              resolve({
+                ok: false,
+                error: String(stderr || err.message || 'install failed').slice(0, 600),
+              });
+            } else {
+              resolve({ ok: true, stdout: String(stdout || '').slice(0, 400) });
+            }
+          },
+        );
+      }
+    } catch (e) {
+      resolve({ ok: false, error: e.message || String(e) });
+      return;
+    }
+    child?.on?.('error', (e) => {
+      resolve({ ok: false, error: e.message || String(e) });
+    });
+  });
+}
+
+/**
+ * 安装官方 Cursor Agent CLI。已装则直接返回路径。
+ * @returns {Promise<{ ok: boolean, already?: boolean, path?: string|null, error?: string }>}
+ */
+async function installCursorAgentCli() {
+  const existing = resolveInstalledPath();
+  if (existing) {
+    return { ok: true, already: true, path: existing };
+  }
+
+  const result = await runInstallCommand();
+  if (!result.ok) return result;
+
+  const installed = resolveInstalledPath();
+  if (!installed) {
+    return {
+      ok: false,
+      error: '安装脚本已执行，但未找到 agent/cursor-agent。请确认 ~/.local/bin 可写后重试。',
+    };
+  }
+  return { ok: true, already: false, path: installed };
+}
+
+module.exports = {
+  installCursorAgentCli,
+  resolveInstalledPath,
+  ensureLocalBinOnPath,
+  INSTALL_TIMEOUT_MS,
+};

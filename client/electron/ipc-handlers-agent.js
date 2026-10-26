@@ -113,6 +113,25 @@ function registerAgentHandlers() {
   });
 
   /**
+   * 一键安装 Cursor Agent CLI（游乐场运行时；官方 install 脚本）
+   */
+  ipcMain.handle('agent:installCursorCli', async () => {
+    try {
+      const { installCursorAgentCli } = require('./cursor-agent-install');
+      const result = await installCursorAgentCli();
+      if (result.ok) {
+        try { require('./shim-installer').clearCommandCache(); } catch { /* ignore */ }
+        // 强制刷新 listAvailableAgents 缓存
+        try { await agentExecutor.listAvailableAgents({ force: true }); } catch { /* ignore */ }
+      }
+      return { success: !!result.ok, ...result };
+    } catch (error) {
+      console.error('[IPC] agent:installCursorCli error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  /**
    * 监听实时步骤事件
    */
   const { isContributeSessionKey } = require('./contribute-session');

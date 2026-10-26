@@ -75,6 +75,9 @@ export default function AgentTabBar({
   loading,
   /** Set / 数组：正在执行的 session key（含 __hub__） */
   runningKeys,
+  /** 游乐场一键安装 Cursor Agent CLI */
+  onInstallCursorCli,
+  installingCursorCli,
 }) {
   const { t } = useLang();
   const [width, setWidth] = useState(readSidebarWidth);
@@ -203,8 +206,9 @@ export default function AgentTabBar({
           const isRunning = running.has(agent.id);
           // 内置 CLI 未安装 → 灰色（对齐网关工具箱）
           const missing = !isCustom && !isCommunity && agent.installed === false;
-          // Cursor IDE 已装但缺独立 Agent CLI（curl https://cursor.com/install）
-          const cursorNeedCli = missing && agent.id === 'cursor' && agent.idePresent;
+          // Cursor：缺独立 Agent CLI（可一键装）；IDE 已装时文案更明确
+          const cursorNeedCli = missing && agent.id === 'cursor' && !!agent.canInstallCli;
+          const installing = cursorNeedCli && !!installingCursorCli;
           const subLine = missing
             ? (cursorNeedCli ? t('debug.tabs.cursorNeedCli') : t('debug.tabs.notInstalled'))
             : isCommunity
@@ -213,7 +217,7 @@ export default function AgentTabBar({
                 ? `→ ${agent.runtimeName}`
                 : (!isCustom && agent.version ? `v${agent.version}` : '');
           return (
-            <div key={agent.id} className={`relative group ${missing ? 'opacity-45' : ''}`}>
+            <div key={agent.id} className={`relative group ${missing && !cursorNeedCli ? 'opacity-45' : ''}`}>
               <button
                 type="button"
                 onClick={() => onSelect(agent)}
@@ -266,6 +270,21 @@ export default function AgentTabBar({
                 </span>
                 {isRunning && <RunningDot label={t('debug.tabs.runningNamed', { name: agent.name })} />}
               </button>
+              {cursorNeedCli && onInstallCursorCli && (
+                <button
+                  type="button"
+                  disabled={installing}
+                  title={t('debug.tabs.installCliTitle')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onInstallCursorCli();
+                  }}
+                  className={`mt-1 w-full text-[10px] py-1 rounded-md font-medium ${pressCls}
+                    bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60`}
+                >
+                  {installing ? t('debug.tabs.installingCli') : t('debug.tabs.installCli')}
+                </button>
+              )}
               {!isMain && !isCustom && !isCommunity && !missing && onSetMainAgent && (
                 <button
                   type="button"

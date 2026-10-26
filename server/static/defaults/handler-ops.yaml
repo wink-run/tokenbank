@@ -159,14 +159,21 @@ ops:
 
         2. 拖入「应用程序」文件夹并至少启动一次
 
-        3. 刷新百宝箱；图标变彩色即表示已识别
+        3. 刷新百宝箱；图标变彩色即表示已识别（应用列表纳管）
+
+        4. 若要在「游乐场」使用 Cursor，还需 Agent CLI：curl https://cursor.com/install -fsS | bash
+           （或在游乐场侧栏点「一键安装」）
 
         '
       win: '1. 打开官方链接下载 Windows 安装包
 
         2. 运行安装程序并至少启动一次
 
-        3. 刷新百宝箱；图标变彩色即表示已识别
+        3. 刷新百宝箱；图标变彩色即表示已识别（应用列表纳管）
+
+        4. 若要在「游乐场」使用 Cursor，还需 Agent CLI：在 PowerShell 执行
+           irm https://cursor.com/install?win32=true | iex
+           （或在游乐场侧栏点「一键安装」）
 
         '
     uninstall_guide:

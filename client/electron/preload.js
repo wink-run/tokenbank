@@ -47,6 +47,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     pickWorkingDir: (opts) => ipcRenderer.invoke('agent:pickWorkingDir', opts),
     // 兼容旧调用
     list: (opts) => ipcRenderer.invoke('agent:list', opts || {}),
+    // 游乐场：一键安装 Cursor Agent CLI（官方脚本）
+    installCursorCli: () => ipcRenderer.invoke('agent:installCursorCli'),
     // 社区武将雇佣
     listHiredCommunity: () => ipcRenderer.invoke('community:listHired'),
     hireCommunity: (card) => ipcRenderer.invoke('community:hire', card),
