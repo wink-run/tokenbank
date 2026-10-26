@@ -18,6 +18,7 @@ import { buildPersonalModelTypeMap, inferModelTypeFromName } from '../api/gatewa
 import { encodeRoute } from '../lib/route-binding';
 import { avatarColor } from '../components/UserAvatar';
 import { mergeRemoteAccountConfigs, mergeGatewayProviders } from '../lib/account-config-sync';
+import { isOllamaProvider } from '../../shared/provider-test.js';
 import UsageMeter, { UsageInline, usageProviderForDirect } from '../components/UsageMeter';
 
 /** 按当前语言覆盖 meta 中的 label / hint / getKey / oauth.label */
@@ -2776,18 +2777,20 @@ function CustomProviderCard({ provider, onUpdate, onRemove, onTest, onSilentPers
 
   async function handleTest() {
     if (!provider.base_url) { setTestMsg(t('providers.test.needBaseUrl')); return; }
+    // Ollama 本地实例无需 API Key，直接探测连通性
+    const ollama = isOllamaProvider(provider);
     // 优先用输入框草稿；点「测试」时先落盘，避免失焦竞态读到空的 provider.token
     const key = (tokenDraft || provider.token || '').trim();
-    if (!key && provider.auth_type !== 'oauth') {
+    if (!ollama && !key && provider.auth_type !== 'oauth') {
       setTestMsg(t('providers.test.needToken'));
       return;
     }
-    commitTokenDraft();
+    if (!ollama) commitTokenDraft();
     setTesting(true);
     if (testClearTimer.current) clearTimeout(testClearTimer.current);
     setTestMsg('');
     try {
-      const result = await onTest({ ...provider, token: key || provider.token });
+      const result = await onTest({ ...provider, token: ollama ? '' : (key || provider.token) });
       if (result.ok) onUpdate(provider.id, { test_verified: true });
       else onUpdate(provider.id, { test_verified: false });
       const { ok, msg } = formatProviderTestMsg(result, t);
@@ -3130,18 +3133,20 @@ function ProviderCard({ provider, meta, onUpdate, onRemove, onTest, onSilentPers
 
   async function handleTest() {
     if (!provider.base_url) { setTestMsg(t('providers.test.needBaseUrl')); return; }
+    // Ollama 本地实例无需 API Key，直接探测连通性
+    const ollama = isOllamaProvider(provider);
     // 优先用输入框草稿；点「测试」时先落盘，避免失焦竞态读到空的 provider.token
     const key = (tokenDraft || provider.token || '').trim();
-    if (!key && provider.auth_type !== 'oauth') {
+    if (!ollama && !key && provider.auth_type !== 'oauth') {
       setTestMsg(t('providers.test.needToken'));
       return;
     }
-    commitTokenDraft();
+    if (!ollama) commitTokenDraft();
     setTesting(true);
     if (testClearTimer.current) clearTimeout(testClearTimer.current);
     setTestMsg('');
     try {
-      const result = await onTest({ ...provider, token: key || provider.token });
+      const result = await onTest({ ...provider, token: ollama ? '' : (key || provider.token) });
       if (result.ok) onUpdate(provider.id, { test_verified: true });
       else onUpdate(provider.id, { test_verified: false });
       const { ok, msg } = formatProviderTestMsg(result, t);

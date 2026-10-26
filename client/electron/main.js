@@ -5717,6 +5717,7 @@ function registerIPC() {
       }
 
       const { targets, error } = providerTestTargets({
+        id: p.id,
         base_url,
         token: p.token,
         api_format: p.api_format,

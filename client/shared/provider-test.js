@@ -13,6 +13,12 @@ function isAnthropicProvider(p = {}) {
   return fmt === 'anthropic' || /anthropic/i.test(url);
 }
 
+/** Ollama 本地实例不校验 API Key，探测时也不附带 Authorization */
+function isOllamaProvider(p = {}) {
+  if (String(p.id || '').toLowerCase() === 'ollama') return true;
+  return /(?:^|\/\/)(?:127\.0\.0\.1|localhost):11434(?:\/|$)/i.test(String(p.base_url || ''));
+}
+
 /**
  * 供给源连通性探测：统一 GET /models（Gemini 用 x-goog-api-key；其余 Bearer / x-api-key）。
  * 出站代理由调用方通过 resolveOutboundProxyAgent 注入，与网关转发一致。
@@ -21,7 +27,8 @@ function isAnthropicProvider(p = {}) {
 function providerTestTargets(p = {}) {
   const base = String(p.base_url || '').replace(/\/$/, '');
   if (!base) return { targets: [], error: 'missing_base_url' };
-  const token = String(p.token || '').trim();
+  // Ollama 不需要密钥：即使本地存了 token 也不带上，避免被当成鉴权失败
+  const token = isOllamaProvider(p) ? '' : String(p.token || '').trim();
   const targets = [];
 
   if (isGeminiProvider(p)) {
@@ -137,6 +144,7 @@ module.exports = {
   providerTestTargets,
   isGeminiProvider,
   isAnthropicProvider,
+  isOllamaProvider,
   logProviderTestProbe,
   parseProviderProbeError,
   sanitizeProviderTestUrl,
