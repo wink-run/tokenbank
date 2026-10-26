@@ -5,6 +5,7 @@ import { useEffect, useRef } from 'react';
 import { isElectron, getGateway, getConfig } from '../api/adapter';
 import { registerDevice, heartbeatDevice } from '../api/client';
 import { buildAccountsSummary } from '../lib/accountsSummary';
+import { buildAccountsConfig } from '../lib/account-config-sync';
 
 const HEARTBEAT_INTERVAL_MS = 60 * 1000; // 60s（服务端 2 分钟无心跳会标离线，须小于该阈值）
 const RECONNECT_INTERVAL_MS = 30 * 1000;      // retry interval while offline
@@ -130,33 +131,45 @@ async function _doRegister() {
   }
 }
 
-/** 读本机供给源摘要（Electron IPC 或 CLI admin-api） */
-async function _loadAccountsSummary() {
+/** 读本机账户：摘要（个人页展示）+ 可同步配置（不含 Key，供其他终端拉取） */
+async function _loadAccountsBundle() {
+  let accounts = null;
   const getUA = window.electronAPI?.localConfig?.getUserAccounts;
   if (getUA) {
-    try {
-      return buildAccountsSummary(await getUA());
-    } catch { /* 离线 */ }
+    try { accounts = await getUA(); } catch { /* 离线 */ }
   }
   // CLI / Docker Web：经 admin-api 读 ~/.llm-agent/local-config.json
+  if (!accounts) {
+    try {
+      const token = localStorage.getItem('token') || '';
+      const res = await fetch('/api/user-accounts', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) accounts = await res.json();
+    } catch { /* 未登录或网关未就绪 */ }
+  }
+  if (!accounts) return { summary: null, config: null };
+  let providers = [];
   try {
-    const token = localStorage.getItem('token') || '';
-    const res = await fetch('/api/user-accounts', {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (res.ok) return buildAccountsSummary(await res.json());
-  } catch { /* 未登录或网关未就绪 */ }
-  return null;
+    const cfg = await getConfig().read();
+    if (Array.isArray(cfg?.providers)) providers = cfg.providers;
+  } catch { /* 网关配置未就绪 */ }
+  return {
+    summary: buildAccountsSummary(accounts),
+    config: buildAccountsConfig(accounts, providers),
+  };
 }
 
 /** 采集本机 1/7/30 天盘点快照，随心跳上报云端 */
 async function _collectInventory() {
   const query = window.electronAPI?.localStats?.query;
   const comp  = window.electronAPI?.localStats?.compression;
-  const accountsSummary = await _loadAccountsSummary();
+  const { summary: accountsSummary, config: accountsConfig } = await _loadAccountsBundle();
   const attach = (snap) => {
     if (!snap) return snap;
     if (accountsSummary) snap.accounts_summary = accountsSummary;
+    // 有配置才带上，避免一次失败的空对象把云端已有配置冲掉
+    if (accountsConfig) snap.accounts_config = accountsConfig;
     return snap;
   };
   if (query) {
@@ -175,6 +188,8 @@ async function _collectInventory() {
     if (d1) { if (c1) d1.compression = c1; inv['1'] = attach(d1); }
     if (d7) { if (c7) d7.compression = c7; inv['7'] = attach(d7); }
     if (d30) { if (c30) d30.compression = c30; inv['30'] = attach(d30); }
+    // 还没有用量快照时也上报账户配置，方便另一台终端立刻能同步
+    if (!inv['1'] && (accountsSummary || accountsConfig)) inv['1'] = attach({});
     return inv;
   }
   const d1 = await getGateway().getDailyStats().catch(() => ({}));

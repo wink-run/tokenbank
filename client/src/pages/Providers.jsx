@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ServiceIcon from '../components/ServiceIcon';
 import { LIB_LIST_CLS, libRowCls, LibraryRowTitle, LibraryPanel } from '../components/LibraryControls';
-import { getNetwork, getProfile, listKeys, createKey, deleteKey } from '../api/client';
+import { getNetwork, getProfile, listKeys, createKey, deleteKey, getInventoryStats } from '../api/client';
 import { modelStatsForIds, workersForModel, normalizeNetworkPayload } from '../lib/networkModelStats';
 import { fetchServerCommunityModels } from '../lib/communityModels';
 import { loadUserAccounts, saveUserAccounts, syncProviderCatalog } from '../api/userAccounts';
@@ -17,6 +17,7 @@ import { resolveModelsForModelView } from '../lib/personalAvailableModels';
 import { buildPersonalModelTypeMap, inferModelTypeFromName } from '../api/gatewayModels';
 import { encodeRoute } from '../lib/route-binding';
 import { avatarColor } from '../components/UserAvatar';
+import { mergeRemoteAccountConfigs, mergeGatewayProviders } from '../lib/account-config-sync';
 import UsageMeter, { UsageInline, usageProviderForDirect } from '../components/UsageMeter';
 
 /** 按当前语言覆盖 meta 中的 label / hint / getKey / oauth.label */
@@ -3532,6 +3533,8 @@ export default function Providers() {
   const [directBilling, setDirectBilling] = useState({});        // 直连源计费（按 agent_id）
   const [accountsData, setAccountsData] = useState(null);        // 完整账户快照（统计视图用）
   const [sourcesView, setSourcesView] = useState('model');       // 个人源视图：model | list（账户）
+  const [accountSyncing, setAccountSyncing] = useState(false);
+  const [accountSyncHint, setAccountSyncHint] = useState('');
   const [credModalKey, setCredModalKey] = useState(null);        // 添加实例后弹出的凭证配置弹窗（source key）
   // Track the last value written/loaded so we skip the initial load trigger
   const lastSaved = useRef(null);
@@ -3693,6 +3696,66 @@ export default function Providers() {
     );
     if (tpl) setTemplateEditing(tpl);
   }, [accountsData, userSubscriptions, userPayg]);
+
+  /** 本机设备 id，同步时跳过自己刚上报的那份配置 */
+  async function resolveLocalDeviceId() {
+    try {
+      const id = window.electronAPI?.app?.getDeviceId?.();
+      if (id) return id;
+    } catch { /* 非桌面端 */ }
+    try {
+      const cfg = await getConfig().read();
+      if (cfg?.device_id) return cfg.device_id;
+    } catch { /* 配置未就绪 */ }
+    try {
+      const r = await fetch('/api/device-identity');
+      if (r.ok) {
+        const j = await r.json();
+        if (j.device_id) return j.device_id;
+      }
+    } catch { /* CLI 未开 admin-api */ }
+    return '';
+  }
+
+  // 从其他终端心跳上报的账户配置合并进本机（不含 Key；同 id 以本机为准）
+  async function syncAccountsFromOtherDevices() {
+    if (accountSyncing) return;
+    setAccountSyncing(true);
+    setAccountSyncHint('');
+    try {
+      const inv = await getInventoryStats(1);
+      const devices = inv?.data?.devices || [];
+      const myId = await resolveLocalDeviceId();
+      const remotes = devices
+        .filter(d => d && d.device_id && d.device_id !== myId && d.accounts_config)
+        .map(d => d.accounts_config);
+      const local = accountsData || await loadUserAccounts({ localOnly: true });
+      const merged = mergeRemoteAccountConfigs(local, remotes);
+      // 用当前列表计算，避免在 setState 里写副作用（Strict Mode 会跑两次）
+      const gw = mergeGatewayProviders(providers, merged.gateway_provider_lists);
+      if (gw.changed) setProviders(gw.providers);
+      if (!merged.changed && !gw.changed) {
+        setAccountSyncHint(t('psrc.model.syncEmpty'));
+        return;
+      }
+      if (merged.changed) {
+        await saveAccountsPatch({
+          user_subscriptions: merged.user_subscriptions,
+          user_payg_providers: merged.user_payg_providers,
+          provider_pricing_overrides: merged.provider_pricing_overrides,
+          direct_source_billing: merged.direct_source_billing,
+          source_template_overrides: merged.source_template_overrides,
+          custom_source_templates: merged.custom_source_templates,
+        });
+      }
+      const n = merged.count || (gw.changed ? 1 : 0);
+      setAccountSyncHint(t('psrc.model.syncDone', { n }));
+    } catch {
+      setAccountSyncHint(t('psrc.model.syncFail'));
+    } finally {
+      setAccountSyncing(false);
+    }
+  }
 
   async function saveAccountsPatch(patch) {
     if (patch.provider_pricing_overrides) setPricingOverrides(patch.provider_pricing_overrides);
@@ -4965,6 +5028,9 @@ export default function Providers() {
             onAdoptServer={adoptServerTemplate} onDismissDrift={adoptServerTemplate} />
         )}
 
+        {accountSyncHint && (
+          <p className="text-xs text-zinc-500">{accountSyncHint}</p>
+        )}
         {sourcesView === 'model' ? (
           <PersonalSourceModelView
             instances={modelViewInstances}
@@ -4976,6 +5042,8 @@ export default function Providers() {
             probeTargets={personalProbeTargets}
             cooldownFor={cooldownFor}
             onEmptyAdd={() => { setSourcesView('list'); setPickerOpen(true); }}
+            onEmptySync={syncAccountsFromOtherDevices}
+            syncing={accountSyncing}
           />
         ) : (
         <>

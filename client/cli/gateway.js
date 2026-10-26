@@ -139,6 +139,7 @@ async function cmdStart(port, adminPort) {
     try {
       const { localStats } = require('../shared/telemetry');
       const { buildAccountsSummary } = require('../shared/accounts-summary');
+      const { buildAccountsConfig } = require('../shared/account-config-sync');
       let billingMod;
       try { billingMod = require('../electron/billing-config'); } catch (_) { billingMod = null; }
       const [d1, d7, d30] = await Promise.all([
@@ -147,21 +148,29 @@ async function cmdStart(port, adminPort) {
         Promise.resolve(localStats.queryDashboard(30)).catch(() => null),
       ]);
       let accountsSummary = null;
+      let accountsConfig = null;
       if (billingMod?.getUserAccounts) {
         try {
           // CLI 供给源在 ~/.llm-agent/local-config.json（非 electron/config-loader）
           const cfg = readLocalConfig() || {};
-          accountsSummary = buildAccountsSummary(billingMod.getUserAccounts(cfg));
+          const accounts = billingMod.getUserAccounts(cfg);
+          accountsSummary = buildAccountsSummary(accounts);
+          const agentCfg = readAgentConfig() || {};
+          accountsConfig = buildAccountsConfig(accounts, agentCfg.providers || []);
         } catch (_) {}
       }
       const attach = (snap) => {
-        if (snap && accountsSummary) snap.accounts_summary = accountsSummary;
+        if (!snap) return snap;
+        if (accountsSummary) snap.accounts_summary = accountsSummary;
+        if (accountsConfig) snap.accounts_config = accountsConfig;
         return snap;
       };
       const inv = {};
       if (d1)  inv['1']  = attach(d1);
       if (d7)  inv['7']  = attach(d7);
       if (d30) inv['30'] = attach(d30);
+      // 还没有用量快照时也上报账户配置，方便另一台终端立刻能同步
+      if (!inv['1'] && (accountsSummary || accountsConfig)) inv['1'] = attach({});
       if (Object.keys(inv).length) base.inventory = inv;
     } catch (_) {}
     return base;

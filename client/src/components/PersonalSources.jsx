@@ -753,7 +753,8 @@ function accountDisplayName(inst) {
 
 // ── 第3块：按模型视图（仿社区源 P2P 网格：一行两列，左模型、右供给源 logo）────────
 export function PersonalSourceModelView({
-  instances, t, trailing = null, onEmptyAdd = null, modelTypeMap = {},
+  instances, t, trailing = null, onEmptyAdd = null, onEmptySync = null, syncing = false,
+  modelTypeMap = {},
   latencyMap: latencyMapProp = null, onRefreshLatency = null, probeTargets = [],
   // 冷却查询：(...ids) => cooldown | null；冷却中不显示绿色「成功」
   cooldownFor = null,
@@ -888,6 +889,16 @@ export function PersonalSourceModelView({
                   className="text-blue-500 dark:text-blue-400 hover:underline">
                   {t('psrc.model.emptyAdd')}
                 </button>
+              </>
+            )}
+            {onEmptySync && (
+              <>
+                ，{t('psrc.model.emptyOr')}{' '}
+                <button type="button" onClick={onEmptySync} disabled={syncing}
+                  className="text-blue-500 dark:text-blue-400 hover:underline disabled:opacity-60">
+                  {syncing ? t('psrc.model.syncing') : t('psrc.model.emptySync')}
+                </button>
+                {' '}{t('psrc.model.emptySyncTail')}
               </>
             )}
           </p>

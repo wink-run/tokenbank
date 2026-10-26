@@ -2170,6 +2170,8 @@ def merge_device_inventories(device_rows: list, days: int) -> dict:
             "models": dev_models,
             # 各端登记的订阅/供给源摘要（无凭证）
             "accounts_summary": snap.get("accounts_summary") or {},
+            # 各端账户配置快照（无 Key），供其他终端「点击同步」合并
+            "accounts_config": snap.get("accounts_config") if isinstance(snap.get("accounts_config"), dict) else {},
         })
 
     merged["devices"].sort(key=lambda d: d.get("calls", 0), reverse=True)
@@ -2206,11 +2208,14 @@ async def update_device_inventory(device_id: str, user_id: int, inventory: dict)
                 existing = {}
         for k, v in inventory.items():
             if v is not None:
-                # 部分心跳只上报用量、不含 accounts_summary，保留已有登记摘要避免被空覆盖
+                # 部分心跳只上报用量、不含账户字段，保留已有摘要/配置避免被空覆盖。
+                # accounts_config 仅在字段缺失时保留（旧客户端）；显式带上则用新值。
                 if isinstance(v, dict):
                     prev = existing.get(str(k))
                     if isinstance(prev, dict) and prev.get("accounts_summary") and not v.get("accounts_summary"):
                         v = {**v, "accounts_summary": prev["accounts_summary"]}
+                    if isinstance(prev, dict) and prev.get("accounts_config") and "accounts_config" not in v:
+                        v = {**v, "accounts_config": prev["accounts_config"]}
                 existing[str(k)] = v
         await db.execute(
             "UPDATE devices SET inventory_json=? WHERE id=? AND user_id=?",
