@@ -2024,9 +2024,13 @@ export default function Debug() {
     if (activeAgent.custom && isHubMode) {
       return;
     }
-    // 未安装的 CLI 不可执行
+    // 未安装的 CLI 不可执行（Cursor：IDE≠CLI，单独提示安装命令）
     if (activeAgent.type === 'cli' && activeAgent.installed === false) {
-      alert(t('debug.agent.notInstalled', { name: activeAgent.name }));
+      alert(
+        activeAgent.id === 'cursor' && activeAgent.idePresent
+          ? t('debug.agent.cursorNeedCli')
+          : t('debug.agent.notInstalled', { name: activeAgent.name }),
+      );
       return;
     }
     // 聚合入口：主 Agent 须支持 MCP 编排（Claude Code / Codex）

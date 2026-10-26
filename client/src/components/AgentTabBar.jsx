@@ -203,8 +203,10 @@ export default function AgentTabBar({
           const isRunning = running.has(agent.id);
           // 内置 CLI 未安装 → 灰色（对齐网关工具箱）
           const missing = !isCustom && !isCommunity && agent.installed === false;
+          // Cursor IDE 已装但缺独立 Agent CLI（curl https://cursor.com/install）
+          const cursorNeedCli = missing && agent.id === 'cursor' && agent.idePresent;
           const subLine = missing
-            ? t('debug.tabs.notInstalled')
+            ? (cursorNeedCli ? t('debug.tabs.cursorNeedCli') : t('debug.tabs.notInstalled'))
             : isCommunity
               ? t('debug.tabs.communityRemote')
               : (isCustom && agent.runtimeName)
@@ -217,7 +219,9 @@ export default function AgentTabBar({
                 onClick={() => onSelect(agent)}
                 title={
                   missing
-                    ? t('debug.tabs.notInstalledHint', { name: agent.name })
+                    ? (cursorNeedCli
+                      ? t('debug.tabs.cursorNeedCliHint')
+                      : t('debug.tabs.notInstalledHint', { name: agent.name }))
                     : isCommunity
                     ? (agent.description || t('debug.tabs.communityHint'))
                     : isCustom && agent.runtimeName

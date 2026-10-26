@@ -84,16 +84,19 @@ function npmGlobalBinDirs() {
   const home = os.homedir();
   // Kimi Code 默认装到 ~/.kimi-code/bin（仅写进 shell rc，GUI 进程 PATH 常没有）
   const kimiBin = path.join(home, '.kimi-code', 'bin');
+  // Cursor Agent CLI：官方安装到 ~/.local/bin（agent / cursor-agent 软链）
+  const localBin = path.join(home, '.local', 'bin');
   if (IS_WIN) {
     return [
       path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'npm'),
+      localBin, // 官方 Win 安装脚本同样落在 %USERPROFILE%\.local\bin
       kimiBin,
     ];
   }
   return [
     '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin',
     path.join(home, '.npm-global', 'bin'),
-    path.join(home, '.local', 'bin'),
+    localBin,
     kimiBin,
     ...nodeVersionManagerBinDirs(),
   ];
@@ -123,6 +126,59 @@ function resolveBundledCodexPath() {
     } catch { /* ignore */ }
   }
   return null;
+}
+
+/**
+ * Cursor Agent CLI（游乐场用）：官方装到 ~/.local/bin/{agent,cursor-agent}，
+ * 真身在 ~/.local/share/cursor-agent/versions/<ver>/cursor-agent。
+ * GUI 启动的 Electron PATH 常缺 ~/.local/bin；软链损坏时直接扫 versions 兜底。
+ * 仅作 resolveRealCommand('cursor-agent'|'agent') 的兜底——装了 Cursor IDE ≠ 装了本 CLI。
+ */
+function resolveBundledCursorAgentPath() {
+  const home = os.homedir();
+  const candidates = [];
+  const envPath = (process.env.CURSOR_AGENT_PATH || '').trim();
+  if (envPath) candidates.push(envPath);
+
+  const localBin = path.join(home, '.local', 'bin');
+  const binNames = IS_WIN
+    ? ['cursor-agent.exe', 'cursor-agent.cmd', 'agent.exe', 'agent.cmd', 'cursor-agent', 'agent']
+    : ['cursor-agent', 'agent'];
+  for (const name of binNames) candidates.push(path.join(localBin, name));
+
+  // 官方安装器写入的版本目录：取最新一份里的 cursor-agent
+  const versionsDir = path.join(home, '.local', 'share', 'cursor-agent', 'versions');
+  try {
+    if (fs.existsSync(versionsDir)) {
+      const vers = fs.readdirSync(versionsDir)
+        .filter((v) => v && !v.startsWith('.'))
+        .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+      for (const v of vers) {
+        candidates.push(path.join(versionsDir, v, IS_WIN ? 'cursor-agent.exe' : 'cursor-agent'));
+        if (IS_WIN) candidates.push(path.join(versionsDir, v, 'cursor-agent.cmd'));
+      }
+    }
+  } catch { /* ignore */ }
+
+  for (const p of candidates) {
+    try {
+      if (!p || !fs.existsSync(p)) continue;
+      // 解析软链；断链 / 指向不存在目标则跳过
+      let real = p;
+      try { real = fs.realpathSync(p); } catch { continue; }
+      if (!fs.existsSync(real)) continue;
+      return real;
+    } catch { /* ignore */ }
+  }
+  return null;
+}
+
+/** 路径是否像官方 Cursor Agent（避免 PATH 上无关的 `agent` 误判） */
+function looksLikeCursorAgent(filePath) {
+  if (!filePath) return false;
+  const n = String(filePath).replace(/\\/g, '/').toLowerCase();
+  return n.includes('cursor-agent') || n.includes('/cursor-agent/')
+    || n.includes('/share/cursor-agent/') || n.includes('\\cursor-agent\\');
 }
 
 function ownShimPath(command) {
@@ -185,6 +241,19 @@ function resolveRealCommand(command) {
   // Codex Desktop（ChatGPT.app）内嵌 CLI：PATH 里通常没有 `codex`
   if (!result && command === 'codex') {
     result = resolveBundledCodexPath();
+  }
+  // Cursor Agent CLI：`agent` 过泛——PATH 命中但非 cursor-agent 时改走官方安装位
+  if (command === 'cursor-agent' || command === 'agent') {
+    if (result && command === 'agent') {
+      let checkPath = result;
+      try { checkPath = fs.realpathSync(result); } catch { /* 断链则下面判否 */ }
+      if (!looksLikeCursorAgent(checkPath) && !looksLikeCursorAgent(result)) {
+        result = null;
+      }
+    }
+    if (!result) {
+      result = resolveBundledCursorAgentPath();
+    }
   }
   _cmdCache.set(command, { ts: now, path: result });
   return result;
@@ -454,5 +523,6 @@ function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 module.exports = {
   resolveRealCommand, clearCommandCache, writeShim, removeShim, shimExists,
   enablePath, disablePath, npmGlobalBinDirs,
+  resolveBundledCursorAgentPath, looksLikeCursorAgent,
   paths: { BIN_DIR }, MARK_BEGIN, MARK_END,
 };

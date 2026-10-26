@@ -556,7 +556,7 @@ class AgentExecutor extends EventEmitter {
         }
 
         const launch = installed ? this._resolveLaunchSpec(id) : null;
-        return {
+        const entry = {
           id,
           name: cfg.name,
           type: 'cli',
@@ -566,6 +566,16 @@ class AgentExecutor extends EventEmitter {
           installed,
           status: installed ? 'active' : 'missing',
         };
+        // Cursor：应用列表「已纳管」看的是 IDE；游乐场看的是 agent/cursor-agent CLI。
+        // IDE 在但 CLI 缺失时标上 idePresent，侧栏给出「需装 CLI」而非笼统「未安装」。
+        if (id === 'cursor' && !installed) {
+          try {
+            entry.idePresent = !!require('./resource-agent-targets').isAgentInstalled('cursor');
+          } catch {
+            entry.idePresent = false;
+          }
+        }
+        return entry;
       }),
     );
 
