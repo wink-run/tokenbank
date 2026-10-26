@@ -566,14 +566,25 @@ class AgentExecutor extends EventEmitter {
           installed,
           status: installed ? 'active' : 'missing',
         };
-        // Cursor：应用列表「已纳管」看的是 IDE；游乐场看的是 agent/cursor-agent CLI。
-        // IDE 在但 CLI 缺失时标上 idePresent；均可一键装官方 CLI。
-        if (id === 'cursor' && !installed) {
-          entry.canInstallCli = true;
+        // Cursor：应用列表看 IDE；游乐场看 CLI 安装 + CLI 登录（IDE 登录不能替代）。
+        if (id === 'cursor') {
           try {
             entry.idePresent = !!require('./resource-agent-targets').isAgentInstalled('cursor');
           } catch {
             entry.idePresent = false;
+          }
+          if (!installed) {
+            entry.canInstallCli = true;
+            entry.cliLoggedIn = false;
+          } else {
+            try {
+              const st = await require('./cursor-agent-install').getCursorAgentAuthStatus();
+              entry.cliLoggedIn = !!st.loggedIn;
+              entry.needsCliLogin = !st.loggedIn;
+            } catch {
+              entry.cliLoggedIn = false;
+              entry.needsCliLogin = true;
+            }
           }
         }
         return entry;
@@ -1305,16 +1316,18 @@ class AgentExecutor extends EventEmitter {
         skip_reasons: ['direct_auth'],
       };
 
-    // Cursor：从 IDE state.vscdb 共享登录（CURSOR_AUTH_TOKEN），不读不写钥匙串
+    // Cursor：仅当 IDE token 是可用 JWT 时才共享；否则依赖 agent login / CURSOR_API_KEY
     if (gatewayAgentId === 'cursor') {
       try {
         const { buildCursorSpawnEnv } = require('./cursor-ide-auth');
         const auth = buildCursorSpawnEnv(spawnEnv);
         spawnEnv = auth.env;
         if (auth.injected) {
-          console.log('[AgentExecutor] Cursor 已共享 IDE 登录', auth.email || '(no email)', auth.reason);
+          console.log('[AgentExecutor] Cursor 已共享 IDE JWT', auth.email || '(no email)', auth.reason);
+        } else if (auth.reason === 'ide_token_not_shareable') {
+          console.warn('[AgentExecutor] Cursor IDE 已登录但 token 不可共享给 CLI，请使用 agent login', auth.email || '');
         } else {
-          console.warn('[AgentExecutor] 未找到 Cursor IDE 登录，将依赖 cursor-agent 自身凭证', auth.reason);
+          console.warn('[AgentExecutor] 未共享 IDE 登录，将依赖 agent login / CURSOR_API_KEY', auth.reason);
         }
       } catch (e) {
         console.warn('[AgentExecutor] Cursor IDE 登录共享失败:', e.message);

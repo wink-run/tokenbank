@@ -1587,9 +1587,9 @@ function formatAgentExitError(rawStderr, rawStdout, exitCode, agentId = 'claude-
   }
 
   // Cursor Agent：headless 需 login 或 CURSOR_API_KEY（与网关无关）
-  if (/authentication required|not logged in|please run ['"]?agent login|CURSOR_API_KEY/i.test(combined)
+  if (/authentication required|not logged in|stored authentication is invalid|please run ['"]?agent login|CURSOR_API_KEY/i.test(combined)
     && (agentId === 'cursor' || agentId === 'cursor-agent' || /agent login|CURSOR_API_KEY/i.test(combined))) {
-    return 'Cursor 未登录或凭证无效。请先登录 Cursor IDE（Token Bank 会自动共享会话），或执行 `cursor-agent login` / 设置 CURSOR_API_KEY。';
+    return 'Cursor Agent CLI 未登录或凭证无效（与 Cursor IDE 登录不是同一套）。请在游乐场点「登录 Agent CLI」，或在终端执行 `agent login`；自动化场景可改设 CURSOR_API_KEY。';
   }
 
   if (/failed to refresh token/i.test(combined)) {

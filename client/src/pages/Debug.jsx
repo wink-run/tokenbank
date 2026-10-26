@@ -822,6 +822,7 @@ export default function Debug() {
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [installingCursorCli, setInstallingCursorCli] = useState(false);
+  const [loggingInCursorCli, setLoggingInCursorCli] = useState(false);
   const [cursorInstallError, setCursorInstallError] = useState('');
   const [agentPrompt, setAgentPrompt] = useState('');
   const [agentWorkingDir, setAgentWorkingDir] = useState(() => loadAgentWorkingDir());
@@ -1937,6 +1938,37 @@ export default function Debug() {
     }
   }
 
+  /** 浏览器登录 Agent CLI（与 Cursor IDE 登录无关） */
+  async function loginCursorCli({ confirm = true } = {}) {
+    if (!window.electronAPI?.agent?.loginCursorCli) {
+      alert(t('debug.agent.cursorLoginManual'));
+      return false;
+    }
+    if (loggingInCursorCli) return false;
+    if (confirm && !window.confirm(t('debug.agent.cursorLoginConfirm'))) return false;
+    setLoggingInCursorCli(true);
+    setCursorInstallError('');
+    try {
+      const res = await window.electronAPI.agent.loginCursorCli();
+      if (!res?.success) {
+        const msg = t('debug.agent.cursorLoginFail', { error: res?.error || 'unknown' });
+        setCursorInstallError(msg);
+        alert(msg);
+        return false;
+      }
+      await loadAgents({ force: true });
+      alert(res.already ? t('debug.agent.cursorLoginAlready') : t('debug.agent.cursorLoginOk'));
+      return true;
+    } catch (err) {
+      const msg = t('debug.agent.cursorLoginFail', { error: err?.message || String(err) });
+      setCursorInstallError(msg);
+      alert(msg);
+      return false;
+    } finally {
+      setLoggingInCursorCli(false);
+    }
+  }
+
   /** 从资产加载已纳管的提示词，供 LLM 模式选用为 System */
   async function loadPromptList() {
     if (!window.electronAPI?.resource?.listResources) return;
@@ -2886,6 +2918,8 @@ export default function Debug() {
             runningKeys={runningAgentKeys}
             onInstallCursorCli={() => installCursorCli({ confirm: true })}
             installingCursorCli={installingCursorCli}
+            onLoginCursorCli={() => loginCursorCli({ confirm: true })}
+            loggingInCursorCli={loggingInCursorCli}
           />
         )}
 
@@ -3081,6 +3115,32 @@ export default function Debug() {
                   </p>
                   <p className="text-[11px] text-zinc-400 dark:text-zinc-500 font-mono break-all">
                     {t('debug.agent.cursorInstallManualWin')}
+                  </p>
+                </div>
+              </div>
+            ) : selectedAgent?.id === 'cursor' && selectedAgent.needsCliLogin ? (
+              /* CLI 已装但未登录：IDE 登录不能替代 */
+              <div className="flex-1 flex items-center justify-center text-center px-6">
+                <div className="max-w-md space-y-3">
+                  <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                    {t('debug.agent.cursorNeedLoginTitle')}
+                  </p>
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                    {t('debug.agent.cursorNeedLoginBody')}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={loggingInCursorCli}
+                    onClick={() => loginCursorCli({ confirm: true })}
+                    className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-white text-sm font-medium disabled:opacity-60"
+                  >
+                    {loggingInCursorCli ? t('debug.tabs.loggingInCli') : t('debug.tabs.loginCli')}
+                  </button>
+                  {cursorInstallError && (
+                    <p className="text-xs text-red-500 dark:text-red-400 whitespace-pre-wrap">{cursorInstallError}</p>
+                  )}
+                  <p className="text-[11px] text-zinc-400 dark:text-zinc-500 font-mono">
+                    {t('debug.agent.cursorLoginManual')}
                   </p>
                 </div>
               </div>

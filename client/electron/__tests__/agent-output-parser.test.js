@@ -418,8 +418,9 @@ const cursorAuthErr = formatAgentExitError(
   1,
   'cursor',
 );
-assert.ok(cursorAuthErr.includes('cursor-agent login'));
+assert.ok(cursorAuthErr.includes('agent login'));
 assert.ok(cursorAuthErr.includes('CURSOR_API_KEY'));
+assert.ok(cursorAuthErr.includes('不是同一套') || cursorAuthErr.includes('Agent CLI'));
 
 const { parseClaudeSyncStdout } = require('../agent-output-parser');
 const syncSample = JSON.stringify({

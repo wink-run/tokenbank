@@ -75,9 +75,11 @@ export default function AgentTabBar({
   loading,
   /** Set / 数组：正在执行的 session key（含 __hub__） */
   runningKeys,
-  /** 游乐场一键安装 Cursor Agent CLI */
+  /** 游乐场一键安装 / 登录 Cursor Agent CLI */
   onInstallCursorCli,
   installingCursorCli,
+  onLoginCursorCli,
+  loggingInCursorCli,
 }) {
   const { t } = useLang();
   const [width, setWidth] = useState(readSidebarWidth);
@@ -206,18 +208,23 @@ export default function AgentTabBar({
           const isRunning = running.has(agent.id);
           // 内置 CLI 未安装 → 灰色（对齐网关工具箱）
           const missing = !isCustom && !isCommunity && agent.installed === false;
-          // Cursor：缺独立 Agent CLI（可一键装）；IDE 已装时文案更明确
+          // Cursor：缺独立 Agent CLI（可一键装）；或已装未登录
           const cursorNeedCli = missing && agent.id === 'cursor' && !!agent.canInstallCli;
+          const cursorNeedLogin = !missing && agent.id === 'cursor' && agent.needsCliLogin;
           const installing = cursorNeedCli && !!installingCursorCli;
+          const loggingIn = cursorNeedLogin && !!loggingInCursorCli;
+          const dimmed = (missing && !cursorNeedCli) || cursorNeedLogin;
           const subLine = missing
             ? (cursorNeedCli ? t('debug.tabs.cursorNeedCli') : t('debug.tabs.notInstalled'))
+            : cursorNeedLogin
+              ? t('debug.tabs.cursorNeedLogin')
             : isCommunity
               ? t('debug.tabs.communityRemote')
               : (isCustom && agent.runtimeName)
                 ? `→ ${agent.runtimeName}`
                 : (!isCustom && agent.version ? `v${agent.version}` : '');
           return (
-            <div key={agent.id} className={`relative group ${missing && !cursorNeedCli ? 'opacity-45' : ''}`}>
+            <div key={agent.id} className={`relative group ${dimmed && !cursorNeedCli && !cursorNeedLogin ? 'opacity-45' : cursorNeedLogin ? 'opacity-70' : ''}`}>
               <button
                 type="button"
                 onClick={() => onSelect(agent)}
@@ -226,6 +233,8 @@ export default function AgentTabBar({
                     ? (cursorNeedCli
                       ? t('debug.tabs.cursorNeedCliHint')
                       : t('debug.tabs.notInstalledHint', { name: agent.name }))
+                    : cursorNeedLogin
+                    ? t('debug.tabs.cursorNeedLoginHint')
                     : isCommunity
                     ? (agent.description || t('debug.tabs.communityHint'))
                     : isCustom && agent.runtimeName
@@ -236,14 +245,14 @@ export default function AgentTabBar({
                 }
                 className={`
                   w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] rounded-lg ${pressCls}
-                  ${missing ? 'grayscale' : ''}
+                  ${missing || cursorNeedLogin ? 'grayscale' : ''}
                   ${active
                     ? 'tb-soft-bubble text-zinc-900 dark:text-zinc-100 font-medium'
                     : 'text-zinc-600 dark:text-zinc-400 font-medium hover:bg-black/[0.05] dark:hover:bg-white/[0.06] hover:text-zinc-900 dark:hover:text-zinc-200'
                   }
                 `}
               >
-                <span className={`relative shrink-0 flex items-center justify-center w-3.5 h-3.5 ${missing ? 'grayscale' : ''}`}>
+                <span className={`relative shrink-0 flex items-center justify-center w-3.5 h-3.5 ${missing || cursorNeedLogin ? 'grayscale' : ''}`}>
                   <AgentBrandIcon agent={agent} isCustom={isCustom || isCommunity} />
                 </span>
                 <span className="min-w-0 flex-1 text-left">
@@ -254,13 +263,13 @@ export default function AgentTabBar({
                         {t('debug.tabs.communityBadge')}
                       </span>
                     )}
-                    {isMain && !missing && (
+                    {isMain && !missing && !cursorNeedLogin && (
                       <span className="shrink-0 text-[10px] text-amber-500" title={t('debug.tabs.mainAgent')}>★</span>
                     )}
                   </span>
                   {subLine ? (
                     <span className={`block text-[10px] font-normal truncate mt-0.5 leading-tight ${
-                      missing
+                      missing || cursorNeedLogin
                         ? 'text-zinc-400 dark:text-zinc-500'
                         : active ? 'text-zinc-500 dark:text-zinc-400' : 'text-zinc-400 dark:text-zinc-500'
                     }`}>
@@ -285,7 +294,22 @@ export default function AgentTabBar({
                   {installing ? t('debug.tabs.installingCli') : t('debug.tabs.installCli')}
                 </button>
               )}
-              {!isMain && !isCustom && !isCommunity && !missing && onSetMainAgent && (
+              {cursorNeedLogin && onLoginCursorCli && (
+                <button
+                  type="button"
+                  disabled={loggingIn}
+                  title={t('debug.tabs.cursorNeedLoginHint')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onLoginCursorCli();
+                  }}
+                  className={`mt-1 w-full text-[10px] py-1 rounded-md font-medium ${pressCls}
+                    bg-amber-500 hover:bg-amber-400 text-white disabled:opacity-60`}
+                >
+                  {loggingIn ? t('debug.tabs.loggingInCli') : t('debug.tabs.loginCli')}
+                </button>
+              )}
+              {!isMain && !isCustom && !isCommunity && !missing && !cursorNeedLogin && onSetMainAgent && (
                 <button
                   type="button"
                   title={t('debug.tabs.setMain', { name: agent.name })}

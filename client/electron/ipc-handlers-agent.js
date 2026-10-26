@@ -131,6 +131,30 @@ function registerAgentHandlers() {
     }
   });
 
+  /** Agent CLI 登录状态（与 Cursor IDE 登录无关） */
+  ipcMain.handle('agent:cursorCliStatus', async () => {
+    try {
+      const { getCursorAgentAuthStatus } = require('./cursor-agent-install');
+      const result = await getCursorAgentAuthStatus();
+      return { success: true, ...result };
+    } catch (error) {
+      console.error('[IPC] agent:cursorCliStatus error:', error);
+      return { success: false, loggedIn: false, error: error.message };
+    }
+  });
+
+  /** 打开浏览器登录 Agent CLI（agent login） */
+  ipcMain.handle('agent:loginCursorCli', async () => {
+    try {
+      const { loginCursorAgentCli } = require('./cursor-agent-install');
+      const result = await loginCursorAgentCli();
+      return { success: !!result.ok, ...result };
+    } catch (error) {
+      console.error('[IPC] agent:loginCursorCli error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   /**
    * 监听实时步骤事件
    */

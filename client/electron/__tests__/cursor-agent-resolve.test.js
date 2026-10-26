@@ -57,7 +57,10 @@ test('resolveBundledCursorAgentPath 走 versions 目录兜底', () => {
 test('resolveRealCommand(cursor-agent) 命中 ~/.local/bin 软链', () => {
   const home = makeTmpHome();
   const osHomedir = os.homedir;
+  const prevPath = process.env.PATH;
   os.homedir = () => home;
+  // 避开本机已装的真实 ~/.local/bin，确保落到测试 home
+  process.env.PATH = '/usr/bin:/bin';
   shim.clearCommandCache('cursor-agent');
   shim.clearCommandCache('agent');
   try {
@@ -79,6 +82,7 @@ test('resolveRealCommand(cursor-agent) 命中 ~/.local/bin 软链', () => {
     assert.ok(gotAgent, '应解析到 agent');
     assert.equal(fs.realpathSync(gotAgent), fs.realpathSync(real));
   } finally {
+    process.env.PATH = prevPath;
     os.homedir = osHomedir;
     shim.clearCommandCache();
     try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* ignore */ }

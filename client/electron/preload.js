@@ -47,8 +47,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     pickWorkingDir: (opts) => ipcRenderer.invoke('agent:pickWorkingDir', opts),
     // 兼容旧调用
     list: (opts) => ipcRenderer.invoke('agent:list', opts || {}),
-    // 游乐场：一键安装 Cursor Agent CLI（官方脚本）
+    // 游乐场：一键安装 / 登录 Cursor Agent CLI（官方脚本；IDE 登录不能替代）
     installCursorCli: () => ipcRenderer.invoke('agent:installCursorCli'),
+    cursorCliStatus: () => ipcRenderer.invoke('agent:cursorCliStatus'),
+    loginCursorCli: () => ipcRenderer.invoke('agent:loginCursorCli'),
     // 社区武将雇佣
     listHiredCommunity: () => ipcRenderer.invoke('community:listHired'),
     hireCommunity: (card) => ipcRenderer.invoke('community:hire', card),

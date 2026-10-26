@@ -113,8 +113,85 @@ async function installCursorAgentCli() {
   return { ok: true, already: false, path: installed };
 }
 
+/**
+ * 探测 Agent CLI 是否已登录（`agent status`）。
+ * IDE 登录不算数——这里只看 CLI 自己的凭证。
+ */
+async function getCursorAgentAuthStatus() {
+  const bin = resolveInstalledPath();
+  if (!bin) return { ok: false, loggedIn: false, reason: 'cli_not_installed' };
+
+  // 先清掉误同步的非 JWT auth.json，避免 status 误报 invalid
+  try { require('./cursor-ide-auth').scrubInvalidAuthJson(); } catch { /* ignore */ }
+
+  return await new Promise((resolve) => {
+    const env = ensureLocalBinOnPath({ ...process.env });
+    execFile(bin, ['status'], {
+      timeout: 45000,
+      windowsHide: true,
+      env,
+      maxBuffer: 1024 * 1024,
+    }, (err, stdout, stderr) => {
+      const text = `${stdout || ''}\n${stderr || ''}`.trim();
+      const lower = text.toLowerCase();
+      if (/not logged in|not authenticated|authentication required/i.test(text)) {
+        resolve({ ok: true, loggedIn: false, reason: 'not_logged_in', detail: text.slice(0, 200) });
+        return;
+      }
+      if (err && !text) {
+        resolve({ ok: false, loggedIn: false, reason: 'status_failed', error: err.message });
+        return;
+      }
+      // status 成功且非 Not logged in → 视为已登录（文案因版本而异）
+      const loggedIn = !err && !/not logged in/i.test(lower);
+      resolve({
+        ok: true,
+        loggedIn,
+        reason: loggedIn ? 'logged_in' : 'unknown',
+        detail: text.slice(0, 200),
+      });
+    });
+  });
+}
+
+/**
+ * 打开浏览器走官方 `agent login`（IDE 登录不能替代）。
+ * @returns {Promise<{ ok: boolean, already?: boolean, error?: string }>}
+ */
+async function loginCursorAgentCli() {
+  const bin = resolveInstalledPath();
+  if (!bin) return { ok: false, error: 'cli_not_installed' };
+
+  try { require('./cursor-ide-auth').scrubInvalidAuthJson(); } catch { /* ignore */ }
+
+  const st = await getCursorAgentAuthStatus();
+  if (st.loggedIn) return { ok: true, already: true };
+
+  return await new Promise((resolve) => {
+    const env = ensureLocalBinOnPath({ ...process.env });
+    // 允许弹浏览器；Electron 下由系统打开登录页
+    delete env.NO_OPEN_BROWSER;
+    execFile(bin, ['login'], {
+      timeout: INSTALL_TIMEOUT_MS,
+      windowsHide: true,
+      env,
+      maxBuffer: 2 * 1024 * 1024,
+    }, async (err, stdout, stderr) => {
+      const after = await getCursorAgentAuthStatus();
+      if (after.loggedIn) {
+        resolve({ ok: true, already: false });
+        return;
+      }
+      const msg = String(stderr || stdout || err?.message || 'login failed').slice(0, 600);
+      resolve({ ok: false, error: msg });
+    });
+  });
+}
+
 module.exports = {
   installCursorAgentCli,
+  getCursorAgentAuthStatus,
+  loginCursorAgentCli,
   resolveInstalledPath,
   ensureLocalBinOnPath,
   INSTALL_TIMEOUT_MS,
