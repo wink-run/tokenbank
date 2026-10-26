@@ -1,6 +1,6 @@
 # tokenbank.routes.default.yaml
-# 场景路由离线默认 — 与 server/static/defaults/scenes.default.yaml 保持同步。
-# 首次启动 scene_routes 为空时由 main.js 加载；在线后 config.scenes 下发追加。
+# 已不再由客户端加载。场景路由只从服务端 /api/config/scenes 拉取（syncRemote）。
+# 本文件保留作对照；服务端默认见 server/static/defaults/scenes.default.yaml。
 
 version: 1
 

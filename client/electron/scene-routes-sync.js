@@ -3,10 +3,8 @@
 /**
  * 场景路由与服务端目录合并（含同步删除）。
  *
- * 删除条件（必须同时满足）：
- *   1) 非用户配置（无 user_owned）
- *   2) 明确来自服务端（from_server 或曾在 synced_server_route_ids 中）
- *   3) 当前服务端目录已无该 id
+ * 服务端目录是系统路由的唯一来源：非用户自建、且本次目录里没有的，一律删掉
+ * （含旧版本地内置的 strategy-* / route-*，不再因为「没打 from_server」而留下）。
  * 用户自建 / 本地改过的路由（user_owned）→ 不删、不被服务端覆盖。
  */
 
@@ -35,7 +33,6 @@ function mergeSceneRoutesReplace(local, serverRoutes, opts = {}) {
   const list = Array.isArray(local) ? local : [];
   const server = (Array.isArray(serverRoutes) ? serverRoutes : []).filter(r => r && r.id);
   const serverIds = new Set(server.map(r => r.id));
-  const prevSynced = new Set(Array.isArray(opts.prevSyncedIds) ? opts.prevSyncedIds : []);
 
   const addedRoutes = [];
   const removedRoutes = [];
@@ -49,9 +46,8 @@ function mergeSceneRoutesReplace(local, serverRoutes, opts = {}) {
       byId.set(r.id, r);
       continue;
     }
-    // 仅删「明确系统下发」且目录已无的
-    const fromServer = !!r.from_server || prevSynced.has(r.id);
-    if (!serverIds.has(r.id) && fromServer) {
+    // 目录里没有的系统路由删掉（旧版内置路由同样删，只留用户自建）
+    if (!serverIds.has(r.id)) {
       removedRoutes.push(r.scene_name || r.model_key || r.id);
       removedDefaultIds.push(r.id);
       continue;

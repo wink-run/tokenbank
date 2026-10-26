@@ -63,17 +63,17 @@ test('strategy-* 同步后名称/图标与服务端一致', () => {
   assert.deepEqual(free.steps, undefined);
 });
 
-test('首次同步：无 from_server/prevSynced 的本地路由不删', () => {
+test('同步以服务端为准：没标用户自有、目录里没有的本地路由删掉', () => {
   const local = [
     { id: 'strategy-free', scene_name: '免费源', model_key: 'llm-router-free' },
     { id: 'a1b2c3d4', scene_name: '我的路由', model_key: 'llm-router-abcdef', user_owned: true },
   ];
   const server = [
-    { id: 'strategy-auto', scene_name: '综合最优', model_key: 'llm-router-auto', flow: 'auto' },
+    { id: 'strategy-auto', scene_name: '自动', model_key: 'llm-router-auto', flow: 'auto' },
   ];
   const r = mergeSceneRoutesReplace(local, server, { prevSyncedIds: [] });
-  assert.deepEqual(r.routes.map(x => x.id).sort(), ['a1b2c3d4', 'strategy-auto', 'strategy-free']);
-  assert.deepEqual(r.removedRoutes, []);
+  assert.deepEqual(r.routes.map(x => x.id).sort(), ['a1b2c3d4', 'strategy-auto']);
+  assert.deepEqual(r.removedRoutes, ['免费源']);
 });
 
 test('空目录：只删已下发的，保留 user_owned', () => {
