@@ -323,26 +323,19 @@ providers:
   modalities:
     language: true
   models:
+  - name: minimax-m3.1-flash
+    type: chat
   - name: minimax-m3
     type: chat
-  - name: minimax-m2.7
-    type: chat
-  - name: minimax-m2.5
-    type: chat
   pricing:
+    minimax-m3.1-flash:
+      in: 0.15
+      out: 0.6
+      cacheRead: 0.015
     minimax-m3:
       in: 0.3
       out: 1.2
-    minimax-m2.7:
-      in: 0.3
-      out: 1.2
       cacheRead: 0.06
-      cacheWrite: 0.38
-    minimax-m2.5:
-      in: 0.3
-      out: 1.2
-      cacheRead: 0.03
-      cacheWrite: 0.38
   handler: openai
   api_format: openai
   enabled_default: false
@@ -359,6 +352,10 @@ providers:
   modalities:
     language: true
   models:
+  - name: glm-5.3
+    type: chat
+  - name: glm-5.2
+    type: chat
   - name: glm-5.1
     type: chat
   - name: glm-5
@@ -368,18 +365,30 @@ providers:
   - name: glm-4.6
     type: chat
   pricing:
+    glm-5.3:
+      in: 1.14
+      out: 3.99
+      cacheRead: 0.29
+    glm-5.2:
+      in: 1.14
+      out: 3.99
+      cacheRead: 0.29
     glm-5.1:
-      in: 0.8
-      out: 3.2
+      in: 0.86
+      out: 3.42
+      cacheRead: 0.19
     glm-5:
-      in: 1.0
-      out: 3.2
+      in: 0.57
+      out: 2.57
+      cacheRead: 0.14
     glm-4.7:
-      in: 0.45
-      out: 1.8
+      in: 0.29
+      out: 1.14
+      cacheRead: 0.06
     glm-4.6:
-      in: 0.45
-      out: 1.8
+      in: 0.86
+      out: 3.14
+      cacheRead: 0.16
   handler: openai
   api_format: openai
   enabled_default: false
@@ -532,21 +541,21 @@ providers:
   modalities:
     language: true
   models:
-  - name: deepseek-v4-flash
+  - name: deepseek-flash
     type: chat
   - name: deepseek-v4-pro
     type: chat
   pricing:
-    deepseek-v4-flash:
-      in: 0.14
-      out: 0.28
+    deepseek-flash:
+      in: 0.15
+      out: 0.60
       cacheRead: 0.003
-      cacheWrite: 0.18
+      cacheWrite: 0.19
     deepseek-v4-pro:
-      in: 0.14
-      out: 0.28
-      cacheRead: 0.003
-      cacheWrite: 0.18
+      in: 0.66
+      out: 1.98
+      cacheRead: 0.022
+      cacheWrite: 0.83
   handler: openai
   api_format: openai
   enabled_default: false
@@ -585,32 +594,37 @@ providers:
   modalities:
     language: true
   models:
-  - name: doubao-seed-2.0-pro
+  - name: doubao-seed-evolving
     type: chat
-  - name: doubao-seed-2.0-code
+  - name: doubao-seed-2.1-pro
     type: chat
-  - name: doubao-seed-2.0-flash
+  - name: doubao-seed-2.1-lite
     type: chat
-  - name: deepseek-v3.2
+  - name: deepseek-v4.1-flash
     type: chat
-  - name: kimi-k2.6
+  - name: kimi-k3
     type: chat
   pricing:
-    doubao-seed-2.0-pro:
-      in: 0.4
-      out: 1.2
-    doubao-seed-2.0-code:
-      in: 0.4
-      out: 1.2
-    doubao-seed-2.0-flash:
-      in: 0.1
-      out: 0.3
-    deepseek-v3.2:
+    doubao-seed-evolving:
+      in: 0.86
+      out: 4.28
+      cacheRead: 0.17
+    doubao-seed-2.1-pro:
+      in: 0.86
+      out: 4.28
+      cacheRead: 0.17
+    doubao-seed-2.1-lite:
+      in: 0.11
+      out: 0.39
+      cacheRead: 0.02
+    deepseek-v4.1-flash:
       in: 0.14
-      out: 0.28
-    kimi-k2.6:
-      in: 0.15
-      out: 2.5
+      out: 0.57
+      cacheRead: 0.003
+    kimi-k3:
+      in: 1.86
+      out: 9.70
+      cacheRead: 0.19
   handler: openai
   api_format: openai
   enabled_default: false
@@ -626,32 +640,37 @@ providers:
   modalities:
     language: true
   models:
-  - name: doubao-seed-2.0-pro
+  - name: doubao-seed-evolving
     type: chat
-  - name: doubao-seed-2.0-code
+  - name: doubao-seed-2.1-pro
     type: chat
-  - name: doubao-seed-2.0-flash
+  - name: doubao-seed-2.1-lite
     type: chat
-  - name: deepseek-v3.2
+  - name: deepseek-v4.1-flash
     type: chat
-  - name: kimi-k2.6
+  - name: kimi-k3
     type: chat
   pricing:
-    doubao-seed-2.0-pro:
-      in: 0.4
-      out: 1.2
-    doubao-seed-2.0-code:
-      in: 0.4
-      out: 1.2
-    doubao-seed-2.0-flash:
-      in: 0.1
-      out: 0.3
-    deepseek-v3.2:
+    doubao-seed-evolving:
+      in: 0.86
+      out: 4.28
+      cacheRead: 0.17
+    doubao-seed-2.1-pro:
+      in: 0.86
+      out: 4.28
+      cacheRead: 0.17
+    doubao-seed-2.1-lite:
+      in: 0.11
+      out: 0.39
+      cacheRead: 0.02
+    deepseek-v4.1-flash:
       in: 0.14
-      out: 0.28
-    kimi-k2.6:
-      in: 0.15
-      out: 2.5
+      out: 0.57
+      cacheRead: 0.003
+    kimi-k3:
+      in: 1.86
+      out: 9.70
+      cacheRead: 0.19
   handler: openai
   api_format: openai
   enabled_default: false
@@ -700,11 +719,23 @@ providers:
   modalities:
     language: true
   models:
+  - name: grok-4.7
+    type: chat
+  - name: grok-4.6
+    type: chat
   - name: grok-4
     type: chat
   - name: grok-3-mini
     type: chat
   pricing:
+    grok-4.7:
+      in: 2.0
+      out: 6.0
+      cacheRead: 0.5
+    grok-4.6:
+      in: 2.0
+      out: 6.0
+      cacheRead: 0.5
     grok-4:
       in: 3.0
       out: 15.0
@@ -1021,47 +1052,57 @@ billing_sources:
   aliases: []
   enabled_default: false
   models:
-  - id: doubao-seed-2.0-pro
+  - id: doubao-seed-evolving
     modality: chat
     pricing:
-      in: 0.4
-      out: 1.2
-  - id: doubao-seed-2.0-code
+      in: 0.86
+      out: 4.28
+      cacheRead: 0.17
+  - id: doubao-seed-2.1-pro
     modality: chat
     pricing:
-      in: 0.4
-      out: 1.2
-  - id: doubao-seed-2.0-flash
+      in: 0.86
+      out: 4.28
+      cacheRead: 0.17
+  - id: doubao-seed-2.1-lite
     modality: chat
     pricing:
-      in: 0.1
-      out: 0.3
-  - id: deepseek-v3.2
+      in: 0.11
+      out: 0.39
+      cacheRead: 0.02
+  - id: deepseek-v4.1-flash
     modality: chat
     pricing:
       in: 0.14
-      out: 0.28
-  - id: kimi-k2.6
+      out: 0.57
+      cacheRead: 0.003
+  - id: kimi-k3
     modality: chat
     pricing:
-      in: 0.15
-      out: 2.5
+      in: 1.86
+      out: 9.70
+      cacheRead: 0.19
   pricing:
-    doubao-seed-2.0-pro:
-      in: 0.4
-      out: 1.2
-    doubao-seed-2.0-code:
-      in: 0.4
-      out: 1.2
-    doubao-seed-2.0-flash:
-      in: 0.1
-      out: 0.3
-    deepseek-v3.2:
+    doubao-seed-evolving:
+      in: 0.86
+      out: 4.28
+      cacheRead: 0.17
+    doubao-seed-2.1-pro:
+      in: 0.86
+      out: 4.28
+      cacheRead: 0.17
+    doubao-seed-2.1-lite:
+      in: 0.11
+      out: 0.39
+      cacheRead: 0.02
+    deepseek-v4.1-flash:
       in: 0.14
-      out: 0.28
-    kimi-k2.6:
-      in: 0.15
-      out: 2.5
+      out: 0.57
+      cacheRead: 0.003
+    kimi-k3:
+      in: 1.86
+      out: 9.70
+      cacheRead: 0.19
   plans:
   - id: coding-lite
     label: Coding Plan Lite · 40元/月
@@ -1090,47 +1131,57 @@ billing_sources:
   aliases: []
   enabled_default: false
   models:
-  - id: doubao-seed-2.0-pro
+  - id: doubao-seed-evolving
     modality: chat
     pricing:
-      in: 0.4
-      out: 1.2
-  - id: doubao-seed-2.0-code
+      in: 0.86
+      out: 4.28
+      cacheRead: 0.17
+  - id: doubao-seed-2.1-pro
     modality: chat
     pricing:
-      in: 0.4
-      out: 1.2
-  - id: doubao-seed-2.0-flash
+      in: 0.86
+      out: 4.28
+      cacheRead: 0.17
+  - id: doubao-seed-2.1-lite
     modality: chat
     pricing:
-      in: 0.1
-      out: 0.3
-  - id: deepseek-v3.2
+      in: 0.11
+      out: 0.39
+      cacheRead: 0.02
+  - id: deepseek-v4.1-flash
     modality: chat
     pricing:
       in: 0.14
-      out: 0.28
-  - id: kimi-k2.6
+      out: 0.57
+      cacheRead: 0.003
+  - id: kimi-k3
     modality: chat
     pricing:
-      in: 0.15
-      out: 2.5
+      in: 1.86
+      out: 9.70
+      cacheRead: 0.19
   pricing:
-    doubao-seed-2.0-pro:
-      in: 0.4
-      out: 1.2
-    doubao-seed-2.0-code:
-      in: 0.4
-      out: 1.2
-    doubao-seed-2.0-flash:
-      in: 0.1
-      out: 0.3
-    deepseek-v3.2:
+    doubao-seed-evolving:
+      in: 0.86
+      out: 4.28
+      cacheRead: 0.17
+    doubao-seed-2.1-pro:
+      in: 0.86
+      out: 4.28
+      cacheRead: 0.17
+    doubao-seed-2.1-lite:
+      in: 0.11
+      out: 0.39
+      cacheRead: 0.02
+    deepseek-v4.1-flash:
       in: 0.14
-      out: 0.28
-    kimi-k2.6:
-      in: 0.15
-      out: 2.5
+      out: 0.57
+      cacheRead: 0.003
+    kimi-k3:
+      in: 1.86
+      out: 9.70
+      cacheRead: 0.19
   plans: []
   agent_id: ''
   plan_provider_id: null
@@ -1326,31 +1377,31 @@ billing_sources:
   aliases: []
   enabled_default: false
   models:
-  - id: deepseek-v4-flash
+  - id: deepseek-flash
     modality: chat
     pricing:
-      in: 0.14
-      out: 0.28
+      in: 0.15
+      out: 0.60
       cacheRead: 0.003
-      cacheWrite: 0.18
+      cacheWrite: 0.19
   - id: deepseek-v4-pro
     modality: chat
     pricing:
-      in: 0.14
-      out: 0.28
-      cacheRead: 0.003
-      cacheWrite: 0.18
+      in: 0.66
+      out: 1.98
+      cacheRead: 0.022
+      cacheWrite: 0.83
   pricing:
-    deepseek-v4-flash:
-      in: 0.14
-      out: 0.28
+    deepseek-flash:
+      in: 0.15
+      out: 0.60
       cacheRead: 0.003
-      cacheWrite: 0.18
+      cacheWrite: 0.19
     deepseek-v4-pro:
-      in: 0.14
-      out: 0.28
-      cacheRead: 0.003
-      cacheWrite: 0.18
+      in: 0.66
+      out: 1.98
+      cacheRead: 0.022
+      cacheWrite: 0.83
   plans: []
   agent_id: ''
   plan_provider_id: null
@@ -1374,6 +1425,18 @@ billing_sources:
   - grok
   enabled_default: false
   models:
+  - id: grok-4.7
+    modality: chat
+    pricing:
+      in: 2.0
+      out: 6.0
+      cacheRead: 0.5
+  - id: grok-4.6
+    modality: chat
+    pricing:
+      in: 2.0
+      out: 6.0
+      cacheRead: 0.5
   - id: grok-4
     modality: chat
     pricing:
@@ -1385,6 +1448,14 @@ billing_sources:
       in: 0.3
       out: 0.5
   pricing:
+    grok-4.7:
+      in: 2.0
+      out: 6.0
+      cacheRead: 0.5
+    grok-4.6:
+      in: 2.0
+      out: 6.0
+      cacheRead: 0.5
     grok-4:
       in: 3.0
       out: 15.0
@@ -1869,39 +1940,27 @@ billing_sources:
   aliases: []
   enabled_default: false
   models:
+  - id: minimax-m3.1-flash
+    modality: chat
+    pricing:
+      in: 0.15
+      out: 0.6
+      cacheRead: 0.015
   - id: minimax-m3
     modality: chat
     pricing:
       in: 0.3
       out: 1.2
-  - id: minimax-m2.7
-    modality: chat
-    pricing:
-      in: 0.3
-      out: 1.2
       cacheRead: 0.06
-      cacheWrite: 0.38
-  - id: minimax-m2.5
-    modality: chat
-    pricing:
-      in: 0.3
-      out: 1.2
-      cacheRead: 0.03
-      cacheWrite: 0.38
   pricing:
+    minimax-m3.1-flash:
+      in: 0.15
+      out: 0.6
+      cacheRead: 0.015
     minimax-m3:
       in: 0.3
       out: 1.2
-    minimax-m2.7:
-      in: 0.3
-      out: 1.2
       cacheRead: 0.06
-      cacheWrite: 0.38
-    minimax-m2.5:
-      in: 0.3
-      out: 1.2
-      cacheRead: 0.03
-      cacheWrite: 0.38
   plans: []
   agent_id: ''
   plan_provider_id: null
@@ -1926,39 +1985,67 @@ billing_sources:
   - bigmodel
   enabled_default: false
   models:
+  - id: glm-5.3
+    modality: chat
+    pricing:
+      in: 1.14
+      out: 3.99
+      cacheRead: 0.29
+  - id: glm-5.2
+    modality: chat
+    pricing:
+      in: 1.14
+      out: 3.99
+      cacheRead: 0.29
   - id: glm-5.1
     modality: chat
     pricing:
-      in: 0.8
-      out: 3.2
+      in: 0.86
+      out: 3.42
+      cacheRead: 0.19
   - id: glm-5
     modality: chat
     pricing:
-      in: 1.0
-      out: 3.2
+      in: 0.57
+      out: 2.57
+      cacheRead: 0.14
   - id: glm-4.7
     modality: chat
     pricing:
-      in: 0.45
-      out: 1.8
+      in: 0.29
+      out: 1.14
+      cacheRead: 0.06
   - id: glm-4.6
     modality: chat
     pricing:
-      in: 0.45
-      out: 1.8
+      in: 0.86
+      out: 3.14
+      cacheRead: 0.16
   pricing:
+    glm-5.3:
+      in: 1.14
+      out: 3.99
+      cacheRead: 0.29
+    glm-5.2:
+      in: 1.14
+      out: 3.99
+      cacheRead: 0.29
     glm-5.1:
-      in: 0.8
-      out: 3.2
+      in: 0.86
+      out: 3.42
+      cacheRead: 0.19
     glm-5:
-      in: 1.0
-      out: 3.2
+      in: 0.57
+      out: 2.57
+      cacheRead: 0.14
     glm-4.7:
-      in: 0.45
-      out: 1.8
+      in: 0.29
+      out: 1.14
+      cacheRead: 0.06
     glm-4.6:
-      in: 0.45
-      out: 1.8
+      in: 0.86
+      out: 3.14
+      cacheRead: 0.16
   plans: []
   agent_id: ''
   plan_provider_id: null

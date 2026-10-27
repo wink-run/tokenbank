@@ -40,11 +40,14 @@ const PRICING = {
   'gemini-2.0-flash':  { in: 0.075, out: 0.30,   cacheRead: 0.0075, cacheWrite: 0.094},
   'gemini':            { in: 1.25,  out: 5.00,   cacheRead: 0.125, cacheWrite: 1.56 },
   // DeepSeek
-  'deepseek-v4-flash': { in: 0.14,  out: 0.28,   cacheRead: 0.003, cacheWrite: 0.18 },
-  'deepseek-chat':     { in: 0.14,  out: 0.28,   cacheRead: 0.003, cacheWrite: 0.18 },
-  'deepseek-reasoner': { in: 0.14,  out: 0.28,   cacheRead: 0.003, cacheWrite: 0.18 },
-  'deepseek-v4-pro':   { in: 1.74,  out: 3.48,   cacheRead: 0.015, cacheWrite: 2.18 },
+  'deepseek-flash':    { in: 0.15,  out: 0.60,   cacheRead: 0.003, cacheWrite: 0.19 },
+  'deepseek-v4-flash': { in: 0.15,  out: 0.60,   cacheRead: 0.003, cacheWrite: 0.19 },
+  'deepseek-chat':     { in: 0.15,  out: 0.60,   cacheRead: 0.003, cacheWrite: 0.19 },
+  'deepseek-reasoner': { in: 0.15,  out: 0.60,   cacheRead: 0.003, cacheWrite: 0.19 },
+  'deepseek-v4-pro':   { in: 0.66,  out: 1.98,   cacheRead: 0.022, cacheWrite: 0.83 },
   // Grok
+  'grok-4.7':          { in: 2.00,  out: 6.00,   cacheRead: 0.50,  cacheWrite: null  },
+  'grok-4.6':          { in: 2.00,  out: 6.00,   cacheRead: 0.50,  cacheWrite: null  },
   'grok-4.3':          { in: 1.25,  out: 2.50,   cacheRead: null,  cacheWrite: null  },
   'grok-4':            { in: 3.00,  out: 15.00,  cacheRead: null,  cacheWrite: null  },
   'grok-3-mini':       { in: 0.30,  out: 0.50,   cacheRead: null,  cacheWrite: null  },
@@ -58,15 +61,18 @@ const PRICING = {
   'moonshot-v1-32k':   { in: 1.00,  out: 3.00,   cacheRead: null,  cacheWrite: null  },
   'moonshot-v1-8k':    { in: 0.20,  out: 2.00,   cacheRead: null,  cacheWrite: null  },
   // GLM / Zhipu
-  'glm-5.1':           { in: 0.80,  out: 3.20,   cacheRead: null,  cacheWrite: null  },
-  'glm-4.7':           { in: 0.45,  out: 1.80,   cacheRead: null,  cacheWrite: null  },
-  'glm-4.6':           { in: 0.45,  out: 1.80,   cacheRead: null,  cacheWrite: null  },
-  'glm-5':             { in: 1.00,  out: 3.20,   cacheRead: null,  cacheWrite: null  },
+  'glm-5.3':           { in: 1.14,  out: 3.99,   cacheRead: 0.29,  cacheWrite: null  },
+  'glm-5.2':           { in: 1.14,  out: 3.99,   cacheRead: 0.29,  cacheWrite: null  },
+  'glm-5.1':           { in: 0.86,  out: 3.42,   cacheRead: 0.19,  cacheWrite: null  },
+  'glm-5':             { in: 0.57,  out: 2.57,   cacheRead: 0.14,  cacheWrite: null  },
+  'glm-4.7':           { in: 0.29,  out: 1.14,   cacheRead: 0.06,  cacheWrite: null  },
+  'glm-4.6':           { in: 0.86,  out: 3.14,   cacheRead: 0.16,  cacheWrite: null  },
   // Qwen
   'qwen3-max':         { in: 1.20,  out: 6.00,   cacheRead: null,  cacheWrite: null  },
   'qwen3':             { in: 0.40,  out: 1.60,   cacheRead: null,  cacheWrite: null  },
   // MiniMax
-  'minimax-m3':        { in: 0.30,  out: 1.20,   cacheRead: null,  cacheWrite: null  },
+  'minimax-m3.1-flash':{ in: 0.15,  out: 0.60,   cacheRead: 0.015, cacheWrite: null  },
+  'minimax-m3':        { in: 0.30,  out: 1.20,   cacheRead: 0.06,  cacheWrite: null  },
   'minimax-m2.7':      { in: 0.30,  out: 1.20,   cacheRead: 0.06,  cacheWrite: 0.38 },
   'minimax-m2.5':      { in: 0.30,  out: 1.20,   cacheRead: 0.03,  cacheWrite: 0.38 },
   // Mimo
