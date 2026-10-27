@@ -211,7 +211,7 @@ body {
               <span class="gate-name">看个广告，免费用一次</span>
               <span class="gate-tag tag-free">免费</span>
             </div>
-            <p class="gate-desc">观看 15 秒广告后即可免费使用，无需付费</p>
+            <p class="gate-desc">观看 15 秒广告后即可免费使用，无需登录、无需付费</p>
           </div>
         </label>
         <label :class="['gate-option', { active: gateType === 'paid' }]">
@@ -222,7 +222,7 @@ body {
               <span class="gate-name">付积分跳过广告</span>
               <span class="gate-tag tag-credits">{{ currentTool.pricing_amount || 1 }} 积分</span>
             </div>
-            <p class="gate-desc">直接使用，无需观看广告</p>
+            <p class="gate-desc">登录并支付积分后直接使用，无需观看广告</p>
           </div>
         </label>
       </div>

@@ -18,6 +18,34 @@ router = APIRouter()
 
 # agent:* 通行门票据（不落 tools FK；V1 内存）
 _agent_gate_tickets: dict[str, dict] = {}
+_AGENT_GATE_TICKET_TTL_SEC = 30 * 60
+
+
+def redeem_agent_gate_ticket(ticket_id: str, assistant_id: str) -> Optional[dict]:
+    """Consume a pending tools-hub gate ticket for one anonymous agent use.
+
+    Returns ticket meta on success; None if missing/expired/mismatched/already used.
+    Ad-watched tickets authorize use without login; paid tickets are issued only
+    after login+debit at /api/tools/gate.
+    """
+    tid = (ticket_id or "").strip()
+    aid = (assistant_id or "").strip()
+    if not tid or not aid:
+        return None
+    meta = _agent_gate_tickets.get(tid)
+    if not meta:
+        return None
+    if meta.get("status") != "pending":
+        return None
+    if str(meta.get("assistant_id") or "").strip() != aid:
+        return None
+    created = float(meta.get("created_at") or 0)
+    if created and (time.time() - created) > _AGENT_GATE_TICKET_TTL_SEC:
+        meta["status"] = "expired"
+        return None
+    meta["status"] = "used"
+    meta["used_at"] = time.time()
+    return meta
 
 
 # ── V1 演示辅助函数 ────────────────────────────────────────────────────────────
@@ -354,7 +382,8 @@ async def pass_gate(
             )
 
         ticket_id = f"tkt_{secrets.token_urlsafe(16)}"
-        redirect_url = f"/a/{aid}"
+        # 把广告/付费票带进对话页，匿名看完广告即可用，不必再登录
+        redirect_url = f"/a/{aid}?gate_ticket={ticket_id}"
         _agent_gate_tickets[ticket_id] = {
             "tool_id": tid,
             "assistant_id": aid,

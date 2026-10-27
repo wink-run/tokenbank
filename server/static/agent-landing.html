@@ -129,6 +129,7 @@
         <div v-if="guestLocked" class="gate">
           <span class="g-ic">🔒</span>
           <div class="g-t"><b>{{ T.trialDone }}</b>{{ T.gateSub }}</div>
+          <a class="btn sm" href="/tools" style="text-decoration:none;display:inline-flex;align-items:center">{{ T.watchAdAgain }}</a>
           <button type="button" class="btn sm" @click="openAuth('login')">{{ T.login }}</button>
         </div>
         <div v-else class="box">
@@ -231,7 +232,7 @@ createApp({
         chatHint: '未登录可试一轮', chatEmpty: '发送一条消息试用；可粘贴图片；登录后可多轮追问。',
         clear: '清空对话', thinking: '…', streaming: '生成中…', toolRunning: '调用工具：{name}',
         newChat: '新对话', copy: '复制', copied: '已复制', attach: '添加图片', hires: '{n} 次雇佣',
-        enterHint: 'Enter 发送 · Shift+Enter 换行', trialDone: '免费试用已用完', gateSub: '登录后继续对话，按每次积分扣费。',
+        enterHint: 'Enter 发送 · Shift+Enter 换行', trialDone: '本次已用完', gateSub: '再看一次广告，或登录后按积分继续。', watchAdAgain: '再看广告',
         runsRemote: '任务在分享者设备上执行', authTitleLogin: '登录 Token Bank', authTitleRegister: '注册 Token Bank',
         authSub: '登录后可多轮对话，按次扣积分。',
         sugs: [
@@ -260,7 +261,7 @@ createApp({
         chatHint: 'One free guest turn', chatEmpty: 'Try one message (paste images OK); sign in for multi-turn chat.',
         clear: 'Clear', thinking: '…', streaming: 'Generating…', toolRunning: 'Tool: {name}',
         newChat: 'New chat', copy: 'Copy', copied: 'Copied', attach: 'Add image', hires: '{n} hires',
-        enterHint: 'Enter to send · Shift+Enter for newline', trialDone: 'Free trial used', gateSub: 'Sign in to keep chatting, billed per turn.',
+        enterHint: 'Enter to send · Shift+Enter for newline', trialDone: 'Turn used up', gateSub: 'Watch another ad, or sign in to continue (credits).', watchAdAgain: 'Watch ad',
         runsRemote: "Runs on the sharer's device", authTitleLogin: 'Sign in to Token Bank', authTitleRegister: 'Create your account',
         authSub: 'Sign in for multi-turn chat, billed per turn.',
         sugs: [
@@ -307,13 +308,17 @@ createApp({
     const err = ref('')
     // 未登录已用完一轮试用
     const guestUsed = ref(false)
+    // 工具合集通行门票：看广告后匿名可用一次（?gate_ticket=）
+    const gateTicket = ref((() => {
+      try { return new URLSearchParams(location.search).get('gate_ticket') || '' } catch { return '' }
+    })())
     const authTab = ref('login')
     const authLoading = ref(false)
     const authErr = ref('')
     const form = ref({ email: '', password: '', nickname: '' })
 
     function getToken() { return storageGet('user_token') || '' }
-    const guestLocked = computed(() => guestUsed.value && !loggedIn.value)
+    const guestLocked = computed(() => guestUsed.value && !loggedIn.value && !gateTicket.value)
 
     // ── 对话本地持久化（按智能体 id；刷新不丢）──────────────────────────────
     const CHAT_MAX_MSGS = 80
@@ -506,6 +511,16 @@ createApp({
       addAttachFiles(imageFiles)
     }
 
+
+    function clearGateTicketFromUrl() {
+      try {
+        const u = new URL(location.href)
+        if (!u.searchParams.has('gate_ticket')) return
+        u.searchParams.delete('gate_ticket')
+        history.replaceState(null, '', u.pathname + (u.search || '') + u.hash)
+      } catch {}
+    }
+
     /** 把多轮对话压成单次 prompt（agent-tasks 仅接受字符串） */
     function buildPromptWithHistory(history, nextUser) {
       const prior = history.filter(m => !m.pending && m.content)
@@ -536,7 +551,12 @@ createApp({
           // 恢复本智能体历史对话
           const restored = loadChatHistory(data.agent.id)
           if (restored.length) messages.value = restored
-          guestUsed.value = storageGet(guestUsedKey(data.agent.id)) === '1'
+          if (gateTicket.value) {
+            guestUsed.value = false
+            storageRemove(guestUsedKey(data.agent.id))
+          } else {
+            guestUsed.value = storageGet(guestUsedKey(data.agent.id)) === '1'
+          }
           applyMeta()
           loading.value = false
           if (loggedIn.value) await fetchProfile()
@@ -566,7 +586,12 @@ createApp({
         creditsPerTask.value = data.credits_per_task ?? 10
         const restored = loadChatHistory(data.agent.id)
         if (restored.length) messages.value = restored
-        guestUsed.value = storageGet(guestUsedKey(data.agent.id)) === '1'
+        if (gateTicket.value) {
+          guestUsed.value = false
+          storageRemove(guestUsedKey(data.agent.id))
+        } else {
+          guestUsed.value = storageGet(guestUsedKey(data.agent.id)) === '1'
+        }
         applyMeta()
         await fetchProfile()
         await scrollChat()
@@ -672,7 +697,7 @@ createApp({
         return
       }
       const isGuest = !loggedIn.value || !getToken()
-      if (isGuest && guestUsed.value) {
+      if (isGuest && guestUsed.value && !gateTicket.value) {
         err.value = T.value.loginToContinue
         return
       }
@@ -720,6 +745,8 @@ createApp({
           stream: true,
         }
         if (attachList.length) body.images = attachList
+        const ticketForTurn = gateTicket.value
+        if (isGuest && ticketForTurn) body.gate_ticket = ticketForTurn
         const r = await fetch('/api/agent-tasks', {
           method: 'POST',
           headers,
@@ -734,12 +761,16 @@ createApp({
           if (r.status === 401) {
             if (!isGuest) logout()
             err.value = (typeof data?.detail === 'string' ? data.detail : '') || (isGuest ? T.value.loginToContinue : T.value.needLogin)
-            if (isGuest) guestUsed.value = true
+            if (isGuest) {
+              guestUsed.value = true
+              if (ticketForTurn) { gateTicket.value = ''; clearGateTicketFromUrl() }
+            }
             dropTurn()
             return
           }
           if (r.status === 429) {
             guestUsed.value = true
+            if (ticketForTurn) { gateTicket.value = ''; clearGateTicketFromUrl() }
             err.value = (typeof data?.detail === 'string' ? data.detail : '') || T.value.loginToContinue
             dropTurn()
             return
@@ -815,7 +846,14 @@ createApp({
           return
         }
         if (messages.value[asstIdx]) messages.value[asstIdx].pending = false
-        if (finalGuest) guestUsed.value = true
+        if (ticketForTurn) {
+          // 广告票一次性；用完后清掉，再聊需重新看广告或登录
+          gateTicket.value = ''
+          clearGateTicketFromUrl()
+          guestUsed.value = true
+        } else if (finalGuest) {
+          guestUsed.value = true
+        }
         if (!isGuest) await fetchProfile()
         await scrollChat()
       } catch (e) {

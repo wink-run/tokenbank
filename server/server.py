@@ -949,6 +949,8 @@ class AgentTaskBody(BaseModel):
     stream: Optional[bool] = False
     # 本轮附图：[{dataUrl, name?}]，仅 data:image/…
     images: Optional[list] = None
+    # 工具合集通行门票据：看广告后匿名可用一次（见 /api/tools/gate）
+    gate_ticket: Optional[str] = None
 
 
 @app.post("/api/agent-tasks")
@@ -968,6 +970,17 @@ async def create_agent_task(
         raise HTTPException(400, str(e)) from e
 
     guest = uid is None
+    gate_pass = False
+    if guest and (body.gate_ticket or "").strip():
+        # 工具合集：看完广告拿到的票可匿名用一次，绕过访客试用限流
+        from tools_router import redeem_agent_gate_ticket
+        meta = redeem_agent_gate_ticket(body.gate_ticket.strip(), body.assistant_id)
+        if not meta:
+            raise HTTPException(
+                401,
+                "invalid or used gate ticket — watch an ad again or sign in",
+            )
+        gate_pass = True
     if guest:
         text = (body.prompt or "").strip()
         if not text and not task_images:
@@ -975,7 +988,7 @@ async def create_agent_task(
         # 访客禁止带历史（前端多轮会包装 Conversation so far）
         if text.startswith("Conversation so far:"):
             raise HTTPException(401, "guest trial: one turn only — sign in to continue")
-        if not guest_trial_allowed(_client_ip(request)):
+        if not gate_pass and not guest_trial_allowed(_client_ip(request)):
             raise HTTPException(429, "guest trial limit reached — sign in to continue")
 
     guest_ip = _client_ip(request) if guest else None
