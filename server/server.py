@@ -43,6 +43,7 @@ from provider_router import router as provider_router
 from config_router import router as config_router
 from circle_router import router as circle_router
 from studio_router import router as studio_router, admin_router as studio_admin_router
+from tools_router import router as tools_router
 from worker_pool import (
     pool, WorkerConnection, worker_model_names, default_ttft_ms, worker_sharer,
     normalize_agent_cards, owner_label_from_user, shared_agent_display_name, bare_agent_name,
@@ -78,6 +79,13 @@ async def lifespan(app: FastAPI):
     await seed_default_configs()
     await seed_default_studio()
     logger.info("Default config seeded (if empty)")
+    # 工具合集站种子数据
+    try:
+        from seeds.tools_seed import seed_tools
+        await seed_tools()
+        logger.info("Tools seeded (if empty)")
+    except Exception as e:
+        logger.warning(f"Failed to seed tools: {e}")
     from admin_router import _sync_virtual_pool
     await _sync_virtual_pool()
     logger.info("Virtual agents synced")
@@ -187,6 +195,7 @@ app.include_router(circle_router, prefix="/user")
 app.include_router(studio_router, prefix="/user")          # 社区圈 场景/插件（用户端）
 app.include_router(studio_admin_router, prefix="/admin")   # 社区圈 预定义（管理员）
                                                     # PUT/DELETE /api/config/tools|routes (admin)
+app.include_router(tools_router, tags=["tools"])           # 工具合集站（消费端）
 app.include_router(device_router, tags=["device"])
 
 

@@ -148,6 +148,79 @@ async def init_db() -> None:
             )
         """)
 
+        # tools - 工具基本信息
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS tools (
+                id                 SERIAL PRIMARY KEY,
+                name               TEXT UNIQUE NOT NULL,
+                display_name       TEXT NOT NULL,
+                description        TEXT DEFAULT '',
+                detail_desc        TEXT DEFAULT '',
+                icon               TEXT DEFAULT '',
+                scene              TEXT DEFAULT '',
+                scene_display_name TEXT DEFAULT '',
+                featured           INTEGER DEFAULT 0,
+                trust_level        TEXT DEFAULT 'community',
+                enabled            INTEGER DEFAULT 1,
+                publisher_id       INTEGER REFERENCES users(id),
+                created_at         TIMESTAMPTZ DEFAULT NOW(),
+                updated_at         TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+        # tool_versions - 工具版本配置
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS tool_versions (
+                id              SERIAL PRIMARY KEY,
+                tool_id         INTEGER NOT NULL REFERENCES tools(id),
+                version         TEXT NOT NULL DEFAULT '1.0.0',
+                pricing_type    TEXT NOT NULL DEFAULT 'ad_or_paid',
+                pricing_amount  REAL DEFAULT 0,
+                dispatch_type   TEXT NOT NULL DEFAULT 'rented_agent',
+                dispatch_url    TEXT DEFAULT '',
+                external_link   TEXT DEFAULT '',
+                timeout_seconds INTEGER DEFAULT 300,
+                manifest        TEXT DEFAULT '{}',
+                is_active       INTEGER DEFAULT 1,
+                created_at      TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(tool_id, version)
+            )
+        """)
+
+        # tool_tickets - 任务票据（通行门）
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS tool_tickets (
+                id              SERIAL PRIMARY KEY,
+                ticket_id       TEXT UNIQUE NOT NULL,
+                tool_id         INTEGER NOT NULL REFERENCES tools(id),
+                user_id         INTEGER REFERENCES users(id),
+                settlement_type TEXT NOT NULL,
+                credits_cost    REAL DEFAULT 0,
+                status          TEXT DEFAULT 'pending',
+                created_at      TIMESTAMPTZ DEFAULT NOW(),
+                used_at         TIMESTAMPTZ
+            )
+        """)
+
+        # tool_tasks - 任务执行记录
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS tool_tasks (
+                id            SERIAL PRIMARY KEY,
+                task_id       TEXT UNIQUE NOT NULL,
+                ticket_id     TEXT NOT NULL REFERENCES tool_tickets(ticket_id),
+                tool_id       INTEGER NOT NULL REFERENCES tools(id),
+                user_id       INTEGER REFERENCES users(id),
+                input_data    TEXT DEFAULT '{}',
+                status        TEXT DEFAULT 'created',
+                progress      REAL DEFAULT 0,
+                result_data   TEXT DEFAULT '',
+                error_message TEXT DEFAULT '',
+                created_at    TIMESTAMPTZ DEFAULT NOW(),
+                dispatched_at TIMESTAMPTZ,
+                completed_at  TIMESTAMPTZ
+            )
+        """)
+
         # spin_logs
         await db.execute("""
             CREATE TABLE IF NOT EXISTS spin_logs (
