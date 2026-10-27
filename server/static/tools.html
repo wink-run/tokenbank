@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>出租智能体 - Token Bank</title>
+<title>智能体 · Token Bank</title>
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -30,11 +30,6 @@ body {
 .scene-btn { padding: 0.625rem 1.25rem; border-radius: 9999px; border: 1px solid #e4e4e7; background: #fff; color: #52525b; font-weight: 500; cursor: pointer; transition: all 0.2s; }
 .scene-btn:hover { background: #f4f4f5; border-color: #d4d4d8; }
 .scene-btn.active { background: #3b82f6; color: #fff; border-color: #3b82f6; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
-
-.info-card { padding: 1.5rem; margin-bottom: 2.5rem; background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border: 1px solid #bfdbfe; border-radius: 1rem; }
-.info-title { font-weight: 700; font-size: 1.125rem; margin-bottom: 0.75rem; color: #1e40af; }
-.info-steps { display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.875rem; color: #1e3a8a; margin-bottom: 0.75rem; }
-.info-benefit { padding-top: 0.75rem; border-top: 1px solid #bfdbfe; font-size: 0.875rem; color: #1e40af; font-weight: 500; }
 
 .tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem; }
 .tool-card { position: relative; padding: 1.5rem; background: #fff; border: 1px solid #e4e4e7; border-radius: 1.5rem; cursor: pointer; transition: all 0.3s; overflow: hidden; }
@@ -135,12 +130,12 @@ body {
         <span>🎯</span>
         <span>打开就能用</span>
       </div>
-      <h1 class="hero-title">出租智能体</h1>
-      <p class="hero-subtitle">雇用智能体干活 · 看广告免费用，或按次付积分 · 用户出租 + 平台虚拟</p>
+      <h1 class="hero-title">找个智能体帮忙</h1>
+      <p class="hero-subtitle">搜索、筛选，点一下就能用 · 看广告免费，或付积分跳过</p>
     </div>
 
     <div class="search-box" style="position: relative;">
-      <input v-model="searchQuery" @keyup.enter="loadTools" type="text" class="search-input" placeholder="搜索智能体名称或功能…">
+      <input v-model="searchQuery" @keyup.enter="loadTools" type="text" class="search-input" placeholder="搜索名称、作者或用途…">
       <button @click="loadTools" class="search-button">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       </button>
@@ -151,18 +146,8 @@ body {
       <button v-for="scene in scenes" :key="scene.value" @click="selectedScene = scene.value; loadTools()" :class="['scene-btn', { active: selectedScene === scene.value }]">{{ scene.label }}</button>
     </div>
 
-    <div class="info-card">
-      <h3 class="info-title">💡 这些是出租智能体（agents for rent）</h3>
-      <div class="info-steps">
-        <p>👤 <strong>用户出租</strong>：开发者列出智能体供雇用，算力在他们机器，配置密钥不出本地</p>
-        <p>🤖 <strong>平台虚拟</strong>：类似虚拟模型，由平台配置虚拟智能体供给</p>
-        <p>📋 <strong>使用流程</strong>：选智能体 → 看广告或付积分 → 调度该智能体执行 → 拿结果</p>
-      </div>
-      <p class="info-benefit">本站只做调度 · 不提供算力 · 对齐 Token Bank 虚拟模型架构</p>
-    </div>
-
     <div v-if="loading" class="loading">加载中…</div>
-    <div v-else-if="!tools.length" class="empty">暂无可用智能体</div>
+    <div v-else-if="!tools.length" class="empty">暂时没有可试用的智能体</div>
     <div v-else class="tools-grid">
       <div v-for="tool in tools" :key="tool.id" @click="viewTool(tool.id)" class="tool-card">
         <div v-if="tool.featured" class="tool-featured"><span>⭐</span><span>精选</span></div>
@@ -178,7 +163,7 @@ body {
           <span v-if="tool.owner_nickname">@{{ tool.owner_nickname }}</span>
           <span v-if="tool.owner_nickname && tool.runtime"> · </span>
           <span v-if="tool.runtime">{{ tool.runtime }}</span>
-          <span v-if="tool.source==='network'"> · Online</span>
+          <span v-if="tool.source==='network'"> · 在线</span>
         </p>
         <div class="tool-footer">
           <div class="tool-price">
@@ -255,7 +240,7 @@ body {
   <div v-if="view === 'task' && currentTask" class="container detail-container">
     <button @click="backToList" class="back-button">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
-      返回工具列表
+      返回
     </button>
 
     <div class="task-card">
@@ -304,8 +289,8 @@ body {
     </div>
 
     <div class="task-actions">
-      <button @click="backToList" class="btn btn-outline">浏览更多智能体</button>
-      <button v-if="currentTask.status === 'completed'" @click="viewTool(currentTask.tool_id)" class="btn btn-primary">再雇一次</button>
+      <button @click="backToList" class="btn btn-outline">看看别的</button>
+      <button v-if="currentTask.status === 'completed'" @click="viewTool(currentTask.tool_id)" class="btn btn-primary">再试一次</button>
     </div>
   </div>
 
@@ -489,7 +474,7 @@ createApp({
       return level === 'virtual' ? 'badge-virtual' : 'badge-user-rented';
     },
     getBadgeText(level) {
-      return level === 'virtual' ? '平台虚拟' : '用户出租';
+      return level === 'virtual' ? '平台' : '用户';
     },
     getStatusIcon(status) {
       const map = { queued: '⏳', dispatched: '🚀', processing: '⚙️', completed: '✅', failed: '❌' };
@@ -502,8 +487,8 @@ createApp({
     getStatusText(status) {
       const map = {
         queued: '排队中',
-        dispatched: '已派单给出租智能体',
-        processing: '智能体处理中',
+        dispatched: '已开始',
+        processing: '处理中',
         completed: '完成',
         failed: '失败',
       };
