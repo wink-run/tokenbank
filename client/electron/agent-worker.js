@@ -837,22 +837,24 @@ function connect(cfg) {
       regMsg.public_ip = cachedIp;
       log(`[agent] public_ip=${cachedIp} (cached)`);
     }
-    // 智能体名片：始终带上 agents 字段（含空数组），停止贡献后才能清掉社区列表
+    // 先立即 register（agents=[]），再异步补名片。
+    // 否则 collectAgentCardsForRegister 会等 Cursor `agent status`（最长 ~45s），
+    // 超过服务端注册超时就会永远 registration timeout → Network 智能体=0。
+    regMsg.agents = [];
+    thisSocket.send(JSON.stringify(regMsg));
     collectAgentCardsForRegister(liveCfg).then((agents) => {
-      regMsg.agents = agents;
       if (agents.length) {
         log(`[agent] agents: ${agents.map((a) => a.display_name || a.name).join(', ')}`);
       } else {
         log('[agent] agents: (none — contribute list empty or filtered)');
       }
       if (thisSocket.readyState === WebSocket.OPEN) {
-        thisSocket.send(JSON.stringify(regMsg));
+        thisSocket.send(JSON.stringify({ type: 'agents_update', agents }));
       }
     }).catch((e) => {
       log(`[agent] agents card build failed: ${e.message}`);
-      regMsg.agents = [];
       if (thisSocket.readyState === WebSocket.OPEN) {
-        thisSocket.send(JSON.stringify(regMsg));
+        thisSocket.send(JSON.stringify({ type: 'agents_update', agents: [] }));
       }
     });
     if (!cachedIp) {

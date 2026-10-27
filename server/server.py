@@ -1101,7 +1101,8 @@ async def worker_ws(ws: WebSocket):
     logger.info("[worker/ws] connected peer=%s path=/ws/worker", peer)
     worker: Optional[WorkerConnection] = None
     try:
-        raw = await asyncio.wait_for(ws.receive_text(), timeout=10)
+        # Client may probe CLIs (Cursor status <=45s) before first register; keep headroom.
+        raw = await asyncio.wait_for(ws.receive_text(), timeout=60)
         msg = json.loads(raw)
 
         if msg.get("type") != "register":
@@ -1242,6 +1243,18 @@ async def worker_ws(ws: WebSocket):
                     await ws.close(code=4001, reason="Unauthorized")
                     return
                 last_auth_check = now
+
+            # 注册后补齐/刷新智能体名片（客户端先秒回 register，再异步探测 CLI）
+            if kind == "agents_update":
+                worker.agents = normalize_agent_cards(
+                    msg.get("agents"), owner_nickname=getattr(worker, "owner_nickname", None) or "",
+                )
+                logger.info(
+                    "[worker/ws] agents_update worker_id=%s agents=%s",
+                    worker.worker_id,
+                    [a.get("display_name") or a.get("id") for a in worker.agents],
+                )
+                continue
 
             # 武将任务进度：不摘 pending，供 HTTP SSE 转发
             if kind == "agent_task_progress":
