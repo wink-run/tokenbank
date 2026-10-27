@@ -1,4 +1,4 @@
-"""工具合集站种子数据"""
+"""出租智能体市场种子数据（对齐虚拟智能体命名）"""
 
 import asyncio
 import logging
@@ -9,91 +9,91 @@ logger = logging.getLogger(__name__)
 
 
 async def seed_tools():
-    """插入示例工具数据"""
+    """插入示例出租智能体数据（用户出租 + 平台虚拟）"""
     
     async with connect() as conn:
         # 检查是否已有数据
         count = await conn.fetch_one("SELECT COUNT(*) as cnt FROM tools")
         if count["cnt"] > 0:
-            logger.info("Tools already seeded, skipping")
+            logger.info("Agents for rent already seeded, skipping")
             return
         
-        # 精选工具列表（V1 精简到 5 个，全部站内调度）
+        # 精选出租智能体（用户出租 + 平台虚拟）
         tools_data = [
             {
-                "name": "pdf-to-word",
-                "display_name": "PDF 转 Word",
-                "description": "办一件事：把 PDF 变成可编辑的 Word",
-                "detail_desc": "上传 PDF，智能体帮你转成 Word，保留格式、图片和表格。转完直接下载，适合改合同、编辑报告。\n\n💡 本工具由开发者出租的智能体完成，算力在开发者机器，你只管用。",
+                "name": "pdf-to-word-agent",
+                "display_name": "PDF 转 Word 智能体",
+                "description": "把 PDF 变成可编辑的 Word",
+                "detail_desc": "上传 PDF，智能体帮你转成 Word，保留格式、图片和表格。转完直接下载，适合改合同、编辑报告。\n\n🤖 由平台虚拟智能体执行（类似虚拟模型，算力由平台提供）",
                 "icon": "📄",
                 "scene": "office",
                 "scene_display_name": "办公文档",
                 "featured": 1,
-                "trust_level": "verified",
+                "trust_level": "virtual",
                 "pricing_type": "ad_or_paid",
                 "pricing_amount": 2.0,
                 "dispatch_type": "rented_agent",
-                "dispatch_url": "http://localhost:8001/tools/pdf-to-word",
+                "dispatch_url": "http://localhost:8001/agents/pdf-to-word",
             },
             {
-                "name": "video-watermark-remover",
-                "display_name": "视频去水印",
-                "description": "办一件事：抹掉视频里的水印",
-                "detail_desc": "上传视频，AI 自动找水印、抹干净，画质不掉。批量传也行。\n\n💡 本工具调用开发者智能体处理，处理完了回传给你，开发者的配置和密钥不出本地。",
+                "name": "video-watermark-agent",
+                "display_name": "视频去水印智能体",
+                "description": "抹掉视频里的水印",
+                "detail_desc": "上传视频，智能体自动找水印、抹干净，画质不掉。批量传也行。\n\n👤 由用户出租的智能体执行（开发者出租算力，配置和密钥不出本地）",
                 "icon": "🎬",
                 "scene": "watermark",
                 "scene_display_name": "去水印",
                 "featured": 1,
-                "trust_level": "verified",
+                "trust_level": "user_rented",
                 "pricing_type": "ad_or_paid",
                 "pricing_amount": 3.0,
                 "dispatch_type": "rented_agent",
-                "dispatch_url": "http://localhost:8001/tools/video-watermark",
+                "dispatch_url": "http://localhost:8001/agents/video-watermark",
             },
             {
-                "name": "image-background-remover",
-                "display_name": "一键抠图",
-                "description": "办一件事：把人或物从照片里抠出来",
-                "detail_desc": "传照片，AI 认出主体，背景全去掉，导出透明 PNG。做电商图、证件照都能用。\n\n💡 抠图任务发给开发者出租的智能体，干完了你拿结果。",
+                "name": "image-bg-remover-agent",
+                "display_name": "一键抠图智能体",
+                "description": "把人或物从照片里抠出来",
+                "detail_desc": "传照片，智能体认出主体，背景全去掉，导出透明 PNG。做电商图、证件照都能用。\n\n🤖 由平台虚拟智能体执行（类似虚拟模型，算力由平台提供）",
                 "icon": "🖼️",
                 "scene": "image",
                 "scene_display_name": "图片处理",
                 "featured": 1,
-                "trust_level": "official",
+                "trust_level": "virtual",
                 "pricing_type": "ad_or_paid",
                 "pricing_amount": 1.0,
                 "dispatch_type": "rented_agent",
-                "dispatch_url": "http://localhost:8001/tools/remove-bg",
+                "dispatch_url": "http://localhost:8001/agents/remove-bg",
             },
             {
-                "name": "image-compress",
-                "display_name": "图片压缩",
-                "description": "办一件事：把图片变小但不糊",
-                "detail_desc": "传图片，智能压缩算法帮你减体积，肉眼看不出区别。支持 JPG、PNG。\n\n💡 调度到开发者智能体压缩，完成后直接下载。",
+                "name": "image-compress-agent",
+                "display_name": "图片压缩智能体",
+                "description": "把图片变小但不糊",
+                "detail_desc": "传图片，智能体用压缩算法帮你减体积，肉眼看不出区别。支持 JPG、PNG。\n\n👤 由用户出租的智能体执行（开发者出租算力，配置和密钥不出本地）",
                 "icon": "🗜️",
                 "scene": "image",
                 "scene_display_name": "图片处理",
                 "featured": 1,
-                "trust_level": "community",
+                "trust_level": "user_rented",
                 "pricing_type": "ad_or_paid",
                 "pricing_amount": 0.5,
                 "dispatch_type": "rented_agent",
-                "dispatch_url": "http://localhost:8001/tools/compress",
+                "dispatch_url": "http://localhost:8001/agents/compress",
             },
             {
-                "name": "audio-transcribe",
-                "display_name": "语音转文字",
-                "description": "办一件事：把录音变成文字稿",
-                "detail_desc": "上传音频或视频，智能体自动识别语音转成文字，支持中英文。会议记录、采访整理都能用。\n\n💡 转写任务派发到开发者智能体，识别完成后返回文本结果。",
+                "name": "audio-transcribe-agent",
+                "display_name": "语音转文字智能体",
+                "description": "把录音变成文字稿",
+                "detail_desc": "上传音频或视频，智能体自动识别语音转成文字，支持中英文。会议记录、采访整理都能用。\n\n👤 由用户出租的智能体执行（开发者出租算力，配置和密钥不出本地）",
                 "icon": "🎙️",
                 "scene": "audio",
                 "scene_display_name": "音频处理",
                 "featured": 1,
-                "trust_level": "verified",
+                "trust_level": "user_rented",
                 "pricing_type": "ad_or_paid",
                 "pricing_amount": 2.0,
                 "dispatch_type": "rented_agent",
-                "dispatch_url": "http://localhost:8001/tools/transcribe",
+                "dispatch_url": "http://localhost:8001/agents/transcribe",
             },
         ]
         
@@ -141,7 +141,7 @@ async def seed_tools():
             ])
         
         await conn.commit()
-        logger.info(f"Seeded {len(tools_data)} tools")
+        logger.info(f"Seeded {len(tools_data)} agents for rent")
 
 
 if __name__ == "__main__":

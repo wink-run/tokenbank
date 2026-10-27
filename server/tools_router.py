@@ -1,4 +1,4 @@
-"""工具合集站路由 - 面向消费者的工具发现和使用"""
+"""出租智能体市场路由 - 面向消费者的智能体雇用（对齐虚拟智能体命名）"""
 
 import json
 import logging
@@ -21,8 +21,10 @@ router = APIRouter()
 
 async def _demo_process_task(task_id: str):
     """
-    V1 演示级：模拟智能体处理任务
-    真实版本应该由开发者的 dispatch_url 处理并回调
+    V1 演示级：模拟出租智能体处理任务
+    真实版本：
+    - 用户出租智能体：由开发者的 dispatch_url 处理并回调
+    - 平台虚拟智能体：类似虚拟模型，由平台提供算力
     """
     import asyncio
     import random
@@ -46,7 +48,7 @@ async def _demo_process_task(task_id: str):
         "success": True,
         "message": "处理完成（演示）",
         "download_url": "https://example.com/demo-result.pdf",
-        "demo_note": "这是 V1 演示结果，真实版本将由开发者智能体处理",
+        "demo_note": "V1 演示结果 - 真实版本将由用户出租智能体或平台虚拟智能体处理",
     }
     
     async with db.connect() as conn:
@@ -83,10 +85,10 @@ async def discover_tools(
     user_id: Optional[int] = Depends(get_current_user_id),
 ):
     """
-    工具发现首页
+    出租智能体发现首页（用户出租 + 平台虚拟）
     - 支持场景筛选（scene: download, watermark, image, office 等）
     - 支持搜索（search: 关键词）
-    - 返回精选工具列表
+    - 返回精选智能体列表（对齐虚拟智能体命名）
     """
     query = """
         SELECT 
@@ -138,7 +140,7 @@ async def get_tool_detail(
     tool_id: int,
     user_id: Optional[int] = Depends(get_current_user_id),
 ):
-    """获取工具详情"""
+    """获取出租智能体详情（用户出租 / 平台虚拟）"""
     query = """
         SELECT 
             t.id, t.name, t.display_name, t.description, t.detail_desc,
@@ -176,10 +178,10 @@ async def pass_gate(
     user_id: Optional[int] = Depends(get_current_user_id),
 ):
     """
-    通过通行门（看广告 OR 付费）
+    通过通行门雇用智能体（看广告 OR 付积分）
     - 看广告：免费，模拟广告播放成功
-    - 付费：扣除积分或记录订单
-    成功后返回 task_ticket 用于启动任务
+    - 付积分：扣除积分
+    成功后返回 task_ticket 用于调度智能体
     """
     # 获取工具信息
     async with db.connect() as conn:
@@ -252,9 +254,9 @@ async def start_task(
     user_id: Optional[int] = Depends(get_current_user_id),
 ):
     """
-    启动任务执行
+    调度出租智能体执行任务
     - 验证 ticket
-    - 根据 dispatch_type 分发任务
+    - 派发到用户出租智能体或平台虚拟智能体
     - 返回 task_id 用于查询进度
     """
     # 验证 ticket

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>工具合集 - Token Bank</title>
+<title>出租智能体 - Token Bank</title>
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 <script src="https://unpkg.com/vue@3.4.21/dist/vue.global.prod.js"></script>
 <script src="https://unpkg.com/axios@1.6.7/dist/axios.min.js"></script>
@@ -46,8 +46,8 @@ body {
 .tool-info { flex: 1; min-width: 0; }
 .tool-name { font-size: 1.25rem; font-weight: 700; color: #09090b; margin-bottom: 0.25rem; }
 .tool-badge { display: inline-block; padding: 0.25rem 0.625rem; font-size: 0.75rem; font-weight: 600; color: #fff; border-radius: 9999px; }
-.badge-official { background: #3b82f6; }
-.badge-verified { background: #10b981; }
+.badge-virtual { background: #3b82f6; }
+.badge-user-rented { background: #10b981; }
 .badge-community { background: #6b7280; }
 .tool-desc { font-size: 0.875rem; color: #71717a; margin-bottom: 1rem; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .tool-footer { display: flex; align-items: center; justify-content: space-between; padding-top: 0.75rem; border-top: 1px solid #f4f4f5; }
@@ -136,12 +136,12 @@ body {
         <span>🎯</span>
         <span>打开就能用</span>
       </div>
-      <h1 class="hero-title">工具合集</h1>
-      <p class="hero-subtitle">打开就能用 · 看广告免费用，或按次付费 · 本站调度，开发者智能体干活</p>
+      <h1 class="hero-title">出租智能体</h1>
+      <p class="hero-subtitle">雇用智能体干活 · 看广告免费用，或按次付积分 · 用户出租 + 平台虚拟</p>
     </div>
 
     <div class="search-box" style="position: relative;">
-      <input v-model="searchQuery" @keyup.enter="loadTools" type="text" class="search-input" placeholder="搜索工具名称或功能…">
+      <input v-model="searchQuery" @keyup.enter="loadTools" type="text" class="search-input" placeholder="搜索智能体名称或功能…">
       <button @click="loadTools" class="search-button">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       </button>
@@ -153,18 +153,17 @@ body {
     </div>
 
     <div class="info-card">
-      <h3 class="info-title">💡 工作原理</h3>
+      <h3 class="info-title">💡 这些是出租智能体（agents for rent）</h3>
       <div class="info-steps">
-        <p>① 你选工具，填参数</p>
-        <p>② 看广告或付积分通过</p>
-        <p>③ 本站发任务票，调度到开发者出租的智能体</p>
-        <p>④ 智能体在开发者机器干活，结果回传给你</p>
+        <p>👤 <strong>用户出租</strong>：开发者列出智能体供雇用，算力在他们机器，配置密钥不出本地</p>
+        <p>🤖 <strong>平台虚拟</strong>：类似虚拟模型，由平台配置虚拟智能体供给</p>
+        <p>📋 <strong>使用流程</strong>：选智能体 → 看广告或付积分 → 调度该智能体执行 → 拿结果</p>
       </div>
-      <p class="info-benefit">你无感算力在哪 · 开发者配置和密钥不出本地 · 本站只做调度</p>
+      <p class="info-benefit">本站只做调度 · 不提供算力 · 对齐 Token Bank 虚拟模型架构</p>
     </div>
 
     <div v-if="loading" class="loading">加载中…</div>
-    <div v-else-if="!tools.length" class="empty">暂无工具</div>
+    <div v-else-if="!tools.length" class="empty">暂无可用智能体</div>
     <div v-else class="tools-grid">
       <div v-for="tool in tools" :key="tool.id" @click="viewTool(tool.id)" class="tool-card">
         <div v-if="tool.featured" class="tool-featured"><span>⭐</span><span>精选</span></div>
@@ -294,8 +293,8 @@ body {
     </div>
 
     <div class="task-actions">
-      <button @click="view = 'list'" class="btn btn-outline">浏览更多工具</button>
-      <button v-if="currentTask.status === 'completed'" @click="viewTool(currentTask.tool_id)" class="btn btn-primary">再用一次</button>
+      <button @click="view = 'list'" class="btn btn-outline">浏览更多智能体</button>
+      <button v-if="currentTask.status === 'completed'" @click="viewTool(currentTask.tool_id)" class="btn btn-primary">再雇一次</button>
     </div>
   </div>
 
@@ -435,16 +434,16 @@ createApp({
       }, 3000);
     },
     getBadgeClass(level) {
-      return { official: 'badge-official', verified: 'badge-verified', community: 'badge-community' }[level] || 'badge-community';
+      return { virtual: 'badge-virtual', user_rented: 'badge-user-rented', community: 'badge-community' }[level] || 'badge-community';
     },
     getBadgeText(level) {
-      return { official: '官方认证', verified: '开发者认证', community: '社区贡献' }[level] || '社区贡献';
+      return { virtual: '平台虚拟', user_rented: '用户出租', community: '社区贡献' }[level] || '社区贡献';
     },
     getStatusIcon(status) {
       return { created: '⏳', dispatched: '🚀', processing: '⚙️', completed: '✓', failed: '✗' }[status] || '⏳';
     },
     getStatusText(status) {
-      return { created: '任务已创建', dispatched: '正在调度智能体', processing: '智能体处理中', completed: '完成', failed: '任务失败' }[status] || '处理中';
+      return { created: '任务已创建', dispatched: '正在调度出租智能体', processing: '智能体执行中', completed: '完成', failed: '任务失败' }[status] || '处理中';
     },
     getStatusColor(status) {
       return { created: 'text-zinc-500', dispatched: 'text-blue-500', processing: 'text-yellow-600', completed: 'text-green-500', failed: 'text-red-500' }[status] || '';

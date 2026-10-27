@@ -271,20 +271,20 @@ async def privacy_policy():
 
 @app.get("/tools")
 async def tools_hub_page():
-    """公开：工具合集站（消费端）"""
+    """公开：出租智能体市场（用户出租 + 平台虚拟，对齐虚拟智能体）"""
     return FileResponse("static/tools.html")
 
 
 @app.get("/tools/{tool_id}")
 async def tool_detail_page(tool_id: int):
-    """工具详情页（路径参数由前端 JS 解析）"""
+    """出租智能体详情页（路径参数由前端 JS 解析）"""
     _ = tool_id
     return FileResponse("static/tools.html")
 
 
 @app.get("/tools/tasks/{task_id}")
 async def tool_task_page(task_id: str):
-    """任务进度页（路径参数由前端 JS 解析）"""
+    """智能体任务进度页（路径参数由前端 JS 解析）"""
     _ = task_id
     return FileResponse("static/tools.html")
 
