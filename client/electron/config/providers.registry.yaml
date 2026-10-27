@@ -354,6 +354,10 @@ providers:
   models:
   - name: glm-5.3
     type: chat
+  - name: glm-5.3-flash
+    type: chat
+  - name: glm-5.3-flashx
+    type: chat
   - name: glm-5.2
     type: chat
   - name: glm-5.1
@@ -366,29 +370,37 @@ providers:
     type: chat
   pricing:
     glm-5.3:
-      in: 1.14
-      out: 3.99
-      cacheRead: 0.29
+      in: 1.4
+      out: 4.4
+      cacheRead: 0.26
+    glm-5.3-flash:
+      in: 0.15
+      out: 0.5
+      cacheRead: 0.03
+    glm-5.3-flashx:
+      in: 0.37
+      out: 1.25
+      cacheRead: 0.075
     glm-5.2:
-      in: 1.14
-      out: 3.99
-      cacheRead: 0.29
+      in: 1.4
+      out: 4.4
+      cacheRead: 0.26
     glm-5.1:
-      in: 0.86
-      out: 3.42
-      cacheRead: 0.19
+      in: 1.4
+      out: 4.4
+      cacheRead: 0.26
     glm-5:
-      in: 0.57
-      out: 2.57
-      cacheRead: 0.14
+      in: 1.0
+      out: 3.2
+      cacheRead: 0.2
     glm-4.7:
-      in: 0.29
-      out: 1.14
-      cacheRead: 0.06
+      in: 0.6
+      out: 2.2
+      cacheRead: 0.11
     glm-4.6:
-      in: 0.86
-      out: 3.14
-      cacheRead: 0.16
+      in: 0.6
+      out: 2.2
+      cacheRead: 0.11
   handler: openai
   api_format: openai
   enabled_default: false
@@ -472,6 +484,14 @@ providers:
   modalities:
     language: true
   models:
+  - name: claude-fable-5-1
+    type: chat
+  - name: claude-opus-5-5
+    type: chat
+  - name: claude-sonnet-5-5
+    type: chat
+  - name: claude-haiku-5-5
+    type: chat
   - name: claude-sonnet-4-6
     type: chat
   - name: claude-sonnet-4-5
@@ -483,6 +503,26 @@ providers:
   - name: claude-opus-4-6
     type: chat
   pricing:
+    claude-fable-5-1:
+      in: 10
+      out: 50
+      cacheRead: 0.25
+      cacheWrite: 12.5
+    claude-opus-5-5:
+      in: 4
+      out: 20
+      cacheRead: 0.2
+      cacheWrite: 5
+    claude-sonnet-5-5:
+      in: 2
+      out: 10
+      cacheRead: 0.1
+      cacheWrite: 2.5
+    claude-haiku-5-5:
+      in: 0.1
+      out: 0.5
+      cacheRead: 0.01
+      cacheWrite: 0.125
     claude-sonnet-4-6:
       in: 3
       out: 15
@@ -527,10 +567,25 @@ providers:
     language: true
     embedding: true
   models:
+  - gemini-4-argon
+  - gemini-3.8-flash
+  - gemini-3.6-flash
   - gemini-2.5-pro
   - gemini-2.5-flash
   - gemini-2.0-flash
   pricing:
+    gemini-4-argon:
+      in: 2.0
+      out: 10.0
+      cacheRead: 0.1
+    gemini-3.8-flash:
+      in: 0.75
+      out: 3.75
+      cacheRead: 0.075
+    gemini-3.6-flash:
+      in: 0.75
+      out: 3.75
+      cacheRead: 0.075
     gemini-2.5-pro:
       in: 1.25
       out: 10.0
@@ -572,12 +627,10 @@ providers:
       in: 0.15
       out: 0.60
       cacheRead: 0.003
-      cacheWrite: 0.19
     deepseek-v4-pro:
       in: 0.66
       out: 1.98
       cacheRead: 0.022
-      cacheWrite: 0.83
   handler: openai
   api_format: openai
   enabled_default: false
@@ -745,9 +798,9 @@ providers:
     type: chat
   - name: grok-4.6
     type: chat
-  - name: grok-4
+  - name: grok-4.5
     type: chat
-  - name: grok-3-mini
+  - name: grok-4.3
     type: chat
   pricing:
     grok-4.7:
@@ -758,12 +811,14 @@ providers:
       in: 2.0
       out: 6.0
       cacheRead: 0.5
-    grok-4:
-      in: 3.0
-      out: 15.0
-    grok-3-mini:
-      in: 0.3
-      out: 0.5
+    grok-4.5:
+      in: 2.0
+      out: 6.0
+      cacheRead: 0.3
+    grok-4.3:
+      in: 1.25
+      out: 2.5
+      cacheRead: 0.2
   handler: openai
   api_format: openai
   enabled_default: false
@@ -1315,6 +1370,34 @@ billing_sources:
   - claude-cli
   enabled_default: false
   models:
+  - id: claude-fable-5-1
+    modality: chat
+    pricing:
+      in: 10
+      out: 50
+      cacheRead: 0.25
+      cacheWrite: 12.5
+  - id: claude-opus-5-5
+    modality: chat
+    pricing:
+      in: 4
+      out: 20
+      cacheRead: 0.2
+      cacheWrite: 5
+  - id: claude-sonnet-5-5
+    modality: chat
+    pricing:
+      in: 2
+      out: 10
+      cacheRead: 0.1
+      cacheWrite: 2.5
+  - id: claude-haiku-5-5
+    modality: chat
+    pricing:
+      in: 0.1
+      out: 0.5
+      cacheRead: 0.01
+      cacheWrite: 0.125
   - id: claude-sonnet-4-6
     modality: chat
     pricing:
@@ -1405,25 +1488,21 @@ billing_sources:
       in: 0.15
       out: 0.60
       cacheRead: 0.003
-      cacheWrite: 0.19
   - id: deepseek-v4-pro
     modality: chat
     pricing:
       in: 0.66
       out: 1.98
       cacheRead: 0.022
-      cacheWrite: 0.83
   pricing:
     deepseek-flash:
       in: 0.15
       out: 0.60
       cacheRead: 0.003
-      cacheWrite: 0.19
     deepseek-v4-pro:
       in: 0.66
       out: 1.98
       cacheRead: 0.022
-      cacheWrite: 0.83
   plans: []
   agent_id: ''
   plan_provider_id: null
@@ -1459,16 +1538,18 @@ billing_sources:
       in: 2.0
       out: 6.0
       cacheRead: 0.5
-  - id: grok-4
+  - id: grok-4.5
     modality: chat
     pricing:
-      in: 3.0
-      out: 15.0
-  - id: grok-3-mini
+      in: 2.0
+      out: 6.0
+      cacheRead: 0.3
+  - id: grok-4.3
     modality: chat
     pricing:
-      in: 0.3
-      out: 0.5
+      in: 1.25
+      out: 2.5
+      cacheRead: 0.2
   pricing:
     grok-4.7:
       in: 2.0
@@ -1478,12 +1559,14 @@ billing_sources:
       in: 2.0
       out: 6.0
       cacheRead: 0.5
-    grok-4:
-      in: 3.0
-      out: 15.0
-    grok-3-mini:
-      in: 0.3
-      out: 0.5
+    grok-4.5:
+      in: 2.0
+      out: 6.0
+      cacheRead: 0.3
+    grok-4.3:
+      in: 1.25
+      out: 2.5
+      cacheRead: 0.2
   plans: []
   agent_id: ''
   plan_provider_id: null
