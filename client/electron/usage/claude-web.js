@@ -52,10 +52,12 @@ function resolveHttpsProxyUrl() {
   }
 }
 
-/** macOS：Claude Safe Storage 密码（进程内缓存，避免切 tab 反复弹钥匙串） */
-function readClaudeSafeStoragePassword() {
+/** macOS：Claude Safe Storage 密码。interactive 为 false 时只用缓存，不弹钥匙串。 */
+function readClaudeSafeStoragePassword(deps = {}) {
   const { findGenericPassword } = require('./mac-keychain');
-  return findGenericPassword('Claude Safe Storage', 'Claude Key');
+  return findGenericPassword('Claude Safe Storage', 'Claude Key', {
+    interactive: deps.interactive,
+  });
 }
 
 /** PBKDF2 → AES-128-CBC 解密 v10 Cookie（spaces IV）。 */
@@ -109,8 +111,16 @@ function decryptCookieToText(encryptedValue, password) {
 function readClaudeDesktopCookies(deps = {}) {
   const dbPath = deps.cookiesPath || claudeCookiesPath(deps.home);
   if (!fs.existsSync(dbPath)) return null;
-  const password = deps.password || readClaudeSafeStoragePassword();
-  if (!password) return null;
+  const password = deps.password || readClaudeSafeStoragePassword(deps);
+  if (!password) {
+    // macOS 有 Cookie 库但还没授权：交给上层提示，不在列表加载时弹密码
+    if (deps.interactive === false && process.platform === 'darwin') {
+      const err = new Error('查看余额需解锁钥匙串');
+      err.code = 'needs_keychain';
+      throw err;
+    }
+    return null;
+  }
 
   // Electron 主进程可用 better-sqlite3；系统 Node / ABI 不匹配时回退 sqlite3 CLI
   try {
@@ -358,7 +368,12 @@ async function fetchClaudeWebUsageRaw(deps = {}) {
   let cookies = deps.cookies;
   try {
     cookies = cookies || readClaudeDesktopCookies(deps);
-  } catch {
+  } catch (e) {
+    if (e && e.code === 'needs_keychain') {
+      const hist = localFallback();
+      if (hist) return hist;
+      throw e;
+    }
     cookies = null;
   }
 

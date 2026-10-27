@@ -107,17 +107,21 @@ function hasCredential(provider) {
   const name = usageProviderName(provider);
   if (name === 'cursor') {
     try {
+      // 只看 IDE 是否落了 token，不解密，避免一进账户页就弹 Cursor 钥匙串
       const ide = require('../cursor-ide-auth');
-      return !!ide.readIdeCursorSession()?.accessToken;
+      const raw = ide.readIdeItem && ide.readIdeItem('cursorAuth/accessToken');
+      return !!(raw && String(raw).length >= 20);
     } catch { return false; }
   }
   // Claude：OAuth / 套餐元数据 / Desktop Cookie / 本地用量采样均可展示
   if (name === 'claude') {
-    const cli = readCliCreds('claude');
+    const cli = readCliCreds('claude', { interactive: false });
     if (cli && (cli.access_token || cli.refresh_token || cli.subscriptionType)) return true;
     try {
+      const fs = require('fs');
       const web = require('./claude-web');
-      if (web.readClaudeDesktopCookies()?.sessionKey) return true;
+      // 只看文件在不在，不解密 Cookie，避免一进账户页就弹钥匙串
+      if (typeof web.claudeCookiesPath === 'function' && fs.existsSync(web.claudeCookiesPath())) return true;
       if (web.readClaudePlanUsageHistory()) return true;
     } catch { /* ignore */ }
     return false;
@@ -131,8 +135,10 @@ async function fetchUsage(provider, deps) {
   const name = usageProviderName(provider);
   const id = provider && provider.id;
   if (!name) return { id, provider: provider && (provider.oauth_provider || provider.id), error: 'unsupported' };
+  // 默认不弹钥匙串；界面点「查看余额」时才传 interactive
+  const d = { ...(deps || {}), interactive: !!(deps && deps.interactive) };
   try {
-    return await USAGE_FETCHERS[name](provider, deps || {});
+    return await USAGE_FETCHERS[name](provider, d);
   } catch (e) {
     return { id, provider: name, error: (e && e.message) || String(e) };
   }

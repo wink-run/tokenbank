@@ -81,15 +81,14 @@ function readIdeItem(key) {
   }
 }
 
-/** 读取 Cursor Safe Storage 主密钥（macOS Keychain） */
-function readCursorSafeStoragePassword() {
+/** 读取 Cursor Safe Storage 主密钥。interactive 为 false 时只用缓存，不弹钥匙串。 */
+function readCursorSafeStoragePassword(opts = {}) {
   if (process.platform !== 'darwin') return null;
   try {
-    const pw = execFileSync(
-      'security',
-      ['find-generic-password', '-s', 'Cursor Safe Storage', '-a', 'Cursor Key', '-w'],
-      { encoding: 'utf8', timeout: 5000 },
-    ).trim();
+    const { findGenericPassword } = require('./usage/mac-keychain');
+    const pw = findGenericPassword('Cursor Safe Storage', 'Cursor Key', {
+      interactive: opts.interactive,
+    });
     return pw || null;
   } catch {
     return null;
@@ -121,13 +120,15 @@ function decryptCursorSafeStorage(raw, password = null) {
  * 将 IDE 落盘值解析为可用 JWT：明文 JWT 直接用；密文则尝试解密。
  * @returns {{ token: string|null, source: 'jwt'|'decrypted'|'cipher'|'empty' }}
  */
-function resolveUsableToken(raw) {
+function resolveUsableToken(raw, opts = {}) {
   if (!raw || typeof raw !== 'string' || raw.length < 20) {
     return { token: null, source: 'empty' };
   }
   if (isUsableAccessToken(raw)) return { token: raw, source: 'jwt' };
   if (isCursorSafeStorageCipher(raw)) {
-    const plain = decryptCursorSafeStorage(raw);
+    const pw = readCursorSafeStoragePassword({ interactive: opts.interactive });
+    if (!pw) return { token: null, source: 'cipher', needsKeychain: true };
+    const plain = decryptCursorSafeStorage(raw, pw);
     if (isUsableAccessToken(plain)) return { token: plain, source: 'decrypted' };
     return { token: null, source: 'cipher' };
   }
@@ -138,14 +139,14 @@ function resolveUsableToken(raw) {
  * 读取 Cursor IDE 当前登录（自动解密 encryption-at-rest）。
  * @returns {{ accessToken: string, refreshToken: string, email: string|null, usable: boolean, tokenSource: string }|null}
  */
-function readIdeCursorSession() {
+function readIdeCursorSession(opts = {}) {
   const accessRaw = readIdeItem('cursorAuth/accessToken');
   if (!accessRaw || accessRaw.length < 20) return null;
   const refreshRaw = readIdeItem('cursorAuth/refreshToken') || accessRaw;
   const email = readIdeItem('cursorAuth/cachedEmail');
 
-  const access = resolveUsableToken(accessRaw);
-  const refresh = resolveUsableToken(refreshRaw);
+  const access = resolveUsableToken(accessRaw, opts);
+  const refresh = resolveUsableToken(refreshRaw, opts);
   // 仅当 access 解密/本身为 JWT 时视为可共享
   const accessToken = access.token || accessRaw;
   const refreshToken = refresh.token || (access.token ? access.token : refreshRaw);
@@ -156,6 +157,7 @@ function readIdeCursorSession() {
     email,
     usable: !!access.token,
     tokenSource: access.source,
+    needsKeychain: !access.token && !!access.needsKeychain,
   };
 }
 

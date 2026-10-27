@@ -121,6 +121,8 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
   const [compressEnabled, setCompressEnabled] = useState(false);
   // macOS：是否隐藏 Dock（默认否，设置中可开）
   const [hideDockIcon, setHideDockIcon] = useState(false);
+  // 跨终端同步时是否带上 API Key / 登录凭证（默认关）
+  const [syncAccountSecrets, setSyncAccountSecrets] = useState(false);
   const isMac = window.electronAPI?.platform === 'darwin';
 
   const [savedMsg, setSavedMsg] = useState('');
@@ -149,6 +151,7 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
       if (cfg.usd_cny_rate != null) setUsdCnyRateInput(String(cfg.usd_cny_rate));
       // 默认 false：未设置时不隐藏 Dock
       setHideDockIcon(!!cfg.hide_dock_icon);
+      setSyncAccountSecrets(!!cfg.sync_account_secrets);
     }).catch(() => {});
     // Read live gateway port from status
     getGateway().status().then(s => {
@@ -211,6 +214,7 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
         currency: displayCurrency,
         usd_cny_rate: rate,
         hide_dock_icon: isMac ? hideDockIcon : false,
+        sync_account_secrets: !!syncAccountSecrets,
       });
       applySettings({ currency: displayCurrency, usdCnyRate: rate });
       if (isMac) {
@@ -229,6 +233,7 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
     setHealthInterval('60'); setKeepRouteLogs(true);
     setCompressEnabled(false);
     setHideDockIcon(false);
+    setSyncAccountSecrets(false);
     const defCur = defaultCurrencyForLang(lang);
     setDisplayCurrency(defCur);
     setUsdCnyRateInput(String(DEFAULT_USD_CNY_RATE));
@@ -516,6 +521,9 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
           <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{t('settings.account')}</h2>
         </div>
         <div className="divide-y divide-white/40 dark:divide-white/[0.06]">
+          <Row label={t('settings.syncAccountSecrets')} hint={t('settings.syncAccountSecretsHint')}>
+            <Toggle enabled={syncAccountSecrets} onChange={() => setSyncAccountSecrets(v => !v)} />
+          </Row>
           {user ? (
             <>
               <Row label={t('config.email')} hint={user.email}>

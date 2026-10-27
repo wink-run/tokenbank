@@ -2850,7 +2850,7 @@ function registerIPC() {
   // 订阅用量额度抓取（复用 oauth 凭证；provider 条目存在 agent config ~/.llm-agent/config.json）
   const usageMod = require('./usage');
   const usageDeps = { getCfg: readAgentConfig, saveCfg: writeAgentConfig };
-  ipcMain.handle('usage:fetch', async (_e, { provider } = {}) => {
+  ipcMain.handle('usage:fetch', async (_e, { provider, interactive } = {}) => {
     const cfg = readAgentConfig() || {};
     const list = Array.isArray(cfg.providers) ? cfg.providers : [];
     const findEntry = (id) => list.find(p => p && (p.id === id
@@ -2868,7 +2868,7 @@ function registerIPC() {
     // 直连 App（Cursor/Codex）可能无 gateway 条目：用虚拟 provider + IDE/CLI 凭证
     if (!entry) entry = usageMod.syntheticProvider(provider);
     if (!entry) return { error: 'provider_not_found' };
-    return usageMod.fetchUsage(entry, usageDeps);
+    return usageMod.fetchUsage(entry, { ...usageDeps, interactive: !!interactive });
   });
   ipcMain.handle('usage:fetchAll', async () => usageMod.fetchAllUsage(usageDeps));
   // 应用列表切换路由（纳管/还原 Claude Desktop）时前端可主动触发一次会话同步（不等 30s 定时）

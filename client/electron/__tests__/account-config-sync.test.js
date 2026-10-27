@@ -64,6 +64,45 @@ test('mergeGatewayProviders 不覆盖本机 token，空地址才用对方的', (
   assert.equal(glm.base_url, 'https://open.bigmodel.cn');
 });
 
+test('打开同步密钥后上报 token，合并时只补本机空密钥', () => {
+  const cfg = buildAccountsConfig({
+    user_payg_providers: [{ id: 'a1', provider_id: 'deepseek', models: ['m'], token: 'sk-acct' }],
+  }, [
+    { id: 'deepseek', type: 'paid', token: 'sk-live', credentials: { refresh_token: 'r1' }, auth_type: 'oauth', base_url: 'https://api.deepseek.com' },
+  ], { includeSecrets: true });
+  assert.equal(cfg.user_payg_providers[0].token, 'sk-acct');
+  assert.equal(cfg.gateway_providers[0].token, 'sk-live');
+  assert.equal(cfg.gateway_providers[0].credentials.refresh_token, 'r1');
+
+  const kept = mergeRemoteAccountConfigs(
+    { user_payg_providers: [{ id: 'a1', token: 'local' }] },
+    [{ user_payg_providers: [{ id: 'a1', token: 'remote' }] }],
+    { includeSecrets: true },
+  );
+  assert.equal(kept.user_payg_providers[0].token, 'local');
+
+  const filled = mergeRemoteAccountConfigs(
+    { user_payg_providers: [{ id: 'a1', models: ['m'] }] },
+    [{ user_payg_providers: [{ id: 'a1', models: ['m'], token: 'remote' }] }],
+    { includeSecrets: true },
+  );
+  assert.equal(filled.user_payg_providers[0].token, 'remote');
+
+  const off = mergeGatewayProviders(
+    [{ id: 'deepseek', token: '', base_url: 'https://api.deepseek.com', models: [] }],
+    [[{ id: 'deepseek', token: 'remote-key', base_url: 'https://api.deepseek.com' }]],
+  );
+  assert.equal(off.providers.find(p => p.id === 'deepseek').token, '');
+
+  const on = mergeGatewayProviders(
+    [{ id: 'deepseek', token: '', base_url: 'https://api.deepseek.com', models: [] }],
+    [[{ id: 'deepseek', token: 'remote-key', base_url: 'https://api.deepseek.com' }]],
+    { includeSecrets: true },
+  );
+  assert.equal(on.providers.find(p => p.id === 'deepseek').token, 'remote-key');
+  assert.equal(on.changed, true);
+});
+
 test('没有可合并项时 changed 为 false', () => {
   const local = { user_payg_providers: [{ id: 'a1', models: ['m'] }] };
   const merged = mergeRemoteAccountConfigs(local, [{ user_payg_providers: [{ id: 'a1', models: ['m'] }] }]);

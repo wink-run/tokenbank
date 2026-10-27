@@ -5,6 +5,8 @@ const SENSITIVE_KEYS = new Set([
 ]);
 
 const GATEWAY_KEYS = ['id', 'base_url', 'api_format', 'type', 'tier', 'enabled', 'label', 'name', 'handler'];
+// 设置页打开「同步账户密钥」后才附加这些字段
+const SECRET_GATEWAY_KEYS = ['token', 'credentials', 'auth_type'];
 
 function scrubValue(value) {
   if (Array.isArray(value)) return value.map(scrubValue);
@@ -37,7 +39,33 @@ function unionModels(localModels, remoteModels) {
   return { models: out, changed };
 }
 
-function mergeRows(localList, remoteList, countRef) {
+function secretPresent(v) {
+  if (v == null) return false;
+  if (typeof v === 'string') return v.trim().length > 0;
+  if (typeof v === 'object') return Object.keys(v).length > 0;
+  return Boolean(v);
+}
+
+/** 只补本机还没有的密钥，已有的不覆盖 */
+function fillMissingSecrets(localRow, remoteRow) {
+  const next = { ...localRow };
+  let changed = false;
+  for (const k of SENSITIVE_KEYS) {
+    if (!secretPresent(next[k]) && secretPresent(remoteRow[k])) {
+      next[k] = remoteRow[k];
+      changed = true;
+    }
+  }
+  // 补上了对方的登录凭证时，一并带上 auth_type（本机已有密钥则不改）
+  if (changed && remoteRow.auth_type && !secretPresent(localRow.credentials) && secretPresent(next.credentials)) {
+    next.auth_type = remoteRow.auth_type;
+  } else if (changed && !localRow.auth_type && remoteRow.auth_type) {
+    next.auth_type = remoteRow.auth_type;
+  }
+  return { row: next, changed };
+}
+
+function mergeRows(localList, remoteList, countRef, includeSecrets) {
   const out = (Array.isArray(localList) ? localList : []).map(x => (
     x && typeof x === 'object' ? { ...x } : x
   ));
@@ -52,16 +80,29 @@ function mergeRows(localList, remoteList, countRef) {
       countRef.n += 1;
       continue;
     }
-    const merged = unionModels(out[i].models, row.models);
+    let next = out[i];
+    let changed = false;
+    const merged = unionModels(next.models, row.models);
     if (merged.changed) {
-      out[i] = { ...out[i], models: merged.models };
+      next = { ...next, models: merged.models };
+      changed = true;
+    }
+    if (includeSecrets) {
+      const filled = fillMissingSecrets(next, row);
+      if (filled.changed) {
+        next = filled.row;
+        changed = true;
+      }
+    }
+    if (changed) {
+      out[i] = next;
       countRef.n += 1;
     }
   }
   return out;
 }
 
-function mergeDirect(local, remote, countRef) {
+function mergeDirect(local, remote, countRef, includeSecrets) {
   const out = { ...(local && typeof local === 'object' ? local : {}) };
   for (const [k, v] of Object.entries(remote || {})) {
     if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
@@ -70,9 +111,22 @@ function mergeDirect(local, remote, countRef) {
       countRef.n += 1;
       continue;
     }
-    const merged = unionModels(out[k].models, v.models);
+    let next = out[k];
+    let changed = false;
+    const merged = unionModels(next.models, v.models);
     if (merged.changed) {
-      out[k] = { ...out[k], models: merged.models };
+      next = { ...next, models: merged.models };
+      changed = true;
+    }
+    if (includeSecrets) {
+      const filled = fillMissingSecrets(next, v);
+      if (filled.changed) {
+        next = filled.row;
+        changed = true;
+      }
+    }
+    if (changed) {
+      out[k] = next;
       countRef.n += 1;
     }
   }
@@ -130,31 +184,35 @@ function referencedGatewayIds(accounts = {}) {
   return ids;
 }
 
-/** 本机账户 + 关联网关源 → 心跳上报的账户配置（凭证已剔除，不含合并后的默认套餐目录） */
-export function buildAccountsConfig(accounts = {}, providers = []) {
+/** 本机账户 + 关联网关源 → 心跳上报的账户配置。默认剔除凭证；includeSecrets 时带上密钥。 */
+export function buildAccountsConfig(accounts = {}, providers = [], opts = {}) {
+  const includeSecrets = !!opts.includeSecrets;
+  const copy = includeSecrets ? (v) => v : scrubValue;
+  const gwKeys = includeSecrets ? GATEWAY_KEYS.concat(SECRET_GATEWAY_KEYS) : GATEWAY_KEYS;
   const wanted = referencedGatewayIds(accounts);
   const gateway = [];
   for (const p of (Array.isArray(providers) ? providers : [])) {
     if (!p || !p.id || p.type === 'p2p' || !wanted.has(p.id)) continue;
     const row = {};
-    for (const k of GATEWAY_KEYS) {
-      if (p[k] !== undefined && p[k] !== null) row[k] = scrubValue(p[k]);
+    for (const k of gwKeys) {
+      if (p[k] !== undefined && p[k] !== null) row[k] = copy(p[k]);
     }
     if (row.id) gateway.push(row);
   }
   return {
-    user_subscriptions: scrubValue(accounts.user_subscriptions || []),
-    user_payg_providers: scrubValue(accounts.user_payg_providers || []),
-    provider_pricing_overrides: scrubValue(accounts.provider_pricing_overrides || {}),
-    direct_source_billing: scrubValue(accounts.direct_source_billing || {}),
-    source_template_overrides: scrubValue(accounts.source_template_overrides || {}),
-    custom_source_templates: scrubValue(accounts.custom_source_templates || {}),
+    user_subscriptions: copy(accounts.user_subscriptions || []),
+    user_payg_providers: copy(accounts.user_payg_providers || []),
+    provider_pricing_overrides: copy(accounts.provider_pricing_overrides || {}),
+    direct_source_billing: copy(accounts.direct_source_billing || {}),
+    source_template_overrides: copy(accounts.source_template_overrides || {}),
+    custom_source_templates: copy(accounts.custom_source_templates || {}),
     gateway_providers: gateway,
   };
 }
 
 /** 其他终端的 accounts_config 并入本机：同 id 保留本机，补缺失账户和模型 */
-export function mergeRemoteAccountConfigs(local = {}, remotes = []) {
+export function mergeRemoteAccountConfigs(local = {}, remotes = [], opts = {}) {
+  const includeSecrets = !!opts.includeSecrets;
   const countRef = { n: 0 };
   let subs = Array.isArray(local.user_subscriptions) ? local.user_subscriptions : [];
   let payg = Array.isArray(local.user_payg_providers) ? local.user_payg_providers : [];
@@ -163,12 +221,14 @@ export function mergeRemoteAccountConfigs(local = {}, remotes = []) {
   let tpl = local.source_template_overrides || {};
   let custom = local.custom_source_templates || {};
   const gatewayLists = [];
-  for (const remote of (Array.isArray(remotes) ? remotes : [])) {
+  for (const raw of (Array.isArray(remotes) ? remotes : [])) {
+    // 本机没开「同步账户密钥」时，即使对方上报了密钥也不写入
+    const remote = !raw || typeof raw !== 'object' ? raw : (includeSecrets ? raw : scrubValue(raw));
     if (!remote || typeof remote !== 'object') continue;
-    subs = mergeRows(subs, remote.user_subscriptions, countRef);
-    payg = mergeRows(payg, remote.user_payg_providers, countRef);
+    subs = mergeRows(subs, remote.user_subscriptions, countRef, includeSecrets);
+    payg = mergeRows(payg, remote.user_payg_providers, countRef, includeSecrets);
     pricing = mergePricing(pricing, remote.provider_pricing_overrides, countRef);
-    direct = mergeDirect(direct, remote.direct_source_billing, countRef);
+    direct = mergeDirect(direct, remote.direct_source_billing, countRef, includeSecrets);
     tpl = mergeMissingKeys(tpl, remote.source_template_overrides, countRef);
     custom = mergeMissingKeys(custom, remote.custom_source_templates, countRef);
     if (Array.isArray(remote.gateway_providers) && remote.gateway_providers.length) {
@@ -189,7 +249,8 @@ export function mergeRemoteAccountConfigs(local = {}, remotes = []) {
 }
 
 /** 网关源补齐：不覆盖本机已有的 token 和 base_url */
-export function mergeGatewayProviders(local = [], lists = []) {
+export function mergeGatewayProviders(local = [], lists = [], opts = {}) {
+  const includeSecrets = !!opts.includeSecrets;
   const out = (Array.isArray(local) ? local : []).map(p => ({ ...p }));
   const byId = new Map(out.filter(p => p && p.id).map(p => [p.id, p]));
   let changed = false;
@@ -203,9 +264,9 @@ export function mergeGatewayProviders(local = [], lists = []) {
           type: row.type || row.tier || 'paid',
           tier: row.tier || row.type || 'paid',
           enabled: row.enabled !== false,
-          token: '',
-          credentials: null,
-          auth_type: 'api_key',
+          token: includeSecrets && row.token ? row.token : '',
+          credentials: includeSecrets && row.credentials ? row.credentials : null,
+          auth_type: (includeSecrets && row.auth_type) || 'api_key',
           base_url: row.base_url || '',
           api_format: row.api_format || 'openai',
           models: Array.isArray(row.models) ? row.models : [],
@@ -221,6 +282,13 @@ export function mergeGatewayProviders(local = [], lists = []) {
       if (!cur.base_url && row.base_url) {
         cur.base_url = row.base_url;
         changed = true;
+      }
+      if (includeSecrets) {
+        const filled = fillMissingSecrets(cur, row);
+        if (filled.changed) {
+          Object.assign(cur, filled.row);
+          changed = true;
+        }
       }
       if ((!cur.models || !cur.models.length) && Array.isArray(row.models) && row.models.length) {
         cur.models = row.models;

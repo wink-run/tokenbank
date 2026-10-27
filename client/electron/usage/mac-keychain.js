@@ -109,18 +109,23 @@ function findGenericPassword(service, account, deps = {}) {
     return persisted;
   }
 
+  // 账户列表等后台读取不弹窗；用户点「查看余额」才传 interactive: true
+  if (deps.interactive === false) return null;
+
   const exec = deps.execFileSync || execFileSync;
   try {
     const args = ['find-generic-password', '-w', '-s', String(service)];
     if (account) args.push('-a', String(account));
+    // 系统密码框要等用户输入。超时太短时进程先被杀掉，密码确认后界面拿不到结果，还得再点一次。
     const value = String(exec('security', args, {
-      encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf8', timeout: 180000, stdio: ['ignore', 'pipe', 'ignore'],
     })).replace(/\n$/, '') || null;
     cacheSet(key, value, !!value);
     if (value) persistOk(store, key, value);
     return value;
-  } catch {
-    cacheSet(key, null, false);
+  } catch (err) {
+    // 超时说明对话框可能还开着，不要记成失败，避免用户刚输完密码却读到空
+    if (!(err && (err.killed || err.code === 'ETIMEDOUT'))) cacheSet(key, null, false);
     return null;
   }
 }

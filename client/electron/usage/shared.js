@@ -38,10 +38,13 @@ function providerApiKey(provider) {
  *   - codex  → ~/.codex/auth.json（tokens.*）
  *   - gemini → ~/.gemini/oauth_creds.json（access_token / refresh_token / expiry_date）
  */
-function readMacKeychainClaude() {
+function readMacKeychainClaude(opts = {}) {
   if (process.platform !== 'darwin') return null;
   const { findGenericPassword, memo } = require('./mac-keychain');
-  return memo('claude-code-creds', () => {
+  // 静默失败不能挡住用户稍后点「查看余额」
+  const interactive = opts.interactive === true;
+  const memoKey = interactive ? 'claude-code-creds:ask' : 'claude-code-creds:quiet';
+  return memo(memoKey, () => {
     const parse = (raw) => {
       if (!raw) return null;
       try {
@@ -54,34 +57,20 @@ function readMacKeychainClaude() {
           subscriptionType: o.subscriptionType || null,
           rateLimitTier: o.rateLimitTier || null,
         };
-      } catch { return null; }
+      } catch {
+        const text = String(raw).trim();
+        if (text.length > 20) return { access_token: text, refresh_token: null, expires_at: null };
+        return null;
+      }
     };
-    // 先读主条目（已落盘则不再弹窗）；多数账号到此即可，避免 dump-keychain 再弹一次
-    const main = parse(findGenericPassword('Claude Code-credentials', undefined));
+    // 只读主条目。dump-keychain 会再弹一次密码，读到 token 后也不再扫。
+    const main = parse(findGenericPassword('Claude Code-credentials', undefined, { interactive }));
     if (main && (main.access_token || main.refresh_token)) return main;
-
-    const { execFileSync } = require('child_process');
-    let dump = '';
-    try {
-      dump = execFileSync('security', ['dump-keychain'], {
-        encoding: 'utf8', timeout: 8000, maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'],
-      });
-    } catch { /* 无 dump 仍用主条目元数据 */ }
-    const svcs = [...new Set(
-      [...String(dump).matchAll(/"svce"<blob>="(Claude Code-credentials[^"]*)"/g)].map((m) => m[1]),
-    )].filter((s) => s !== 'Claude Code-credentials');
-    let best = main;
-    for (const svc of svcs) {
-      const cand = parse(findGenericPassword(svc, undefined));
-      if (!cand) continue;
-      if (cand.access_token || cand.refresh_token) return cand;
-      if (!best && (cand.subscriptionType || cand.rateLimitTier)) best = cand;
-    }
-    return best;
+    return main && (main.subscriptionType || main.rateLimitTier) ? main : null;
   });
 }
 
-function readCliCreds(name) {
+function readCliCreds(name, opts = {}) {
   const home = os.homedir();
   try {
     if (name === 'claude') {
@@ -101,7 +90,7 @@ function readCliCreds(name) {
       } catch { /* 无文件 */ }
       // 文件已有 token 则不碰钥匙串，避免切 tab 反复弹授权
       if (fromFile && (fromFile.access_token || fromFile.refresh_token)) return fromFile;
-      const fromKey = readMacKeychainClaude();
+      const fromKey = readMacKeychainClaude(opts);
       if (fromKey && (fromKey.access_token || fromKey.refresh_token)) return fromKey;
       // 仅有套餐元数据时也返回，供 UsageMeter 展示订阅情况
       if (fromFile && (fromFile.subscriptionType || fromFile.rateLimitTier)) return fromFile;

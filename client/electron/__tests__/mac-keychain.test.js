@@ -43,6 +43,18 @@ test('findGenericPassword：失败也短缓存，避免连弹', () => {
   assert.equal(n, 1);
 });
 
+test('findGenericPassword：interactive false 不弹钥匙串', () => {
+  mac._resetForTests();
+  let n = 0;
+  const v = mac.findGenericPassword('Claude Safe Storage', 'Claude Key', {
+    platform: 'darwin',
+    interactive: false,
+    execFileSync: () => { n += 1; return 'x\n'; },
+  });
+  assert.equal(v, null);
+  assert.equal(n, 0);
+});
+
 test('findGenericPassword：非 darwin 不调用', () => {
   mac._resetForTests();
   let n = 0;

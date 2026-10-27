@@ -178,20 +178,21 @@ async function cursorGetJson(url, sessionCookie) {
   return resp.json();
 }
 
-/** 从 IDE / provider.credentials 取 accessToken。 */
-function resolveCursorAccessToken(provider) {
+/** 从 IDE / provider.credentials 取 accessToken。interactive 为 false 时不弹钥匙串。 */
+function resolveCursorAccessToken(provider, opts = {}) {
   const c = (provider && provider.credentials) || {};
   if (c.access_token || c.session_token || c.sessionToken) {
-    return c.access_token || c.session_token || c.sessionToken;
+    return { token: c.access_token || c.session_token || c.sessionToken, needsKeychain: false };
   }
   try {
     const ide = require('../cursor-ide-auth');
-    const s = ide.readIdeCursorSession();
+    const s = ide.readIdeCursorSession({ interactive: opts.interactive });
     // 仅用已解密/明文 JWT；密文不能拼 WorkosCursorSessionToken
-    if (s && s.usable && s.accessToken) return s.accessToken;
+    if (s && s.usable && s.accessToken) return { token: s.accessToken, needsKeychain: false };
+    if (s && s.needsKeychain) return { token: null, needsKeychain: true };
   } catch { /* ignore */ }
   // 无 API 时仍可读 IDE 落盘的 membership，供展示兜底
-  return null;
+  return { token: null, needsKeychain: false };
 }
 
 function readIdeMembershipFallback() {
@@ -206,11 +207,24 @@ function readIdeMembershipFallback() {
   }
 }
 
-async function fetchCursorUsage(provider) {
-  const accessToken = resolveCursorAccessToken(provider);
+async function fetchCursorUsage(provider, deps = {}) {
+  const resolved = resolveCursorAccessToken(provider, { interactive: !!(deps && deps.interactive) });
+  const accessToken = resolved && resolved.token;
   const cookie = buildSessionCookieValue(accessToken);
   if (!cookie) {
     const fb = readIdeMembershipFallback();
+    if (resolved && resolved.needsKeychain) {
+      return {
+        provider: 'cursor',
+        id: (provider && provider.id) || 'cursor',
+        email: fb.email,
+        plan: formatCursorMembership(fb.membershipType),
+        needsKeychain: true,
+        primary: null,
+        windows: [],
+        fetchedAt: new Date().toISOString(),
+      };
+    }
     if (fb.membershipType) {
       // 有本地套餐名但无可用会话 Cookie：仍展示订阅情况，不阻断卡片
       return {

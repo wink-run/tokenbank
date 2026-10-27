@@ -135,9 +135,9 @@ function planOnlyFromCreds(creds, provider) {
  * 1) agent config OAuth（oauth.prepare，可刷新）
  * 2) Claude Code 文件 / macOS 钥匙串（直连 Desktop 卡常用）
  */
-async function resolveClaudeAccess(provider, { getCfg, saveCfg } = {}) {
+async function resolveClaudeAccess(provider, { getCfg, saveCfg, interactive } = {}) {
   const c = (provider && provider.credentials) || {};
-  const cli = readCliCreds('claude');
+  const cli = readCliCreds('claude', { interactive: !!interactive });
 
   // 直连虚拟条目：优先 CLI/钥匙串，避免无 refresh_token 时 oauth.prepare 直接抛错
   if (cli && cli.access_token && !(c.refresh_token || c.access_token)) {
@@ -229,9 +229,27 @@ function mapWebUsage(raw, provider) {
   return snap;
 }
 
+/** 钥匙串未授权时返回给界面，由用户点「查看余额」再解锁 */
+function keychainLockedSnap(provider, creds) {
+  const soft = planOnlyFromCreds(creds, provider) || {
+    provider: 'claude',
+    id: (provider && provider.id) || 'claude',
+    email: null,
+    plan: null,
+    subscription: null,
+    primary: null,
+    windows: [],
+    extra: null,
+    fetchedAt: new Date().toISOString(),
+  };
+  soft.needsKeychain = true;
+  return soft;
+}
+
 /** 抓取 + 映射。无 OAuth 时回退 Claude Desktop Web Cookie（session 额度主路径）。 */
-async function fetchClaudeUsage(provider, { getCfg, saveCfg } = {}) {
-  const { token, provider: prepared, creds } = await resolveClaudeAccess(provider, { getCfg, saveCfg });
+async function fetchClaudeUsage(provider, { getCfg, saveCfg, interactive } = {}) {
+  const { token, provider: prepared, creds } = await resolveClaudeAccess(provider, { getCfg, saveCfg, interactive });
+  const webDeps = { interactive: !!interactive };
 
   // 1) OAuth / Claude Code token
   if (token) {
@@ -247,15 +265,16 @@ async function fetchClaudeUsage(provider, { getCfg, saveCfg } = {}) {
       snap.source = 'oauth';
       return snap;
     } catch (e) {
-      // OAuth 失败再试 Desktop Web，勿过早返回仅套餐名
+      // 已有 Claude Code token 时不再读 Desktop 钥匙串，避免输完密码又弹一次
       try {
-        const raw = await fetchClaudeWebUsageRaw();
+        const raw = await fetchClaudeWebUsageRaw({ ...webDeps, interactive: false });
         const snap = mapWebUsage(raw, provider);
         if (!snap.plan && creds) {
           snap.plan = claudePlanLabelFromParts(creds.subscriptionType, creds.rateLimitTier) || null;
         }
         return snap;
       } catch {
+        // 钥匙串已经解开并拿到 token，不要再回到「需要输入密码」
         const soft = planOnlyFromCreds(creds, provider);
         if (soft) {
           soft.warning = (e && e.message) || String(e);
@@ -272,13 +291,14 @@ async function fetchClaudeUsage(provider, { getCfg, saveCfg } = {}) {
 
   // 2) 无 OAuth token：Claude Desktop Cookie → Web usage（含 session 窗）
   try {
-    const raw = await fetchClaudeWebUsageRaw();
+    const raw = await fetchClaudeWebUsageRaw(webDeps);
     const snap = mapWebUsage(raw, provider);
     if (!snap.plan && creds) {
       snap.plan = claudePlanLabelFromParts(creds.subscriptionType, creds.rateLimitTier) || null;
     }
     return snap;
   } catch (webErr) {
+    if (webErr && webErr.code === 'needs_keychain') return keychainLockedSnap(provider, creds);
     const soft = planOnlyFromCreds(creds, provider);
     if (soft) {
       soft.warning = (webErr && webErr.message) || String(webErr);

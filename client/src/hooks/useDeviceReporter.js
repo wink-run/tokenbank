@@ -150,13 +150,16 @@ async function _loadAccountsBundle() {
   }
   if (!accounts) return { summary: null, config: null };
   let providers = [];
+  let includeSecrets = false;
   try {
     const cfg = await getConfig().read();
     if (Array.isArray(cfg?.providers)) providers = cfg.providers;
+    // 设置页「同步账户密钥」默认关，打开后心跳才带上 Key
+    includeSecrets = !!cfg?.sync_account_secrets;
   } catch { /* 网关配置未就绪 */ }
   return {
     summary: buildAccountsSummary(accounts),
-    config: buildAccountsConfig(accounts, providers),
+    config: buildAccountsConfig(accounts, providers, { includeSecrets }),
   };
 }
 

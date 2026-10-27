@@ -3545,6 +3545,8 @@ export default function Providers() {
   const [sourcesView, setSourcesView] = useState('model');       // 个人源视图：model | list（账户）
   const [accountSyncing, setAccountSyncing] = useState(false);
   const [accountSyncHint, setAccountSyncHint] = useState('');
+  // 设置页「同步账户密钥」，默认关。KeepAlive 下从设置返回要重新读。
+  const [syncAccountSecrets, setSyncAccountSecrets] = useState(false);
   const [credModalKey, setCredModalKey] = useState(null);        // 添加实例后弹出的凭证配置弹窗（source key）
   // Track the last value written/loaded so we skip the initial load trigger
   const lastSaved = useRef(null);
@@ -3740,9 +3742,12 @@ export default function Providers() {
         .filter(d => d && d.device_id && d.device_id !== myId && d.accounts_config)
         .map(d => d.accounts_config);
       const local = accountsData || await loadUserAccounts({ localOnly: true });
-      const merged = mergeRemoteAccountConfigs(local, remotes);
+      const cfg = await getConfig().read().catch(() => ({}));
+      const includeSecrets = !!cfg?.sync_account_secrets;
+      setSyncAccountSecrets(includeSecrets);
+      const merged = mergeRemoteAccountConfigs(local, remotes, { includeSecrets });
       // 用当前列表计算，避免在 setState 里写副作用（Strict Mode 会跑两次）
-      const gw = mergeGatewayProviders(providers, merged.gateway_provider_lists);
+      const gw = mergeGatewayProviders(providers, merged.gateway_provider_lists, { includeSecrets });
       if (gw.changed) setProviders(gw.providers);
       if (!merged.changed && !gw.changed) {
         setAccountSyncHint(t('psrc.model.syncEmpty'));
@@ -4315,6 +4320,16 @@ export default function Providers() {
   const [dependents, setDependents] = useState({ routes: [], assistants: [] });
   const provLocation = useLocation();
   const [personalLatencyMap, setPersonalLatencyMap] = useState({});
+
+  // 从设置页返回后刷新「同步账户密钥」（页面被 KeepAlive 挂住，不会重新挂载）
+  useEffect(() => {
+    if (provLocation.pathname !== '/providers') return undefined;
+    let cancelled = false;
+    getConfig().read().then((cfg) => {
+      if (!cancelled) setSyncAccountSecrets(!!cfg?.sync_account_secrets);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [provLocation.pathname]);
 
   const loadPersonalLatency = useCallback(async () => {
     try {
@@ -5054,6 +5069,7 @@ export default function Providers() {
             onEmptyAdd={() => { setSourcesView('list'); setPickerOpen(true); }}
             onEmptySync={syncAccountsFromOtherDevices}
             syncing={accountSyncing}
+            syncSecrets={syncAccountSecrets}
           />
         ) : (
         <>

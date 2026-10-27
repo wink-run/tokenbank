@@ -9,8 +9,18 @@ const USAGE_SUPPORTED = new Set([
 
 /** 切 tab 会卸载/重挂用量卡；短缓存避免重复打钥匙串 / 重复拉额度 */
 const USAGE_CACHE_TTL_MS = 60 * 1000;
+/** 这些源的余额要读系统钥匙串，列表加载时不自动拉取，等用户点「查看余额」 */
+const KEYCHAIN_ON_VIEW = new Set(['claude', 'cursor']);
 const usageResultCache = new Map();
 const usageInflight = new Map();
+/** 同一账户的列表行和卡片共用结果：密码确认后两边一起出余额 */
+const usageListeners = new Map();
+
+function publishUsage(ck, next) {
+  usageResultCache.set(ck, { state: next, at: Date.now() });
+  const bucket = usageListeners.get(ck);
+  if (bucket) bucket.forEach((fn) => fn(next));
+}
 
 /** 火山：Coding 订阅 vs 方舟按量（/api/v3/）分流 */
 function volcUsageKeyFromBase(base) {
@@ -192,8 +202,9 @@ function useUsageData(provider, accessKey = null) {
     accessKey?.sk ? 'sk2' : '',
   ].join('|');
   const [state, setState] = useState({ loading: false, data: null, error: '' });
-  const load = useCallback((force = false) => {
+  const load = useCallback((force = false, opts = {}) => {
     if (!api || !supported || !fetchId) return;
+    const interactive = !!opts.interactive;
     const ck = `${fetchId}::${credFp}`;
     if (!force) {
       const hit = usageResultCache.get(ck);
@@ -201,26 +212,48 @@ function useUsageData(provider, accessKey = null) {
         setState(hit.state);
         return;
       }
+      // 钥匙串源：没有缓存就停在提示，不发请求
+      if (opts.cacheOnly) return;
     }
     setState(s => ({ ...s, loading: true, error: '' }));
     // 同一账户的列表行与展开卡片同时挂载时只发一次请求
     let pending = !force && usageInflight.get(ck);
     if (!pending) {
-      pending = api.fetch(fetchId)
+      pending = api.fetch(fetchId, { interactive })
         .then(r => (r && r.error && !r.plan && !(r.windows || []).length && !r.credits
           ? { loading: false, data: null, error: r.error }
           : { loading: false, data: r, error: (r && r.error) || '' }))
         .catch(e => ({ loading: false, data: null, error: e?.message || String(e) }))
         .then(next => {
-          usageResultCache.set(ck, { state: next, at: Date.now() });
           usageInflight.delete(ck);
+          publishUsage(ck, next);
           return next;
         });
       usageInflight.set(ck, pending);
     }
     pending.then(next => setState(next));
   }, [api, supported, fetchId, credFp]);
-  useEffect(() => { load(false); }, [load]);
+  useEffect(() => {
+    if (!fetchId) return undefined;
+    const ck = `${fetchId}::${credFp}`;
+    let bucket = usageListeners.get(ck);
+    if (!bucket) {
+      bucket = new Set();
+      usageListeners.set(ck, bucket);
+    }
+    bucket.add(setState);
+    return () => {
+      bucket.delete(setState);
+      if (!bucket.size) usageListeners.delete(ck);
+    };
+  }, [fetchId, credFp]);
+  useEffect(() => {
+    if (KEYCHAIN_ON_VIEW.has(k)) {
+      load(false, { cacheOnly: true });
+      return;
+    }
+    load(false);
+  }, [load, k]);
   return { api, supported, state, load };
 }
 
@@ -249,6 +282,12 @@ export default function UsageMeter({
   }
 
   const d = state.data;
+  const k = usageKey(provider);
+  const hasFigures = !!(d && (d.credits || d.primary || (d.windows || []).length));
+  // 已有余额就直接展示；只有还没读到数据时才停在「查看余额」
+  const awaitingUnlock = !state.error && !state.loading && !hasFigures
+    && (KEYCHAIN_ON_VIEW.has(k) || !!d?.needsKeychain)
+    && (!d || d.needsKeychain);
   // 站点标签已挪到 base_url 后；额度徽章去掉「（中国站/国际站）」避免截断
   const rawPlan = d?.plan || planHint || null;
   const planLabel = typeof rawPlan === 'string'
@@ -274,6 +313,21 @@ export default function UsageMeter({
     return null;
   })();
   const summaryWarn = !!(primary?.usageKnown && Number(primary.usedPercent) >= 90);
+
+  if (awaitingUnlock) {
+    return (
+      <div className="mt-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-800/40 p-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">首次需要解锁钥匙串才能查看</p>
+          <button type="button" onClick={() => load(true, { interactive: true })}
+            className="text-xs text-blue-500 dark:text-blue-400 hover:underline shrink-0">
+            查看余额
+          </button>
+        </div>
+        {accessKey && <AccessKeyEditor {...accessKey} />}
+      </div>
+    );
+  }
 
   return (
     <div className="mt-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-800/40 p-2.5 space-y-2">
@@ -422,9 +476,21 @@ export function usageProviderForDirect(instance) {
  * 与卡片共用抓取缓存，展开详情时不重复请求。
  */
 export function UsageInline({ provider }) {
-  const { api, supported, state } = useUsageData(provider);
+  const { api, supported, state, load } = useUsageData(provider);
+  const k = usageKey(provider);
   if (!api || !supported) return null;
   const d = state.data;
+  if (KEYCHAIN_ON_VIEW.has(k) && !d && !state.loading && !state.error) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <span className="text-[11px] text-zinc-400 dark:text-zinc-500">首次需要解锁钥匙串才能查看</span>
+        <button type="button" onClick={() => load(true, { interactive: true })}
+          className="text-[11px] text-blue-500 dark:text-blue-400 hover:underline">
+          查看余额
+        </button>
+      </span>
+    );
+  }
   if (!d) {
     return state.loading
       ? <span className="inline-block w-10 h-1 rounded-full bg-zinc-200/80 dark:bg-zinc-700/80 animate-pulse align-middle" aria-hidden />

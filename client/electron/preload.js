@@ -178,7 +178,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     test:      (id) => ipcRenderer.invoke('chatgptweb:test', id),
   },
   usage: {
-    fetch:    (provider) => ipcRenderer.invoke('usage:fetch', { provider }),
+    fetch:    (provider, opts) => ipcRenderer.invoke('usage:fetch', {
+      provider,
+      interactive: !!(opts && opts.interactive),
+    }),
     fetchAll: ()         => ipcRenderer.invoke('usage:fetchAll'),
   },
   claude3p: {

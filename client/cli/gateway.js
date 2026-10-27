@@ -156,7 +156,9 @@ async function cmdStart(port, adminPort) {
           const accounts = billingMod.getUserAccounts(cfg);
           accountsSummary = buildAccountsSummary(accounts);
           const agentCfg = readAgentConfig() || {};
-          accountsConfig = buildAccountsConfig(accounts, agentCfg.providers || []);
+          accountsConfig = buildAccountsConfig(accounts, agentCfg.providers || [], {
+            includeSecrets: !!agentCfg.sync_account_secrets,
+          });
         } catch (_) {}
       }
       const attach = (snap) => {
