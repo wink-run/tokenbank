@@ -22,7 +22,8 @@ async function authRequest(method, path, { body, token } = {}) {
     if (r.body) {
       try { data = JSON.parse(r.body); } catch { data = { detail: r.body }; }
     }
-    if (r.status >= 400) {
+    // status 0 是主进程网络失败（代理/超时），不能当成空成功
+    if (!r.status || r.status >= 400) {
       const detail = data?.detail ?? data?.message ?? r.body ?? `HTTP ${r.status}`;
       const err = new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
       err.response = { status: r.status, data };
@@ -297,9 +298,11 @@ export function getModelStats(days = 30) {
   return http.get(`/user/model-stats?days=${days}`);
 }
 
-/** 个人页看板：各端上报盘点数据按设备维度聚合（云端） */
+/** 个人页看板：各端上报盘点数据按设备维度聚合（云端）。
+ *  走主进程，与 profile 一样绕过系统代理 / CORS，否则桌面端已登录也会同步失败。 */
 export function getInventoryStats(days = 1) {
-  return http.get(`/user/inventory-stats?days=${days}`);
+  const token = localStorage.getItem('token');
+  return authRequest('GET', `/user/inventory-stats?days=${days}`, { token });
 }
 
 
@@ -314,19 +317,24 @@ export function deleteDevice(deviceId) {
 }
 
 export function registerDevice(info) {
-  return http.post('/device/register', info);
+  const token = localStorage.getItem('token');
+  return authRequest('POST', '/device/register', { body: info, token });
 }
 
 export function heartbeatDevice(deviceId, payload = {}) {
   const { version, name, platform, type, ...stats } = payload;
-  return http.post('/device/heartbeat', {
-    device_id: deviceId,
-    online: true,
-    version: version || '',
-    name: name || '',
-    platform: platform || '',
-    type: type || '',
-    stats,
+  const token = localStorage.getItem('token');
+  return authRequest('POST', '/device/heartbeat', {
+    token,
+    body: {
+      device_id: deviceId,
+      online: true,
+      version: version || '',
+      name: name || '',
+      platform: platform || '',
+      type: type || '',
+      stats,
+    },
   });
 }
 
