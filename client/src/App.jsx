@@ -18,9 +18,6 @@ import Config     from './pages/Config';
 import Login      from './pages/Login';
 import Debug      from './pages/Debug';
 import CircleDetail from './pages/CircleDetail';
-import Tools from './pages/Tools';
-import ToolDetail from './pages/ToolDetail';
-import ToolTask from './pages/ToolTask';
 import UpdateNotification from './components/UpdateNotification';
 import ResourceHitToast from './components/ResourceHitToast';
 import { UpdaterProvider } from './store/updater';
@@ -41,9 +38,6 @@ const KEEP_ALIVE_ROUTE_CONFIGS = [
   { path: '/contribute', Component: Contribute, requireLogin: true, guestPreview: 'trade' },
   { path: '/dashboard', Component: Dashboard, requireAuthed: true },
   { path: '/network', Component: Network },
-  { path: '/tools', Component: Tools },
-  { path: '/tools/:id', Component: ToolDetail },
-  { path: '/tools/tasks/:taskId', Component: ToolTask },
   { path: '/config', Component: Config },
   { path: '/debug', Component: Debug },
   { path: '/account', Component: TokenDashboard, requireUser: true },

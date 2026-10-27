@@ -129,15 +129,14 @@ async def seed_tools():
             await conn.execute("""
                 INSERT INTO tool_versions 
                 (tool_id, version, pricing_type, pricing_amount, dispatch_type, 
-                 dispatch_url, external_link, timeout_seconds, manifest, is_active)
-                VALUES (?, '1.0.0', ?, ?, ?, ?, ?, 300, ?, 1)
+                 dispatch_url, timeout_seconds, manifest, is_active)
+                VALUES (?, '1.0.0', ?, ?, ?, ?, 300, ?, 1)
             """, [
                 tool_id["id"], 
                 tool["pricing_type"], 
                 tool["pricing_amount"],
                 tool["dispatch_type"],
                 tool.get("dispatch_url", ""),
-                tool.get("external_link", ""),
                 str(manifest),
             ])
         

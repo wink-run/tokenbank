@@ -144,8 +144,7 @@ async def get_tool_detail(
             t.id, t.name, t.display_name, t.description, t.detail_desc,
             t.icon, t.scene, t.scene_display_name, t.featured, t.trust_level,
             tv.id as version_id, tv.version, tv.pricing_type, tv.pricing_amount,
-            tv.dispatch_type, tv.dispatch_url, tv.external_link,
-            tv.timeout_seconds, tv.manifest,
+            tv.dispatch_type, tv.dispatch_url, tv.timeout_seconds, tv.manifest,
             t.publisher_id, t.created_at, t.updated_at
         FROM tools t
         JOIN tool_versions tv ON t.id = tv.tool_id AND tv.is_active = 1
@@ -261,7 +260,7 @@ async def start_task(
     # 验证 ticket
     async with db.connect() as conn:
         ticket = await conn.fetch_one("""
-            SELECT tt.*, tv.dispatch_type, tv.dispatch_url, tv.external_link, tv.timeout_seconds
+            SELECT tt.*, tv.dispatch_type, tv.dispatch_url, tv.timeout_seconds
             FROM tool_tickets tt
             JOIN tool_versions tv ON tt.tool_id = tv.tool_id AND tv.is_active = 1
             WHERE tt.ticket_id = ? AND tt.status = 'pending'

@@ -178,7 +178,6 @@ async def init_db() -> None:
                 pricing_amount  REAL DEFAULT 0,
                 dispatch_type   TEXT NOT NULL DEFAULT 'rented_agent',
                 dispatch_url    TEXT DEFAULT '',
-                external_link   TEXT DEFAULT '',
                 timeout_seconds INTEGER DEFAULT 300,
                 manifest        TEXT DEFAULT '{}',
                 is_active       INTEGER DEFAULT 1,

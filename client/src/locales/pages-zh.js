@@ -2450,9 +2450,10 @@ export default {
   'tools.useAgain': '再用一次',
   'tools.backToTools': '返回工具列表',
   
-  'tools.story.title': '本站不提供算力，只做调度',
-  'tools.story.line1': '你选工具 → 看广告或付积分通过',
-  'tools.story.line2': '本站发任务票 → 调度到开发者出租的智能体',
-  'tools.story.line3': '智能体在开发者机器干活 → 结果回传给你',
-  'tools.story.line4': '你无感算力在哪，开发者配置和密钥不出本地',
+  'tools.howItWorks': '工作原理',
+  'tools.step1': '① 你选工具，填参数',
+  'tools.step2': '② 看广告或付积分通过',
+  'tools.step3': '③ 本站发任务票，调度到开发者出租的智能体',
+  'tools.step4': '④ 智能体在开发者机器干活，结果回传给你',
+  'tools.benefit': '你无感算力在哪 · 开发者配置和密钥不出本地 · 本站只做调度',
 };
