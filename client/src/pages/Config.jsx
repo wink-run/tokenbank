@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../store/index';
 import { useTheme } from '../store/theme';
 import { getConfig, getGateway } from '../api/adapter';
 import { alignSyncAccountSecretsFromCloud } from '../lib/sync-account-secrets';
+import { requestAccountsHeartbeat } from '../hooks/useDeviceReporter';
 import { useLang } from '../store/lang';
 import { useCurrency } from '../store/currency';
 import { useUpdater } from '../store/updater';
@@ -129,6 +130,7 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
   const syncSecretsTouched = useRef(false);
   const isMac = window.electronAPI?.platform === 'darwin';
 
+  const location = useLocation();
   const [savedMsg, setSavedMsg] = useState('');
   const [saving,   setSaving]   = useState(false);
 
@@ -170,6 +172,31 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
     }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
+
+  // 设置页开着时，跟着其它终端把开关关掉或打开（KeepAlive 不会重新挂载）
+  useEffect(() => {
+    let cancelled = false;
+    const pull = async () => {
+      if (syncSecretsTouched.current) return;
+      const cfg = await getConfig().read().catch(() => null);
+      if (!cfg || cancelled || syncSecretsTouched.current) return;
+      const shared = await alignSyncAccountSecretsFromCloud(cfg);
+      if (cancelled || syncSecretsTouched.current) return;
+      syncSecretsLoaded.current = { value: !!shared.value, at: Number(shared.at) || 0 };
+      setSyncAccountSecrets(!!shared.value);
+    };
+    const onChanged = () => { pull(); };
+    window.addEventListener('tb-sync-secrets-changed', onChanged);
+    window.addEventListener('focus', onChanged);
+    const timer = location.pathname === '/config' ? setInterval(pull, 8000) : null;
+    if (location.pathname === '/config') pull();
+    return () => {
+      cancelled = true;
+      window.removeEventListener('tb-sync-secrets-changed', onChanged);
+      window.removeEventListener('focus', onChanged);
+      if (timer) clearInterval(timer);
+    };
+  }, [location.pathname]);
 
   async function handleAllowPrereleaseChange(next) {
     setAllowPrerelease(next);
@@ -230,6 +257,8 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
       });
       syncSecretsLoaded.current = { value: !!syncAccountSecrets, at: secretsAt };
       syncSecretsTouched.current = false;
+      // 开关变了就马上上报，另一端不用干等下一轮心跳
+      if (secretsChanged) requestAccountsHeartbeat();
       applySettings({ currency: displayCurrency, usdCnyRate: rate });
       if (isMac) {
         try { await window.electronAPI?.app?.setHideDockIcon?.(hideDockIcon); } catch { /* ignore */ }

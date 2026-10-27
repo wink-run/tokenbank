@@ -6,6 +6,7 @@ import { isElectron, getGateway, getConfig } from '../api/adapter';
 import { registerDevice, heartbeatDevice } from '../api/client';
 import { buildAccountsSummary } from '../lib/accountsSummary';
 import { buildAccountsConfig } from '../lib/account-config-sync';
+import { alignSyncAccountSecretsFromCloud } from '../lib/sync-account-secrets';
 
 const HEARTBEAT_INTERVAL_MS = 60 * 1000; // 60s（服务端 2 分钟无心跳会标离线，须小于该阈值）
 const RECONNECT_INTERVAL_MS = 30 * 1000;      // retry interval while offline
@@ -153,11 +154,17 @@ async function _loadAccountsBundle() {
   let includeSecrets = false;
   let syncAccountSecretsAt = 0;
   try {
-    const cfg = await getConfig().read();
+    let cfg = await getConfig().read();
     if (Array.isArray(cfg?.providers)) providers = cfg.providers;
-    // 设置页「同步账户密钥」默认关；开关和时间随心跳给其它终端对齐
-    includeSecrets = !!cfg?.sync_account_secrets;
-    syncAccountSecretsAt = Number(cfg?.sync_account_secrets_at) || 0;
+    // 先采纳其它终端更新的开关，再决定这次心跳带不带密钥
+    try {
+      const shared = await alignSyncAccountSecretsFromCloud(cfg || {});
+      includeSecrets = !!shared.value;
+      syncAccountSecretsAt = Number(shared.at) || 0;
+    } catch {
+      includeSecrets = !!cfg?.sync_account_secrets;
+      syncAccountSecretsAt = Number(cfg?.sync_account_secrets_at) || 0;
+    }
   } catch { /* 网关配置未就绪 */ }
   return {
     summary: buildAccountsSummary(accounts),
@@ -204,6 +211,13 @@ async function _collectInventory() {
   const d1 = await getGateway().getDailyStats().catch(() => ({}));
   const snap = d1?.total_calls != null ? attach({ ...d1 }) : (accountsSummary ? attach({}) : null);
   return snap ? { '1': snap } : {};
+}
+
+/** 保存「同步账户密钥」后立刻上报，不等下一次定时心跳 */
+export function requestAccountsHeartbeat() {
+  const run = () => _sendHeartbeat().catch(() => {});
+  if (_deviceId) run();
+  else if (_registrationPromise) _registrationPromise.then(run).catch(() => {});
 }
 
 async function _sendHeartbeat() {

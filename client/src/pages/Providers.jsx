@@ -3767,8 +3767,9 @@ export default function Providers() {
         .map(d => d.accounts_config);
       const local = accountsData || await loadUserAccounts({ localOnly: true });
       const cfg = await getConfig().read().catch(() => ({}));
-      // 以本机已保存的开关为准。关着时绝不因为其它终端打开过而写入密钥
-      const includeSecrets = !!cfg?.sync_account_secrets;
+      // 其它终端若已关掉，这次同步也按关掉处理，不写入密钥
+      const shared = await alignSyncAccountSecretsFromCloud(cfg);
+      const includeSecrets = !!shared.value;
       setSyncAccountSecrets(includeSecrets);
       const merged = mergeRemoteAccountConfigs(local, remotes, { includeSecrets });
       // 用当前列表计算，避免在 setState 里写副作用（Strict Mode 会跑两次）

@@ -36,6 +36,10 @@ export async function alignSyncAccountSecretsFromCloud(cfg) {
         sync_account_secrets_at: picked.at,
       });
     } catch { /* 离线仍用刚算出的值 */ }
+    // 设置页若正开着，立刻把开关改过来
+    try {
+      window.dispatchEvent(new CustomEvent('tb-sync-secrets-changed', { detail: picked }));
+    } catch { /* 非浏览器环境 */ }
     return picked;
   }
   return local;
