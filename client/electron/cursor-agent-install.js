@@ -121,10 +121,10 @@ async function getCursorAgentAuthStatus() {
   const bin = resolveInstalledPath();
   if (!bin) return { ok: false, loggedIn: false, reason: 'cli_not_installed' };
 
-  // IDE → CLI 共享登录（解密 encryption-at-rest + 写钥匙串/auth.json）
+  // 启动和列表探测只复用已解开的钥匙串，不弹密码框
   let shared = null;
   try {
-    shared = require('./cursor-ide-auth').shareIdeLoginWithCli();
+    shared = require('./cursor-ide-auth').shareIdeLoginWithCli({ interactive: false });
   } catch {
     try { require('./cursor-ide-auth').scrubInvalidAuthJson(); } catch { /* ignore */ }
   }
@@ -174,9 +174,9 @@ async function loginCursorAgentCli() {
   const bin = resolveInstalledPath();
   if (!bin) return { ok: false, error: 'cli_not_installed' };
 
-  // 优先共享 IDE 登录，避免再弹浏览器
+  // 用户点了登录才解锁 Cursor Safe Storage
   try {
-    const shared = require('./cursor-ide-auth').shareIdeLoginWithCli();
+    const shared = require('./cursor-ide-auth').shareIdeLoginWithCli({ interactive: true });
     if (shared.ok) {
       const afterShare = await getCursorAgentAuthStatus();
       if (afterShare.loggedIn) return { ok: true, already: true, via: 'ide_share' };

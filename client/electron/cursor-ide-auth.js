@@ -81,13 +81,14 @@ function readIdeItem(key) {
   }
 }
 
-/** 读取 Cursor Safe Storage 主密钥。interactive 为 false 时只用缓存，不弹钥匙串。 */
+/** 读取 Cursor Safe Storage 主密钥。只有 interactive: true 才弹钥匙串，其余只用缓存。 */
 function readCursorSafeStoragePassword(opts = {}) {
   if (process.platform !== 'darwin') return null;
   try {
     const { findGenericPassword } = require('./usage/mac-keychain');
     const pw = findGenericPassword('Cursor Safe Storage', 'Cursor Key', {
-      interactive: opts.interactive,
+      // 未显式要求时传 false，避免启动探测走到 security 弹窗
+      interactive: opts.interactive === true,
     });
     return pw || null;
   } catch {
@@ -101,7 +102,7 @@ function readCursorSafeStoragePassword(opts = {}) {
  */
 function decryptCursorSafeStorage(raw, password = null) {
   if (!isCursorSafeStorageCipher(raw)) return null;
-  const pw = password ?? readCursorSafeStoragePassword();
+  const pw = password ?? readCursorSafeStoragePassword({ interactive: false });
   if (!pw) return null;
   try {
     const blob = Buffer.from(raw.slice(SAFE_STORAGE_PREFIX.length), 'base64');
@@ -249,10 +250,11 @@ function syncIdeAuthJson(session = null) {
 
 /**
  * 主动把 IDE 登录共享给 CLI（供 status 探测 / 登录按钮复用）。
+ * 默认不弹钥匙串；用户点「登录」时才传 interactive: true。
  * @returns {{ ok: boolean, injected?: boolean, reason?: string, email?: string|null }}
  */
-function shareIdeLoginWithCli() {
-  const session = readIdeCursorSession();
+function shareIdeLoginWithCli(opts = {}) {
+  const session = readIdeCursorSession({ interactive: opts.interactive === true });
   if (!session?.accessToken) {
     scrubInvalidAuthJson();
     return { ok: false, reason: 'no_ide_session' };
@@ -290,7 +292,8 @@ function buildCursorSpawnEnv(baseEnv = process.env) {
     delete env.CURSOR_API_KEY;
   }
 
-  const shared = shareIdeLoginWithCli();
+  // 执行时也不弹窗：密码已在「登录 / 查看余额」解开过则会命中缓存
+  const shared = shareIdeLoginWithCli({ interactive: false });
   if (!shared.ok || !shared.accessToken) {
     return {
       env,
