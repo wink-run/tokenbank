@@ -18,8 +18,13 @@ import { buildPersonalModelTypeMap, inferModelTypeFromName } from '../api/gatewa
 import { encodeRoute } from '../lib/route-binding';
 import { avatarColor } from '../components/UserAvatar';
 import { mergeRemoteAccountConfigs, mergeGatewayProviders } from '../lib/account-config-sync';
-import { isOllamaProvider } from '../../shared/provider-test.js';
 import UsageMeter, { UsageInline, usageProviderForDirect } from '../components/UsageMeter';
+
+/** Ollama 本地实例不校验 API Key。与 shared/provider-test.js 一致，不引 CJS，避免渲染进程白屏。 */
+function isOllamaProvider(provider) {
+  if (String(provider?.id || '').toLowerCase() === 'ollama') return true;
+  return /(?:^|\/\/)(?:127\.0\.0\.1|localhost):11434(?:\/|$)/i.test(String(provider?.base_url || ''));
+}
 
 /** 按当前语言覆盖 meta 中的 label / hint / getKey / oauth.label */
 function localizeProviderMeta(metaMap, t) {
