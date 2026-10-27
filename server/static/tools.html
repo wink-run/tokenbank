@@ -147,7 +147,7 @@ body {
     </div>
 
     <div v-if="loading" class="loading">加载中…</div>
-    <div v-else-if="!tools.length" class="empty">暂时没有可试用的智能体</div>
+    <div v-else-if="!tools.length" class="empty">暂时没有可用的智能体</div>
     <div v-else class="tools-grid">
       <div v-for="tool in tools" :key="tool.id" @click="viewTool(tool.id)" class="tool-card">
         <div v-if="tool.featured" class="tool-featured"><span>⭐</span><span>精选</span></div>

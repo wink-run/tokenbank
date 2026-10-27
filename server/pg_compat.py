@@ -256,6 +256,16 @@ class PgConnection:
                 rowcount = int(parts[1])
         return PgCursor([], rowcount=rowcount)
 
+    async def fetch_one(self, sql: str, params: tuple | list = ()):
+        """兼容 tools_router / seeds：单行查询。"""
+        cur = await self.execute(sql, tuple(params or ()))
+        return await cur.fetchone()
+
+    async def fetch_all(self, sql: str, params: tuple | list = ()):
+        """兼容 tools_router / seeds：多行查询。"""
+        cur = await self.execute(sql, tuple(params or ()))
+        return await cur.fetchall()
+
     async def commit(self) -> None:
         if self._tx:
             await self._tx.commit()
