@@ -40,10 +40,10 @@ const PRICING = {
   'gemini-2.0-flash':  { in: 0.075, out: 0.30,   cacheRead: 0.0075, cacheWrite: 0.094},
   'gemini':            { in: 1.25,  out: 5.00,   cacheRead: 0.125, cacheWrite: 1.56 },
   // DeepSeek
-  'deepseek-flash':    { in: 0.15,  out: 0.60,   cacheRead: 0.003, cacheWrite: 0.19 },
-  'deepseek-v4-flash': { in: 0.15,  out: 0.60,   cacheRead: 0.003, cacheWrite: 0.19 },
-  'deepseek-chat':     { in: 0.15,  out: 0.60,   cacheRead: 0.003, cacheWrite: 0.19 },
-  'deepseek-reasoner': { in: 0.15,  out: 0.60,   cacheRead: 0.003, cacheWrite: 0.19 },
+  'deepseek-flash':    { in: 0.28,  out: 0.42,   cacheRead: 0.028, cacheWrite: null  },
+  'deepseek-v4-flash': { in: 0.28,  out: 0.42,   cacheRead: 0.028, cacheWrite: null  },
+  'deepseek-chat':     { in: 0.28,  out: 0.42,   cacheRead: 0.028, cacheWrite: null  },
+  'deepseek-reasoner': { in: 0.28,  out: 0.42,   cacheRead: 0.028, cacheWrite: null  },
   'deepseek-v4-pro':   { in: 0.66,  out: 1.98,   cacheRead: 0.022, cacheWrite: 0.83 },
   // Grok
   'grok-4.7':          { in: 2.00,  out: 6.00,   cacheRead: 0.50,  cacheWrite: null  },

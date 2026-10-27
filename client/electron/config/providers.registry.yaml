@@ -569,10 +569,9 @@ providers:
     type: chat
   pricing:
     deepseek-flash:
-      in: 0.15
-      out: 0.60
-      cacheRead: 0.003
-      cacheWrite: 0.19
+      in: 0.28
+      out: 0.42
+      cacheRead: 0.028
     deepseek-v4-pro:
       in: 0.66
       out: 1.98
@@ -1402,10 +1401,9 @@ billing_sources:
   - id: deepseek-flash
     modality: chat
     pricing:
-      in: 0.15
-      out: 0.60
-      cacheRead: 0.003
-      cacheWrite: 0.19
+      in: 0.28
+      out: 0.42
+      cacheRead: 0.028
   - id: deepseek-v4-pro
     modality: chat
     pricing:
@@ -1415,10 +1413,9 @@ billing_sources:
       cacheWrite: 0.83
   pricing:
     deepseek-flash:
-      in: 0.15
-      out: 0.60
-      cacheRead: 0.003
-      cacheWrite: 0.19
+      in: 0.28
+      out: 0.42
+      cacheRead: 0.028
     deepseek-v4-pro:
       in: 0.66
       out: 1.98
