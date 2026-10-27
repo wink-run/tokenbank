@@ -5,8 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>出租智能体 - Token Bank</title>
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
-<script src="https://unpkg.com/vue@3.4.21/dist/vue.global.prod.js"></script>
-<script src="https://unpkg.com/axios@1.6.7/dist/axios.min.js"></script>
+<script src="/static/vue.global.prod.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -175,11 +174,22 @@ body {
           </div>
         </div>
         <p class="tool-desc">{{ tool.description }}</p>
+        <p v-if="tool.owner_nickname || tool.runtime" class="tool-desc" style="margin-top:-0.5rem;color:#a1a1aa;font-size:0.8rem;">
+          <span v-if="tool.owner_nickname">@{{ tool.owner_nickname }}</span>
+          <span v-if="tool.owner_nickname && tool.runtime"> · </span>
+          <span v-if="tool.runtime">{{ tool.runtime }}</span>
+          <span v-if="tool.source==='network'"> · Online</span>
+        </p>
         <div class="tool-footer">
           <div class="tool-price">
-            <span class="price-tag price-ad">📺 看广告</span>
-            <span style="color: #a1a1aa;">或</span>
-            <span class="price-tag price-credits">{{ tool.pricing_amount }} 积分</span>
+            <template v-if="tool.source==='network'">
+              <span class="price-tag price-ad">试用</span>
+            </template>
+            <template v-else>
+              <span class="price-tag price-ad">📺 看广告</span>
+              <span style="color: #a1a1aa;">或</span>
+              <span class="price-tag price-credits">{{ tool.pricing_amount }} 积分</span>
+            </template>
           </div>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
         </div>
@@ -189,7 +199,7 @@ body {
 
   <!-- 工具详情页 -->
   <div v-if="view === 'detail' && currentTool" class="container detail-container">
-    <button @click="view = 'list'" class="back-button">
+    <button @click="backToList" class="back-button">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
       返回
     </button>
@@ -236,13 +246,14 @@ body {
           </div>
         </label>
       </div>
-      <button @click="startTool" :disabled="processing" class="start-button">{{ processing ? '启动中…' : '立即使用' }}</button>
+      <button v-if="currentTool.try_url && currentTool.source==='network'" @click="openTry" class="start-button">立即试用</button>
+      <button v-else @click="startTool" :disabled="processing" class="start-button">{{ processing ? '启动中…' : '立即使用' }}</button>
     </div>
   </div>
 
   <!-- 任务进度页 -->
   <div v-if="view === 'task' && currentTask" class="container detail-container">
-    <button @click="view = 'list'" class="back-button">
+    <button @click="backToList" class="back-button">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
       返回工具列表
     </button>
@@ -293,7 +304,7 @@ body {
     </div>
 
     <div class="task-actions">
-      <button @click="view = 'list'" class="btn btn-outline">浏览更多智能体</button>
+      <button @click="backToList" class="btn btn-outline">浏览更多智能体</button>
       <button v-if="currentTask.status === 'completed'" @click="viewTool(currentTask.tool_id)" class="btn btn-primary">再雇一次</button>
     </div>
   </div>
@@ -313,6 +324,22 @@ body {
 
 <script>
 const { createApp } = Vue;
+
+async function api(url, opts = {}) {
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    ...opts,
+  });
+  let data = null;
+  try { data = await res.json(); } catch { data = null; }
+  if (!res.ok) {
+    const err = new Error((data && data.detail) || res.statusText || 'request failed');
+    err.response = { data, status: res.status };
+    throw err;
+  }
+  return data;
+}
+
 createApp({
   data() {
     return {
@@ -336,7 +363,7 @@ createApp({
       const taskId = path.split('/').pop();
       this.loadTask(taskId);
     } else if (path.startsWith('/tools/') && path !== '/tools') {
-      const toolId = parseInt(path.split('/').pop());
+      const toolId = decodeURIComponent(path.slice('/tools/'.length));
       if (toolId) this.loadToolDetail(toolId);
     } else {
       this.loadTools();
@@ -352,29 +379,42 @@ createApp({
         const params = new URLSearchParams();
         if (this.selectedScene) params.append('scene', this.selectedScene);
         if (this.searchQuery) params.append('search', this.searchQuery);
-        params.append('limit', '20');
-        const { data } = await axios.get('/api/tools/discover?' + params.toString());
+        params.append('limit', '50');
+        const data = await api('/api/tools/discover?' + params.toString());
         this.tools = data.tools || [];
         this.scenes = data.scenes || [];
       } catch (error) {
         console.error('Failed to load tools:', error);
+        this.tools = [];
       } finally {
         this.loading = false;
       }
     },
     async loadToolDetail(toolId) {
       try {
-        const { data } = await axios.get(`/api/tools/${toolId}`);
+        const data = await api('/api/tools/' + encodeURIComponent(toolId));
         this.currentTool = data;
         this.view = 'detail';
-        window.history.replaceState(null, '', `/tools/${toolId}`);
+        window.history.replaceState(null, '', '/tools/' + encodeURIComponent(toolId));
       } catch (error) {
         console.error('Failed to load tool detail:', error);
         this.view = 'list';
+        this.loadTools();
       }
     },
     viewTool(toolId) {
       this.loadToolDetail(toolId);
+    },
+    backToList() {
+      this.view = 'list';
+      this.currentTool = null;
+      this.currentTask = null;
+      window.history.replaceState(null, '', '/tools');
+      this.loadTools();
+    },
+    openTry() {
+      const url = this.currentTool && this.currentTool.try_url;
+      if (url) window.location.href = url;
     },
     async startTool() {
       this.processing = true;
@@ -386,73 +426,91 @@ createApp({
         await this.executeStart();
       } catch (error) {
         console.error('Failed to start tool:', error);
-        alert(error.response?.data?.detail || '启动失败');
+        alert((error.response && error.response.data && error.response.data.detail) || '启动失败');
+      } finally {
         this.processing = false;
       }
     },
     async simulateAdWatch() {
-      await new Promise(resolve => setTimeout(resolve, 3000));
       this.showAdModal = false;
-      await this.executeStart();
+      this.processing = true;
+      try {
+        await this.executeStart();
+      } catch (error) {
+        console.error('Failed after ad:', error);
+        alert((error.response && error.response.data && error.response.data.detail) || '启动失败');
+      } finally {
+        this.processing = false;
+      }
     },
     async executeStart() {
-      const gateRes = await axios.post('/api/tools/gate', {
-        tool_id: this.currentTool.id,
-        gate_type: this.gateType,
-      });
-      const taskRes = await axios.post('/api/tools/tasks/start', {
-        ticket_id: gateRes.data.ticket_id,
-        input_data: {},
-      });
-      this.processing = false;
-      if (taskRes.data.task_id) {
-        this.loadTask(taskRes.data.task_id);
+      if (this.currentTool && this.currentTool.source === 'network' && this.currentTool.try_url) {
+        window.location.href = this.currentTool.try_url;
+        return;
       }
+      const gateRes = await api('/api/tools/gate', {
+        method: 'POST',
+        body: JSON.stringify({ tool_id: this.currentTool.id, gate_type: this.gateType }),
+      });
+      const taskRes = await api('/api/tools/tasks/start', {
+        method: 'POST',
+        body: JSON.stringify({ ticket_id: gateRes.ticket_id, input_data: {} }),
+      });
+      this.loadTask(taskRes.task_id);
     },
     async loadTask(taskId) {
       try {
-        const { data } = await axios.get(`/api/tools/tasks/${taskId}`);
+        const data = await api('/api/tools/tasks/' + encodeURIComponent(taskId));
         this.currentTask = data;
         this.view = 'task';
-        window.history.replaceState(null, '', `/tools/tasks/${taskId}`);
-        if (data.status !== 'completed' && data.status !== 'failed') {
+        window.history.replaceState(null, '', '/tools/tasks/' + encodeURIComponent(taskId));
+        if (data.status === 'processing' || data.status === 'dispatched' || data.status === 'queued') {
           this.startPolling(taskId);
         }
       } catch (error) {
         console.error('Failed to load task:', error);
+        this.view = 'list';
+        this.loadTools();
       }
     },
     startPolling(taskId) {
       if (this.pollTimer) clearInterval(this.pollTimer);
       this.pollTimer = setInterval(() => {
-        axios.get(`/api/tools/tasks/${taskId}`).then(({ data }) => {
+        api('/api/tools/tasks/' + encodeURIComponent(taskId)).then((data) => {
           this.currentTask = data;
           if (data.status === 'completed' || data.status === 'failed') {
             clearInterval(this.pollTimer);
+            this.pollTimer = null;
           }
-        });
-      }, 3000);
+        }).catch(() => {});
+      }, 1500);
     },
     getBadgeClass(level) {
-      return { virtual: 'badge-virtual', user_rented: 'badge-user-rented', community: 'badge-community' }[level] || 'badge-community';
+      return level === 'virtual' ? 'badge-virtual' : 'badge-user-rented';
     },
     getBadgeText(level) {
-      return { virtual: '平台虚拟', user_rented: '用户出租', community: '社区贡献' }[level] || '社区贡献';
+      return level === 'virtual' ? '平台虚拟' : '用户出租';
     },
     getStatusIcon(status) {
-      return { created: '⏳', dispatched: '🚀', processing: '⚙️', completed: '✓', failed: '✗' }[status] || '⏳';
-    },
-    getStatusText(status) {
-      return { created: '任务已创建', dispatched: '正在调度出租智能体', processing: '智能体执行中', completed: '完成', failed: '任务失败' }[status] || '处理中';
+      const map = { queued: '⏳', dispatched: '🚀', processing: '⚙️', completed: '✅', failed: '❌' };
+      return map[status] || '📋';
     },
     getStatusColor(status) {
-      return { created: 'text-zinc-500', dispatched: 'text-blue-500', processing: 'text-yellow-600', completed: 'text-green-500', failed: 'text-red-500' }[status] || '';
+      const map = { completed: 'status-ok', failed: 'status-fail' };
+      return map[status] || 'status-run';
     },
-    formatTime(ts) {
-      return new Date(ts).toLocaleString('zh-CN');
+    getStatusText(status) {
+      const map = {
+        queued: '排队中',
+        dispatched: '已派单给出租智能体',
+        processing: '智能体处理中',
+        completed: '完成',
+        failed: '失败',
+      };
+      return map[status] || status;
     },
   },
 }).mount('#app');
-</script>
+</script></script>
 </body>
 </html>

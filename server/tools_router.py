@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 import database as db
-from auth import get_current_user_id
+from auth import get_current_user_id, get_optional_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -82,54 +82,123 @@ async def discover_tools(
     scene: Optional[str] = None,
     search: Optional[str] = None,
     limit: int = 20,
-    user_id: Optional[int] = Depends(get_current_user_id),
+    user_id: Optional[int] = Depends(get_optional_user_id),
 ):
     """
     出租智能体发现首页（用户出租 + 平台虚拟）
-    - 支持场景筛选（scene: download, watermark, image, office 等）
-    - 支持搜索（search: 关键词）
-    - 返回精选智能体列表（对齐虚拟智能体命名）
+
+    用户出租：与 Network → Agents / /public/agents 同源（在线 worker 公开名片）
+    平台虚拟：tools 表 trust_level=virtual 的种子/平台条目（对齐虚拟模型）
     """
+    q = (search or "").strip().lower()
+    scene_f = (scene or "").strip()
+    lim = max(1, min(int(limit or 20), 100))
+    cards: list[dict] = []
+
+    # 1) 在线用户出租智能体（Network Agents 同源）
+    try:
+        from worker_pool import pool
+        live = pool.list_agents_for_user(public_only=True) or []
+    except Exception as e:
+        logger.warning("discover: list public agents failed: %s", e)
+        live = []
+
+    for a in live:
+        if not isinstance(a, dict):
+            continue
+        aid = str(a.get("id") or "").strip()
+        if not aid:
+            continue
+        dn = (a.get("display_name") or a.get("name") or aid).strip()
+        desc = (a.get("description") or "").strip()
+        owner = (a.get("owner_nickname") or "").strip()
+        runtime = (a.get("runtime") or "").strip()
+        if q:
+            blob = f"{dn} {desc} {owner} {runtime} {aid}".lower()
+            if q not in blob:
+                continue
+        if scene_f and scene_f not in ("agent", "rented"):
+            # 场景筛选命中工具种子时，跳过在线出租（它们统一归「在线智能体」）
+            continue
+        cards.append({
+            "id": f"agent:{aid}",
+            "name": a.get("name") or aid,
+            "display_name": dn,
+            "description": desc or "在线出租智能体，点击即可试用",
+            "icon": "🤖",
+            "scene": "agent",
+            "scene_display_name": "在线智能体",
+            "featured": 1,
+            "trust_level": "user_rented",
+            "pricing_type": "ad_or_paid",
+            "pricing_amount": 1.0,
+            "owner_nickname": owner,
+            "runtime": runtime,
+            "assistant_id": aid,
+            "try_url": f"/a/{aid}",
+            "source": "network",
+            "online": True,
+        })
+
+    # 2) 平台虚拟（tools 表，仅 virtual；避免假「用户出租」种子盖过真出租）
     query = """
-        SELECT 
+        SELECT
             t.id, t.name, t.display_name, t.description, t.icon,
-            t.scene, t.featured, t.trust_level,
+            t.scene, t.scene_display_name, t.featured, t.trust_level,
             tv.pricing_type, tv.pricing_amount,
             t.created_at, t.updated_at
         FROM tools t
         JOIN tool_versions tv ON t.id = tv.tool_id AND tv.is_active = 1
-        WHERE t.enabled = 1
+        WHERE t.enabled = 1 AND t.trust_level = 'virtual'
     """
-    params = []
-    
-    if scene:
+    params: list = []
+    if scene_f and scene_f not in ("agent", "rented"):
         query += " AND t.scene = ?"
-        params.append(scene)
-    
-    if search:
-        query += " AND (t.display_name LIKE ? OR t.description LIKE ?)"
-        search_pattern = f"%{search}%"
-        params.extend([search_pattern, search_pattern])
-    
-    query += " ORDER BY t.featured DESC, t.created_at DESC LIMIT ?"
-    params.append(limit)
-    
-    async with db.connect() as conn:
-        tools = await conn.fetch_all(query, params)
-    
-    # 获取场景列表
-    scenes_query = """
-        SELECT DISTINCT scene, scene_display_name 
-        FROM tools 
-        WHERE enabled = 1 AND scene IS NOT NULL AND scene != ''
-        ORDER BY scene
-    """
-    async with db.connect() as conn:
-        scenes = await conn.fetch_all(scenes_query)
-    
+        params.append(scene_f)
+    elif scene_f in ("agent", "rented"):
+        # 只要在线出租时，不再附带虚拟种子
+        query += " AND 1=0"
+    if q:
+        query += " AND (LOWER(t.display_name) LIKE ? OR LOWER(COALESCE(t.description,'')) LIKE ?)"
+        params.extend([f"%{q}%", f"%{q}%"])
+    query += " ORDER BY t.featured DESC, t.created_at DESC"
+
+    try:
+        async with db.connect() as conn:
+            rows = await conn.fetch_all(query, params)
+        for row in rows:
+            item = dict(row)
+            item["id"] = item["id"]  # int ok for seed virtual
+            item["source"] = "virtual"
+            item["online"] = True
+            item["try_url"] = f"/tools/{item['id']}"
+            cards.append(item)
+    except Exception as e:
+        logger.warning("discover: virtual tools query failed: %s", e)
+
+    # 场景聚合
+    scenes_map = {"agent": "在线智能体"}
+    try:
+        async with db.connect() as conn:
+            scene_rows = await conn.fetch_all(
+                """
+                SELECT DISTINCT scene, scene_display_name
+                FROM tools
+                WHERE enabled = 1 AND trust_level = 'virtual'
+                  AND scene IS NOT NULL AND scene != ''
+                ORDER BY scene
+                """
+            )
+        for row in scene_rows:
+            scenes_map[row["scene"]] = row["scene_display_name"] or row["scene"]
+    except Exception:
+        pass
+    if any(c.get("source") == "network" for c in cards):
+        scenes_map.setdefault("agent", "在线智能体")
+
     return {
-        "tools": [dict(row) for row in tools],
-        "scenes": [{"value": row["scene"], "label": row["scene_display_name"]} for row in scenes],
+        "tools": cards[:lim],
+        "scenes": [{"value": k, "label": v} for k, v in scenes_map.items()],
     }
 
 
@@ -137,12 +206,63 @@ async def discover_tools(
 
 @router.get("/api/tools/{tool_id}")
 async def get_tool_detail(
-    tool_id: int,
-    user_id: Optional[int] = Depends(get_current_user_id),
+    tool_id: str,
+    user_id: Optional[int] = Depends(get_optional_user_id),
 ):
     """获取出租智能体详情（用户出租 / 平台虚拟）"""
+    tid = (tool_id or "").strip()
+
+    # Network 在线出租：agent:<assistant_id>
+    if tid.startswith("agent:"):
+        aid = tid[6:].strip()
+        if not aid:
+            raise HTTPException(status_code=404, detail="Tool not found")
+        try:
+            from worker_pool import pool
+            card = pool.get_agent_for_user(aid, public_only=True)
+        except Exception as e:
+            logger.warning("tool detail agent lookup failed: %s", e)
+            card = None
+        if not card:
+            raise HTTPException(status_code=404, detail="Agent offline or not found")
+        dn = (card.get("display_name") or card.get("name") or aid).strip()
+        desc = (card.get("description") or "").strip()
+        owner = (card.get("owner_nickname") or "").strip()
+        runtime = (card.get("runtime") or "").strip()
+        return {
+            "id": f"agent:{aid}",
+            "name": card.get("name") or aid,
+            "display_name": dn,
+            "description": desc or "在线出租智能体",
+            "detail_desc": (
+                f"供给者 @{owner}" if owner else "用户出租智能体"
+            ) + (f" · 运行时 {runtime}" if runtime else "")
+            + "\n与 Network → 智能体同源；试用将打开网页对话。",
+            "icon": "🤖",
+            "scene": "agent",
+            "scene_display_name": "在线智能体",
+            "featured": 1,
+            "trust_level": "user_rented",
+            "pricing_type": "ad_or_paid",
+            "pricing_amount": 1.0,
+            "dispatch_type": "rented_agent",
+            "owner_nickname": owner,
+            "runtime": runtime,
+            "assistant_id": aid,
+            "try_url": f"/a/{aid}",
+            "source": "network",
+            "online": True,
+            "manifest": {},
+        }
+
+    # 平台虚拟 / 种子：数字 id
+    try:
+        numeric_id = int(tid)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
     query = """
-        SELECT 
+        SELECT
             t.id, t.name, t.display_name, t.description, t.detail_desc,
             t.icon, t.scene, t.scene_display_name, t.featured, t.trust_level,
             tv.id as version_id, tv.version, tv.pricing_type, tv.pricing_amount,
@@ -152,21 +272,22 @@ async def get_tool_detail(
         JOIN tool_versions tv ON t.id = tv.tool_id AND tv.is_active = 1
         WHERE t.id = ? AND t.enabled = 1
     """
-    
+
     async with db.connect() as conn:
-        tool = await conn.fetch_one(query, [tool_id])
-    
+        tool = await conn.fetch_one(query, [numeric_id])
+
     if not tool:
         raise HTTPException(status_code=404, detail="Tool not found")
-    
+
     result = dict(tool)
-    # 解析 manifest JSON
+    result["try_url"] = f"/tools/{numeric_id}"
+    result["source"] = "virtual" if result.get("trust_level") == "virtual" else "tools"
     if result.get("manifest"):
         try:
             result["manifest"] = json.loads(result["manifest"])
-        except:
+        except Exception:
             result["manifest"] = {}
-    
+
     return result
 
 

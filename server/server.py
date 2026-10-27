@@ -276,8 +276,8 @@ async def tools_hub_page():
 
 
 @app.get("/tools/{tool_id}")
-async def tool_detail_page(tool_id: int):
-    """出租智能体详情页（路径参数由前端 JS 解析）"""
+async def tool_detail_page(tool_id: str):
+    """出租智能体详情页（路径参数由前端 JS 解析；支持 agent:<id>）"""
     _ = tool_id
     return FileResponse("static/tools.html")
 

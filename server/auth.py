@@ -49,3 +49,12 @@ async def get_current_user_id(
     if not uid:
         raise HTTPException(401, "Invalid or expired token")
     return uid
+
+
+async def get_optional_user_id(
+    creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+) -> Optional[int]:
+    """有 Bearer 则解析 user id；无 token / 无效则返回 None（不抛 401）。"""
+    if not creds:
+        return None
+    return decode_token(creds.credentials)
