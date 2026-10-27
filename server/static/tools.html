@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>智能体 · Token Bank</title>
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+<script src="/static/vue.global.prod.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: linear-gradient(135deg, #fafafa 0%, #ffffff 100%);
+  color: #18181b;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+.container { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
+.hero { text-align: center; margin-bottom: 3rem; }
+.hero-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: #eff6ff; color: #2563eb; border-radius: 9999px; font-size: 0.875rem; font-weight: 500; margin-bottom: 1rem; }
+.hero-title { font-size: 3rem; font-weight: 700; color: #09090b; margin-bottom: 1rem; line-height: 1.2; }
+.hero-subtitle { font-size: 1.125rem; color: #71717a; max-width: 48rem; margin: 0 auto; line-height: 1.75; }
+
+.search-box { max-width: 42rem; margin: 0 auto 2rem; }
+.search-input { width: 100%; padding: 1rem 3.5rem 1rem 1.5rem; font-size: 1.125rem; border: 2px solid #e4e4e7; border-radius: 1rem; outline: none; transition: all 0.3s; }
+.search-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1); }
+.search-button { position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: #a1a1aa; cursor: pointer; padding: 0.5rem; }
+
+.scenes { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; margin-bottom: 2.5rem; }
+.scene-btn { padding: 0.625rem 1.25rem; border-radius: 9999px; border: 1px solid #e4e4e7; background: #fff; color: #52525b; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+.scene-btn:hover { background: #f4f4f5; border-color: #d4d4d8; }
+.scene-btn.active { background: #3b82f6; color: #fff; border-color: #3b82f6; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
+
+.tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem; }
+.tool-card { position: relative; padding: 1.5rem; background: #fff; border: 1px solid #e4e4e7; border-radius: 1.5rem; cursor: pointer; transition: all 0.3s; overflow: hidden; }
+.tool-card:hover { transform: scale(1.02); box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1); border-color: #93c5fd; }
+.tool-featured { position: absolute; top: 1rem; right: 1rem; display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.625rem; background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); color: #fff; font-size: 0.75rem; font-weight: 700; border-radius: 9999px; box-shadow: 0 2px 8px rgba(251, 191, 36, 0.4); }
+.tool-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.tool-icon { width: 4rem; height: 4rem; display: flex; align-items: center; justify-content: center; font-size: 3rem; background: linear-gradient(135deg, #fafafa 0%, #f4f4f5 100%); border-radius: 1rem; flex-shrink: 0; }
+.tool-info { flex: 1; min-width: 0; }
+.tool-name { font-size: 1.25rem; font-weight: 700; color: #09090b; margin-bottom: 0.25rem; }
+.tool-badge { display: inline-block; padding: 0.25rem 0.625rem; font-size: 0.75rem; font-weight: 600; color: #fff; border-radius: 9999px; }
+.badge-virtual { background: #3b82f6; }
+.badge-user-rented { background: #10b981; }
+.badge-community { background: #6b7280; }
+.tool-desc { font-size: 0.875rem; color: #71717a; margin-bottom: 1rem; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tool-footer { display: flex; align-items: center; justify-content: space-between; padding-top: 0.75rem; border-top: 1px solid #f4f4f5; }
+.tool-price { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
+.price-tag { padding: 0.25rem 0.5rem; border-radius: 0.375rem; font-weight: 500; }
+.price-ad { background: #dcfce7; color: #16a34a; }
+.price-credits { background: #dbeafe; color: #2563eb; }
+
+.detail-container { max-width: 56rem; margin: 0 auto; }
+.detail-card { padding: 2rem; background: linear-gradient(135deg, #fff 0%, #fafafa 100%); border: 2px solid #e4e4e7; border-radius: 1.5rem; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1); margin-bottom: 2rem; position: relative; overflow: hidden; }
+.detail-card::before { content: ''; position: absolute; top: 0; right: 0; width: 16rem; height: 16rem; background: radial-gradient(circle, rgba(59, 130, 246, 0.05) 0%, transparent 70%); pointer-events: none; }
+.detail-header { display: flex; align-items: start; gap: 1.5rem; margin-bottom: 1.5rem; position: relative; z-index: 1; }
+.detail-icon { width: 6rem; height: 6rem; display: flex; align-items: center; justify-content: center; font-size: 4.5rem; background: #fff; border-radius: 1.5rem; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); flex-shrink: 0; }
+.detail-info { flex: 1; }
+.detail-title { font-size: 2rem; font-weight: 700; color: #09090b; margin-bottom: 0.75rem; line-height: 1.2; }
+.detail-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+.detail-desc { font-size: 1.125rem; color: #71717a; line-height: 1.75; }
+.detail-detail { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #e4e4e7; font-size: 1rem; color: #52525b; white-space: pre-wrap; line-height: 1.75; }
+
+.gate-card { padding: 2rem; background: #fff; border: 2px solid #e4e4e7; border-radius: 1.5rem; box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08); }
+.gate-title { text-align: center; font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; }
+.gate-subtitle { text-align: center; font-size: 0.875rem; color: #71717a; margin-bottom: 1.5rem; }
+.gate-options { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
+.gate-option { display: flex; align-items: start; gap: 1rem; padding: 1.25rem; border: 2px solid #e4e4e7; border-radius: 1rem; cursor: pointer; transition: all 0.2s; }
+.gate-option:hover { background: #fafafa; border-color: #d4d4d8; }
+.gate-option.active { border-color: #3b82f6; background: #eff6ff; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2); }
+.gate-option input { margin-top: 0.375rem; width: 1.25rem; height: 1.25rem; cursor: pointer; }
+.gate-content { flex: 1; }
+.gate-label { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+.gate-icon { font-size: 1.5rem; }
+.gate-name { font-size: 1.125rem; font-weight: 700; }
+.gate-tag { padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 700; color: #fff; border-radius: 9999px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
+.tag-free { background: #10b981; }
+.tag-credits { background: #3b82f6; }
+.gate-desc { font-size: 0.875rem; color: #71717a; line-height: 1.5; }
+.start-button { width: 100%; padding: 1rem 1.5rem; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: #fff; font-size: 1.125rem; font-weight: 700; border: none; border-radius: 1rem; cursor: pointer; box-shadow: 0 8px 16px rgba(59, 130, 246, 0.3); transition: all 0.2s; }
+.start-button:hover { transform: scale(1.02); box-shadow: 0 12px 24px rgba(59, 130, 246, 0.4); }
+.start-button:active { transform: scale(0.98); }
+.start-button:disabled { background: #d4d4d8; cursor: not-allowed; box-shadow: none; transform: none; }
+
+.task-card { padding: 2rem; background: #fff; border: 2px solid #e4e4e7; border-radius: 1.5rem; box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08); text-align: center; margin-bottom: 2rem; }
+.task-icon-wrap { display: inline-flex; align-items: center; justify-content: center; width: 6rem; height: 6rem; font-size: 4rem; background: linear-gradient(135deg, #fafafa 0%, #f4f4f5 100%); border-radius: 1.5rem; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); margin-bottom: 1rem; }
+.task-status { font-size: 1.875rem; font-weight: 700; margin-bottom: 0.75rem; }
+.task-name { font-size: 1.125rem; color: #71717a; }
+.task-progress { margin-bottom: 1.5rem; }
+.task-progress-label { display: flex; justify-content: space-between; font-size: 0.875rem; color: #71717a; margin-bottom: 0.5rem; }
+.task-progress-bar { height: 0.5rem; background: #e4e4e7; border-radius: 9999px; overflow: hidden; }
+.task-progress-fill { height: 100%; background: #3b82f6; transition: width 0.3s; }
+.task-info { display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.875rem; text-align: left; }
+.task-info-row { display: flex; justify-content: space-between; }
+.task-info-label { color: #71717a; }
+.task-info-value { color: #09090b; font-family: monospace; }
+.task-actions { display: flex; gap: 0.75rem; }
+.btn { flex: 1; padding: 0.75rem 1.5rem; font-size: 1rem; font-weight: 600; border-radius: 1rem; cursor: pointer; transition: all 0.2s; }
+.btn-outline { background: #fff; color: #52525b; border: 1px solid #d4d4d8; }
+.btn-outline:hover { background: #f4f4f5; }
+.btn-primary { background: #3b82f6; color: #fff; border: none; }
+.btn-primary:hover { background: #2563eb; }
+
+.back-button { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; margin-bottom: 1.5rem; background: #fff; border: 1px solid #e4e4e7; border-radius: 0.75rem; color: #71717a; cursor: pointer; transition: all 0.2s; }
+.back-button:hover { color: #09090b; border-color: #d4d4d8; }
+
+.loading, .empty { text-align: center; padding: 3rem 1.5rem; color: #a1a1aa; }
+
+.ad-modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.5); }
+.ad-content { background: #fff; border-radius: 1rem; padding: 1.5rem; max-width: 28rem; width: 90%; margin: 1rem; }
+.ad-title { font-size: 1.25rem; font-weight: 700; margin-bottom: 1rem; }
+.ad-spinner { display: flex; flex-direction: column; align-items: center; padding: 2rem 0; }
+.spinner { width: 4rem; height: 4rem; border: 4px solid #e4e4e7; border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 1rem; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.ad-skip { width: 100%; margin-top: 1rem; padding: 0.5rem 1rem; background: #f4f4f5; color: #52525b; border: none; border-radius: 0.5rem; cursor: pointer; }
+
+@media (max-width: 768px) {
+  .hero-title { font-size: 2rem; }
+  .container { padding: 1.5rem 1rem; }
+  .tools-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- 发现页 -->
+  <div v-if="view === 'list'" class="container">
+    <div class="hero">
+      <div class="hero-badge">
+        <span>🎯</span>
+        <span>打开就能用</span>
+      </div>
+      <h1 class="hero-title">找个智能体帮忙</h1>
+      <p class="hero-subtitle">搜索、筛选，点一下就能用 · 看广告免费，或付积分跳过</p>
+    </div>
+
+    <div class="search-box" style="position: relative;">
+      <input v-model="searchQuery" @keyup.enter="loadTools" type="text" class="search-input" placeholder="搜索名称、作者或用途…">
+      <button @click="loadTools" class="search-button">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      </button>
+    </div>
+
+    <div v-if="scenes.length" class="scenes">
+      <button @click="selectedScene = ''; loadTools()" :class="['scene-btn', { active: selectedScene === '' }]">全部</button>
+      <button v-for="scene in scenes" :key="scene.value" @click="selectedScene = scene.value; loadTools()" :class="['scene-btn', { active: selectedScene === scene.value }]">{{ scene.label }}</button>
+    </div>
+
+    <div v-if="loading" class="loading">加载中…</div>
+    <div v-else-if="!tools.length" class="empty">暂时没有可用的智能体</div>
+    <div v-else class="tools-grid">
+      <div v-for="tool in tools" :key="tool.id" @click="viewTool(tool.id)" class="tool-card">
+        <div v-if="tool.featured" class="tool-featured"><span>⭐</span><span>精选</span></div>
+        <div class="tool-header">
+          <div class="tool-icon">{{ tool.icon || '🔧' }}</div>
+          <div class="tool-info">
+            <h3 class="tool-name">{{ tool.display_name }}</h3>
+            <span :class="['tool-badge', getBadgeClass(tool.trust_level)]">{{ getBadgeText(tool.trust_level) }}</span>
+          </div>
+        </div>
+        <p class="tool-desc">{{ tool.description }}</p>
+        <p v-if="tool.owner_nickname || tool.runtime" class="tool-desc" style="margin-top:-0.5rem;color:#a1a1aa;font-size:0.8rem;">
+          <span v-if="tool.owner_nickname">@{{ tool.owner_nickname }}</span>
+          <span v-if="tool.owner_nickname && tool.runtime"> · </span>
+          <span v-if="tool.runtime">{{ tool.runtime }}</span>
+          <span v-if="tool.source==='network'"> · 在线</span>
+        </p>
+        <div class="tool-footer">
+          <div class="tool-price">
+            <span class="price-tag price-ad">📺 看广告</span>
+            <span style="color: #a1a1aa;">或</span>
+            <span class="price-tag price-credits">{{ tool.pricing_amount || 1 }} 积分</span>
+          </div>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 工具详情页 -->
+  <div v-if="view === 'detail' && currentTool" class="container detail-container">
+    <button @click="backToList" class="back-button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+      返回
+    </button>
+
+    <div class="detail-card">
+      <div class="detail-header">
+        <div class="detail-icon">{{ currentTool.icon || '🔧' }}</div>
+        <div class="detail-info">
+          <h1 class="detail-title">{{ currentTool.display_name }}</h1>
+          <div class="detail-badges">
+            <span :class="['tool-badge', getBadgeClass(currentTool.trust_level)]">{{ getBadgeText(currentTool.trust_level) }}</span>
+            <span v-if="currentTool.scene_display_name" class="tool-badge" style="background: #f4f4f5; color: #52525b;">{{ currentTool.scene_display_name }}</span>
+          </div>
+          <p class="detail-desc">{{ currentTool.description }}</p>
+        </div>
+      </div>
+      <div v-if="currentTool.detail_desc" class="detail-detail">{{ currentTool.detail_desc }}</div>
+    </div>
+
+    <div class="gate-card">
+      <h2 class="gate-title">使用方式</h2>
+      <p class="gate-subtitle">选一种方式开始 · 看广告免费 · 或付积分跳过</p>
+      <div class="gate-options">
+        <label :class="['gate-option', { active: gateType === 'ad' }]">
+          <input type="radio" v-model="gateType" value="ad">
+          <div class="gate-content">
+            <div class="gate-label">
+              <span class="gate-icon">📺</span>
+              <span class="gate-name">看个广告，免费用一次</span>
+              <span class="gate-tag tag-free">免费</span>
+            </div>
+            <p class="gate-desc">观看 15 秒广告后即可免费使用，无需登录、无需付费</p>
+          </div>
+        </label>
+        <label :class="['gate-option', { active: gateType === 'paid' }]">
+          <input type="radio" v-model="gateType" value="paid">
+          <div class="gate-content">
+            <div class="gate-label">
+              <span class="gate-icon">💎</span>
+              <span class="gate-name">付积分跳过广告</span>
+              <span class="gate-tag tag-credits">{{ currentTool.pricing_amount || 1 }} 积分</span>
+            </div>
+            <p class="gate-desc">登录并支付积分后直接使用，无需观看广告</p>
+          </div>
+        </label>
+      </div>
+      <button @click="startTool" :disabled="processing" class="start-button">{{ processing ? '启动中…' : '立即使用' }}</button>
+    </div>
+  </div>
+
+  <!-- 任务进度页 -->
+  <div v-if="view === 'task' && currentTask" class="container detail-container">
+    <button @click="backToList" class="back-button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+      返回
+    </button>
+
+    <div class="task-card">
+      <div class="task-icon-wrap">{{ getStatusIcon(currentTask.status) }}</div>
+      <h1 :class="['task-status', getStatusColor(currentTask.status)]">{{ getStatusText(currentTask.status) }}</h1>
+      <p class="task-name">{{ currentTask.tool_name }}</p>
+    </div>
+
+    <div v-if="currentTask.status === 'processing'" class="task-progress">
+      <div class="task-progress-label">
+        <span>进度</span>
+        <span>{{ Math.round((currentTask.progress || 0) * 100) }}%</span>
+      </div>
+      <div class="task-progress-bar">
+        <div class="task-progress-fill" :style="{ width: ((currentTask.progress || 0) * 100) + '%' }"></div>
+      </div>
+    </div>
+
+    <div class="detail-card">
+      <div class="task-info">
+        <div class="task-info-row">
+          <span class="task-info-label">任务编号:</span>
+          <span class="task-info-value">{{ currentTask.task_id }}</span>
+        </div>
+        <div class="task-info-row">
+          <span class="task-info-label">创建时间:</span>
+          <span class="task-info-value">{{ formatTime(currentTask.created_at) }}</span>
+        </div>
+        <div v-if="currentTask.completed_at" class="task-info-row">
+          <span class="task-info-label">完成时间:</span>
+          <span class="task-info-value">{{ formatTime(currentTask.completed_at) }}</span>
+        </div>
+      </div>
+
+      <div v-if="currentTask.status === 'completed' && currentTask.result_data" style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #e4e4e7;">
+        <h3 style="font-size: 1.125rem; font-weight: 700; margin-bottom: 0.75rem;">处理结果</h3>
+        <a v-if="currentTask.result_data.download_url" :href="currentTask.result_data.download_url" target="_blank" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.5rem;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          下载结果
+        </a>
+      </div>
+
+      <div v-if="currentTask.status === 'failed' && currentTask.error_message" style="margin-top: 1.5rem; padding: 1rem; background: #fef2f2; border: 1px solid #fecaca; border-radius: 0.5rem; color: #b91c1c; font-size: 0.875rem;">
+        {{ currentTask.error_message }}
+      </div>
+    </div>
+
+    <div class="task-actions">
+      <button @click="backToList" class="btn btn-outline">看看别的</button>
+      <button v-if="currentTask.status === 'completed'" @click="viewTool(currentTask.tool_id)" class="btn btn-primary">再试一次</button>
+    </div>
+  </div>
+
+  <!-- 广告模态框 -->
+  <div v-if="showAdModal" class="ad-modal" @click.self="showAdModal = false">
+    <div class="ad-content">
+      <h3 class="ad-title">广告播放中</h3>
+      <div class="ad-spinner">
+        <div class="spinner"></div>
+        <p style="color: #71717a; font-size: 0.875rem;">请稍候，广告播放完成后自动开始…</p>
+      </div>
+      <button @click="simulateAdWatch" class="ad-skip">（演示：点击跳过）</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const { createApp } = Vue;
+
+async function api(url, opts = {}) {
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    ...opts,
+  });
+  let data = null;
+  try { data = await res.json(); } catch { data = null; }
+  if (!res.ok) {
+    const err = new Error((data && data.detail) || res.statusText || 'request failed');
+    err.response = { data, status: res.status };
+    throw err;
+  }
+  return data;
+}
+
+createApp({
+  data() {
+    return {
+      view: 'list',
+      tools: [],
+      scenes: [],
+      selectedScene: '',
+      searchQuery: '',
+      loading: false,
+      currentTool: null,
+      currentTask: null,
+      gateType: 'ad',
+      processing: false,
+      showAdModal: false,
+      pollTimer: null,
+    };
+  },
+  mounted() {
+    const path = window.location.pathname;
+    if (path.startsWith('/tools/tasks/')) {
+      const taskId = path.split('/').pop();
+      this.loadTask(taskId);
+    } else if (path.startsWith('/tools/') && path !== '/tools') {
+      const toolId = decodeURIComponent(path.slice('/tools/'.length));
+      if (toolId) this.loadToolDetail(toolId);
+    } else {
+      this.loadTools();
+    }
+  },
+  beforeUnmount() {
+    if (this.pollTimer) clearInterval(this.pollTimer);
+  },
+  methods: {
+    async loadTools() {
+      this.loading = true;
+      try {
+        const params = new URLSearchParams();
+        if (this.selectedScene) params.append('scene', this.selectedScene);
+        if (this.searchQuery) params.append('search', this.searchQuery);
+        params.append('limit', '50');
+        const data = await api('/api/tools/discover?' + params.toString());
+        this.tools = data.tools || [];
+        this.scenes = data.scenes || [];
+      } catch (error) {
+        console.error('Failed to load tools:', error);
+        this.tools = [];
+      } finally {
+        this.loading = false;
+      }
+    },
+    async loadToolDetail(toolId) {
+      try {
+        const data = await api('/api/tools/' + encodeURIComponent(toolId));
+        this.currentTool = data;
+        this.view = 'detail';
+        window.history.replaceState(null, '', '/tools/' + encodeURIComponent(toolId));
+      } catch (error) {
+        console.error('Failed to load tool detail:', error);
+        this.view = 'list';
+        this.loadTools();
+      }
+    },
+    viewTool(toolId) {
+      this.loadToolDetail(toolId);
+    },
+    backToList() {
+      this.view = 'list';
+      this.currentTool = null;
+      this.currentTask = null;
+      window.history.replaceState(null, '', '/tools');
+      this.loadTools();
+    },
+    async startTool() {
+      this.processing = true;
+      try {
+        if (this.gateType === 'ad') {
+          this.showAdModal = true;
+          return;
+        }
+        await this.executeStart();
+      } catch (error) {
+        console.error('Failed to start tool:', error);
+        alert((error.response && error.response.data && error.response.data.detail) || '启动失败');
+      } finally {
+        this.processing = false;
+      }
+    },
+    async simulateAdWatch() {
+      this.showAdModal = false;
+      this.processing = true;
+      try {
+        await this.executeStart();
+      } catch (error) {
+        console.error('Failed after ad:', error);
+        alert((error.response && error.response.data && error.response.data.detail) || '启动失败');
+      } finally {
+        this.processing = false;
+      }
+    },
+    async executeStart() {
+      const gateRes = await api('/api/tools/gate', {
+        method: 'POST',
+        body: JSON.stringify({ tool_id: String(this.currentTool.id), gate_type: this.gateType }),
+      });
+      // 出租智能体：通行门后跳转对话页；虚拟：站内任务演示
+      if (gateRes.redirect_url) {
+        window.location.href = gateRes.redirect_url;
+        return;
+      }
+      const taskRes = await api('/api/tools/tasks/start', {
+        method: 'POST',
+        body: JSON.stringify({ ticket_id: gateRes.ticket_id, input_data: {} }),
+      });
+      this.loadTask(taskRes.task_id);
+    },
+    async loadTask(taskId) {
+      try {
+        const data = await api('/api/tools/tasks/' + encodeURIComponent(taskId));
+        this.currentTask = data;
+        this.view = 'task';
+        window.history.replaceState(null, '', '/tools/tasks/' + encodeURIComponent(taskId));
+        if (data.status === 'processing' || data.status === 'dispatched' || data.status === 'queued') {
+          this.startPolling(taskId);
+        }
+      } catch (error) {
+        console.error('Failed to load task:', error);
+        this.view = 'list';
+        this.loadTools();
+      }
+    },
+    startPolling(taskId) {
+      if (this.pollTimer) clearInterval(this.pollTimer);
+      this.pollTimer = setInterval(() => {
+        api('/api/tools/tasks/' + encodeURIComponent(taskId)).then((data) => {
+          this.currentTask = data;
+          if (data.status === 'completed' || data.status === 'failed') {
+            clearInterval(this.pollTimer);
+            this.pollTimer = null;
+          }
+        }).catch(() => {});
+      }, 1500);
+    },
+    getBadgeClass(level) {
+      return level === 'virtual' ? 'badge-virtual' : 'badge-user-rented';
+    },
+    getBadgeText(level) {
+      return level === 'virtual' ? '平台' : '用户';
+    },
+    getStatusIcon(status) {
+      const map = { queued: '⏳', dispatched: '🚀', processing: '⚙️', completed: '✅', failed: '❌' };
+      return map[status] || '📋';
+    },
+    getStatusColor(status) {
+      const map = { completed: 'status-ok', failed: 'status-fail' };
+      return map[status] || 'status-run';
+    },
+    getStatusText(status) {
+      const map = {
+        queued: '排队中',
+        dispatched: '已开始',
+        processing: '处理中',
+        completed: '完成',
+        failed: '失败',
+      };
+      return map[status] || status;
+    },
+  },
+}).mount('#app');
+</script></script>
+</body>
+</html>

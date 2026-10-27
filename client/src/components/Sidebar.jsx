@@ -34,7 +34,6 @@ export default function Sidebar({ onToggleCollapse }) {
       </svg>
     )},
     { to: '/contribute', labelKey: 'nav.contribute', icon: (
-      // 美元符号 $
       <svg {...svgProps} className={iconCls}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 2.25v19.5M16.5 5.25H10.125a3.375 3.375 0 0 0 0 6.75h3.75a3.375 3.375 0 0 1 0 6.75H6.75" />
       </svg>

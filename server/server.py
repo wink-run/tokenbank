@@ -43,6 +43,7 @@ from provider_router import router as provider_router
 from config_router import router as config_router
 from circle_router import router as circle_router
 from studio_router import router as studio_router, admin_router as studio_admin_router
+from tools_router import router as tools_router
 from worker_pool import (
     pool, WorkerConnection, worker_model_names, default_ttft_ms, worker_sharer,
     normalize_agent_cards, owner_label_from_user, shared_agent_display_name, bare_agent_name,
@@ -78,6 +79,13 @@ async def lifespan(app: FastAPI):
     await seed_default_configs()
     await seed_default_studio()
     logger.info("Default config seeded (if empty)")
+    # 工具合集站种子数据
+    try:
+        from seeds.tools_seed import seed_tools
+        await seed_tools()
+        logger.info("Tools seeded (if empty)")
+    except Exception as e:
+        logger.warning(f"Failed to seed tools: {e}")
     from admin_router import _sync_virtual_pool
     await _sync_virtual_pool()
     logger.info("Virtual agents synced")
@@ -187,6 +195,7 @@ app.include_router(circle_router, prefix="/user")
 app.include_router(studio_router, prefix="/user")          # 社区圈 场景/插件（用户端）
 app.include_router(studio_admin_router, prefix="/admin")   # 社区圈 预定义（管理员）
                                                     # PUT/DELETE /api/config/tools|routes (admin)
+app.include_router(tools_router, tags=["tools"])           # 工具合集站（消费端）
 app.include_router(device_router, tags=["device"])
 
 
@@ -258,6 +267,26 @@ async def sharer_landing_page(sharer: str):
 async def privacy_policy():
     """App Store / 公开可访问的隐私政策页"""
     return FileResponse("static/privacy.html")
+
+
+@app.get("/tools")
+async def tools_hub_page():
+    """公开：出租智能体市场（用户出租 + 平台虚拟，对齐虚拟智能体）"""
+    return FileResponse("static/tools.html")
+
+
+@app.get("/tools/{tool_id}")
+async def tool_detail_page(tool_id: str):
+    """出租智能体详情页（路径参数由前端 JS 解析；支持 agent:<id>）"""
+    _ = tool_id
+    return FileResponse("static/tools.html")
+
+
+@app.get("/tools/tasks/{task_id}")
+async def tool_task_page(task_id: str):
+    """智能体任务进度页（路径参数由前端 JS 解析）"""
+    _ = task_id
+    return FileResponse("static/tools.html")
 
 
 @app.get("/a/{assistant_id}")
@@ -920,6 +949,8 @@ class AgentTaskBody(BaseModel):
     stream: Optional[bool] = False
     # 本轮附图：[{dataUrl, name?}]，仅 data:image/…
     images: Optional[list] = None
+    # 工具合集通行门票据：看广告后匿名可用一次（见 /api/tools/gate）
+    gate_ticket: Optional[str] = None
 
 
 @app.post("/api/agent-tasks")
@@ -939,6 +970,17 @@ async def create_agent_task(
         raise HTTPException(400, str(e)) from e
 
     guest = uid is None
+    gate_pass = False
+    if guest and (body.gate_ticket or "").strip():
+        # 工具合集：看完广告拿到的票可匿名用一次，绕过访客试用限流
+        from tools_router import redeem_agent_gate_ticket
+        meta = redeem_agent_gate_ticket(body.gate_ticket.strip(), body.assistant_id)
+        if not meta:
+            raise HTTPException(
+                401,
+                "invalid or used gate ticket — watch an ad again or sign in",
+            )
+        gate_pass = True
     if guest:
         text = (body.prompt or "").strip()
         if not text and not task_images:
@@ -946,7 +988,7 @@ async def create_agent_task(
         # 访客禁止带历史（前端多轮会包装 Conversation so far）
         if text.startswith("Conversation so far:"):
             raise HTTPException(401, "guest trial: one turn only — sign in to continue")
-        if not guest_trial_allowed(_client_ip(request)):
+        if not gate_pass and not guest_trial_allowed(_client_ip(request)):
             raise HTTPException(429, "guest trial limit reached — sign in to continue")
 
     guest_ip = _client_ip(request) if guest else None
