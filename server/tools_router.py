@@ -16,6 +16,9 @@ from auth import get_current_user_id, get_optional_user_id
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# agent:* 通行门票据（不落 tools FK；V1 内存）
+_agent_gate_tickets: dict[str, dict] = {}
+
 
 # ── V1 演示辅助函数 ────────────────────────────────────────────────────────────
 
@@ -65,7 +68,7 @@ async def _demo_process_task(task_id: str):
 
 class ToolGateRequest(BaseModel):
     """工具通行门请求（看广告 OR 付费）"""
-    tool_id: int
+    tool_id: str  # 数字 id 或 agent:<assistant_id>
     gate_type: str  # 'ad' or 'paid'
 
 
@@ -124,7 +127,7 @@ async def discover_tools(
             "id": f"agent:{aid}",
             "name": a.get("name") or aid,
             "display_name": dn,
-            "description": desc or "在线出租智能体，点击即可试用",
+            "description": desc or "在线出租智能体，看广告或付积分即可使用",
             "icon": "🤖",
             "scene": "agent",
             "scene_display_name": "在线智能体",
@@ -237,7 +240,7 @@ async def get_tool_detail(
             "detail_desc": (
                 f"供给者 @{owner}" if owner else "用户出租智能体"
             ) + (f" · 运行时 {runtime}" if runtime else "")
-            + "\n与 Network → 智能体同源；试用将打开网页对话。",
+            + "\n与 Network → 智能体同源；通行门后打开网页对话。",
             "icon": "🤖",
             "scene": "agent",
             "scene_display_name": "在线智能体",
@@ -296,72 +299,136 @@ async def get_tool_detail(
 @router.post("/api/tools/gate")
 async def pass_gate(
     req: ToolGateRequest,
-    user_id: Optional[int] = Depends(get_current_user_id),
+    user_id: Optional[int] = Depends(get_optional_user_id),
 ):
     """
     通过通行门雇用智能体（看广告 OR 付积分）
     - 看广告：免费，模拟广告播放成功
-    - 付积分：扣除积分
-    成功后返回 task_ticket 用于调度智能体
+    - 付积分：扣除积分（需登录）
+    用户出租（agent:*）与平台虚拟共用同一套收费模式
     """
-    # 获取工具信息
+    tid = str(req.tool_id or "").strip()
+    if not tid:
+        raise HTTPException(status_code=400, detail="tool_id required")
+
+    if req.gate_type not in ("ad", "paid"):
+        raise HTTPException(status_code=400, detail="Invalid gate_type")
+
+    # ── 用户出租智能体（与 Network 同源）──────────────────────────────────────
+    if tid.startswith("agent:"):
+        aid = tid[6:].strip()
+        if not aid:
+            raise HTTPException(status_code=404, detail="Tool not found")
+        try:
+            from worker_pool import pool
+            card = pool.get_agent_for_user(aid, public_only=True)
+        except Exception as e:
+            logger.warning("gate agent lookup failed: %s", e)
+            card = None
+        if not card:
+            raise HTTPException(status_code=404, detail="Agent offline or not found")
+
+        dn = (card.get("display_name") or card.get("name") or aid).strip()
+        pricing_amount = 1.0
+        if req.gate_type == "ad":
+            settlement_type = "ad_watched"
+            credits_cost = 0
+        else:
+            settlement_type = "credits_paid"
+            credits_cost = pricing_amount
+            if not user_id:
+                raise HTTPException(status_code=401, detail="Login required to pay with credits")
+            async with db.connect() as conn:
+                user = await conn.fetch_one(
+                    "SELECT credits_balance FROM users WHERE id = ?",
+                    [user_id],
+                )
+            if user and user["credits_balance"] < credits_cost:
+                raise HTTPException(status_code=402, detail="Insufficient credits")
+            await db.add_transaction(
+                user_id=user_id,
+                type="tool_usage",
+                delta=-credits_cost,
+                note=f"使用出租智能体: {dn}",
+                model_name=f"tool_{tid}",
+            )
+
+        ticket_id = f"tkt_{secrets.token_urlsafe(16)}"
+        redirect_url = f"/a/{aid}"
+        _agent_gate_tickets[ticket_id] = {
+            "tool_id": tid,
+            "assistant_id": aid,
+            "user_id": user_id,
+            "settlement_type": settlement_type,
+            "credits_cost": credits_cost,
+            "redirect_url": redirect_url,
+            "display_name": dn,
+            "status": "pending",
+            "created_at": time.time(),
+        }
+        return {
+            "ticket_id": ticket_id,
+            "tool_id": tid,
+            "settlement_type": settlement_type,
+            "credits_cost": credits_cost,
+            "redirect_url": redirect_url,
+        }
+
+    # ── 平台虚拟 / 种子（数字 id）────────────────────────────────────────────
+    try:
+        numeric_id = int(tid)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
     async with db.connect() as conn:
         tool = await conn.fetch_one("""
             SELECT t.id, t.display_name, tv.pricing_type, tv.pricing_amount
             FROM tools t
             JOIN tool_versions tv ON t.id = tv.tool_id AND tv.is_active = 1
             WHERE t.id = ?
-        """, [req.tool_id])
-    
+        """, [numeric_id])
+
     if not tool:
         raise HTTPException(status_code=404, detail="Tool not found")
-    
-    # 生成 ticket
+
     ticket_id = f"tkt_{secrets.token_urlsafe(16)}"
-    
+
     if req.gate_type == "ad":
-        # 看广告（MVP 阶段模拟成功）
         settlement_type = "ad_watched"
         credits_cost = 0
-    elif req.gate_type == "paid":
-        # 付费（扣除积分或记录订单）
+    else:
         settlement_type = "credits_paid"
         credits_cost = tool["pricing_amount"] or 0
-        
-        # 检查积分余额（如果已登录）
-        if user_id:
-            async with db.connect() as conn:
-                user = await conn.fetch_one(
-                    "SELECT credits_balance FROM users WHERE id = ?",
-                    [user_id]
-                )
-            if user and user["credits_balance"] < credits_cost:
-                raise HTTPException(status_code=402, detail="Insufficient credits")
-    else:
-        raise HTTPException(status_code=400, detail="Invalid gate_type")
-    
-    # 创建 ticket 记录
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Login required to pay with credits")
+        async with db.connect() as conn:
+            user = await conn.fetch_one(
+                "SELECT credits_balance FROM users WHERE id = ?",
+                [user_id],
+            )
+        if user and user["credits_balance"] < credits_cost:
+            raise HTTPException(status_code=402, detail="Insufficient credits")
+
     async with db.connect() as conn:
         await conn.execute("""
-            INSERT INTO tool_tickets 
+            INSERT INTO tool_tickets
             (ticket_id, tool_id, user_id, settlement_type, credits_cost, status, created_at)
             VALUES (?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
-        """, [ticket_id, req.tool_id, user_id, settlement_type, credits_cost])
+        """, [ticket_id, numeric_id, user_id, settlement_type, credits_cost])
         await conn.commit()
-    
-    # 如果是付费，扣除积分
+
     if req.gate_type == "paid" and user_id and credits_cost > 0:
         await db.add_transaction(
             user_id=user_id,
             type="tool_usage",
             delta=-credits_cost,
             note=f"使用工具: {tool['display_name']}",
-            model_name=f"tool_{req.tool_id}",
+            model_name=f"tool_{numeric_id}",
         )
-    
+
     return {
         "ticket_id": ticket_id,
-        "tool_id": req.tool_id,
+        "tool_id": numeric_id,
         "settlement_type": settlement_type,
         "credits_cost": credits_cost,
     }

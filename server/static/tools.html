@@ -167,14 +167,9 @@ body {
         </p>
         <div class="tool-footer">
           <div class="tool-price">
-            <template v-if="tool.source==='network'">
-              <span class="price-tag price-ad">试用</span>
-            </template>
-            <template v-else>
-              <span class="price-tag price-ad">📺 看广告</span>
-              <span style="color: #a1a1aa;">或</span>
-              <span class="price-tag price-credits">{{ tool.pricing_amount }} 积分</span>
-            </template>
+            <span class="price-tag price-ad">📺 看广告</span>
+            <span style="color: #a1a1aa;">或</span>
+            <span class="price-tag price-credits">{{ tool.pricing_amount || 1 }} 积分</span>
           </div>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
         </div>
@@ -225,14 +220,13 @@ body {
             <div class="gate-label">
               <span class="gate-icon">💎</span>
               <span class="gate-name">付积分跳过广告</span>
-              <span class="gate-tag tag-credits">{{ currentTool.pricing_amount }} 积分</span>
+              <span class="gate-tag tag-credits">{{ currentTool.pricing_amount || 1 }} 积分</span>
             </div>
             <p class="gate-desc">直接使用，无需观看广告</p>
           </div>
         </label>
       </div>
-      <button v-if="currentTool.try_url && currentTool.source==='network'" @click="openTry" class="start-button">立即试用</button>
-      <button v-else @click="startTool" :disabled="processing" class="start-button">{{ processing ? '启动中…' : '立即使用' }}</button>
+      <button @click="startTool" :disabled="processing" class="start-button">{{ processing ? '启动中…' : '立即使用' }}</button>
     </div>
   </div>
 
@@ -397,10 +391,6 @@ createApp({
       window.history.replaceState(null, '', '/tools');
       this.loadTools();
     },
-    openTry() {
-      const url = this.currentTool && this.currentTool.try_url;
-      if (url) window.location.href = url;
-    },
     async startTool() {
       this.processing = true;
       try {
@@ -429,14 +419,15 @@ createApp({
       }
     },
     async executeStart() {
-      if (this.currentTool && this.currentTool.source === 'network' && this.currentTool.try_url) {
-        window.location.href = this.currentTool.try_url;
-        return;
-      }
       const gateRes = await api('/api/tools/gate', {
         method: 'POST',
-        body: JSON.stringify({ tool_id: this.currentTool.id, gate_type: this.gateType }),
+        body: JSON.stringify({ tool_id: String(this.currentTool.id), gate_type: this.gateType }),
       });
+      // 出租智能体：通行门后跳转对话页；虚拟：站内任务演示
+      if (gateRes.redirect_url) {
+        window.location.href = gateRes.redirect_url;
+        return;
+      }
       const taskRes = await api('/api/tools/tasks/start', {
         method: 'POST',
         body: JSON.stringify({ ticket_id: gateRes.ticket_id, input_data: {} }),
