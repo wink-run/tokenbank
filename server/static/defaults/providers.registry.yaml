@@ -215,7 +215,7 @@ providers:
   label: Agnes AI
   icon: 🤍
   tier: free
-  hint: OpenAI 兼容接口：agnes-ai.com
+  hint: OpenAI 兼容接口：agnes-ai.com（限时免费）
   base_url: https://apihub.agnes-ai.com/v1
   modalities:
     language: true
@@ -223,13 +223,18 @@ providers:
   models:
   - name: agnes-image-2.0-flash
     type: image
-  - name: agnes-2.0-flash
+  - name: agnes-2.5-flash
+    type: chat
+  - name: agnes-3.0-flash
     type: chat
   pricing:
     agnes-image-2.0-flash:
       in: 0
       out: 0
-    agnes-2.0-flash:
+    agnes-2.5-flash:
+      in: 0
+      out: 0
+    agnes-3.0-flash:
       in: 0
       out: 0
   handler: agnes-image
@@ -347,12 +352,16 @@ providers:
   label: ZhiPu AI
   icon: 🟣
   tier: paid
-  hint: 官方付费：open.bigmodel.cn
+  hint: Z.AI 国际站 USD：docs.z.ai
   base_url: https://open.bigmodel.cn/api/paas/v4
   modalities:
     language: true
   models:
   - name: glm-5.3
+    type: chat
+  - name: glm-5.3-flash
+    type: chat
+  - name: glm-5.3-flashx
     type: chat
   - name: glm-5.2
     type: chat
@@ -366,29 +375,37 @@ providers:
     type: chat
   pricing:
     glm-5.3:
-      in: 1.14
-      out: 3.99
-      cacheRead: 0.29
+      in: 1.4
+      out: 4.4
+      cacheRead: 0.26
+    glm-5.3-flash:
+      in: 0.15
+      out: 0.50
+      cacheRead: 0.03
+    glm-5.3-flashx:
+      in: 0.37
+      out: 1.25
+      cacheRead: 0.075
     glm-5.2:
-      in: 1.14
-      out: 3.99
-      cacheRead: 0.29
+      in: 1.4
+      out: 4.4
+      cacheRead: 0.26
     glm-5.1:
-      in: 0.86
-      out: 3.42
-      cacheRead: 0.19
+      in: 1.4
+      out: 4.4
+      cacheRead: 0.26
     glm-5:
-      in: 0.57
-      out: 2.57
-      cacheRead: 0.14
+      in: 1.0
+      out: 3.2
+      cacheRead: 0.2
     glm-4.7:
-      in: 0.29
-      out: 1.14
-      cacheRead: 0.06
+      in: 0.6
+      out: 2.2
+      cacheRead: 0.11
     glm-4.6:
-      in: 0.86
-      out: 3.14
-      cacheRead: 0.16
+      in: 0.6
+      out: 2.2
+      cacheRead: 0.11
   handler: openai
   api_format: openai
   enabled_default: false
@@ -550,12 +567,10 @@ providers:
       in: 0.15
       out: 0.60
       cacheRead: 0.003
-      cacheWrite: 0.19
     deepseek-v4-pro:
       in: 0.66
       out: 1.98
       cacheRead: 0.022
-      cacheWrite: 0.83
   handler: openai
   api_format: openai
   enabled_default: false
@@ -602,7 +617,7 @@ providers:
     type: chat
   - name: deepseek-v4.1-flash
     type: chat
-  - name: kimi-k3
+  - name: kimi-k3.1-pro
     type: chat
   pricing:
     doubao-seed-evolving:
@@ -621,7 +636,7 @@ providers:
       in: 0.14
       out: 0.57
       cacheRead: 0.003
-    kimi-k3:
+    kimi-k3.1-pro:
       in: 1.86
       out: 9.70
       cacheRead: 0.19
@@ -648,7 +663,7 @@ providers:
     type: chat
   - name: deepseek-v4.1-flash
     type: chat
-  - name: kimi-k3
+  - name: kimi-k3.1-pro
     type: chat
   pricing:
     doubao-seed-evolving:
@@ -667,7 +682,7 @@ providers:
       in: 0.14
       out: 0.57
       cacheRead: 0.003
-    kimi-k3:
+    kimi-k3.1-pro:
       in: 1.86
       out: 9.70
       cacheRead: 0.19
@@ -723,9 +738,9 @@ providers:
     type: chat
   - name: grok-4.6
     type: chat
-  - name: grok-4
+  - name: grok-4.5
     type: chat
-  - name: grok-3-mini
+  - name: grok-4.3
     type: chat
   pricing:
     grok-4.7:
@@ -736,12 +751,14 @@ providers:
       in: 2.0
       out: 6.0
       cacheRead: 0.5
-    grok-4:
-      in: 3.0
-      out: 15.0
-    grok-3-mini:
-      in: 0.3
-      out: 0.5
+    grok-4.5:
+      in: 2.0
+      out: 6.0
+      cacheRead: 0.3
+    grok-4.3:
+      in: 1.25
+      out: 2.50
+      cacheRead: 0.2
   handler: openai
   api_format: openai
   enabled_default: false
@@ -1076,7 +1093,7 @@ billing_sources:
       in: 0.14
       out: 0.57
       cacheRead: 0.003
-  - id: kimi-k3
+  - id: kimi-k3.1-pro
     modality: chat
     pricing:
       in: 1.86
@@ -1099,7 +1116,7 @@ billing_sources:
       in: 0.14
       out: 0.57
       cacheRead: 0.003
-    kimi-k3:
+    kimi-k3.1-pro:
       in: 1.86
       out: 9.70
       cacheRead: 0.19
@@ -1155,7 +1172,7 @@ billing_sources:
       in: 0.14
       out: 0.57
       cacheRead: 0.003
-  - id: kimi-k3
+  - id: kimi-k3.1-pro
     modality: chat
     pricing:
       in: 1.86
@@ -1178,7 +1195,7 @@ billing_sources:
       in: 0.14
       out: 0.57
       cacheRead: 0.003
-    kimi-k3:
+    kimi-k3.1-pro:
       in: 1.86
       out: 9.70
       cacheRead: 0.19
@@ -1383,25 +1400,21 @@ billing_sources:
       in: 0.15
       out: 0.60
       cacheRead: 0.003
-      cacheWrite: 0.19
   - id: deepseek-v4-pro
     modality: chat
     pricing:
       in: 0.66
       out: 1.98
       cacheRead: 0.022
-      cacheWrite: 0.83
   pricing:
     deepseek-flash:
       in: 0.15
       out: 0.60
       cacheRead: 0.003
-      cacheWrite: 0.19
     deepseek-v4-pro:
       in: 0.66
       out: 1.98
       cacheRead: 0.022
-      cacheWrite: 0.83
   plans: []
   agent_id: ''
   plan_provider_id: null
@@ -1437,16 +1450,18 @@ billing_sources:
       in: 2.0
       out: 6.0
       cacheRead: 0.5
-  - id: grok-4
+  - id: grok-4.5
     modality: chat
     pricing:
-      in: 3.0
-      out: 15.0
-  - id: grok-3-mini
+      in: 2.0
+      out: 6.0
+      cacheRead: 0.3
+  - id: grok-4.3
     modality: chat
     pricing:
-      in: 0.3
-      out: 0.5
+      in: 1.25
+      out: 2.50
+      cacheRead: 0.2
   pricing:
     grok-4.7:
       in: 2.0
@@ -1456,12 +1471,14 @@ billing_sources:
       in: 2.0
       out: 6.0
       cacheRead: 0.5
-    grok-4:
-      in: 3.0
-      out: 15.0
-    grok-3-mini:
-      in: 0.3
-      out: 0.5
+    grok-4.5:
+      in: 2.0
+      out: 6.0
+      cacheRead: 0.3
+    grok-4.3:
+      in: 1.25
+      out: 2.50
+      cacheRead: 0.2
   plans: []
   agent_id: ''
   plan_provider_id: null
@@ -1683,7 +1700,12 @@ billing_sources:
     pricing:
       in: 0
       out: 0
-  - id: agnes-2.0-flash
+  - id: agnes-2.5-flash
+    modality: chat
+    pricing:
+      in: 0
+      out: 0
+  - id: agnes-3.0-flash
     modality: chat
     pricing:
       in: 0
@@ -1692,7 +1714,10 @@ billing_sources:
     agnes-image-2.0-flash:
       in: 0
       out: 0
-    agnes-2.0-flash:
+    agnes-2.5-flash:
+      in: 0
+      out: 0
+    agnes-3.0-flash:
       in: 0
       out: 0
   plans: []
@@ -1976,7 +2001,7 @@ billing_sources:
   auth: api_key
   api_format: openai
   handler: openai
-  hint: 官方付费：open.bigmodel.cn
+  hint: Z.AI 国际站 USD：docs.z.ai
   keyless: false
   key_prefix: []
   signup_url: https://bigmodel.cn/console/overview
@@ -1988,64 +2013,84 @@ billing_sources:
   - id: glm-5.3
     modality: chat
     pricing:
-      in: 1.14
-      out: 3.99
-      cacheRead: 0.29
+      in: 1.4
+      out: 4.4
+      cacheRead: 0.26
+  - id: glm-5.3-flash
+    modality: chat
+    pricing:
+      in: 0.15
+      out: 0.50
+      cacheRead: 0.03
+  - id: glm-5.3-flashx
+    modality: chat
+    pricing:
+      in: 0.37
+      out: 1.25
+      cacheRead: 0.075
   - id: glm-5.2
     modality: chat
     pricing:
-      in: 1.14
-      out: 3.99
-      cacheRead: 0.29
+      in: 1.4
+      out: 4.4
+      cacheRead: 0.26
   - id: glm-5.1
     modality: chat
     pricing:
-      in: 0.86
-      out: 3.42
-      cacheRead: 0.19
+      in: 1.4
+      out: 4.4
+      cacheRead: 0.26
   - id: glm-5
     modality: chat
     pricing:
-      in: 0.57
-      out: 2.57
-      cacheRead: 0.14
+      in: 1.0
+      out: 3.2
+      cacheRead: 0.2
   - id: glm-4.7
     modality: chat
     pricing:
-      in: 0.29
-      out: 1.14
-      cacheRead: 0.06
+      in: 0.6
+      out: 2.2
+      cacheRead: 0.11
   - id: glm-4.6
     modality: chat
     pricing:
-      in: 0.86
-      out: 3.14
-      cacheRead: 0.16
+      in: 0.6
+      out: 2.2
+      cacheRead: 0.11
   pricing:
     glm-5.3:
-      in: 1.14
-      out: 3.99
-      cacheRead: 0.29
+      in: 1.4
+      out: 4.4
+      cacheRead: 0.26
+    glm-5.3-flash:
+      in: 0.15
+      out: 0.50
+      cacheRead: 0.03
+    glm-5.3-flashx:
+      in: 0.37
+      out: 1.25
+      cacheRead: 0.075
     glm-5.2:
-      in: 1.14
-      out: 3.99
-      cacheRead: 0.29
+      in: 1.4
+      out: 4.4
+      cacheRead: 0.26
     glm-5.1:
-      in: 0.86
-      out: 3.42
-      cacheRead: 0.19
+      in: 1.4
+      out: 4.4
+      cacheRead: 0.26
     glm-5:
-      in: 0.57
-      out: 2.57
-      cacheRead: 0.14
+      in: 1.0
+      out: 3.2
+      cacheRead: 0.2
     glm-4.7:
-      in: 0.29
-      out: 1.14
-      cacheRead: 0.06
+      in: 0.6
+      out: 2.2
+      cacheRead: 0.11
     glm-4.6:
-      in: 0.86
-      out: 3.14
-      cacheRead: 0.16
+      in: 0.6
+      out: 2.2
+      cacheRead: 0.11
   plans: []
   agent_id: ''
   plan_provider_id: null
