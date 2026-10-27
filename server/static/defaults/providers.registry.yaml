@@ -547,14 +547,13 @@ providers:
     type: chat
   pricing:
     deepseek-flash:
-      in: 0.28
-      out: 0.42
-      cacheRead: 0.028
+      in: 0.15
+      out: 0.60
+      cacheRead: 0.003
     deepseek-v4-pro:
       in: 0.66
       out: 1.98
       cacheRead: 0.022
-      cacheWrite: 0.83
   handler: openai
   api_format: openai
   enabled_default: false
@@ -722,9 +721,9 @@ providers:
     type: chat
   - name: grok-4.6
     type: chat
-  - name: grok-4
+  - name: grok-4.5
     type: chat
-  - name: grok-3-mini
+  - name: grok-4.3
     type: chat
   pricing:
     grok-4.7:
@@ -735,12 +734,14 @@ providers:
       in: 2.0
       out: 6.0
       cacheRead: 0.5
-    grok-4:
-      in: 3.0
-      out: 15.0
-    grok-3-mini:
-      in: 0.3
-      out: 0.5
+    grok-4.5:
+      in: 2.0
+      out: 6.0
+      cacheRead: 0.3
+    grok-4.3:
+      in: 1.25
+      out: 2.5
+      cacheRead: 0.2
   handler: openai
   api_format: openai
   enabled_default: false
@@ -1379,26 +1380,24 @@ billing_sources:
   - id: deepseek-flash
     modality: chat
     pricing:
-      in: 0.28
-      out: 0.42
-      cacheRead: 0.028
+      in: 0.15
+      out: 0.60
+      cacheRead: 0.003
   - id: deepseek-v4-pro
     modality: chat
     pricing:
       in: 0.66
       out: 1.98
       cacheRead: 0.022
-      cacheWrite: 0.83
   pricing:
     deepseek-flash:
-      in: 0.28
-      out: 0.42
-      cacheRead: 0.028
+      in: 0.15
+      out: 0.60
+      cacheRead: 0.003
     deepseek-v4-pro:
       in: 0.66
       out: 1.98
       cacheRead: 0.022
-      cacheWrite: 0.83
   plans: []
   agent_id: ''
   plan_provider_id: null
@@ -1434,16 +1433,18 @@ billing_sources:
       in: 2.0
       out: 6.0
       cacheRead: 0.5
-  - id: grok-4
+  - id: grok-4.5
     modality: chat
     pricing:
-      in: 3.0
-      out: 15.0
-  - id: grok-3-mini
+      in: 2.0
+      out: 6.0
+      cacheRead: 0.3
+  - id: grok-4.3
     modality: chat
     pricing:
-      in: 0.3
-      out: 0.5
+      in: 1.25
+      out: 2.5
+      cacheRead: 0.2
   pricing:
     grok-4.7:
       in: 2.0
@@ -1453,12 +1454,14 @@ billing_sources:
       in: 2.0
       out: 6.0
       cacheRead: 0.5
-    grok-4:
-      in: 3.0
-      out: 15.0
-    grok-3-mini:
-      in: 0.3
-      out: 0.5
+    grok-4.5:
+      in: 2.0
+      out: 6.0
+      cacheRead: 0.3
+    grok-4.3:
+      in: 1.25
+      out: 2.5
+      cacheRead: 0.2
   plans: []
   agent_id: ''
   plan_provider_id: null
