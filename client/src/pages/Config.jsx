@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/index';
 import { useTheme } from '../store/theme';
 import { getConfig, getGateway } from '../api/adapter';
+import { alignSyncAccountSecretsFromCloud } from '../lib/sync-account-secrets';
 import { useLang } from '../store/lang';
 import { useCurrency } from '../store/currency';
 import { useUpdater } from '../store/updater';
@@ -123,6 +124,9 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
   const [hideDockIcon, setHideDockIcon] = useState(false);
   // 跨终端同步时是否带上 API Key / 登录凭证（默认关）
   const [syncAccountSecrets, setSyncAccountSecrets] = useState(false);
+  // 上次对齐到的开关和时间。没改开关就保存其它设置时，不刷新时间，避免盖过其它终端
+  const syncSecretsLoaded = useRef({ value: false, at: 0 });
+  const syncSecretsTouched = useRef(false);
   const isMac = window.electronAPI?.platform === 'darwin';
 
   const [savedMsg, setSavedMsg] = useState('');
@@ -136,8 +140,9 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
 
   // Load saved config on mount
   useEffect(() => {
-    getConfig().read().then(cfg => {
-      if (!cfg) return;
+    let cancelled = false;
+    getConfig().read().then(async (cfg) => {
+      if (!cfg || cancelled) return;
       if (cfg.gateway_port)      setGatewayPort(cfg.gateway_port);
       if (cfg.auto_launch != null) setAutoLaunch(!!cfg.auto_launch);
       if (cfg.req_timeout)       setReqTimeout(String(cfg.req_timeout));
@@ -151,7 +156,10 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
       if (cfg.usd_cny_rate != null) setUsdCnyRateInput(String(cfg.usd_cny_rate));
       // 默认 false：未设置时不隐藏 Dock
       setHideDockIcon(!!cfg.hide_dock_icon);
-      setSyncAccountSecrets(!!cfg.sync_account_secrets);
+      const shared = await alignSyncAccountSecretsFromCloud(cfg);
+      if (cancelled || syncSecretsTouched.current) return;
+      syncSecretsLoaded.current = { value: !!shared.value, at: Number(shared.at) || 0 };
+      setSyncAccountSecrets(!!shared.value);
     }).catch(() => {});
     // Read live gateway port from status
     getGateway().status().then(s => {
@@ -160,6 +168,7 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
     window.electronAPI?.updater?.getSettings?.().then(s => {
       if (s?.allowPrerelease != null) setAllowPrerelease(!!s.allowPrerelease);
     }).catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
   async function handleAllowPrereleaseChange(next) {
@@ -200,6 +209,8 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
       await syncCloudConfigUrl(base);
       const current = (await getConfig().read().catch(() => null)) || {};
       const rate = Math.max(0.01, Number(usdCnyRateInput) || DEFAULT_USD_CNY_RATE);
+      const secretsChanged = !!syncAccountSecrets !== !!syncSecretsLoaded.current.value;
+      const secretsAt = secretsChanged ? Date.now() : (Number(syncSecretsLoaded.current.at) || 0);
       await getConfig().write({
         ...current,
         gateway_port:    Number(gatewayPort),
@@ -215,7 +226,10 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
         usd_cny_rate: rate,
         hide_dock_icon: isMac ? hideDockIcon : false,
         sync_account_secrets: !!syncAccountSecrets,
+        sync_account_secrets_at: secretsAt,
       });
+      syncSecretsLoaded.current = { value: !!syncAccountSecrets, at: secretsAt };
+      syncSecretsTouched.current = false;
       applySettings({ currency: displayCurrency, usdCnyRate: rate });
       if (isMac) {
         try { await window.electronAPI?.app?.setHideDockIcon?.(hideDockIcon); } catch { /* ignore */ }
@@ -522,7 +536,10 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
         </div>
         <div className="divide-y divide-white/40 dark:divide-white/[0.06]">
           <Row label={t('settings.syncAccountSecrets')} hint={t('settings.syncAccountSecretsHint')}>
-            <Toggle enabled={syncAccountSecrets} onChange={() => setSyncAccountSecrets(v => !v)} />
+            <Toggle enabled={syncAccountSecrets} onChange={() => {
+              syncSecretsTouched.current = true;
+              setSyncAccountSecrets(v => !v);
+            }} />
           </Row>
           {user ? (
             <>

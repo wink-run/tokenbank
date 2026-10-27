@@ -900,7 +900,7 @@ export function PersonalSourceModelView({
                   {syncing ? t('psrc.model.syncing') : t('psrc.model.emptySync')}
                 </button>
                 {' '}{syncSecrets ? t('psrc.model.emptySyncTailWithKeys') : t('psrc.model.emptySyncTail')}
-                {!syncSecrets && <> {t('psrc.model.syncKeyHint')}</>}
+                {' '}{syncSecrets ? t('psrc.model.syncKeyHintOn') : t('psrc.model.syncKeyHint')}
               </>
             )}
           </p>

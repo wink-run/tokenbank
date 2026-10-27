@@ -39,6 +39,40 @@ function unionModels(localModels, remoteModels) {
   return { models: out, changed };
 }
 
+/** 合并后的行：密钥以本机为准，对方带来的删掉 */
+function keepLocalSecrets(localList, mergedList) {
+  const byId = new Map();
+  for (const row of (Array.isArray(localList) ? localList : [])) {
+    if (row && row.id) byId.set(row.id, row);
+  }
+  return (Array.isArray(mergedList) ? mergedList : []).map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    const local = row.id ? byId.get(row.id) : null;
+    const next = { ...row };
+    for (const k of SENSITIVE_KEYS) {
+      if (local && secretPresent(local[k])) next[k] = local[k];
+      else delete next[k];
+    }
+    return next;
+  });
+}
+
+function keepLocalDirectSecrets(localDirect, mergedDirect) {
+  const local = localDirect && typeof localDirect === 'object' ? localDirect : {};
+  const out = {};
+  for (const [k, row] of Object.entries(mergedDirect || {})) {
+    if (!row || typeof row !== 'object') { out[k] = row; continue; }
+    const prev = local[k];
+    const next = { ...row };
+    for (const sk of SENSITIVE_KEYS) {
+      if (prev && secretPresent(prev[sk])) next[sk] = prev[sk];
+      else delete next[sk];
+    }
+    out[k] = next;
+  }
+  return out;
+}
+
 function secretPresent(v) {
   if (v == null) return false;
   if (typeof v === 'string') return v.trim().length > 0;
@@ -207,6 +241,9 @@ export function buildAccountsConfig(accounts = {}, providers = [], opts = {}) {
     source_template_overrides: copy(accounts.source_template_overrides || {}),
     custom_source_templates: copy(accounts.custom_source_templates || {}),
     gateway_providers: gateway,
+    // 同一账户各终端共用：是否同步密钥，以及这次修改的时间（较新的为准）
+    sync_account_secrets: !!opts.syncAccountSecrets,
+    sync_account_secrets_at: Number(opts.syncAccountSecretsAt) || 0,
   };
 }
 
@@ -234,6 +271,12 @@ export function mergeRemoteAccountConfigs(local = {}, remotes = [], opts = {}) {
     if (Array.isArray(remote.gateway_providers) && remote.gateway_providers.length) {
       gatewayLists.push(remote.gateway_providers);
     }
+  }
+  // 开关关闭时，合并结果里的密钥只保留本机原来就有的
+  if (!includeSecrets) {
+    subs = keepLocalSecrets(local.user_subscriptions, subs);
+    payg = keepLocalSecrets(local.user_payg_providers, payg);
+    direct = keepLocalDirectSecrets(local.direct_source_billing, direct);
   }
   return {
     user_subscriptions: subs,
@@ -263,7 +306,8 @@ export function mergeGatewayProviders(local = [], lists = [], opts = {}) {
           id: row.id,
           type: row.type || row.tier || 'paid',
           tier: row.tier || row.type || 'paid',
-          enabled: row.enabled !== false,
+          // 从其他终端同步进来的源默认打开，不沿用对方的关闭状态
+          enabled: true,
           token: includeSecrets && row.token ? row.token : '',
           credentials: includeSecrets && row.credentials ? row.credentials : null,
           auth_type: (includeSecrets && row.auth_type) || 'api_key',
@@ -279,22 +323,51 @@ export function mergeGatewayProviders(local = [], lists = [], opts = {}) {
         changed = true;
         continue;
       }
+      let rowChanged = false;
       if (!cur.base_url && row.base_url) {
         cur.base_url = row.base_url;
-        changed = true;
+        rowChanged = true;
       }
       if (includeSecrets) {
         const filled = fillMissingSecrets(cur, row);
         if (filled.changed) {
           Object.assign(cur, filled.row);
-          changed = true;
+          rowChanged = true;
         }
       }
       if ((!cur.models || !cur.models.length) && Array.isArray(row.models) && row.models.length) {
         cur.models = row.models;
-        changed = true;
+        rowChanged = true;
       }
+      // 这次同步补过的源默认打开
+      if (rowChanged && cur.enabled === false) {
+        cur.enabled = true;
+        rowChanged = true;
+      }
+      if (rowChanged) changed = true;
     }
   }
   return { providers: out, changed };
+}
+
+/**
+ * 同一账户的「同步账户密钥」对齐。
+ * 本机是关：保持关，不用其它终端更晚的「打开」把它打开（否则关着开关仍会写入密钥）。
+ * 其它终端更晚的「关闭」会把本机打开的开关关掉。没有时间戳的旧上报不参与比较。
+ * local / remote: { value, at }
+ */
+export function pickSyncAccountSecrets(local = {}, remotes = []) {
+  let best = {
+    value: !!local.value,
+    at: Number(local.at) || 0,
+  };
+  for (const raw of (Array.isArray(remotes) ? remotes : [])) {
+    if (!raw || typeof raw !== 'object' || !Object.prototype.hasOwnProperty.call(raw, 'sync_account_secrets')) continue;
+    const at = Number(raw.sync_account_secrets_at) || 0;
+    if (!(at > best.at)) continue;
+    // 本机没打开时，不接受其它终端把开关打开
+    if (!best.value && raw.sync_account_secrets) continue;
+    best = { value: !!raw.sync_account_secrets, at };
+  }
+  return best;
 }

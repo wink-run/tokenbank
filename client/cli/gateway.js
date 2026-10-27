@@ -158,6 +158,8 @@ async function cmdStart(port, adminPort) {
           const agentCfg = readAgentConfig() || {};
           accountsConfig = buildAccountsConfig(accounts, agentCfg.providers || [], {
             includeSecrets: !!agentCfg.sync_account_secrets,
+            syncAccountSecrets: !!agentCfg.sync_account_secrets,
+            syncAccountSecretsAt: Number(agentCfg.sync_account_secrets_at) || 0,
           });
         } catch (_) {}
       }

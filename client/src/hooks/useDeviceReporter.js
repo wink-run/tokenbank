@@ -151,15 +151,21 @@ async function _loadAccountsBundle() {
   if (!accounts) return { summary: null, config: null };
   let providers = [];
   let includeSecrets = false;
+  let syncAccountSecretsAt = 0;
   try {
     const cfg = await getConfig().read();
     if (Array.isArray(cfg?.providers)) providers = cfg.providers;
-    // 设置页「同步账户密钥」默认关，打开后心跳才带上 Key
+    // 设置页「同步账户密钥」默认关；开关和时间随心跳给其它终端对齐
     includeSecrets = !!cfg?.sync_account_secrets;
+    syncAccountSecretsAt = Number(cfg?.sync_account_secrets_at) || 0;
   } catch { /* 网关配置未就绪 */ }
   return {
     summary: buildAccountsSummary(accounts),
-    config: buildAccountsConfig(accounts, providers, { includeSecrets }),
+    config: buildAccountsConfig(accounts, providers, {
+      includeSecrets,
+      syncAccountSecrets: includeSecrets,
+      syncAccountSecretsAt,
+    }),
   };
 }
 

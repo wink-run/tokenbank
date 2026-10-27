@@ -18,12 +18,36 @@ import { buildPersonalModelTypeMap, inferModelTypeFromName } from '../api/gatewa
 import { encodeRoute } from '../lib/route-binding';
 import { avatarColor } from '../components/UserAvatar';
 import { mergeRemoteAccountConfigs, mergeGatewayProviders } from '../lib/account-config-sync';
+import { alignSyncAccountSecretsFromCloud } from '../lib/sync-account-secrets';
 import UsageMeter, { UsageInline, usageProviderForDirect } from '../components/UsageMeter';
 
 /** Ollama 本地实例不校验 API Key。与 shared/provider-test.js 一致，不引 CJS，避免渲染进程白屏。 */
 function isOllamaProvider(provider) {
   if (String(provider?.id || '').toLowerCase() === 'ollama') return true;
   return /(?:^|\/\/)(?:127\.0\.0\.1|localhost):11434(?:\/|$)/i.test(String(provider?.base_url || ''));
+}
+
+/** 对方账户配置里关联的供给源 id */
+function gatewayIdsFromSyncedConfig(cfg) {
+  const ids = new Set();
+  if (!cfg || typeof cfg !== 'object') return ids;
+  const take = (row) => {
+    if (!row || typeof row !== 'object') return;
+    for (const k of ['gateway_id', 'provider_id', 'source_id', 'plan_provider_id', 'id']) {
+      if (row[k]) ids.add(String(row[k]));
+    }
+  };
+  for (const row of cfg.user_payg_providers || []) take(row);
+  for (const row of cfg.user_subscriptions || []) take(row);
+  for (const row of cfg.gateway_providers || []) {
+    if (row && row.id && row.type !== 'p2p') ids.add(String(row.id));
+  }
+  return ids;
+}
+
+/** 同步进来且已有地址的源，做一次连通性测试并记下结果 */
+function providerReadyToTest(p) {
+  return !!(p && p.type !== 'p2p' && p.base_url);
 }
 
 /** 按当前语言覆盖 meta 中的 label / hint / getKey / oauth.label */
@@ -3743,13 +3767,55 @@ export default function Providers() {
         .map(d => d.accounts_config);
       const local = accountsData || await loadUserAccounts({ localOnly: true });
       const cfg = await getConfig().read().catch(() => ({}));
+      // 以本机已保存的开关为准。关着时绝不因为其它终端打开过而写入密钥
       const includeSecrets = !!cfg?.sync_account_secrets;
       setSyncAccountSecrets(includeSecrets);
       const merged = mergeRemoteAccountConfigs(local, remotes, { includeSecrets });
       // 用当前列表计算，避免在 setState 里写副作用（Strict Mode 会跑两次）
       const gw = mergeGatewayProviders(providers, merged.gateway_provider_lists, { includeSecrets });
-      if (gw.changed) setProviders(gw.providers);
-      if (!merged.changed && !gw.changed) {
+      const remoteIds = new Set();
+      for (const remote of remotes) {
+        for (const id of gatewayIdsFromSyncedConfig(remote)) remoteIds.add(id);
+      }
+      // 同步进来的源默认打开，再测一次连通性，结果写回 test_verified
+      const nextProviders = gw.providers.map(p => ({ ...p }));
+      // 开关关闭时，密钥保持同步前的本机值（空的不要被对方填上）
+      if (!includeSecrets) {
+        const before = new Map((providers || []).filter(p => p && p.id).map(p => [p.id, p]));
+        for (const p of nextProviders) {
+          const prev = before.get(p.id);
+          p.token = prev?.token || '';
+          p.credentials = prev?.credentials ?? null;
+          if (prev?.auth_type) p.auth_type = prev.auth_type;
+        }
+      }
+      let providersChanged = gw.changed;
+      const toTest = [];
+      for (const p of nextProviders) {
+        if (!p || !remoteIds.has(p.id) || p.type === 'p2p') continue;
+        if (p.enabled === false) {
+          p.enabled = true;
+          providersChanged = true;
+        }
+        if (providerReadyToTest(p)) toTest.push(p);
+      }
+      for (const p of toTest) {
+        try {
+          const result = await testProvider({ ...p, token: isOllamaProvider(p) ? '' : p.token });
+          const ok = !!result?.ok;
+          if (p.test_verified !== ok) {
+            p.test_verified = ok;
+            providersChanged = true;
+          }
+        } catch {
+          if (p.test_verified !== false) {
+            p.test_verified = false;
+            providersChanged = true;
+          }
+        }
+      }
+      if (providersChanged) setProviders(nextProviders);
+      if (!merged.changed && !providersChanged) {
         setAccountSyncHint(t('psrc.model.syncEmpty'));
         return;
       }
@@ -3763,8 +3829,9 @@ export default function Providers() {
           custom_source_templates: merged.custom_source_templates,
         });
       }
-      const n = merged.count || (gw.changed ? 1 : 0);
-      setAccountSyncHint(t('psrc.model.syncDone', { n }));
+      const n = merged.count || (providersChanged ? 1 : 0);
+      const guide = includeSecrets ? t('psrc.model.syncKeyHintOn') : t('psrc.model.syncKeyHint');
+      setAccountSyncHint(`${t('psrc.model.syncDone', { n })} ${guide}`);
     } catch {
       setAccountSyncHint(t('psrc.model.syncFail'));
     } finally {
@@ -4325,8 +4392,10 @@ export default function Providers() {
   useEffect(() => {
     if (provLocation.pathname !== '/providers') return undefined;
     let cancelled = false;
-    getConfig().read().then((cfg) => {
-      if (!cancelled) setSyncAccountSecrets(!!cfg?.sync_account_secrets);
+    getConfig().read().then(async (cfg) => {
+      if (cancelled) return;
+      const shared = await alignSyncAccountSecretsFromCloud(cfg || {});
+      if (!cancelled) setSyncAccountSecrets(!!shared.value);
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [provLocation.pathname]);
