@@ -3164,7 +3164,9 @@ export default function Debug() {
           />
         )}
 
-        <div className="flex flex-col flex-1 min-w-0 min-h-0 tb-chat-well rounded-br-[var(--tb-radius-shell)] overflow-hidden">
+        {/* 对话与预览并排；预览宽度相对这一列计算，打开时约占一半 */}
+        <div className="flex flex-1 min-w-0 min-h-0 rounded-br-[var(--tb-radius-shell)] overflow-hidden">
+        <div className="flex flex-col flex-1 min-w-0 min-h-0 tb-chat-well overflow-hidden">
       {/* ── Message list / Agent UI（井底略深，衬出气泡对比）── */}
       <div className="flex-1 overflow-y-auto px-4 pt-3 pb-4 space-y-4 min-h-0 tb-scroll-layer">
         {mode === 'llm' ? (
@@ -3746,8 +3748,9 @@ export default function Debug() {
       </div>
       </div>
 
-      {/* 右侧：文件夹 / 文本 / 图片预览侧栏 */}
+      {/* 右侧：文件夹 / 文本 / 图片预览，与对话对半 */}
       <LocalFilePreviewHost />
+        </div>
       </div>
 
       {/* ── 历史会话 ── */}

@@ -1,4 +1,4 @@
-// 游乐场本地路径应用内预览（右侧栏）：文件夹浏览 / Markdown / 文本 / 图片
+// 游乐场本地路径应用内预览：占对话区右侧约一半，不盖住会话
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MarkdownContent } from './RichMediaContent';
 import { registerLocalFilePreview } from '../lib/local-path';
@@ -20,23 +20,22 @@ function entryIcon(ent) {
   return 'FILE';
 }
 
-/** 挂到游乐场页右侧：文件预览侧栏（可左右拖拽调宽） */
-const PREVIEW_WIDTH_KEY = 'debug.preview.sidebarWidth';
-const PREVIEW_WIDTH_DEFAULT = 420;
-const PREVIEW_WIDTH_MIN = 260;
-const PREVIEW_WIDTH_MAX = 900;
+/** 挂到游乐场对话区右侧：约占一半，可向右拖窄，但不能盖住整段对话 */
+const PREVIEW_RATIO_KEY = 'debug.preview.sidebarRatio';
+const PREVIEW_RATIO_DEFAULT = 0.5;
+const PREVIEW_RATIO_MIN = 0.34;
+const PREVIEW_RATIO_MAX = 0.5;
 
-function readStoredWidth() {
+function readStoredRatio() {
   try {
-    const v = Number(localStorage.getItem(PREVIEW_WIDTH_KEY));
-    if (Number.isFinite(v) && v >= PREVIEW_WIDTH_MIN && v <= PREVIEW_WIDTH_MAX) return Math.round(v);
+    const v = Number(localStorage.getItem(PREVIEW_RATIO_KEY));
+    if (Number.isFinite(v) && v >= PREVIEW_RATIO_MIN && v <= PREVIEW_RATIO_MAX) return v;
   } catch { /* ignore */ }
-  return PREVIEW_WIDTH_DEFAULT;
+  return PREVIEW_RATIO_DEFAULT;
 }
 
-function clampPreviewWidth(w) {
-  const max = Math.min(PREVIEW_WIDTH_MAX, Math.floor(window.innerWidth * 0.72));
-  return Math.max(PREVIEW_WIDTH_MIN, Math.min(max, Math.round(w)));
+function clampPreviewRatio(ratio) {
+  return Math.max(PREVIEW_RATIO_MIN, Math.min(PREVIEW_RATIO_MAX, ratio));
 }
 
 export default function LocalFilePreviewHost() {
@@ -45,17 +44,20 @@ export default function LocalFilePreviewHost() {
   const [state, setState] = useState(null);
   // HTML：渲染 / 源码 切换（默认渲染）
   const [htmlView, setHtmlView] = useState('render');
-  const [width, setWidth] = useState(readStoredWidth);
+  // 相对「对话 + 预览」这一列的宽度比例，上限一半
+  const [ratio, setRatio] = useState(readStoredRatio);
   const [dragging, setDragging] = useState(false);
-  const widthRef = useRef(width);
-  widthRef.current = width;
+  const ratioRef = useRef(ratio);
+  const hostRef = useRef(null);
+  ratioRef.current = ratio;
 
-  // 拖拽左边缘：向左拉变宽，向右拉变窄
+  // 拖拽左边缘：向左拉变宽（最多一半），向右拉变窄
   const onResizeStart = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
+    const parentW = hostRef.current?.parentElement?.clientWidth || window.innerWidth;
     const startX = e.clientX;
-    const startW = widthRef.current;
+    const startRatio = ratioRef.current;
     setDragging(true);
     const prevCursor = document.body.style.cursor;
     const prevSelect = document.body.style.userSelect;
@@ -63,9 +65,9 @@ export default function LocalFilePreviewHost() {
     document.body.style.userSelect = 'none';
 
     const onMove = (ev) => {
-      const next = clampPreviewWidth(startW + (startX - ev.clientX));
-      widthRef.current = next;
-      setWidth(next);
+      const next = clampPreviewRatio(startRatio + (startX - ev.clientX) / parentW);
+      ratioRef.current = next;
+      setRatio(next);
     };
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
@@ -73,7 +75,7 @@ export default function LocalFilePreviewHost() {
       document.body.style.cursor = prevCursor;
       document.body.style.userSelect = prevSelect;
       setDragging(false);
-      try { localStorage.setItem(PREVIEW_WIDTH_KEY, String(widthRef.current)); } catch { /* ignore */ }
+      try { localStorage.setItem(PREVIEW_RATIO_KEY, String(ratioRef.current)); } catch { /* ignore */ }
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -211,18 +213,21 @@ export default function LocalFilePreviewHost() {
     loadPath(prevPath, { historyOverride: hist.slice(0, -1) });
   };
 
+  const ratioPct = Math.round(ratio * 100);
+
   return (
     <div
-      className={`relative shrink-0 flex min-h-0 ${dragging ? 'select-none' : ''}`}
-      style={{ width }}
+      ref={hostRef}
+      className={`relative shrink-0 flex min-h-0 min-w-0 max-w-[50%] ${dragging ? 'select-none' : ''}`}
+      style={{ width: `${ratioPct}%` }}
     >
-      {/* 左边缘拖拽条：左右移动调整分栏宽度 */}
+      {/* 左边缘拖拽条：左右移动调整分栏宽度，不超过对话区一半 */}
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-valuenow={width}
-        aria-valuemin={PREVIEW_WIDTH_MIN}
-        aria-valuemax={PREVIEW_WIDTH_MAX}
+        aria-valuenow={ratioPct}
+        aria-valuemin={Math.round(PREVIEW_RATIO_MIN * 100)}
+        aria-valuemax={Math.round(PREVIEW_RATIO_MAX * 100)}
         title={t('debug.preview.resize')}
         onMouseDown={onResizeStart}
         className={`absolute left-0 top-0 bottom-0 z-10 w-1.5 -ml-0.5 cursor-col-resize group
