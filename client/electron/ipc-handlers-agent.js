@@ -143,6 +143,33 @@ function registerAgentHandlers() {
     }
   });
 
+  /** 游乐场调整 Cursor 模型：列出账号可用模型 */
+  ipcMain.handle('agent:listCursorModels', async () => {
+    try {
+      const { listCursorCliModels } = require('./cursor-agent-install');
+      const result = await listCursorCliModels();
+      return { success: !!result.ok, models: result.models || [], error: result.error };
+    } catch (error) {
+      console.error('[IPC] agent:listCursorModels error:', error);
+      return { success: false, models: [], error: error.message };
+    }
+  });
+
+  /** 写入 ~/.cursor/cli-config.json，作为 Cursor Agent 的当前模型 */
+  ipcMain.handle('agent:setCursorModel', async (_event, { id, name } = {}) => {
+    try {
+      const { setCursorCliModel } = require('./cursor-agent-install');
+      const result = setCursorCliModel(id, name);
+      if (result.ok) {
+        try { require('./agent-executor').invalidateAgentListCache(); } catch { /* 列表缓存可稍后过期 */ }
+      }
+      return { success: !!result.ok, ...result };
+    } catch (error) {
+      console.error('[IPC] agent:setCursorModel error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   /** 打开浏览器登录 Agent CLI（agent login） */
   ipcMain.handle('agent:loginCursorCli', async () => {
     try {

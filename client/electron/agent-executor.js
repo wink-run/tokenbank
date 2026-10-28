@@ -10,6 +10,22 @@ const os = require('os');
 const path = require('path');
 const localStats = require('./local-stats');
 
+/** Cursor Agent CLI 当前模型（~/.cursor/cli-config.json 的展示名）。default 不算具体模型。 */
+function readCursorCliModelLabel() {
+  try {
+    const file = path.join(os.homedir(), '.cursor', 'cli-config.json');
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const displayName = String(raw?.model?.displayName || '').trim();
+    const display = String(raw?.model?.displayModelId || '').trim();
+    const selected = String(raw?.selectedModel?.modelId || raw?.model?.modelId || '').trim();
+    const label = displayName || display || selected;
+    if (!label || label === 'default') return '';
+    return label;
+  } catch {
+    return '';
+  }
+}
+
 /** 短随机 id（不用 nanoid：该包在 Vite 树里是 devDep，打进 asar 会缺模块导致打包版起不来） */
 function nanoid(size = 8) {
   return crypto.randomBytes(Math.ceil(size / 2)).toString('hex').slice(0, size);
@@ -573,6 +589,7 @@ class AgentExecutor extends EventEmitter {
           } catch {
             entry.idePresent = false;
           }
+          entry.modelLabel = readCursorCliModelLabel();
           if (!installed) {
             entry.canInstallCli = true;
             entry.cliLoggedIn = false;
@@ -636,6 +653,7 @@ class AgentExecutor extends EventEmitter {
 
       const execName = AGENT_CLI[runtimeAgentId]?.name || runtimeAgentId;
       const displayName = resolveAssistantDisplayRuntime(resource.projections, runtimeAgentId) || execName;
+      const explicitModel = String(config.model || '').trim();
       list.push({
         id: `${ASSISTANT_ID_PREFIX}${resource.id}`,
         name: resource.display_name || resource.name,
@@ -646,6 +664,8 @@ class AgentExecutor extends EventEmitter {
         execRuntimeName: execName,
         description: resource.description || '',
         custom: true,
+        // 显式模型优先；未写模型且运行时是 Cursor 时，用 CLI 当前选中模型
+        modelLabel: explicitModel || (runtimeAgentId === 'cursor' ? readCursorCliModelLabel() : ''),
         capabilities: AGENT_CLI[runtimeAgentId]?.capabilities || ['chat'],
         status: 'active',
       });
@@ -1087,7 +1107,7 @@ class AgentExecutor extends EventEmitter {
 
       if (mode === 'orchestrator') {
         if (!mcpManager.supportsOrchestrator(effectiveAgentId)) {
-          throw new Error(`编排模式暂不支持 ${cfg.name}，请选用 Claude Code 或 Codex 作为主 Agent`);
+          throw new Error(`编排模式暂不支持 ${cfg.name}`);
         }
         const orch = mcpManager.buildOrchestratorLaunch({
           agentId: effectiveAgentId,
@@ -1118,6 +1138,14 @@ class AgentExecutor extends EventEmitter {
             ...injectCodexResumeArgs(orch.extraArgs, { continueSession, cliSessionId }),
             execPrompt,
           ];
+        } else if (effectiveAgentId === 'cursor') {
+          // 与直调同一套参数（含 --approve-mcps），编排说明已在 execPrompt 前缀里
+          args = [...launch.argPrefix, ...cfg.buildArgs(execPrompt, {
+            workingDir,
+            continueSession,
+            cliSessionId,
+            model: String(options.model || '').trim(),
+          })];
         } else {
           args = [...launch.argPrefix, ...orch.extraArgs, execPrompt];
         }
@@ -1142,7 +1170,8 @@ class AgentExecutor extends EventEmitter {
             workingDir,
             continueSession,
             cliSessionId,
-            model: asstLaunch.model || assistant.config?.model,
+            // 游乐场当场选的模型优先于智能体正文里保存的
+            model: String(options.model || '').trim() || asstLaunch.model || assistant.config?.model,
           })];
         }
       } else if (effectiveAgentId === 'claude-code' && claudeMultimodal) {
@@ -1151,7 +1180,15 @@ class AgentExecutor extends EventEmitter {
         })];
         stdinPayload = buildClaudeMultimodalStdin(userPrompt, imgInfo.mediaParts);
       } else {
-        args = [...launch.argPrefix, ...cfg.buildArgs(userPrompt, { workingDir, continueSession, cliSessionId })];
+        args = [...launch.argPrefix, ...cfg.buildArgs(userPrompt, {
+          workingDir,
+          continueSession,
+          cliSessionId,
+          // 仅 Cursor / Kimi 的 buildArgs 会消费 model；Claude 走网关路由，不把路由 id 当 --model
+          model: (effectiveAgentId === 'cursor' || effectiveAgentId === 'kimi-code')
+            ? String(options.model || '').trim()
+            : '',
+        })];
       }
 
       // 允许 Claude 访问附图目录（多模态之外的兜底）

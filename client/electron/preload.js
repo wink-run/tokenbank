@@ -51,6 +51,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     installCursorCli: () => ipcRenderer.invoke('agent:installCursorCli'),
     cursorCliStatus: () => ipcRenderer.invoke('agent:cursorCliStatus'),
     loginCursorCli: () => ipcRenderer.invoke('agent:loginCursorCli'),
+    listCursorModels: () => ipcRenderer.invoke('agent:listCursorModels'),
+    setCursorModel: (payload) => ipcRenderer.invoke('agent:setCursorModel', payload || {}),
     // 社区武将雇佣
     listHiredCommunity: () => ipcRenderer.invoke('community:listHired'),
     hireCommunity: (card) => ipcRenderer.invoke('community:hire', card),

@@ -4,6 +4,23 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
 
+test('parseCursorModelLines 解析 id、名称和当前项', () => {
+  const { parseCursorModelLines } = require('../cursor-agent-install');
+  const models = parseCursorModelLines([
+    'Available models',
+    '',
+    'auto - Auto (current, default)',
+    'composer-2.5 - Composer 2.5',
+    'Tip: use --model <id>',
+  ].join('\n'));
+  assert.equal(models.length, 2);
+  assert.equal(models[0].id, 'auto');
+  assert.equal(models[0].name, 'Auto');
+  assert.equal(models[0].current, true);
+  assert.equal(models[1].id, 'composer-2.5');
+  assert.equal(models[1].current, false);
+});
+
 test('ensureLocalBinOnPath 把 ~/.local/bin 放到 PATH 最前', () => {
   const { ensureLocalBinOnPath } = require('../cursor-agent-install');
   const os = require('os');

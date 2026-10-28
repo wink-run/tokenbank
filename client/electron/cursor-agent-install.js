@@ -207,11 +207,92 @@ async function loginCursorAgentCli() {
   });
 }
 
+/** `agent models` 输出 → { id, name, current }。跳过标题和 Tip。 */
+function parseCursorModelLines(text) {
+  const out = [];
+  for (const line of String(text || '').split('\n')) {
+    const m = line.match(/^([A-Za-z0-9][A-Za-z0-9._-]*)\s+-\s+(.+)$/);
+    if (!m) continue;
+    const current = /\(current\b/i.test(m[2]);
+    const name = m[2].replace(/\s*\(current(?:,\s*default)?\)\s*$/i, '').trim();
+    out.push({ id: m[1], name: name || m[1], current });
+  }
+  return out;
+}
+
+/** 当前账号可用的 Cursor 模型（需登录；失败时 models 为空） */
+function listCursorCliModels() {
+  const bin = resolveInstalledPath();
+  if (!bin) return Promise.resolve({ ok: false, error: 'not-installed', models: [] });
+  return new Promise((resolve) => {
+    const env = ensureLocalBinOnPath({ ...process.env });
+    execFile(bin, ['models'], {
+      timeout: 15000,
+      windowsHide: true,
+      env,
+      maxBuffer: 2 * 1024 * 1024,
+    }, (err, stdout, stderr) => {
+      const models = parseCursorModelLines(stdout);
+      if (!models.length) {
+        const error = String(stderr || err?.message || 'empty').slice(0, 300);
+        resolve({ ok: false, error, models: [] });
+        return;
+      }
+      resolve({ ok: true, models });
+    });
+  });
+}
+
+/**
+ * 把 Cursor CLI 当前模型写成 cli-config.json。
+ * auto 在文件里对应 modelId=default、displayModelId=auto。
+ */
+function setCursorCliModel(modelId, displayName) {
+  const id = String(modelId || '').trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/.test(id)) {
+    return { ok: false, error: 'invalid model' };
+  }
+  const file = path.join(os.homedir(), '.cursor', 'cli-config.json');
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  const name = String(displayName || id).trim() || id;
+  const isAuto = id === 'auto';
+  const storedId = isAuto ? 'default' : id;
+  raw.model = {
+    ...(raw.model && typeof raw.model === 'object' ? raw.model : {}),
+    modelId: storedId,
+    displayModelId: isAuto ? 'auto' : id,
+    displayName: name,
+    displayNameShort: name,
+    aliases: isAuto ? ['auto'] : [id],
+  };
+  raw.selectedModel = {
+    ...(raw.selectedModel && typeof raw.selectedModel === 'object' ? raw.selectedModel : {}),
+    modelId: storedId,
+  };
+  raw.hasChangedDefaultModel = !isAuto;
+  const hist = Array.isArray(raw.modelSelectionHistory) ? raw.modelSelectionHistory : [];
+  raw.modelSelectionHistory = [storedId, ...hist.filter(x => x !== storedId)].slice(0, 20);
+  try {
+    fs.writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`);
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  return { ok: true, id, name };
+}
+
 module.exports = {
   installCursorAgentCli,
   getCursorAgentAuthStatus,
   loginCursorAgentCli,
   resolveInstalledPath,
   ensureLocalBinOnPath,
+  parseCursorModelLines,
+  listCursorCliModels,
+  setCursorCliModel,
   INSTALL_TIMEOUT_MS,
 };

@@ -15,6 +15,7 @@ const TB_MCP_MARKER = 'tokenbank-mcp';
 const PROMPTS_SCRIPT = path.join(__dirname, 'prompt-mcp.js');
 const MODELS_SCRIPT = path.join(__dirname, 'models-mcp.js');
 const RESOURCES_SCRIPT = path.join(__dirname, 'resources-mcp.js');
+const DISPATCH_SCRIPT = path.join(__dirname, 'agent-dispatch-mcp.js');
 
 /** 并发 IPC（listServers + getSyncStatus）共用短缓存，避免重复读盘 */
 const SCAN_CACHE_TTL_MS = 2500;
@@ -45,11 +46,29 @@ function writeState(state) {
   fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2), 'utf8');
 }
 
-/** 将 DB 中的 server 转为 MCP JSON 条目（跳过内置 bridge） */
+/** 将 DB 中的 server 转为 MCP JSON 条目。派发桥与其它内置 MCP 一样写成常驻 launcher。 */
 function serverToEntry(serverRow, clientId) {
   if (!serverRow || serverRow.status !== 'active') return null;
-  if (serverRow.id === BUILTIN_BRIDGE_ID || serverRow.builtin && serverRow.id === BUILTIN_BRIDGE_ID) {
-    return null;
+
+  if (serverRow.id === BUILTIN_BRIDGE_ID || serverRow.name === BUILTIN_BRIDGE_ID) {
+    const env = {
+      TB_CLIENT_ID: clientId || '',
+      TB_MAIN_AGENT_ID: clientId || '',
+    };
+    try {
+      const { getDispatchEndpoint } = require('./agent-dispatch-server');
+      const ep = getDispatchEndpoint();
+      if (ep?.url && ep?.token) {
+        env.TB_DISPATCH_URL = ep.url;
+        env.TB_DISPATCH_TOKEN = ep.token;
+      }
+    } catch { /* 未起派发服务时，桥在调用时再读 bridge-context */ }
+    const launcher = writeElectronAsNodeLauncher({
+      name: `bridge-${clientId || 'default'}`,
+      scriptPath: DISPATCH_SCRIPT,
+      env,
+    });
+    return mcpStdioFromLauncher(launcher);
   }
 
   // 内置提示词 MCP：用 shell launcher（内嵌 ELECTRON_RUN_AS_NODE），
@@ -595,7 +614,6 @@ function getServerSyncClients(server) {
 function filterServersForClient(servers, clientId) {
   return (servers || []).filter(s => {
     if (s.status !== 'active' || s.source === 'client') return false;
-    if (s.id === BUILTIN_BRIDGE_ID) return false;
 
     // prompts：显式 sync_clients 按下发名单；未配置则懒下发（仅已有 prompt 投射的 Agent）
     if (s.id === BUILTIN_PROMPTS_ID) {

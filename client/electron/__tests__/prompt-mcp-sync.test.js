@@ -53,8 +53,21 @@ test('serverToEntry: prompts server 物化为 shell launcher（内嵌 ELECTRON_R
   }
 });
 
-test('serverToEntry: bridge 与其他 __DYNAMIC_ELECTRON__ 仍返回 null', () => {
-  assert.equal(sync.serverToEntry({ id: 'tokenbank-agent-bridge', status: 'active', command: '__DYNAMIC_ELECTRON__' }, 'codex'), null);
+test('serverToEntry: 派发桥物化为常驻 launcher；其它动态占位仍跳过', () => {
+  const entry = sync.serverToEntry({
+    id: 'tokenbank-agent-bridge', name: 'tokenbank-agent-bridge', status: 'active',
+    command: '__DYNAMIC_ELECTRON__', builtin: 1,
+  }, 'cursor');
+  assert.ok(entry);
+  if (process.platform === 'win32') {
+    assert.ok(entry.args.some((a) => /bridge-cursor\.cmd/i.test(String(a))), entry.args);
+  } else {
+    const launcher = unixLauncherPath(entry);
+    assert.ok(launcher.endsWith('bridge-cursor.sh'), launcher);
+    const sh = require('fs').readFileSync(launcher, 'utf8');
+    assert.ok(sh.includes('agent-dispatch-mcp.js'));
+    assert.ok(sh.includes('TB_CLIENT_ID'));
+  }
   assert.equal(sync.serverToEntry({ id: 'other', status: 'active', command: '__DYNAMIC_ELECTRON__' }, 'codex'), null);
 });
 

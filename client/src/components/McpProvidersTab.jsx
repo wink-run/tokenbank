@@ -344,10 +344,9 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
     saveMcpAgentTab('');
   }, [agentTab, gatewayApps, gatewayApiApps]);
 
-  /** 可加入网关代理：已启用、非 Bridge；stdio 或远程 URL */
+  /** 可加入网关代理：已启用的 stdio 或远程 URL */
   function canRouteViaGateway(s) {
     if (!s || s.status !== 'active') return false;
-    if (s.id === 'tokenbank-agent-bridge') return false;
     if (isMcpUrlServer(s)) return true;
     return !!s.command;
   }
@@ -359,10 +358,11 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
     return (s.clientTargets || []).some((c) => c.installed);
   }
 
-  /** Token Bank 内置 MCP（可进「通用」中转档；不含 Bridge） */
+  /** Token Bank 内置 MCP（可进「通用」中转档，含派发桥） */
   function isTbBuiltinRelayMcp(s) {
     if (!s) return false;
-    return s.id === 'tokenbank-prompts'
+    return s.id === 'tokenbank-agent-bridge'
+      || s.id === 'tokenbank-prompts'
       || s.id === 'tokenbank-models'
       || s.id === 'tokenbank-resources';
   }
@@ -371,9 +371,9 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
     return Array.isArray(server?.gateway_clients) ? server.gateway_clients : [];
   }
 
-  /** 可勾选同步的 MCP（已启用、非 Bridge） */
+  /** 可勾选同步的第三方 MCP（内置项默认同步，不进这批勾选） */
   const syncSelectableServers = servers.filter(
-    s => s.status === 'active' && s.id !== 'tokenbank-agent-bridge' && !s.builtin && !isRelaySelfServer(s),
+    s => s.status === 'active' && !s.builtin && !isRelaySelfServer(s),
   );
   const selectedSyncableIds = selectedServerIds.filter(id =>
     syncSelectableServers.some(s => s.id === id),
@@ -1245,12 +1245,11 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
   }
 
   function canRelay(s) {
-    if (s.id === 'tokenbank-agent-bridge') return false;
     return s.builtin ? isTbBuiltinRelayMcp(s) : canRouteViaGateway(s);
   }
 
   function renderServerActions(s, { block = false } = {}) {
-    const active = s.status === 'active' && s.id !== 'tokenbank-agent-bridge';
+    const active = s.status === 'active';
     if (!active || (!s.builtin && !canRelay(s) && !serverHasDiskProjection(s))) return null;
     return (
       <button
@@ -1281,7 +1280,7 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
   function renderManagedListRow(s) {
     const key = `m:${s.id}`;
     const sel = selectedKey === key;
-    const canSelect = s.status === 'active' && s.id !== 'tokenbank-agent-bridge';
+    const canSelect = s.status === 'active';
     const checked = selectedServerIds.includes(s.id);
     const origin = managedOriginSource(s);
     const menu = serverMenuItems(s);
@@ -1308,7 +1307,7 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
         <LibraryRowTitle
           logo={<McpLogo icon={s.metadata?.icon} />}
           name={s.display_name || s.name}
-          sub={s.id === 'tokenbank-agent-bridge' ? t('providers.mcp.playgroundOnly') : serverDesc(s)}
+          sub={serverDesc(s)}
           chips={(
             <>
               <span className="shrink-0 text-[10px] px-1.5 py-px rounded font-medium bg-teal-50/80 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300">MCP</span>
@@ -1359,7 +1358,7 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
             {origin && renderMcpSourceBadge(origin)}
           </>
         )}
-        desc={s.id === 'tokenbank-agent-bridge' ? t('providers.mcp.playgroundOnly') : serverDesc(s)}
+        desc={serverDesc(s)}
         stats={[
           [t('resources.mcp.toolCount'), tools.length],
           [t('resources.col.apps'), apps.length],
@@ -1376,8 +1375,7 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
           </>
         ) : null}
       >
-        {s.id !== 'tokenbank-agent-bridge' && (
-          <InspectorSection title={t('resources.col.apps')}>
+        <InspectorSection title={t('resources.col.apps')}>
             <div className="space-y-2">
               {apps.length === 0 ? (
                 <p className="text-[11px] text-zinc-400">{t('resources.mcp.notAdded')}</p>
@@ -1413,7 +1411,6 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
               {renderServerActions(s, { block: true })}
             </div>
           </InspectorSection>
-        )}
         {tools.length > 0 && (
           <InspectorSection title={t('resources.mcp.tools', { n: tools.length })}>
             <div className="flex flex-wrap gap-1">
@@ -1664,7 +1661,7 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
       mcpServers: { 'tokenbank-relay': { url, headers: { Authorization: `Bearer ${shownToken}` } } },
     } : null;
     const cmd = url ? `claude mcp add --transport http tokenbank-relay ${url} --header "Authorization: Bearer ${shownToken}"` : '';
-    const builtins = servers.filter((b) => b.builtin && b.id !== 'tokenbank-agent-bridge');
+    const builtins = servers.filter((b) => b.builtin);
     const projected = servers
       .filter((x) => !x.builtin && !isRelaySelfServer(x))
       .map((x) => ({ s: x, how: connectionOf(x, tg.id) }))

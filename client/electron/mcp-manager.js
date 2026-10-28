@@ -49,18 +49,39 @@ const ORCHESTRATOR_SYSTEM = [
 ].join('\n');
 
 /** 支持 MCP 编排的主 Agent */
-const ORCHESTRATOR_AGENTS = new Set(['claude-code', 'codex']);
+const ORCHESTRATOR_AGENTS = new Set(['claude-code', 'codex', 'cursor']);
 
 const BUILTIN_BRIDGE_ID = 'tokenbank-agent-bridge';
 const BUILTIN_PROMPTS_ID = 'tokenbank-prompts';
 const BUILTIN_MODELS_ID = 'tokenbank-models';
 const BUILTIN_RESOURCES_ID = 'tokenbank-resources';
 
-/** 可进「通用」中转档的 Token Bank 内置 MCP（不含 Bridge） */
+/** 可进「通用」中转档、并默认同步到 Agent 的 Token Bank 内置 MCP（含派发桥） */
 function isTokenbankBuiltinRelayId(serverId) {
-  return serverId === BUILTIN_PROMPTS_ID
+  return serverId === BUILTIN_BRIDGE_ID
+    || serverId === BUILTIN_PROMPTS_ID
     || serverId === BUILTIN_MODELS_ID
     || serverId === BUILTIN_RESOURCES_ID;
+}
+
+/** 当前任务上下文，供已写入配置的派发 MCP 在调用时读取（不再为每次派发单独写临时 MCP） */
+function writeBridgeActiveContext(ctx = {}) {
+  const dir = path.join(os.homedir(), '.tokenbank', 'mcp');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'bridge-context.json');
+  let cur = {};
+  try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { cur = {}; }
+  if (!cur.byClient || typeof cur.byClient !== 'object') cur.byClient = {};
+  const clientId = String(ctx.mainAgentId || '').trim() || 'default';
+  cur.byClient[clientId] = {
+    parentTaskId: ctx.taskId || '',
+    parentSessionKey: ctx.sessionKey || '',
+    parentSessionInstance: ctx.sessionInstanceId || '',
+    workingDir: ctx.workingDir || '',
+    mainAgentId: clientId,
+    at: Date.now(),
+  };
+  fs.writeFileSync(file, JSON.stringify(cur, null, 2));
 }
 
 /** 与网关聚合工具名前缀一致（name → pipeworx__ask_pipeworx） */
@@ -326,7 +347,7 @@ class MCPManager {
       const db = this._getDb();
       const now = Date.now();
       const updated = [];
-      for (const serverId of [BUILTIN_PROMPTS_ID, BUILTIN_MODELS_ID, BUILTIN_RESOURCES_ID]) {
+      for (const serverId of [BUILTIN_BRIDGE_ID, BUILTIN_PROMPTS_ID, BUILTIN_MODELS_ID, BUILTIN_RESOURCES_ID]) {
         const row = db.prepare('SELECT id, metadata FROM mcp_servers WHERE id = ?').get(serverId);
         if (!row) continue;
         const metadata = this._parseJson(row.metadata, {});
@@ -360,7 +381,7 @@ class MCPManager {
   /** 将内置 prompts/models/resources 默认绑到通用中转档（api）；并清掉非内置上的 api 绑定 */
   _ensureBuiltinGatewayApiClients() {
     const db = this._getDb();
-    const ids = [BUILTIN_PROMPTS_ID, BUILTIN_MODELS_ID, BUILTIN_RESOURCES_ID];
+    const ids = [BUILTIN_BRIDGE_ID, BUILTIN_PROMPTS_ID, BUILTIN_MODELS_ID, BUILTIN_RESOURCES_ID];
     const now = Date.now();
     for (const serverId of ids) {
       const row = db.prepare('SELECT id, metadata FROM mcp_servers WHERE id = ?').get(serverId);
@@ -921,7 +942,6 @@ class MCPManager {
       const allowed = new Set(listSyncEnabledClientIds());
       const agents = clientIds.filter(id => allowed.has(id));
       for (const serverId of serverIds) {
-        if (serverId === BUILTIN_BRIDGE_ID) continue;
         const server = this.getServer(serverId);
         if (!server || server.status !== 'active') continue;
         this._persistServerSyncClients(serverId, agents);
@@ -959,7 +979,6 @@ class MCPManager {
     this.init();
     return this.listManagedServers().filter((s) => {
       if (!s || s.status !== 'active' || !s.gateway_routed) return false;
-      if (s.id === BUILTIN_BRIDGE_ID) return false;
       const isUrl = !!(s.url) || s.type === 'http' || s.type === 'sse';
       if (isUrl) return !!String(s.url || '').trim();
       return !!s.command;
@@ -974,9 +993,6 @@ class MCPManager {
    */
   setServerGatewayRouted(serverId, enabled, clientIds) {
     this.init();
-    if (serverId === BUILTIN_BRIDGE_ID) {
-      throw new Error('内置 Bridge 不参与网关代理');
-    }
     const db = this._getDb();
     const row = db.prepare('SELECT id, type, command, url, metadata FROM mcp_servers WHERE id = ?').get(serverId);
     if (!row) throw new Error('Server not found');
@@ -1104,7 +1120,6 @@ class MCPManager {
     const results = [];
     let ok = 0;
     for (const id of ids) {
-      if (id === BUILTIN_BRIDGE_ID) continue;
       try {
         const r = this.setServerGatewayRouted(id, enabled, clientIds);
         results.push(r);
@@ -1226,9 +1241,6 @@ class MCPManager {
   /** 设置 MCP 同步到哪些 Agent（可分别指定）；未传 syncClientIds 时同步「旧+新」相关 Agent，确保取消勾选的会被移除 */
   setServerSyncClients(serverId, clientIds, options = {}) {
     this.init();
-    if (serverId === BUILTIN_BRIDGE_ID) {
-      throw new Error('内置 Bridge 不参与 Agent 同步');
-    }
     const { listSyncEnabledClientIds } = require('./mcp-agent-targets');
     const allowed = new Set(listSyncEnabledClientIds());
     const ids = [...new Set((clientIds || []).filter(id => allowed.has(id)))];
@@ -1273,10 +1285,6 @@ class MCPManager {
       if (!key) throw new Error('缺少 clientKey');
       const result = mcpClientSync.removeRawClientMcpEntry(clientId, key);
       return { success: true, ...result };
-    }
-
-    if (serverId === BUILTIN_BRIDGE_ID) {
-      throw new Error('内置 Bridge 不可移除');
     }
 
     const server = this.getServer(serverId);
@@ -1623,91 +1631,42 @@ class MCPManager {
       throw new Error(`编排模式暂不支持 Agent: ${agentId}`);
     }
 
-    const servers = this._resolveProfileServers(profileId);
-    if (!servers.length) {
-      throw new Error(`MCP Profile 未包含任何 Server: ${profileId}`);
-    }
-
-    const mcpDir = path.join(os.homedir(), '.tokenbank', 'mcp');
-    fs.mkdirSync(mcpDir, { recursive: true });
-    const cleanupFns = [];
-    const ctx = { taskId, workingDir, mainAgentId, sessionKey, sessionInstanceId };
-    // bridge / prompts / models 用 shell 脚本保证 ELECTRON_RUN_AS_NODE，避免 Electron 子进程 GUI 初始化崩溃
-    ctx.bridgeLauncher = writeBridgeMcpLauncher({ ...ctx, mcpDir });
-    cleanupFns.push(() => { try { fs.unlinkSync(ctx.bridgeLauncher); } catch {} });
-    if (servers.some(s => s.id === BUILTIN_PROMPTS_ID || s.name === BUILTIN_PROMPTS_ID)) {
-      ctx.promptsLauncher = writeElectronAsNodeLauncher({
-        name: `prompts-orch-${taskId}`,
-        scriptPath: PROMPTS_SCRIPT,
-        env: { TB_CLIENT_ID: mainAgentId || '' },
-      });
-      cleanupFns.push(() => { try { fs.unlinkSync(ctx.promptsLauncher); } catch {} });
-    }
-    if (servers.some(s => s.id === BUILTIN_MODELS_ID || s.name === BUILTIN_MODELS_ID)) {
-      ctx.modelsLauncher = writeElectronAsNodeLauncher({
-        name: `models-orch-${taskId}`,
-        scriptPath: MODELS_SCRIPT,
-        env: {},
-      });
-      cleanupFns.push(() => { try { fs.unlinkSync(ctx.modelsLauncher); } catch {} });
-    }
-    if (servers.some(s => s.id === BUILTIN_RESOURCES_ID || s.name === BUILTIN_RESOURCES_ID)) {
-      ctx.resourcesLauncher = writeElectronAsNodeLauncher({
-        name: `resources-orch-${taskId}`,
-        scriptPath: RESOURCES_SCRIPT,
-        // 与 prompts 一致：按主 Agent 过滤可点武将
-        env: { TB_CLIENT_ID: mainAgentId || '' },
-      });
-      cleanupFns.push(() => { try { fs.unlinkSync(ctx.resourcesLauncher); } catch {} });
-    }
+    // 派发桥和其它内置 MCP 已写在客户端配置里，编排不再另写一份临时 MCP
+    writeBridgeActiveContext({ taskId, workingDir, mainAgentId, sessionKey, sessionInstanceId });
 
     if (agentId === 'claude-code') {
-      const mcpServers = {};
-      for (const srv of servers) {
-        mcpServers[srv.name] = this._buildRuntimeServerConfig(srv, ctx);
-      }
-
-      const configPath = path.join(mcpDir, `orch-${taskId}.json`);
-      fs.writeFileSync(configPath, JSON.stringify({ mcpServers }, null, 2));
-      cleanupFns.push(() => { try { fs.unlinkSync(configPath); } catch {} });
-
       return {
         extraArgs: [
           '-p',
           '--dangerously-skip-permissions',
           '--output-format', 'stream-json',
           '--verbose',
-          '--strict-mcp-config',
-          '--mcp-config', configPath,
           '--append-system-prompt', ORCHESTRATOR_SYSTEM,
         ],
-        cleanup: () => cleanupFns.forEach(fn => fn()),
+        cleanup: () => {},
       };
     }
 
     if (agentId === 'codex') {
-      // Codex 新版 CLI 不再支持 --enable mcp（会报 Unknown feature flag: mcp 并以 code 1 退出）。
-      // MCP 通过 config.toml 的 [mcp_servers.*] 段加载；这里写入临时 profile 供 exec -p 叠加。
-      const profileName = `tokenbank-orch-${taskId}`;
-      const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
-      const profilePath = path.join(codexHome, `${profileName}.config.toml`);
-      const toml = buildCodexOrchestratorProfileToml(servers, ctx, (srv) => this._buildRuntimeServerConfig(srv, ctx));
-      fs.mkdirSync(codexHome, { recursive: true });
-      fs.writeFileSync(profilePath, toml, 'utf8');
-      cleanupFns.push(() => { try { fs.unlinkSync(profilePath); } catch {} });
-
       const extraArgs = ['exec'];
       if (workingDir) extraArgs.push('--cd', workingDir);
-      // exec 无 --ask-for-approval；bypass 对齐 Claude skip-permissions
       extraArgs.push(
         '--dangerously-bypass-approvals-and-sandbox',
-        '--json', '--skip-git-repo-check', '-p', profileName,
+        '--json', '--skip-git-repo-check',
       );
-
       return {
         extraArgs,
         promptPrefix: `${ORCHESTRATOR_SYSTEM}\n\n`,
-        cleanup: () => cleanupFns.forEach(fn => fn()),
+        cleanup: () => {},
+      };
+    }
+
+    // Cursor 没有 --append-system-prompt，编排说明放进 prompt；MCP 用已写入的 ~/.cursor/mcp.json
+    if (agentId === 'cursor') {
+      return {
+        extraArgs: [],
+        promptPrefix: `${ORCHESTRATOR_SYSTEM}\n\n`,
+        cleanup: () => {},
       };
     }
 
@@ -1928,6 +1887,7 @@ module.exports.BUILTIN_MODELS_ID = BUILTIN_MODELS_ID;
 module.exports.BUILTIN_RESOURCES_ID = BUILTIN_RESOURCES_ID;
 module.exports.buildCodexOrchestratorProfileToml = buildCodexOrchestratorProfileToml;
 module.exports.writeBridgeMcpLauncher = writeBridgeMcpLauncher;
+module.exports.writeBridgeActiveContext = writeBridgeActiveContext;
 module.exports.writeElectronAsNodeLauncher = writeElectronAsNodeLauncher;
 module.exports.mcpStdioFromLauncher = mcpStdioFromLauncher;
 module.exports.resolveElectronBinary = resolveElectronBinary;

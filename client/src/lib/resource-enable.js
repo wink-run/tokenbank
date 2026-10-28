@@ -54,8 +54,8 @@ export function buildMcpInvokeText(server, lang = 'zh') {
   }
   if (id.includes('tokenbank-agent-bridge') || id.includes('agent-bridge')) {
     return en
-      ? 'Call tb_list_agents to list dispatchable agents (orchestration only).'
-      : '请用 tb_list_agents 列出可派发智能体（仅编排场景）。';
+      ? 'Call tb_list_agents, then tb_dispatch_agent to hand the matching task to a hired agent.'
+      : '请先 tb_list_agents 列出可派发智能体，再用 tb_dispatch_agent 把匹配的任务派出去。';
   }
   if (id.includes('sequential') || /sequential.?thinking/i.test(name)) {
     return en

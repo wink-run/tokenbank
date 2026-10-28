@@ -3,14 +3,32 @@
 // 供主 Agent（Claude Code）调用，向已纳管的其他 Agent 派发子任务
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const readline = require('readline');
 const { summarizeAgentStdout } = require('./agent-output-parser');
 const dispatchClient = require('./agent-dispatch-client');
 
-const PARENT_TASK_ID = process.env.TB_PARENT_TASK_ID || '';
-const PARENT_SESSION_KEY = process.env.TB_PARENT_SESSION_KEY || '';
-const PARENT_SESSION_INSTANCE = process.env.TB_PARENT_SESSION_INSTANCE || '';
-const WORKING_DIR = process.env.TB_WORKING_DIR || process.cwd();
+/** 每次调用再读：常驻 MCP 进程看不到后来写入的任务上下文 */
+function currentDispatchContext() {
+  const clientId = process.env.TB_CLIENT_ID || process.env.TB_MAIN_AGENT_ID || '';
+  let row = {};
+  try {
+    const file = path.join(os.homedir(), '.tokenbank', 'mcp', 'bridge-context.json');
+    const cur = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const byClient = cur && cur.byClient;
+    if (byClient && typeof byClient === 'object') {
+      row = byClient[clientId] || byClient.default || {};
+    }
+  } catch { /* 只有环境变量 */ }
+  return {
+    parentTaskId: process.env.TB_PARENT_TASK_ID || row.parentTaskId || '',
+    parentSessionKey: process.env.TB_PARENT_SESSION_KEY || row.parentSessionKey || '',
+    parentSessionInstance: process.env.TB_PARENT_SESSION_INSTANCE || row.parentSessionInstance || '',
+    workingDir: process.env.TB_WORKING_DIR || row.workingDir || process.cwd(),
+  };
+}
 
 const TOOLS = [
   {
@@ -151,11 +169,12 @@ async function handleToolCall(name, args = {}) {
       if (!prompt) {
         return textResult(`已雇佣: ${entry.id}（${entry.display_name}）。可用 tb_dispatch_agent 派发。`);
       }
+      const ctx = currentDispatchContext();
       const status = await dispatchClient.dispatchAndWait(entry.id, prompt, {
-        workingDir: WORKING_DIR,
-        parentTaskId: PARENT_TASK_ID,
-        parentSessionKey: PARENT_SESSION_KEY || undefined,
-        parentSessionInstanceId: PARENT_SESSION_INSTANCE || undefined,
+        workingDir: ctx.workingDir,
+        parentTaskId: ctx.parentTaskId,
+        parentSessionKey: ctx.parentSessionKey || undefined,
+        parentSessionInstanceId: ctx.parentSessionInstance || undefined,
         mode: 'worker',
       });
       if (status.status === 'completed') {
@@ -176,11 +195,12 @@ async function handleToolCall(name, args = {}) {
     }
 
     try {
+      const ctx = currentDispatchContext();
       const status = await dispatchClient.dispatchAndWait(agentId, prompt, {
-        workingDir: WORKING_DIR,
-        parentTaskId: PARENT_TASK_ID,
-        parentSessionKey: PARENT_SESSION_KEY || undefined,
-        parentSessionInstanceId: PARENT_SESSION_INSTANCE || undefined,
+        workingDir: ctx.workingDir,
+        parentTaskId: ctx.parentTaskId,
+        parentSessionKey: ctx.parentSessionKey || undefined,
+        parentSessionInstanceId: ctx.parentSessionInstance || undefined,
         mode: 'worker',
       });
 

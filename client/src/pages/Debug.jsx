@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { getConfig, getLocalConfig, getGateway } from '../api/adapter';
+import { getConfig, getLocalConfig, getGateway, getApps } from '../api/adapter';
 import { loadGatewayAvailableModels, resolveGatewayModelType, resolveLocalGatewayBase } from '../api/gatewayModels';
-import { encodeTierModelRoute } from '../lib/route-binding';
+import { encodeTierModelRoute, parseRouteBinding, routeSelectValue } from '../lib/route-binding';
+import RouteSelect from '../components/RouteSelect';
 import { usableSceneRoutes } from '../components/RouteSelect';
 import {
   agentSessionKey,
@@ -782,6 +783,60 @@ function saveDebugMode(mode) {
   try { localStorage.setItem(DEBUG_MODE_KEY, mode); } catch {}
 }
 
+function normalizeAppList(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw?.apps)) return raw.apps;
+  return [];
+}
+
+/** 路由 id → 展示用模型名：场景用名称，分层路由用模型 id */
+function agentRouteModelLabel(routeId, routes) {
+  const id = String(routeId || '').trim();
+  if (!id) return '';
+  const parsed = parseRouteBinding(id, routes);
+  if (parsed.isScene && parsed.scene) {
+    return String(parsed.scene.scene_name || parsed.scene.model_key || id).trim();
+  }
+  return String(parsed.modelId || id).trim();
+}
+
+function labelsFromApp(app, routes) {
+  const ids = [
+    ...(Array.isArray(app?.route_ids) ? app.route_ids : []),
+    app?.route_id,
+  ];
+  const out = [];
+  for (const rid of ids) {
+    const label = agentRouteModelLabel(rid, routes);
+    if (label && !out.includes(label)) out.push(label);
+  }
+  return out;
+}
+
+/** 可在游乐场改路由的应用。Cursor 直连用 CLI 模型，不走网关路由。 */
+function routeAppForAgent(agent, apps) {
+  if (!agent) return null;
+  const runtime = agent.runtimeAgentId || agent.id;
+  if (runtime === 'cursor' || agent.id === 'cursor') return null;
+  const ids = new Set([agent.id, agent.runtimeAgentId].filter(Boolean));
+  const matches = (apps || []).filter(a => a && ids.has(a.agent_id) && a.link_method !== 'direct');
+  return matches.find(a => a.link_method === 'shim')
+    || matches.find(a => a.link_method === 'api-key' || a.link_method === 'session')
+    || matches[0]
+    || null;
+}
+
+function assistantModelFromContent(content) {
+  const text = String(content || '').trim();
+  if (!text.startsWith('{')) return '';
+  try {
+    const raw = JSON.parse(text);
+    return String(raw?.model || raw?.parameters?.model || '').trim();
+  } catch {
+    return '';
+  }
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Debug() {
@@ -820,6 +875,15 @@ export default function Debug() {
   // Agent 模式状态
   const [agents, setAgents] = useState(() => getCachedAgentsList() || []);
   const [selectedAgent, setSelectedAgent] = useState(null);
+  // 当前 Agent 的模型：网关路由，或智能体正文里写死的模型
+  const [agentHostedApps, setAgentHostedApps] = useState([]);
+  const [agentSceneRoutes, setAgentSceneRoutes] = useState([]);
+  const [agentAvailableModels, setAgentAvailableModels] = useState([]);
+  const [assistantModelById, setAssistantModelById] = useState({});
+  const [assistantById, setAssistantById] = useState({});
+  const [cursorModels, setCursorModels] = useState([]);
+  const [cursorPick, setCursorPick] = useState('');
+  const [savingAgentModel, setSavingAgentModel] = useState(false);
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [installingCursorCli, setInstallingCursorCli] = useState(false);
   const [loggingInCursorCli, setLoggingInCursorCli] = useState(false);
@@ -860,6 +924,186 @@ export default function Debug() {
     || null;
   const isHubMode = !selectedAgent;
   const activeAgent = isHubMode ? mainAgent : selectedAgent;
+
+  // 聚合入口看主 Agent；直调看选中的 Agent。网关路由优先于 CLI 自带模型。
+  const activeAgentModelLabel = useMemo(() => {
+    const agent = activeAgent;
+    if (!agent) return '';
+    if (agent.resourceId) {
+      const bound = assistantModelById[agent.resourceId];
+      if (bound) return bound;
+    }
+    const ids = new Set([agent.id, agent.runtimeAgentId].filter(Boolean));
+    const labels = [];
+    for (const app of agentHostedApps) {
+      if (!ids.has(app.agent_id)) continue;
+      for (const label of labelsFromApp(app, agentSceneRoutes)) {
+        if (!labels.includes(label)) labels.push(label);
+      }
+    }
+    if (labels.length) return labels.join(' · ');
+    return String(agent.modelLabel || '').trim();
+  }, [activeAgent, agentHostedApps, agentSceneRoutes, assistantModelById]);
+
+  useEffect(() => {
+    if (mode !== 'agent') return undefined;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [appsRaw, lc, res, gwModels] = await Promise.all([
+          getApps().list?.().catch(() => []),
+          getLocalConfig().get().catch(() => null),
+          window.electronAPI?.resource?.listResources?.({ type: 'assistant' }).catch(() => null),
+          loadGatewayAvailableModels().catch(() => []),
+        ]);
+        if (cancelled) return;
+        setAgentHostedApps(normalizeAppList(appsRaw).map(a => ({
+          id: a.id,
+          name: a.name,
+          icon: a.icon,
+          agent_id: a.agent_id || '',
+          link_method: a.link_method || '',
+          route_id: a.route_id || '',
+          route_ids: Array.isArray(a.route_ids) ? a.route_ids : [],
+          route_multi_select: !!a.route_multi_select,
+          hosted: !!a.hosted,
+          _virtual: !!a._virtual,
+        })));
+        setAgentSceneRoutes(Array.isArray(lc?.scene_routes) ? lc.scene_routes : []);
+        setAgentAvailableModels(Array.isArray(gwModels) ? gwModels : []);
+        const byId = {};
+        const resources = {};
+        for (const item of res?.resources || []) {
+          if (!item?.id) continue;
+          resources[item.id] = item;
+          const model = assistantModelFromContent(item.content);
+          if (model) byId[item.id] = model;
+        }
+        setAssistantById(resources);
+        setAssistantModelById(byId);
+      } catch {
+        // 模型标签失败不影响对话
+      }
+    };
+    load();
+    window.addEventListener('focus', load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', load);
+    };
+  }, [mode]);
+
+  const agentRouteApp = useMemo(
+    () => routeAppForAgent(activeAgent, agentHostedApps),
+    [activeAgent, agentHostedApps],
+  );
+  const usesCursorModel = !!activeAgent && (
+    activeAgent.id === 'cursor' || activeAgent.runtimeAgentId === 'cursor'
+  );
+
+  useEffect(() => {
+    setCursorPick('');
+  }, [activeAgent?.id]);
+
+  useEffect(() => {
+    if (mode !== 'agent' || !usesCursorModel) return undefined;
+    if (!window.electronAPI?.agent?.listCursorModels) return undefined;
+    let cancelled = false;
+    window.electronAPI.agent.listCursorModels().then((r) => {
+      if (cancelled || !r?.models?.length) return;
+      setCursorModels(r.models);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [mode, usesCursorModel, activeAgent?.id]);
+
+  const cursorModelId = cursorPick
+    || (activeAgent?.resourceId ? assistantModelById[activeAgent.resourceId] : '')
+    || cursorModels.find(m => m.current)?.id
+    || cursorModels[0]?.id
+    || '';
+  const cursorModelOptions = cursorModelId && !cursorModels.some(m => m.id === cursorModelId)
+    ? [{ id: cursorModelId, name: cursorModelId, current: false }, ...cursorModels]
+    : cursorModels;
+
+  async function changeCursorModel(modelId) {
+    const picked = cursorModelOptions.find(m => m.id === modelId);
+    const name = picked?.name || modelId;
+    setCursorPick(modelId);
+    setSavingAgentModel(true);
+    try {
+      if (activeAgent?.resourceId) {
+        const resource = assistantById[activeAgent.resourceId];
+        if (!resource) throw new Error('missing assistant');
+        let raw = {};
+        try { raw = JSON.parse(resource.content || '{}'); } catch { raw = {}; }
+        raw.model = modelId;
+        const content = JSON.stringify(raw, null, 2);
+        const saved = await window.electronAPI.resource.saveResource({
+          id: resource.id,
+          type: 'assistant',
+          name: resource.name,
+          display_name: resource.display_name || resource.name,
+          description: resource.description || '',
+          content,
+          metadata: resource.metadata || {},
+        });
+        if (saved && saved.success === false) throw new Error(saved.error || 'save failed');
+        setAssistantModelById(prev => ({ ...prev, [resource.id]: modelId }));
+        setAssistantById(prev => ({ ...prev, [resource.id]: { ...resource, content } }));
+      } else if (window.electronAPI?.agent?.setCursorModel) {
+        const r = await window.electronAPI.agent.setCursorModel({ id: modelId, name });
+        if (!r?.success) throw new Error(r?.error || 'save failed');
+        setAgents(prev => prev.map(a => (
+          a.id === 'cursor' ? { ...a, modelLabel: name } : a
+        )));
+      } else {
+        throw new Error('unsupported');
+      }
+      setCursorModels(prev => prev.map(m => ({ ...m, current: m.id === modelId })));
+    } catch (e) {
+      setCursorPick('');
+      alert(t('debug.agent.modelSaveFail', { error: e?.message || String(e) }));
+    } finally {
+      setSavingAgentModel(false);
+    }
+  }
+
+  async function changeAgentRoute(app, val) {
+    const routeIds = app.route_multi_select
+      ? (Array.isArray(val) ? val.filter(Boolean) : [])
+      : (val ? [val] : []);
+    const primary = routeIds[0] || null;
+    setSavingAgentModel(true);
+    try {
+      let appId = app.id;
+      if (app._virtual && app.agent_id && getApps().ensureShimApp) {
+        const created = await getApps().ensureShimApp({
+          agent_id: app.agent_id, name: app.name, icon: app.icon,
+        }).catch(() => null);
+        if (created?.id) appId = created.id;
+      }
+      const updated = await getApps().update({
+        id: appId,
+        route_id: primary,
+        route_ids: routeIds.length ? routeIds : null,
+        ...(primary ? { hosted: true } : {}),
+      });
+      if (updated && updated.ok === false) throw new Error(updated.error || 'update failed');
+      if (app.link_method === 'shim' && app.agent_id && window.electronAPI?.agents) {
+        if (primary) await window.electronAPI.agents.apply(app.agent_id).catch(() => {});
+        else await window.electronAPI.agents.revert(app.agent_id).catch(() => {});
+      }
+      setAgentHostedApps(prev => prev.map(a => (
+        a.id === app.id || (app.agent_id && a.agent_id === app.agent_id)
+          ? { ...a, id: appId, route_id: primary || '', route_ids: routeIds, hosted: primary ? true : a.hosted, _virtual: false }
+          : a
+      )));
+    } catch (e) {
+      alert(t('debug.agent.modelSaveFail', { error: e?.message || String(e) }));
+    } finally {
+      setSavingAgentModel(false);
+    }
+  }
 
   /** 将当前标签页已完成对话写入本地历史（新会话前/归档后） */
   function persistCurrentSessionHistory(key) {
@@ -2104,13 +2348,6 @@ export default function Debug() {
       }
       return;
     }
-    // 聚合入口：主 Agent 须支持 MCP 编排（Claude Code / Codex）
-    const orchestratorAgents = new Set(['claude-code', 'codex']);
-    if (isHubMode && mainAgent && !orchestratorAgents.has(mainAgent.id)) {
-      alert(t('debug.agent.hubNeedsMcp', { name: mainAgent.name }));
-      return;
-    }
-
     const execKey = agentSessionKey(selectedAgent);
     const workDir = normalizeWorkingDir(
       getStoreSession(execKey).sessionWorkingDir || agentWorkingDir.trim(),
@@ -2203,6 +2440,10 @@ export default function Debug() {
           continueSession,
           cliSessionId: resumeCliSessionId,
           images: attachPayload.length ? attachPayload : undefined,
+          // Cursor 把选中的模型传给 CLI；网关 Agent 的模型在路由里，不从这里传
+          model: (activeAgent.runtimeAgentId || activeAgent.id) === 'cursor'
+            ? (cursorModelId || undefined)
+            : undefined,
         },
       });
 
@@ -3316,7 +3557,7 @@ export default function Debug() {
         ) : (
           <div className="space-y-2">
             {/* 工作目录 + 历史 / 新会话：始终可见 */}
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-nowrap min-w-0">
               <button
                 type="button"
                 onClick={pickWorkingDir}
@@ -3332,23 +3573,70 @@ export default function Debug() {
                 </span>
               )}
               {agentWorkingDir ? (
-                <button
-                  type="button"
-                  onClick={() => openLocalPath(agentWorkingDir)}
-                  title={t('debug.agent.sessionDirTitle', { dir: agentWorkingDir })}
-                  className="flex-1 min-w-0 truncate text-xs font-mono text-left text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
-                >
-                  <span className="font-sans font-medium text-zinc-700 dark:text-zinc-200">
-                    {workingDirBasename(agentWorkingDir)}
+                <span className="group/dir relative flex-1 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => openLocalPath(agentWorkingDir)}
+                    title={agentWorkingDir}
+                    className="block w-full min-w-0 truncate text-xs font-mono text-left text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
+                  >
+                    <span className="font-sans font-medium text-zinc-700 dark:text-zinc-200">
+                      {workingDirBasename(agentWorkingDir)}
+                    </span>
+                    <span className="text-zinc-400 dark:text-zinc-500 ml-1.5">{agentWorkingDir}</span>
+                  </button>
+                  {/* 路径被截断时，悬停显示完整目录（按钮自身 overflow 会裁掉内部提示） */}
+                  <span
+                    role="tooltip"
+                    className="pointer-events-none absolute left-0 bottom-full z-50 mb-1 hidden max-w-[70vw] group-hover/dir:block whitespace-normal break-all rounded-md bg-zinc-900 px-2 py-1 text-[11px] font-mono leading-snug text-white shadow-lg dark:bg-zinc-100 dark:text-zinc-900"
+                  >
+                    {agentWorkingDir}
                   </span>
-                  <span className="text-zinc-400 dark:text-zinc-500 ml-1.5">{agentWorkingDir}</span>
-                </button>
+                </span>
               ) : (
                 <span className="flex-1 min-w-0 truncate text-xs font-mono text-zinc-400 dark:text-zinc-500">
                   {t('debug.agent.noWorkingDir')}
                 </span>
               )}
-              <button type="button" onClick={() => setHistoryOpen(true)} className={ghostBtn}>
+              {agentRouteApp ? (
+                <div className="shrink-0 w-[200px] min-w-0" title={t('debug.agent.modelPick')}>
+                  <RouteSelect
+                    compact
+                    multi={!!agentRouteApp.route_multi_select}
+                    value={routeSelectValue(agentRouteApp.route_id, agentAvailableModels, agentSceneRoutes)}
+                    values={(agentRouteApp.route_ids?.length ? agentRouteApp.route_ids : (agentRouteApp.route_id ? [agentRouteApp.route_id] : []))
+                      .map(id => routeSelectValue(id, agentAvailableModels, agentSceneRoutes))}
+                    routes={agentSceneRoutes}
+                    availableModels={agentAvailableModels}
+                    t={t}
+                    disabled={executing || taskCanStop || savingAgentModel || !activeAgent}
+                    onChange={(val) => changeAgentRoute(agentRouteApp, val)}
+                  />
+                </div>
+              ) : usesCursorModel && cursorModelOptions.length ? (
+                <select
+                  aria-label={t('debug.agent.modelPick')}
+                  title={t('debug.agent.usingModel', {
+                    model: cursorModelOptions.find(m => m.id === cursorModelId)?.name || cursorModelId,
+                  })}
+                  value={cursorModelId}
+                  disabled={executing || taskCanStop || savingAgentModel || !activeAgent}
+                  onChange={(e) => changeCursorModel(e.target.value)}
+                  className="shrink-0 max-w-[220px] truncate text-[11px] font-medium text-zinc-700 dark:text-zinc-200 bg-zinc-100/80 dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-white/10 rounded-md px-1.5 py-0.5 outline-none disabled:opacity-40"
+                >
+                  {cursorModelOptions.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              ) : activeAgentModelLabel ? (
+                <span
+                  title={t('debug.agent.usingModel', { model: activeAgentModelLabel })}
+                  className="shrink-0 max-w-[220px] truncate text-[11px] font-medium text-zinc-600 dark:text-zinc-300 px-1.5 py-0.5 rounded-md bg-zinc-100/80 dark:bg-zinc-800/80"
+                >
+                  {activeAgentModelLabel}
+                </span>
+              ) : null}
+              <button type="button" onClick={() => setHistoryOpen(true)} className={`${ghostBtn} ml-auto`}>
                 {t('debug.agent.history')}
               </button>
               {(conversationTurns.length > 0 || currentUserPrompt || currentUserImages.length > 0 || taskSteps.length > 0 || executing || taskCanStop) && (

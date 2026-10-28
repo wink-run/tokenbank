@@ -9,13 +9,13 @@ import { fetchServerCommunityModels } from '../lib/communityModels';
 import { loadUserAccounts, saveUserAccounts, syncProviderCatalog } from '../api/userAccounts';
 import { DirectSourceCard, PersonalSourceModelView, PricingTable, CollapsibleBillingPanel, buildInstancePatch, buildDirectSourcePatch, buildDirectSourceRemovePatch, TemplateEditModal, SyncDiffBanner, accountInstanceAddedOrder, inferModalityFromPricing, priceFieldsForModality, healthFromStatus, QualityBadge, fmtCooldownRemain, cooldownMeta } from '../components/PersonalSources';
 import { getServerUrl, normalizeServerBase, syncCloudConfigUrl } from '../config';
-import { getGateway, getLocalConfig, getConfig, getOauth, isElectron } from '../api/adapter';
+import { getGateway, getLocalConfig, getConfig, getOauth, getApps, isElectron } from '../api/adapter';
 import { speedDotClass, speedTitle, useSpeedMap, speedFor, bucketFromMs, statusDotBucket } from '../lib/speed';
 import { useLang } from '../store/lang';
 import { useAuth } from '../store/index';
 import { resolveModelsForModelView } from '../lib/personalAvailableModels';
 import { buildPersonalModelTypeMap, inferModelTypeFromName } from '../api/gatewayModels';
-import { encodeRoute } from '../lib/route-binding';
+import { encodeRoute, parseRoute } from '../lib/route-binding';
 import { avatarColor } from '../components/UserAvatar';
 import { mergeRemoteAccountConfigs, mergeGatewayProviders } from '../lib/account-config-sync';
 import { alignSyncAccountSecretsFromCloud } from '../lib/sync-account-secrets';
@@ -25,6 +25,39 @@ import UsageMeter, { UsageInline, usageProviderForDirect } from '../components/U
 function isOllamaProvider(provider) {
   if (String(provider?.id || '').toLowerCase() === 'ollama') return true;
   return /(?:^|\/\/)(?:127\.0\.0\.1|localhost):11434(?:\/|$)/i.test(String(provider?.base_url || ''));
+}
+
+function collectRouteSteps(route) {
+  return [
+    ...(route?.steps || []),
+    ...(route?.rules || []).flatMap(r => r?.steps || []),
+  ];
+}
+
+function modelListed(model, names, lower) {
+  const m = String(model || '').trim();
+  if (!m) return false;
+  return names.has(m) || lower.has(m.toLowerCase());
+}
+
+/** 一步或一条 route_id 是否落到这个供给源。钉了其它源时，不因模型重名算进来。 */
+function stepUsesSource(st, ids, names, lower) {
+  if (!st) return false;
+  if (st.provider && ids.has(st.provider)) return true;
+  const raw = String(st.model || st.label || '').trim();
+  if (!raw) return false;
+  if (modelListed(raw, names, lower)) return true;
+  const parsed = parseRoute(raw);
+  if (parsed.provider) return ids.has(parsed.provider);
+  return modelListed(parsed.model, names, lower);
+}
+
+function bindingUsesSource(routeId, ids, names, lower, allRoutes) {
+  const id = String(routeId || '').trim();
+  if (!id) return false;
+  const scene = (allRoutes || []).find(r => r && (r.model_key === id || r.id === id));
+  if (scene) return collectRouteSteps(scene).some(st => stepUsesSource(st, ids, names, lower));
+  return stepUsesSource({ model: id }, ids, names, lower);
 }
 
 /** 对方账户配置里关联的供给源 id */
@@ -4732,7 +4765,20 @@ export default function Providers() {
           return { id: a.id, name: a.display_name || a.name, model };
         });
       } catch { /* 网页版无资源库 */ }
-      if (alive) setDependents({ routes, assistants });
+      let apps = [];
+      try {
+        const raw = await getApps().list();
+        const list = Array.isArray(raw) ? raw : (raw?.apps || []);
+        apps = list.filter(a => a && a.id).map(a => ({
+          id: a.id,
+          name: a.name || a.id,
+          routeIds: [...new Set([
+            ...(Array.isArray(a.route_ids) ? a.route_ids : []),
+            ...(a.route_id ? [a.route_id] : []),
+          ].filter(Boolean))],
+        }));
+      } catch { /* 应用列表未就绪 */ }
+      if (alive) setDependents({ routes, assistants, apps });
     })();
     return () => { alive = false; };
   }, [selectedSourceKey]);
@@ -4945,23 +4991,30 @@ export default function Providers() {
       .filter(Boolean);
   }
 
-  /** 依赖本源的场景路由 / 智能体（按供给源 id 钉选或按模型名匹配） */
+  /** 依赖本源的场景路由 / 网关应用 / 智能体（按供给源 id 钉选或按模型名匹配） */
   function dependentsOf(sm) {
     const ids = new Set(sm.gwIds || []);
     const names = new Set(sm.modelNames || []);
-    const routes = (dependents.routes || []).filter(r => (r.steps || []).some(st => (
-      (st.provider && ids.has(st.provider)) || names.has(st.model || st.label || '')
+    const lower = new Set([...names].map(n => String(n).toLowerCase()));
+    const allRoutes = dependents.routes || [];
+    const routes = allRoutes.filter(r => bindingUsesSource(r.model_key || r.id, ids, names, lower, allRoutes)
+      || collectRouteSteps(r).some(st => stepUsesSource(st, ids, names, lower)));
+    const apps = (dependents.apps || []).filter(a => (a.routeIds || []).some(rid => (
+      bindingUsesSource(rid, ids, names, lower, allRoutes)
     )));
-    const assistants = (dependents.assistants || []).filter(a => a.model && names.has(a.model));
-    return { routes, assistants };
+    const assistants = (dependents.assistants || []).filter(a => a.model && (
+      names.has(a.model) || lower.has(String(a.model).toLowerCase())
+    ));
+    return { routes, apps, assistants };
   }
 
   function renderDependents(sm) {
-    const { routes, assistants } = dependentsOf(sm);
+    const { routes, apps, assistants } = dependentsOf(sm);
+    const empty = routes.length === 0 && apps.length === 0 && assistants.length === 0;
     return (
       <section className="mb-3 rounded-xl border border-zinc-100 dark:border-white/[0.06] px-3 py-2.5">
         <h3 className="text-[11px] font-medium text-zinc-400 mb-2">{t('providers.link.usedBy')}</h3>
-        {routes.length === 0 && assistants.length === 0 ? (
+        {empty ? (
           <p className="text-[11px] text-zinc-400">{t('providers.link.unused')}</p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
@@ -4973,6 +5026,14 @@ export default function Providers() {
                 {t('providers.link.route')} · {r.scene_name || r.model_key || r.id}
               </button>
             ))}
+            {apps.map(a => (
+              <button key={`app-${a.id}`} type="button"
+                onClick={() => navigate('/gateway', { state: { gatewayTab: 'apps' } })}
+                title={t('providers.link.appHint')}
+                className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:underline">
+                {t('providers.link.app')} · {a.name}
+              </button>
+            ))}
             {assistants.map(a => (
               <button key={`a-${a.id}`} type="button"
                 onClick={() => navigate('/resources', { state: { resourceType: 'assistant', selectKey: `r-${a.id}` } })}
@@ -4982,7 +5043,7 @@ export default function Providers() {
             ))}
           </div>
         )}
-        {!sm.enabled || routes.length + assistants.length === 0 ? null : (
+        {!sm.enabled || empty ? null : (
           <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-2">{t('providers.link.disableWarn')}</p>
         )}
       </section>
