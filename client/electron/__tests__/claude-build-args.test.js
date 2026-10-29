@@ -93,3 +93,25 @@ test('buildClaudeMultimodalStdin embeds image blocks', () => {
   const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0]);
   assert.equal(detectImageMime(jpeg), 'image/jpeg');
 });
+
+test('materializeAttachedFiles keeps the basename inside the upload dir', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { materializeAttachedFiles } = require('../agent-executor');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-attach-'));
+  try {
+    const payload = Buffer.from('hello file').toString('base64');
+    const info = materializeAttachedFiles(
+      [{ name: '../notes.txt', dataUrl: `data:text/plain;base64,${payload}` }],
+      { taskId: 't1', workingDir: dir },
+    );
+    assert.equal(info.paths.length, 1);
+    assert.ok(info.paths[0].startsWith(dir));
+    assert.ok(info.paths[0].endsWith(`${path.sep}notes.txt`));
+    assert.equal(fs.readFileSync(info.paths[0], 'utf8'), 'hello file');
+    assert.match(info.suffix, /Attached files/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

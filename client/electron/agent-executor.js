@@ -109,6 +109,64 @@ function materializeAttachedImages(images, { taskId, workingDir } = {}) {
   };
 }
 
+/** 上传文件名：去掉路径，避免写出工作目录外 */
+function safeUploadName(name, index) {
+  let base = path.basename(String(name || `file-${index}`));
+  base = base.replace(/[^\w.\u4e00-\u9fff-]+/g, '_');
+  if (!base || base === '.' || base === '..') return `file-${index}`;
+  return base.slice(0, 180);
+}
+
+/**
+ * 普通附件落盘（pdf / 文本 / 压缩包等）。
+ * 与图片共用同一上传目录，路径写进 prompt，由 Agent 自行读取。
+ */
+function materializeAttachedFiles(files, { taskId, workingDir, uploadDir } = {}) {
+  const list = Array.isArray(files) ? files : [];
+  if (!list.length) return { paths: [], suffix: '', uploadDir: uploadDir || '' };
+
+  const id = String(taskId || nanoid(8));
+  const baseDir = uploadDir
+    || (workingDir && fs.existsSync(workingDir)
+      ? path.join(path.resolve(workingDir), '.tokenbank-uploads', id)
+      : path.join(os.tmpdir(), 'tokenbank-agent-uploads', id));
+  fs.mkdirSync(baseDir, { recursive: true });
+
+  const paths = [];
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    const dataUrl = typeof item === 'string' ? item : (item?.dataUrl || '');
+    const mm = /^data:[^;]*;base64,(.+)$/s.exec(String(dataUrl || ''));
+    if (!mm) continue;
+    let buf;
+    try {
+      buf = Buffer.from(mm[1], 'base64');
+    } catch {
+      continue;
+    }
+    if (!buf.length) continue;
+    const base = safeUploadName(typeof item === 'object' ? item.name : '', i + 1);
+    const ext = path.extname(base);
+    const stem = path.basename(base, ext) || `file-${i + 1}`;
+    let fp = path.join(baseDir, base);
+    if (fs.existsSync(fp)) fp = path.join(baseDir, `${stem}-${i + 1}${ext}`);
+    try {
+      fs.writeFileSync(fp, buf);
+      paths.push(fp);
+    } catch (e) {
+      console.warn('[AgentExecutor] attach file write failed:', e.message);
+    }
+  }
+  if (!paths.length) return { paths: [], suffix: '', uploadDir: baseDir };
+
+  const lines = paths.map((p, i) => `${i + 1}. ${p}`).join('\n');
+  return {
+    paths,
+    uploadDir: baseDir,
+    suffix: `\n\n[Attached files — read these files and use their contents. Do NOT guess from filenames.]\n${lines}\n`,
+  };
+}
+
 /** Claude Code：把图作为首条 user message 的 image block（需 --input-format stream-json） */
 function buildClaudeMultimodalStdin(prompt, mediaParts = []) {
   const content = [];
@@ -998,6 +1056,9 @@ class AgentExecutor extends EventEmitter {
       prompt,
       workerId,
       timeoutMs: options.timeoutMs,
+      // 对方设备执行：附图 / 文件随任务下发，由对方落盘
+      images: options.images,
+      files: options.files,
     });
 
     if (this._isTaskCancelled(taskId)) {
@@ -1076,6 +1137,13 @@ class AgentExecutor extends EventEmitter {
       const imgInfo = options.images?.length
         ? materializeAttachedImages(options.images, { taskId, workingDir })
         : { paths: [], mediaParts: [], suffix: '', uploadDir: '' };
+      const fileInfo = options.files?.length
+        ? materializeAttachedFiles(options.files, {
+          taskId,
+          workingDir,
+          uploadDir: imgInfo.uploadDir || '',
+        })
+        : { paths: [], suffix: '', uploadDir: '' };
 
       const { agentId: effectiveAgentId, assistant } = this._resolveAssistant(agentId);
       const claudeMultimodal = imgInfo.mediaParts.length > 0 && (
@@ -1084,10 +1152,9 @@ class AgentExecutor extends EventEmitter {
       );
 
       let userPrompt = prompt;
-      // 非 Claude：路径后缀；Claude：图在 stdin，勿再让它靠 Read（易空结果幻觉）
-      if (imgInfo.suffix && !claudeMultimodal) {
-        userPrompt = `${prompt}${imgInfo.suffix}`;
-      }
+      // 非 Claude：图片路径后缀；Claude 的图在 stdin。普通文件一律给路径。
+      if (imgInfo.suffix && !claudeMultimodal) userPrompt = `${userPrompt}${imgInfo.suffix}`;
+      if (fileInfo.suffix) userPrompt = `${userPrompt}${fileInfo.suffix}`;
 
       if (assistant && mode === 'orchestrator') {
         throw new Error('自定义 Assistant 请在其标签页直调使用，聚合入口请选 CLI Agent');
@@ -1191,9 +1258,11 @@ class AgentExecutor extends EventEmitter {
         })];
       }
 
-      // 允许 Claude 访问附图目录（多模态之外的兜底）
-      if (claudeMultimodal && imgInfo.uploadDir && !args.includes(imgInfo.uploadDir)) {
-        args.push('--add-dir', imgInfo.uploadDir);
+      // 允许 Claude 读上传目录（图在 stdin 时的兜底，以及普通文件）
+      const claudeLike = effectiveAgentId === 'claude-code' || !!(assistant?.launch?.claudeExtraArgs);
+      const attachDir = fileInfo.uploadDir || imgInfo.uploadDir;
+      if (claudeLike && (claudeMultimodal || fileInfo.paths.length) && attachDir && !args.includes(attachDir)) {
+        args.push('--add-dir', attachDir);
       }
 
       const result = await this._runAgentProcess(taskId, effectiveAgentId, launch.executable, args, {
@@ -1957,6 +2026,7 @@ module.exports.buildClaudeStreamFlags = buildClaudeStreamFlags;
 module.exports.buildCursorAgentArgs = buildCursorAgentArgs;
 module.exports.buildKimiCodeArgs = buildKimiCodeArgs;
 module.exports.materializeAttachedImages = materializeAttachedImages;
+module.exports.materializeAttachedFiles = materializeAttachedFiles;
 module.exports.buildClaudeMultimodalStdin = buildClaudeMultimodalStdin;
 module.exports.ensureClaudeMultimodalArgs = ensureClaudeMultimodalArgs;
 module.exports.detectImageMime = detectImageMime;

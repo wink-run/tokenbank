@@ -69,7 +69,7 @@ import { openLocalPath } from '../lib/local-path';
 import { saveAgentSessionSnapshot, saveLlmSessionSnapshot, listAgentSessionSnapshots, listLlmSessionSnapshots, findAgentSessionForContinue } from '../lib/debug-session-history';
 import {
   B64_OMITTED, persistImageList, resolveImageList, serializeImageSrc, isImageRef,
-  collectImageRefIds, deleteUnreferencedImageIds,
+  collectImageRefIds, deleteUnreferencedImageIds, fileMarker,
 } from '../lib/debug-image-store';
 import { useResolvedImageSrc } from '../components/ResolvedDebugImage';
 
@@ -277,10 +277,19 @@ function buildImageUrl(base) {
   return base.replace(/\/+$/, '') + '/v1/images/generations';
 }
 
-/** 附图上限：张数 / 单文件大小 */
+/** 附图上限：个数 / 图片 5MB / 其它文件 20MB */
 const ATTACH_MAX_COUNT = 4;
 const ATTACH_MAX_BYTES = 5 * 1024 * 1024;
+const ATTACH_FILE_MAX_BYTES = 20 * 1024 * 1024;
 const ATTACH_ACCEPT = 'image/jpeg,image/png,image/gif,image/webp';
+
+/** 可走视觉通道的位图；其余（pdf、文本、视频等）当普通文件 */
+function isRasterImageFile(file) {
+  const type = String(file?.type || '').toLowerCase();
+  if (/^image\/(jpeg|jpg|png|gif|webp)$/.test(type)) return true;
+  if (!type && /\.(jpe?g|png|gif|webp)$/i.test(file?.name || '')) return true;
+  return false;
+}
 
 /** File → data URL（供 image_url 使用） */
 function fileToDataUrl(file) {
@@ -865,7 +874,7 @@ export default function Debug() {
   const [sending,        setSending]       = useState(false);
   const [lightbox,       setLightbox]      = useState(null);
   const [copiedMsgIdx,   setCopiedMsgIdx]  = useState(null);
-  // 对话模式待发附图（dataURL）；不进 panel 持久化
+  // 待发附件（图片 dataURL；Agent 模式还可带普通文件）
   const [pendingImages,  setPendingImages] = useState([]);
   const [attachError,    setAttachError]   = useState('');
   const fileInputRef = useRef(null);
@@ -2329,9 +2338,15 @@ export default function Debug() {
   async function executeAgent(promptOverride) {
     const text = String(promptOverride != null ? promptOverride : agentPrompt).trim();
     const attachList = promptOverride != null ? [] : pendingImages;
-    const attachPayload = attachList.map(p => ({ dataUrl: p.dataUrl, name: p.name }));
-    // 纯图时给默认提示，否则 CLI 无任务描述
-    const prompt = text || (attachPayload.length ? t('debug.agent.imageOnlyPrompt') : '');
+    const imageItems = attachList.filter(p => p.kind !== 'file');
+    const fileItems = attachList.filter(p => p.kind === 'file');
+    const attachPayload = imageItems.map(p => ({ dataUrl: p.dataUrl, name: p.name }));
+    const filePayload = fileItems.map(p => ({ dataUrl: p.dataUrl, name: p.name }));
+    // 没写字时给默认提示，否则 CLI 无任务描述
+    const attachFallback = filePayload.length
+      ? t('debug.agent.attachOnlyPrompt')
+      : (attachPayload.length ? t('debug.agent.imageOnlyPrompt') : '');
+    const prompt = text || attachFallback;
     if (!activeAgent || !prompt || !window.electronAPI?.agent) {
       return;
     }
@@ -2358,10 +2373,11 @@ export default function Debug() {
     }
 
     setDirError('');
-    // 气泡展示原文；附图单独存 currentUserImages 缩略图渲染
-    const displayPrompt = text || (attachPayload.length ? t('debug.agent.imageOnlyPrompt') : '');
+    // 气泡展示原文；图片缩略图与文件名一起放进 currentUserImages
+    const displayPrompt = text || attachFallback;
     let displayImages = attachPayload.map(p => p.dataUrl).filter(Boolean);
     try { displayImages = await persistImageList(displayImages); } catch { /* 落盘失败仍用内存图 */ }
+    displayImages = displayImages.concat(filePayload.map(p => fileMarker(p.name)));
     setAgentPrompt(prompt);
     let sess = getStoreSession(execKey);
 
@@ -2440,6 +2456,7 @@ export default function Debug() {
           continueSession,
           cliSessionId: resumeCliSessionId,
           images: attachPayload.length ? attachPayload : undefined,
+          files: filePayload.length ? filePayload : undefined,
           // Cursor 把选中的模型传给 CLI；网关 Agent 的模型在路由里，不从这里传
           model: (activeAgent.runtimeAgentId || activeAgent.id) === 'cursor'
             ? (cursorModelId || undefined)
@@ -2944,22 +2961,27 @@ export default function Debug() {
     setPanel({ input: e.target.value });
   }
 
-  /** 校验并加入待发附图 */
+  /** 校验并加入待发附件。LLM 只收图片；Agent 还可上传普通文件。 */
   async function addAttachFiles(fileList) {
-    const files = Array.from(fileList || []).filter(f => f && f.type.startsWith('image/'));
+    const allowFiles = mode === 'agent';
+    const raw = Array.from(fileList || []).filter(Boolean);
+    const files = allowFiles ? raw : raw.filter(f => f.type.startsWith('image/'));
     if (!files.length) return;
     setAttachError('');
     const room = ATTACH_MAX_COUNT - pendingImages.length;
+    const limitMsg = t(allowFiles ? 'debug.attachAnyLimit' : 'debug.attachLimit', { n: ATTACH_MAX_COUNT });
     if (room <= 0) {
-      setAttachError(t('debug.attachLimit', { n: ATTACH_MAX_COUNT }));
+      setAttachError(limitMsg);
       return;
     }
     const take = files.slice(0, room);
-    if (files.length > room) setAttachError(t('debug.attachLimit', { n: ATTACH_MAX_COUNT }));
+    if (files.length > room) setAttachError(limitMsg);
     const next = [...pendingImages];
     for (const file of take) {
-      if (file.size > ATTACH_MAX_BYTES) {
-        setAttachError(t('debug.attachSizeError'));
+      const asFile = allowFiles && !isRasterImageFile(file);
+      const tooBig = file.size > (asFile ? ATTACH_FILE_MAX_BYTES : ATTACH_MAX_BYTES);
+      if (tooBig) {
+        setAttachError(t(asFile ? 'debug.attachFileSizeError' : 'debug.attachSizeError'));
         continue;
       }
       try {
@@ -2968,30 +2990,31 @@ export default function Debug() {
         next.push({
           id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           dataUrl,
-          name: file.name || 'image',
+          name: file.name || (asFile ? 'file' : 'image'),
+          kind: asFile ? 'file' : 'image',
         });
       } catch {
-        setAttachError(t('debug.attachSizeError'));
+        setAttachError(t(asFile ? 'debug.attachFileSizeError' : 'debug.attachSizeError'));
       }
     }
     setPendingImages(next.slice(0, ATTACH_MAX_COUNT));
   }
 
   function handleComposerPaste(e) {
-    // 文生图模式不附图；Agent / LLM 对话均可粘贴
+    // 文生图模式不附图；Agent 可粘贴图片和文件，LLM 对话只收图片
     if (mode === 'llm' && imageMode) return;
     const items = e.clipboardData?.items;
     if (!items) return;
-    const imageFiles = [];
+    const picked = [];
     for (const item of items) {
-      if (item.type.startsWith('image/')) {
-        const f = item.getAsFile();
-        if (f) imageFiles.push(f);
-      }
+      if (item.kind !== 'file') continue;
+      const f = item.getAsFile();
+      if (!f) continue;
+      if (mode === 'agent' || f.type.startsWith('image/')) picked.push(f);
     }
-    if (!imageFiles.length) return;
+    if (!picked.length) return;
     e.preventDefault();
-    addAttachFiles(imageFiles);
+    addAttachFiles(picked);
   }
 
   function removePendingImage(id) {
@@ -3649,20 +3672,29 @@ export default function Debug() {
             </div>
             {dirError && <p className="text-xs text-red-500 dark:text-red-400">{dirError}</p>}
 
-            {/* 待发附图缩略图 */}
+            {/* 待发附件：图片缩略图，其它文件显示文件名 */}
             {pendingImages.length > 0 && (
               <div className="flex flex-wrap gap-2 items-center">
                 {pendingImages.map(p => (
                   <div key={p.id} className="relative group">
-                    <img
-                      src={p.dataUrl}
-                      alt={p.name}
-                      className="h-14 w-14 object-cover rounded-lg border border-zinc-200 dark:border-zinc-600"
-                    />
+                    {p.kind === 'file' ? (
+                      <div
+                        title={p.name}
+                        className="flex items-center h-8 max-w-[14rem] pl-2 pr-1 rounded-lg border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-800 text-xs text-zinc-700 dark:text-zinc-200"
+                      >
+                        <span className="truncate">{p.name}</span>
+                      </div>
+                    ) : (
+                      <img
+                        src={p.dataUrl}
+                        alt={p.name}
+                        className="h-14 w-14 object-cover rounded-lg border border-zinc-200 dark:border-zinc-600"
+                      />
+                    )}
                     <button
                       type="button"
                       onClick={() => removePendingImage(p.id)}
-                      title={t('debug.removeImage')}
+                      title={p.kind === 'file' ? t('debug.removeFile') : t('debug.removeImage')}
                       className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-zinc-800 text-white text-xs leading-none opacity-80 hover:opacity-100"
                     >
                       ×
@@ -3675,11 +3707,23 @@ export default function Debug() {
               <p className="text-xs text-red-500 dark:text-red-400">{attachError}</p>
             )}
 
-            <div className="flex gap-2 items-end">
+            <div
+              className="flex gap-2 items-end"
+              onDragOver={e => {
+                const types = e.dataTransfer?.types;
+                if (types && [...types].includes('Files')) e.preventDefault();
+              }}
+              onDrop={e => {
+                const dropped = e.dataTransfer?.files;
+                if (!dropped?.length || !activeAgent || taskCanStop) return;
+                e.preventDefault();
+                addAttachFiles(dropped);
+              }}
+            >
+              {/* Agent 不限制类型：位图走视觉，其它文件落盘后把路径交给智能体 */}
               <input
                 ref={fileInputRef}
                 type="file"
-                accept={ATTACH_ACCEPT}
                 multiple
                 className="hidden"
                 onChange={e => {
@@ -3691,7 +3735,7 @@ export default function Debug() {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={!activeAgent || taskCanStop || pendingImages.length >= ATTACH_MAX_COUNT}
-                title={t('debug.attachImage')}
+                title={t('debug.attachFile')}
                 className={`${ghostBtn} w-9 h-9 shrink-0 flex items-center justify-center`}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

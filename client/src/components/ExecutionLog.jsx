@@ -16,6 +16,7 @@ import { useLang } from '../store/lang';
 import { usePinBottomScroll } from '../lib/use-pin-bottom-scroll';
 import { closePendingToolSteps, hasOpenToolCalls } from '../lib/debug-agent-store';
 import { ResolvedDebugImage } from './ResolvedDebugImage';
+import { fileMarkerName } from '../lib/debug-image-store';
 
 /** 启动/Hook 类系统事件：只进「正在执行」细节，不单独占卡片 */
 function isEphemeralSystemEvent(ev) {
@@ -1567,6 +1568,14 @@ export default function ExecutionLog({
                 {imgs.length > 0 && (
                   <div className={`flex flex-wrap gap-1.5 ${text ? 'mb-2' : ''}`}>
                     {imgs.map((src, j) => {
+                      const fileName = fileMarkerName(src);
+                      if (fileName) {
+                        return (
+                          <span key={j} title={fileName} className="text-[11px] px-1.5 py-1 rounded bg-white/15 max-w-[12rem] truncate">
+                            {fileName}
+                          </span>
+                        );
+                      }
                       if (!src || src === '__b64_omitted__') {
                         return (
                           <span key={j} className="text-[11px] opacity-80 px-1.5 py-1 rounded bg-white/15">

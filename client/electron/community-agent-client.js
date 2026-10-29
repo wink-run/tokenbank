@@ -174,7 +174,7 @@ async function listOnlineCommunityAgents() {
  * 远程雇佣执行（对方本机跑，只回结果）
  * @returns {Promise<object>}
  */
-async function runCommunityAgentTask({ assistantId, prompt, workerId, timeoutMs } = {}) {
+async function runCommunityAgentTask({ assistantId, prompt, workerId, timeoutMs, images, files } = {}) {
   const { base, token } = resolveCloudAuth();
   if (!base) throw new Error('未配置 Token Bank 服务地址');
   if (!token) throw new Error('请先登录并启用转发 Key（与模型社区源同一套 cloud_config.token）');
@@ -190,6 +190,8 @@ async function runCommunityAgentTask({ assistantId, prompt, workerId, timeoutMs 
       prompt: text,
       worker_id: workerId || undefined,
       timeout_ms: timeoutMs || undefined,
+      images: Array.isArray(images) && images.length ? images : undefined,
+      files: Array.isArray(files) && files.length ? files : undefined,
     },
   });
   return r.data;

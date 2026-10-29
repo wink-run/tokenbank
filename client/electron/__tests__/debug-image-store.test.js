@@ -10,6 +10,7 @@ test('serializeImageSrc 保留 tbimg / http，丢掉裸 base64', async () => {
   assert.equal(serializeImageSrc('https://cdn.example/a.png'), 'https://cdn.example/a.png');
   assert.equal(serializeImageSrc('data:image/png;base64,AAAA'), B64_OMITTED);
   assert.equal(serializeImageSrc(''), B64_OMITTED);
+  assert.equal(serializeImageSrc('tbfile:notes.txt'), 'tbfile:notes.txt');
   assert.equal(isImageRef('tbimg:abc'), true);
   assert.equal(isKeptImageSrc('tbimg:abc'), true);
 });

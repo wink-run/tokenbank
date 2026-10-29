@@ -743,8 +743,9 @@ async function handleAgentTask(msg, cfg) {
 
   executor.on('task:step', onStep);
   try {
-    // 社区任务本轮附图（data URL）→ executor 落盘 / Claude 多模态
+    // 社区任务本轮附图 / 文件（data URL）→ executor 落盘
     const attachImages = Array.isArray(msg.images) ? msg.images : [];
+    const attachFiles = Array.isArray(msg.files) ? msg.files : [];
     const { taskId: localId } = await executor.execute(`assistant:${assistantId}`, prompt, {
       mode: 'worker',
       clientId: 'contribute',
@@ -753,6 +754,7 @@ async function handleAgentTask(msg, cfg) {
       // 接单一律新开 CLI 会话；多轮上下文由调用方在 prompt 中携带
       continueSession: false,
       images: attachImages.length ? attachImages : undefined,
+      files: attachFiles.length ? attachFiles : undefined,
     });
     trackedTaskId = localId;
 

@@ -2,6 +2,19 @@
 
 export const B64_OMITTED = '__b64_omitted__';
 export const IMAGE_REF_PREFIX = 'tbimg:';
+/** 非图片附件只记文件名，正文在执行时另传 */
+export const FILE_REF_PREFIX = 'tbfile:';
+
+export function fileMarker(name) {
+  const n = String(name || 'file').slice(0, 180);
+  return FILE_REF_PREFIX + encodeURIComponent(n);
+}
+
+export function fileMarkerName(src) {
+  if (typeof src !== 'string' || !src.startsWith(FILE_REF_PREFIX)) return '';
+  try { return decodeURIComponent(src.slice(FILE_REF_PREFIX.length)); }
+  catch { return src.slice(FILE_REF_PREFIX.length); }
+}
 
 const DB_NAME = 'tokenbank-debug-media';
 const DB_VER = 1;
@@ -20,6 +33,7 @@ export function isKeptImageSrc(src) {
 }
 
 export function serializeImageSrc(src) {
+  if (fileMarkerName(src)) return src;
   if (isKeptImageSrc(src)) return src;
   return B64_OMITTED;
 }
@@ -66,6 +80,7 @@ function newId() {
 
 export async function persistImageSrc(src) {
   if (!src || src === B64_OMITTED) return B64_OMITTED;
+  if (fileMarkerName(src)) return src;
   if (isKeptImageSrc(src)) return src;
   const parsed = parseImagePayload(src);
   if (!parsed?.b64) return B64_OMITTED;
