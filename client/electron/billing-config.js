@@ -665,21 +665,16 @@ function enrichProvidersFromAccounts(providers, localCfg) {
   const srcMap = {};
   for (const s of (localCfg.user_subscriptions || [])) { if (s.gateway_id) srcMap[s.gateway_id] = 'subscription'; }
   for (const p of (localCfg.user_payg_providers || [])) { const g = paygGatewayId(p); if (g && !srcMap[g]) srcMap[g] = 'payg'; }
-  // OpenRouter：定期拉取的完整目录作为模型基底（registry 只硬编码 2 个），预构建数组 O(1) 引用、不在热路径重算。
-  let orModels = null, orPricing = null;
-  try { const oc = require('./openrouter-catalog'); const m = oc.getModels(); if (m && m.length) { orModels = m; orPricing = oc.getPricing(); } } catch {}
+  // 模型基底用服务端 registry，再并上用户账户里登记的模型（不再灌入 OpenRouter 全量免费目录）
   return providers.map(p => {
     let next = p;
-    const baseModels = (p.id === 'openrouter' && orModels) ? orModels : p.models;
     const extra = collectModelsForGatewayProvider(p.id, localCfg);
-    if (extra.size || baseModels !== p.models) {
-      const merged = extra.size ? mergeProviderModelEntries(baseModels, extra) : baseModels;
+    if (extra.size) {
+      const merged = mergeProviderModelEntries(p.models, extra);
       const before = (p.models || []).map(modelEntryId).filter(Boolean).sort().join('\0');
       const after = merged.map(modelEntryId).filter(Boolean).sort().join('\0');
       if (before !== after) next = { ...next, models: merged };
     }
-    // openrouter 目录价并进 pricing（用户/registry 覆盖优先）
-    if (p.id === 'openrouter' && orPricing && Object.keys(orPricing).length) next = { ...next, pricing: { ...orPricing, ...(next.pricing || {}) } };
     const src = srcMap[p.id];
     if (src && next.source !== src) next = { ...next, source: src };
     return next;
@@ -952,25 +947,10 @@ function pruneOverrideModels(override, allowed) {
   return { next, changed };
 }
 
-/** catalog 允许集 + 用户在本机登记的模型（计费区手工添加的不应被读时裁剪） */
+/** 服务端目录 ∪ 用户改过价的自配模型。账户里抄下来的旧目录不再算「允许」，否则服务端删模型后本地去不掉。 */
 function allowedModelsForProvider(cfg, providerId, catalogSet) {
   const allowed = new Set(catalogSet || []);
   if (!providerId) return allowed;
-  for (const p of cfg.user_payg_providers || []) {
-    if (p.provider_id !== providerId) continue;
-    for (const m of p.models || []) {
-      const n = modelEntryId(m);
-      if (n) allowed.add(n);
-    }
-  }
-  for (const s of cfg.user_subscriptions || []) {
-    const pid = s.plan_provider_id || s.source_id;
-    if (pid !== providerId) continue;
-    for (const m of s.models || []) {
-      const n = modelEntryId(m);
-      if (n) allowed.add(n);
-    }
-  }
   const ovr = cfg.provider_pricing_overrides?.[providerId];
   if (ovr && typeof ovr === 'object') {
     for (const k of Object.keys(ovr)) {
@@ -1055,7 +1035,19 @@ function pruneLocalBillingAgainstServer(cfg = {}) {
     cfg.provider_pricing_overrides = next;
   }
 
-  // 按量实例：仅去掉 catalog 已下线且用户未登记的模型
+  // 按量 / API 订阅实例：去掉服务端已下线的模型，保留用户改过价的自配模型
+  const nextSubsWithModels = (cfg.user_subscriptions || []).map(s => {
+    if (!s || s.custom) return s;
+    const pid = s.plan_provider_id || s.source_id;
+    if (!pid || !modelSets[pid]) return s;
+    const allowed = allowedModelsForProvider(cfg, pid, modelSets[pid]);
+    const ms = (s.models || []).filter(m => allowed.has(typeof m === 'string' ? m : (m.id || m.name || m.model)));
+    if (ms.length === (s.models || []).length) return s;
+    changed = true;
+    return { ...s, models: ms };
+  });
+  if (nextSubsWithModels !== cfg.user_subscriptions) cfg.user_subscriptions = nextSubsWithModels;
+
   const nextPaygWithModels = (cfg.user_payg_providers || []).map(p => {
     if (!p || p.custom || !p.provider_id || !modelSets[p.provider_id]) return p;
     const allowed = allowedModelsForProvider(cfg, p.provider_id, modelSets[p.provider_id]);

@@ -45,9 +45,11 @@ def parse_registry_content(content: str) -> dict:
 
 async def load_registry_doc() -> dict:
     import database as db
+    from config_merge import merge_providers_doc
 
     content = await db.get_config(CONFIG_KEY, "")
-    return parse_registry_content(content)
+    # 同 id 的模型列表跟仓库里的 providers.registry.yaml 对齐，避免 DB 旧目录盖住已更新的服务端
+    return merge_providers_doc(parse_registry_content(content))
 
 
 def load_registry_doc_sync() -> dict:

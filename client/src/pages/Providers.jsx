@@ -355,24 +355,67 @@ function isPaygManagedProvider(providerId, userPayg = []) {
   return !!resolvePaygAccount(providerId, userPayg);
 }
 
-/** 个人页按量账户已配置的模型；无登记时回退服务端刊例价目录 */
+function catalogModelName(m) {
+  if (typeof m === 'string') return m.trim();
+  return String(m?.name || m?.id || '').trim();
+}
+
+/** 服务端目录里的模型名（刊例价键 + models） */
+function serverCatalogModelNames(catalogId, providerPricing = {}, paygCatalog = []) {
+  const names = new Set();
+  const cat = (paygCatalog || []).find(p => (p.provider_id || p.id) === catalogId);
+  for (const m of cat?.models || []) {
+    const n = catalogModelName(m);
+    if (n && !PRICING_OVERRIDE_META_KEYS.has(n)) names.add(n);
+  }
+  for (const k of Object.keys(cat?.pricing || {})) {
+    if (k && !PRICING_OVERRIDE_META_KEYS.has(k)) names.add(k);
+  }
+  for (const k of Object.keys(providerPricing?.[catalogId] || {})) {
+    if (k && !PRICING_OVERRIDE_META_KEYS.has(k)) names.add(k);
+  }
+  return names;
+}
+
+/** 服务端目录 ∪ 账户里还留着的模型（同步会先清掉服务端已下线的旧目录） */
 function buildPaygProfileModels(providerId, userPayg = [], providerPricing = {}, paygCatalog = []) {
   const payg = resolvePaygAccount(providerId, userPayg);
   const catalogId = payg?.provider_id || providerId;
-  const names = new Set();
-  const add = (m) => {
-    const n = typeof m === 'string' ? m.trim() : String(m?.name || m?.id || '').trim();
+  const names = serverCatalogModelNames(catalogId, providerPricing, paygCatalog);
+  for (const m of payg?.models || []) {
+    const n = catalogModelName(m);
     if (n) names.add(n);
-  };
-  for (const m of payg?.models || []) add(m);
-  if (!payg?.models?.length) {
-    const cat = (paygCatalog || []).find(p => (p.provider_id || p.id) === catalogId);
-    for (const m of cat?.models || []) add(m);
-    for (const k of Object.keys(providerPricing?.[catalogId] || {})) {
-      if (k && !PRICING_OVERRIDE_META_KEYS.has(k)) names.add(k);
-    }
   }
   return [...names].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * 旧逻辑会把 OpenRouter 公开目录里全部 :free 模型写进账户。
+ * 数量一大截就视为批量灌入：只保留服务端目录、用户改过价的、以及非 :free 的自配模型。
+ */
+function pruneBulkOpenrouterModels(paygList, paygCatalog, pricingOverrides) {
+  const server = serverCatalogModelNames('openrouter', {}, paygCatalog);
+  const priced = new Set(
+    Object.keys(pricingOverrides?.openrouter || {}).filter(k => isValidModelName(k)),
+  );
+  let changed = false;
+  const next = (paygList || []).map(p => {
+    const pid = p?.provider_id || p?.gateway_id;
+    if (pid !== 'openrouter') return p;
+    const models = Array.isArray(p.models) ? p.models : [];
+    const freeCount = models.filter(m => /:free$/i.test(catalogModelName(m))).length;
+    if (freeCount < 20) return p;
+    const kept = models.filter(m => {
+      const n = catalogModelName(m);
+      if (!n) return false;
+      if (!/:free$/i.test(n)) return true;
+      return server.has(n) || priced.has(n);
+    });
+    if (kept.length === models.length) return p;
+    changed = true;
+    return { ...p, models: kept };
+  });
+  return changed ? next : null;
 }
 
 /** 模型输入候选：非按量供给源可用刊例价目录；按量仅用 buildPaygProfileModels */
@@ -2218,36 +2261,28 @@ function ProviderCardBillingSection({
       }
       return names;
     }
-    if (isPayg) {
-      for (const m of paygRec?.models || []) { const n = modelEntryName(m); if (n) names.add(n); }
-      // 账户尚无模型时，展示服务端下发的刊例价目录
-      if (!paygRec?.models?.length) {
-        const catalogPricing = providerPricing?.[pricingPid];
-        if (catalogPricing && typeof catalogPricing === 'object') {
-          for (const k of Object.keys(catalogPricing)) {
-            if (k && !PRICING_OVERRIDE_META_KEYS.has(k)) names.add(k);
-          }
-        }
-      }
-      for (const k of Object.keys(pricingOverrides?.[pricingPid] || {})) {
-        if (k && !PRICING_OVERRIDE_META_KEYS.has(k)) names.add(k);
-      }
-    } else {
-      // API 订阅：仅账户实例登记的 models + 用户自定义刊例价，不读 catalog 全量
-      for (const m of subRec?.models || []) { const n = modelEntryName(m); if (n) names.add(n); }
-      for (const k of Object.keys(pricingOverrides?.[pricingPid] || {})) {
-        if (k && !PRICING_OVERRIDE_META_KEYS.has(k)) names.add(k);
-      }
+    // 以当前服务端目录为准。账户里以前抄下来、服务端已去掉的模型不再显示。
+    const serverNames = serverCatalogModelNames(pricingPid, providerPricing, paygCatalog);
+    for (const n of serverNames) names.add(n);
+    const accountModels = isPayg ? (paygRec?.models || []) : (subRec?.models || []);
+    const ovr = pricingOverrides?.[pricingPid] || {};
+    for (const m of accountModels) {
+      const n = modelEntryName(m);
+      if (!n) continue;
+      if (serverNames.has(n) || (ovr[n] && !PRICING_OVERRIDE_META_KEYS.has(n))) names.add(n);
+    }
+    for (const k of Object.keys(ovr)) {
+      if (k && !PRICING_OVERRIDE_META_KEYS.has(k)) names.add(k);
     }
     return names;
-  }, [standalone, isPayg, paygRec, subRec, provider?.models, pricingOverrides, pricingPid, providerPricing]);
+  }, [standalone, isPayg, paygRec, subRec, provider?.models, pricingOverrides, pricingPid, providerPricing, paygCatalog]);
 
   const instanceExcluded = useMemo(
     () => getInstanceExcludedList({ standalone, provider, paygRec, subRec }),
     [standalone, provider?.excluded_models, paygRec?.excluded_models, subRec?.excluded_models],
   );
 
-  // 表格行：按量 / API 订阅均仅展示账户已添加的模型
+  // 表格行：用户自配模型 ∪ 服务端目录，去掉本实例隐藏项
   const modelNames = useMemo(() => {
     const excluded = new Set(instanceExcluded);
     return [...userModelNames].filter(n => !excluded.has(n)).sort();
@@ -3652,10 +3687,14 @@ export default function Providers() {
         }));
       setGatewayPickerEntries([...baseEntries, ...oauthFallback]);
       setStatsOnlyIds(r.stats_only_provider_ids || []);
-      setUserPayg(r.user_payg_providers || []);
       setProviderPricing(r.provider_pricing || {});
       const sanitizedOverrides = sanitizePricingOverrides(r.provider_pricing_overrides || {});
       setPricingOverrides(sanitizedOverrides);
+      const rawPayg = r.user_payg_providers || [];
+      // 清掉以前灌进 OpenRouter 账户的全量 :free 列表，只留服务端目录和用户自配
+      const prunedPayg = pruneBulkOpenrouterModels(rawPayg, r.payg_provider_catalog || [], sanitizedOverrides);
+      setUserPayg(prunedPayg || rawPayg);
+      if (prunedPayg) saveUserAccounts({ user_payg_providers: prunedPayg }).catch(() => {});
       if (sanitizedOverrides !== (r.provider_pricing_overrides || {})) {
         saveUserAccounts({ provider_pricing_overrides: sanitizedOverrides }).catch(() => {});
       }
@@ -3671,7 +3710,7 @@ export default function Providers() {
     }
   }, []);
 
-  /** catalog 刊例价（服务端）+ 本地 yaml 费率覆盖；模型键以 catalog 为准，不把本地残留并回来 */
+  /** 刊例价以服务端 catalog 为准；用户覆盖同名键。多出来的自配模型由账户 models 并入，不从本地旧列表捡回 */
   const mergedProviderPricing = useMemo(() => {
     const out = { ...catalogPricing };
     for (const [pid, local] of Object.entries(providerPricing || {})) {
@@ -3679,7 +3718,7 @@ export default function Providers() {
       const clean = {};
       for (const [k, v] of Object.entries(local || {})) {
         if (!isValidModelName(k)) continue;
-        if (catalogKeys && !catalogKeys.has(k)) continue;
+        if (catalogKeys && catalogKeys.size && !catalogKeys.has(k)) continue;
         clean[k] = v;
       }
       out[pid] = { ...(out[pid] || {}), ...clean };
@@ -3898,28 +3937,6 @@ export default function Providers() {
     const next = { ...(accountsData?.source_template_overrides || {}) };
     delete next[key];
     saveAccountsPatch({ source_template_overrides: next });
-  }
-
-  // 同步 openrouter 免费模型目录：openrouter 若是 payg 账户源，模型列表由 payg 账户 models 决定
-  // （直接写 provider.models 会被 filterPaygModels 裁掉），故写进 payg 账户 models——合并去重、不覆盖
-  // 用户已注册的付费模型；非 payg 源才写 provider.models。
-  async function syncOpenrouterModels() {
-    try {
-      const r = await window.electronAPI?.gateway?.refreshOpenrouterModels?.();
-      const names = (r && r.models) || [];
-      if (!names.length) return;
-      const acct = resolvePaygAccount('openrouter', userPayg);
-      if (acct) {
-        const have = new Set((acct.models || []).map(m => (typeof m === 'string' ? m : (m && m.name))).filter(Boolean));
-        const add = names.filter(n => !have.has(n));
-        if (!add.length) return;
-        const nextPayg = userPayg.map(p => (p.id === acct.id ? { ...p, models: [...(p.models || []), ...add] } : p));
-        await saveAccountsPatch({ user_payg_providers: nextPayg });
-      } else {
-        setProviders(prev => prev.map(p => (p.id === 'openrouter'
-          ? { ...p, models: names.map(n => ({ name: n, type: 'chat' })) } : p)));
-      }
-    } catch { /* ignore */ }
   }
 
   useEffect(() => {
@@ -4212,22 +4229,8 @@ export default function Providers() {
       await getConfig().write({ ...cfg, providers: list });
       lastSaved.current = list;
       setProviders(prev => prev.map(p => (p.id === id ? { ...p, enabled: !!enabled } : p)));
-      // 启用 openrouter 的模型同步由下方 effect 统一处理（providers 变化触发，能拿到 fresh userPayg）
     } catch { /* 离线时仍保留内存态 */ }
   }, []);
-
-  // openrouter 若已启用：进页(启动)或刚启用时，拉一次免费模型目录同步（payg 感知，见 syncOpenrouterModels）。
-  // 一次性(ref 守卫)：openrouter 从未启用→启用时 providers 变化会重跑此 effect，拿到 fresh userPayg。
-  const orSyncedRef = useRef(false);
-  useEffect(() => {
-    if (orSyncedRef.current) return;
-    if (!accountsData) return;   // 等账户(userPayg)加载完再判 payg，否则会走错分支
-    const or = providers.find(p => p.id === 'openrouter');
-    if (!or || !or.enabled) return;
-    orSyncedRef.current = true;
-    syncOpenrouterModels();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [providers, accountsData]);
 
   /** 立即落盘 provider.models，避免 saveAccounts 触发重载时被 debounce 旧配置覆盖 */
   const persistProviderModels = useCallback(async (id, models) => {
@@ -4408,8 +4411,6 @@ export default function Providers() {
       proxy: p.proxy,
       auth_type: p.auth_type, oauth_provider: p.oauth_provider, credentials: p.credentials,
     });
-    // OpenRouter：点击测试后顺带同步一次免费模型目录（公开端点，不依赖测试成败）
-    if (p.id === 'openrouter') syncOpenrouterModels().catch(() => {});
     return result;
   }
 

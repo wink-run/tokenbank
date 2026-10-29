@@ -219,18 +219,61 @@ def _default_registry_doc() -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
+def _by_id(items) -> dict:
+    out = {}
+    for item in items or []:
+        if isinstance(item, dict) and item.get("id"):
+            out[item["id"]] = item
+    return out
+
+
+def overlay_catalog_models(current_list, default_list) -> tuple[list, bool]:
+    """同 id 的 models/pricing 以内置默认为准，其余字段保留 DB。
+
+    只在缺省时补模型会让目录改了、已有库仍停在旧列表，客户端也就拉不到新模型。
+    """
+    def_by = _by_id(default_list)
+    out: list = []
+    seen: set = set()
+    changed = False
+    for item in current_list or []:
+        if not isinstance(item, dict) or not item.get("id"):
+            out.append(item)
+            continue
+        seen.add(item["id"])
+        default = def_by.get(item["id"])
+        if not default:
+            out.append(item)
+            continue
+        nxt = dict(item)
+        for key in ("models", "pricing"):
+            if key not in default:
+                continue
+            new_val = default.get(key) or ([] if key == "models" else {})
+            if nxt.get(key) != new_val:
+                nxt[key] = new_val
+                changed = True
+        out.append(nxt)
+    for default in default_list or []:
+        if isinstance(default, dict) and default.get("id") and default["id"] not in seen:
+            out.append(default)
+            seen.add(default["id"])
+            changed = True
+    return out, changed
+
+
 def merge_providers_doc(current: dict | None) -> dict:
-    """合并 providers.registry：DB 内容优先；缺 billing_sources 时从内置默认或 legacy 源目录补全。"""
+    """合并 providers.registry：同 id 的模型/刊例价跟内置默认走，缺段时再补 billing_sources。"""
     from provider_registry import sync_catalog_models_pricing
 
     if not isinstance(current, dict):
         current = {}
     defaults = _default_registry_doc()
     out = dict(current)
-    if not out.get("providers") and defaults.get("providers"):
-        out["providers"] = defaults["providers"]
     if not out.get("version"):
         out["version"] = defaults.get("version") or 1
+    providers, _ = overlay_catalog_models(out.get("providers"), defaults.get("providers"))
+    out["providers"] = providers
     if not out.get("billing_sources"):
         if defaults.get("billing_sources"):
             out["billing_sources"] = defaults["billing_sources"]
@@ -240,6 +283,9 @@ def merge_providers_doc(current: dict | None) -> dict:
                 out["billing_sources"] = bs.sort_sources(bs.import_from_legacy())
             except Exception:
                 pass
+    else:
+        billing, _ = overlay_catalog_models(out.get("billing_sources"), defaults.get("billing_sources"))
+        out["billing_sources"] = billing
     # 下发前对齐 models / pricing，修复历史漂移
     providers = out.get("providers")
     if isinstance(providers, list):

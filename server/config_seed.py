@@ -82,8 +82,8 @@ def _append_missing_by_id(dst: list, src: list) -> bool:
 
 async def reconcile_providers_with_defaults() -> None:
     """已有 config.providers 时，对账内置默认：
-    1) 默认有、库里没有的 providers / billing_sources 条目补上；
-    2) 已有 payg 源 models/pricing 为空时用默认非空值补上；
+    1) 同 id 的 models/pricing 改为内置默认（目录更新能进库）；
+    2) 默认有、库里没有的 providers / billing_sources 补上；
     3) 同步补齐独立的 config.billing_sources.sources。
     """
     cur = await db.get_config("config.providers", "")
@@ -102,27 +102,16 @@ async def reconcile_providers_with_defaults() -> None:
 
     from provider_registry import serialize_registry_doc
 
+    from config_merge import overlay_catalog_models
+
     changed = False
-    # 缺省条目：内置默认有、当前库没有 → 追加（如新建的 minimax / zhipu / huggingface）
+    # 同 id 的 models/pricing 跟内置默认对齐（目录改了要覆盖旧库，不能只补空列表）
     for section in ("providers", "billing_sources"):
         if section not in doc or not isinstance(doc.get(section), list):
             doc[section] = list(doc.get(section) or [])
-        if _append_missing_by_id(doc[section], deflt.get(section) or []):
-            changed = True
-
-    def_by = {p.get("id"): p for p in (deflt.get("providers") or []) if isinstance(p, dict)}
-    providers = doc.get("providers") or []
-    for p in providers:
-        if not isinstance(p, dict) or not p.get("payg"):
-            continue
-        d = def_by.get(p.get("id"))
-        if not d:
-            continue
-        if not p.get("models") and d.get("models"):
-            p["models"] = d["models"]
-            changed = True
-        if not p.get("pricing") and d.get("pricing"):
-            p["pricing"] = d["pricing"]
+        nxt, section_changed = overlay_catalog_models(doc[section], deflt.get(section) or [])
+        if section_changed:
+            doc[section] = nxt
             changed = True
 
     if changed:

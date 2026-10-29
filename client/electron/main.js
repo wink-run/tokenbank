@@ -6001,10 +6001,6 @@ app.whenReady().then(() => {
     });
   })();
 
-  // OpenRouter 模型目录：启动拉一次(无缓存/过期时) + 每 1h 定时刷新，供网关合并进 openrouter 源模型。
-  // 前端源卡显示由前端主导（启用时 refresh + 拿模型写进自己的配置状态，见 Providers.persistProviderEnabled）。
-  try { require('./openrouter-catalog').start(); } catch {}
-
   // ChatGPT 网页源：仅当用户已启用时自启本地 server（未启用不开浏览器/不占端口）
   try { require('./chatgpt-web').maybeStart(); } catch (e) { console.warn('[chatgpt-web] maybeStart:', e && e.message); }
 
