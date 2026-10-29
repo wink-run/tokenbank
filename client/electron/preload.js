@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listActiveTasks: () => ipcRenderer.invoke('agent:listActiveTasks'),
     listRecentTasks: (opts) => ipcRenderer.invoke('agent:listRecentTasks', opts),
     pickWorkingDir: (opts) => ipcRenderer.invoke('agent:pickWorkingDir', opts),
+    pickFiles: (opts) => ipcRenderer.invoke('agent:pickFiles', opts),
     // 兼容旧调用
     list: (opts) => ipcRenderer.invoke('agent:list', opts || {}),
     // 游乐场：一键安装 / 登录 Cursor Agent CLI（官方脚本；IDE 登录不能替代）

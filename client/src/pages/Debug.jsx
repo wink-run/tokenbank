@@ -2985,7 +2985,8 @@ export default function Debug() {
         continue;
       }
       try {
-        const dataUrl = await fileToDataUrl(file);
+        // 系统对话框已经读好内容；网页 file input / 粘贴仍走 FileReader
+        const dataUrl = file.preloaded ? file.dataUrl : await fileToDataUrl(file);
         if (!dataUrl) continue;
         next.push({
           id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -2998,6 +2999,33 @@ export default function Debug() {
       }
     }
     setPendingImages(next.slice(0, ATTACH_MAX_COUNT));
+  }
+
+  /** Agent 回形针：系统「打开文件」对话框，不限类型 */
+  async function openAgentFilePicker() {
+    if (window.electronAPI?.agent?.pickFiles) {
+      try {
+        const result = await window.electronAPI.agent.pickFiles(
+          agentWorkingDir.trim() ? { defaultPath: agentWorkingDir.trim() } : {},
+        );
+        if (result?.success && result.files?.length) {
+          await addAttachFiles(result.files.map(f => ({
+            name: f.name,
+            type: f.mime || '',
+            size: Number(f.size) || 0,
+            dataUrl: f.dataUrl,
+            preloaded: !!f.dataUrl,
+          })));
+        } else if (result && !result.canceled && result.error) {
+          setAttachError(result.error);
+        }
+      } catch (e) {
+        setAttachError(e?.message || t('debug.attachFileSizeError'));
+      }
+      return;
+    }
+    // 浏览器预览才走 input；Electron 里这个对话框会把文件置灰
+    fileInputRef.current?.click();
   }
 
   function handleComposerPaste(e) {
@@ -3733,7 +3761,7 @@ export default function Debug() {
               />
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={openAgentFilePicker}
                 disabled={!activeAgent || taskCanStop || pendingImages.length >= ATTACH_MAX_COUNT}
                 title={t('debug.attachFile')}
                 className={`${ghostBtn} w-9 h-9 shrink-0 flex items-center justify-center`}

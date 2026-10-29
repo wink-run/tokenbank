@@ -3,7 +3,60 @@
 'use strict';
 
 const { ipcMain, BrowserWindow, dialog } = require('electron');
+const { execFile } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const agentExecutor = require('./agent-executor');
+
+const ATTACH_READ_MAX_BYTES = 20 * 1024 * 1024;
+
+/** 按扩展名给 data URL 一个 MIME，未知类型用二进制 */
+function mimeFromFileName(name) {
+  const ext = path.extname(String(name || '')).toLowerCase();
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.png') return 'image/png';
+  if (ext === '.gif') return 'image/gif';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.pdf') return 'application/pdf';
+  if (ext === '.json') return 'application/json';
+  if (ext === '.csv' || ext === '.txt' || ext === '.md' || ext === '.log') return 'text/plain';
+  return 'application/octet-stream';
+}
+
+/**
+ * macOS 27 上 Electron / 网页 file input 会把 allowedContentTypes 设成空数组，
+ * 文件变成灰色无法点选。系统「选取文件」不套类型过滤。
+ */
+function pickFilesMac(defaultPath) {
+  const start = defaultPath && fs.existsSync(defaultPath) ? defaultPath : os.homedir();
+  const script = `
+on run argv
+  set startPath to item 1 of argv
+  set theFiles to choose file with prompt "选择附件" with multiple selections allowed default location (POSIX file startPath)
+  set out to ""
+  repeat with f in theFiles
+    set out to out & POSIX path of (f as alias) & linefeed
+  end repeat
+  return out
+end run
+`;
+  return new Promise((resolve, reject) => {
+    execFile('osascript', ['-e', script, start], { maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+      const msg = `${err?.message || ''} ${stderr || ''}`;
+      if (err && /-128|User canceled|用户已取消/.test(msg)) {
+        resolve({ canceled: true, filePaths: [] });
+        return;
+      }
+      if (err) {
+        reject(err);
+        return;
+      }
+      const filePaths = String(stdout || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      resolve({ canceled: filePaths.length === 0, filePaths });
+    });
+  });
+}
 
 /**
  * 注册 Agent 相关的 IPC handlers
@@ -75,6 +128,58 @@ function registerAgentHandlers() {
       return { success: true, path: result.filePaths[0] };
     } catch (error) {
       console.error('[IPC] agent:pickWorkingDir error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  /**
+   * 选择附件。用系统对话框且不加文件类型过滤，避免网页 file input 只能选图片。
+   */
+  ipcMain.handle('agent:pickFiles', async (event, opts = {}) => {
+    try {
+      const defaultPath = opts.defaultPath && String(opts.defaultPath).trim();
+      // macOS 不用 Electron 的打开面板：空的类型列表会把 zip 等文件置灰
+      const result = process.platform === 'darwin'
+        ? await pickFilesMac(defaultPath)
+        : await (async () => {
+          const win = BrowserWindow.fromWebContents(event.sender) || BrowserWindow.getFocusedWindow();
+          const dialogOpts = {
+            title: '选择附件',
+            buttonLabel: '添加',
+            properties: ['openFile', 'multiSelections'],
+            ...(defaultPath ? { defaultPath } : {}),
+          };
+          return win
+            ? dialog.showOpenDialog(win, dialogOpts)
+            : dialog.showOpenDialog(dialogOpts);
+        })();
+      if (result.canceled || !result.filePaths?.length) {
+        return { success: false, canceled: true };
+      }
+      const files = [];
+      for (const fp of result.filePaths) {
+        const name = path.basename(fp);
+        const mime = mimeFromFileName(name);
+        try {
+          const size = fs.statSync(fp).size;
+          if (size > ATTACH_READ_MAX_BYTES) {
+            files.push({ name, size, mime, tooBig: true });
+            continue;
+          }
+          const buf = fs.readFileSync(fp);
+          files.push({
+            name,
+            size,
+            mime,
+            dataUrl: `data:${mime};base64,${buf.toString('base64')}`,
+          });
+        } catch (e) {
+          files.push({ name, size: 0, mime, error: e.message });
+        }
+      }
+      return { success: true, files };
+    } catch (error) {
+      console.error('[IPC] agent:pickFiles error:', error);
       return { success: false, error: error.message };
     }
   });
