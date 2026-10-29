@@ -1072,6 +1072,7 @@ export default {
   'providers.billing.addModelPh': 'Add model…',
   'providers.billing.noModels': 'No models yet — add one',
   'providers.billing.modelCount': '{n} models',
+  'providers.billing.refreshModels': 'Refresh model account',
   'psrc.direct.officialModelsHint': 'The app connects directly to the official service; models are chosen by the app, not routed through the local gateway. Set monthly fee here for usage estimation only.',
   'providers.add.statsTag': 'Stats',
   'providers.add.instanceCount': '{n}',

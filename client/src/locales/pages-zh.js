@@ -1072,6 +1072,7 @@ export default {
   'providers.billing.addModelPh': '添加模型…',
   'providers.billing.noModels': '暂无模型，请添加',
   'providers.billing.modelCount': '{n} 个模型',
+  'providers.billing.refreshModels': '刷新模型账户',
   'psrc.direct.officialModelsHint': '应用直连官方，模型由应用自行选择，不经过本地网关转发；此处仅登记月费供用量估算',
   'providers.add.statsTag': '统计',
   'providers.add.instanceCount': '{n} 个',

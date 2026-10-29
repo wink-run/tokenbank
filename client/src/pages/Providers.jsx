@@ -2197,6 +2197,27 @@ function modelEntryName(m) {
   return isValidModelName(n) ? n : '';
 }
 
+/** 用服务端目录重写一条账户的模型；改过价、目录里没有的模型留下。目录为空则原样返回。 */
+function applyCatalogModelsToAccount(record, pricingPid, catalog, pricing, pricingOverrides) {
+  const names = serverCatalogModelNames(pricingPid, pricing, catalog);
+  if (!names.size) return record;
+  const cat = (catalog || []).find(p => (p.provider_id || p.id) === pricingPid);
+  const serverEntries = [...names].map(n => {
+    const type = cat?.model_types?.[n] || 'chat';
+    return type === 'chat' ? n : { name: n, type };
+  });
+  const ovr = pricingOverrides?.[pricingPid] || {};
+  const extras = (record.models || []).filter(m => {
+    const n = modelEntryName(m);
+    return n && !names.has(n) && ovr[n] && !PRICING_OVERRIDE_META_KEYS.has(n);
+  });
+  const excluded = (record.excluded_models || []).filter(n => !names.has(n));
+  const next = { ...record, models: [...serverEntries, ...extras] };
+  if (excluded.length) next.excluded_models = excluded;
+  else delete next.excluded_models;
+  return next;
+}
+
 /** 实例级已隐藏的云预置模型（与模板 catalog 分离，新实例不受影响） */
 function getInstanceExcludedList({ standalone, provider, paygRec, subRec }) {
   if (standalone) return Array.isArray(provider?.excluded_models) ? provider.excluded_models : [];
@@ -3640,6 +3661,7 @@ export default function Providers() {
   const [directBilling, setDirectBilling] = useState({});        // 直连源计费（按 agent_id）
   const [accountsData, setAccountsData] = useState(null);        // 完整账户快照（统计视图用）
   const [sourcesView, setSourcesView] = useState('model');       // 个人源视图：model | list（账户）
+  const [refreshingModels, setRefreshingModels] = useState(false);
   const [accountSyncing, setAccountSyncing] = useState(false);
   const [accountSyncHint, setAccountSyncHint] = useState('');
   // 设置页「同步账户密钥」，默认关。KeepAlive 下从设置返回要重新读。
@@ -3936,6 +3958,32 @@ export default function Providers() {
     if (structuralKeys.length > 0) {
       await loadUserPaidAccounts();
     }
+  }
+
+  // 列表层：拉服务端目录，按目录重写全部按量 / 订阅账户的模型
+  async function refreshModelsFromServer() {
+    if (refreshingModels) return;
+    setRefreshingModels(true);
+    try {
+      await syncProviderCatalog();
+      const accounts = await loadUserAccounts();
+      const catalog = accounts?.payg_provider_catalog || paygCatalog;
+      const pricing = accounts?.provider_pricing || mergedProviderPricing;
+      const overrides = accounts?.provider_pricing_overrides || pricingOverrides;
+      const nextPayg = (accounts?.user_payg_providers || userPayg).map(p => {
+        const pid = p.provider_id || p.source_id;
+        return pid ? applyCatalogModelsToAccount(p, pid, catalog, pricing, overrides) : p;
+      });
+      const nextSubs = (accounts?.user_subscriptions || userSubscriptions).map(s => {
+        const pid = s.plan_provider_id || OAUTH_SUB_SOURCE_TO_PID[s.source_id] || s.source_id;
+        return pid ? applyCatalogModelsToAccount(s, pid, catalog, pricing, overrides) : s;
+      });
+      await saveAccountsPatch({
+        user_payg_providers: nextPayg,
+        user_subscriptions: nextSubs,
+      });
+    } catch { /* 离线时保持当前列表 */ }
+    finally { setRefreshingModels(false); }
   }
 
   function adoptServerTemplate(key) {
@@ -5181,7 +5229,13 @@ export default function Providers() {
         {sourcesView !== 'model' && (
           <div className="flex items-center justify-between gap-x-3 gap-y-2 min-w-0 flex-wrap">
             <PersonalFilterBar value={personalFilter} onChange={setPersonalFilter} t={t} />
-            {renderSourcesViewTabs()}
+            <div className="flex items-center gap-2 shrink-0">
+              <button type="button" onClick={refreshModelsFromServer} disabled={refreshingModels}
+                className="tb-press text-xs px-2.5 py-1 rounded-lg border border-zinc-300/80 dark:border-zinc-700 bg-white/50 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-400 hover:bg-white/80 dark:hover:bg-zinc-700/80 transition-colors disabled:opacity-50">
+                {refreshingModels ? '…' : t('providers.billing.refreshModels')}
+              </button>
+              {renderSourcesViewTabs()}
+            </div>
           </div>
         )}
 
