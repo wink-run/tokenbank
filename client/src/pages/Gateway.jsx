@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { loadGatewayAvailableModels, resolveLocalGatewayBase, inferModelTypeFromName } from '../api/gatewayModels';
@@ -5129,6 +5129,12 @@ export default function Gateway() {
     catch (e) { alert(t('gateway.common.deleteFailed')); }
   }
 
+  // 降级链在模型列表里调整，不进场景路由。
+  const sceneRouteRows = useMemo(
+    () => (routes || []).filter(route => !route.list_route),
+    [routes],
+  );
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
@@ -5249,7 +5255,7 @@ export default function Gateway() {
           {newRoute && (
             <SceneRouteEditor key="new-route-editor" route={newRoute} availableModels={availableModels} network={network} sources={sources} onSave={saveRoute} onCancel={() => setNewRoute(null)} />
           )}
-          {routes.map(route => {
+          {sceneRouteRows.map(route => {
             const health = routeHealth[route.model_key] ?? { status: null, activeStep: null, degraded: false };
             const ftMs = health.first_token_ms;
             // 本地供给源是否缺少该路由用到的模型（缺则名称前的点也标红）
@@ -5284,7 +5290,9 @@ export default function Gateway() {
                 </svg>
                 {isAppIcon(route.icon)
                   ? appIconSvg(route.icon, 'w-5 h-5 shrink-0')
-                  : <span className="text-base shrink-0">{route.icon}</span>}
+                  : String(route.icon || '').startsWith('icon:')
+                    ? appIconSvg('icon:shuffle', 'w-5 h-5 shrink-0')
+                    : <span className="text-base shrink-0">{route.icon}</span>}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span title={healthTitle} className={`w-2 h-2 rounded-full shrink-0 ${healthDot}`} />
@@ -5358,7 +5366,7 @@ export default function Gateway() {
             </div>
             );
           })}
-          {routes.length === 0 && !newRoute && (
+          {sceneRouteRows.length === 0 && !newRoute && (
             <div className="px-5 py-8 text-xs text-zinc-400 text-center">{t('gateway.route.empty')}</div>
           )}
         </div>

@@ -3661,6 +3661,7 @@ export default function Providers() {
   const [directBilling, setDirectBilling] = useState({});        // 直连源计费（按 agent_id）
   const [accountsData, setAccountsData] = useState(null);        // 完整账户快照（统计视图用）
   const [sourcesView, setSourcesView] = useState('model');       // 个人源视图：model | list（账户）
+  const [sceneRoutes, setSceneRoutes] = useState([]);            // 用户调整过的模型降级链
   const [refreshingModels, setRefreshingModels] = useState(false);
   const [accountSyncing, setAccountSyncing] = useState(false);
   const [accountSyncHint, setAccountSyncHint] = useState('');
@@ -4800,6 +4801,69 @@ export default function Providers() {
     return null;
   }, [cooldownMaps]);
 
+  const loadSceneRoutes = useCallback(async () => {
+    try {
+      const cfg = await getLocalConfig().get();
+      const all = Array.isArray(cfg?.scene_routes) ? cfg.scene_routes : [];
+      // 早期误存的「只有本模型、不指定账户」不算调整，打开时清掉
+      const stale = all.filter(r => {
+        if (!r?.list_route || !r.id) return false;
+        const steps = Array.isArray(r.steps) ? r.steps : [];
+        const key = String(r.model_key || '').trim();
+        return steps.length === 1 && String(steps[0]?.model || '').trim() === key && !String(steps[0]?.provider || '').trim();
+      });
+      for (const r of stale) {
+        try { await getLocalConfig().deleteSceneRoute(r.id); } catch { /* ignore */ }
+      }
+      const drop = new Set(stale.map(r => r.id));
+      setSceneRoutes(drop.size ? all.filter(r => !drop.has(r.id)) : all);
+    } catch { /* 配置还没就绪 */ }
+  }, []);
+  useEffect(() => { loadSceneRoutes(); }, [loadSceneRoutes]);
+
+  // 和场景路由同一种步骤：每步一个模型，多个账户时才写 provider。
+  // 不写 provider 时网关按订阅再按量自动换，也不会套进该模型自己的下一级链。
+  // flow 用 fallback，保证步骤顺序就是尝试顺序。
+  async function saveListRoute(name, { steps } = {}) {
+    const key = String(name || '').trim();
+    const clean = [];
+    for (const raw of steps || []) {
+      const m = String(raw?.model || '').trim();
+      if (!m) continue;
+      const step = { model: m };
+      const provider = String(raw?.provider || '').trim();
+      if (provider) step.provider = provider;
+      clean.push(step);
+    }
+    // 只剩「本模型、不指定账户」等于没改过，不落库，已有的也删掉
+    const isDefault = clean.length === 1 && clean[0].model === key && !clean[0].provider;
+    if (!key || !clean.length || isDefault) {
+      if (isDefault) {
+        const prev = sceneRoutes.find(r => r?.list_route && r.model_key === key);
+        if (prev?.id) await deleteListRoute(prev.id);
+      }
+      return;
+    }
+    try {
+      await getLocalConfig().createSceneRoute({
+        scene_name: key,
+        model_key: key,
+        icon: 'icon:shuffle',
+        list_route: true,
+        flow: 'fallback',
+        steps: clean,
+        rules: null,
+      });
+    } catch { /* 离线时保持界面 */ }
+    await loadSceneRoutes();
+  }
+
+  async function deleteListRoute(id) {
+    if (!id) return;
+    try { await getLocalConfig().deleteSceneRoute(id); } catch { /* ignore */ }
+    await loadSceneRoutes();
+  }
+
   // 打开详情时加载「谁在用它」：场景路由（本地配置）+ 绑定模型的智能体（桌面版资源库）
   useEffect(() => {
     if (!selectedSourceKey) return undefined;
@@ -5257,6 +5321,9 @@ export default function Providers() {
             trailing={renderSourcesViewTabs()}
             probeTargets={personalProbeTargets}
             cooldownFor={cooldownFor}
+            sceneRoutes={sceneRoutes}
+            onSaveListRoute={saveListRoute}
+            onDeleteListRoute={deleteListRoute}
             onEmptyAdd={() => { setSourcesView('list'); setPickerOpen(true); }}
             onEmptySync={syncAccountsFromOtherDevices}
             syncing={accountSyncing}

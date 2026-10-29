@@ -783,12 +783,34 @@ async function handleRequest(req, res) {
     if (body === null) return;
     const lc = readLocalConfig() || { scene_routes: [], local_keys: [] };
     if (!lc.scene_routes) lc.scene_routes = [];
+    const key = String(body.model_key || '').trim();
+    if (key) {
+      const idx = lc.scene_routes.findIndex((r) => r && r.model_key === key);
+      if (idx !== -1) {
+        lc.scene_routes[idx] = Object.assign({}, lc.scene_routes[idx], {
+          scene_name: body.scene_name || lc.scene_routes[idx].scene_name,
+          icon: body.icon || lc.scene_routes[idx].icon,
+          steps: body.steps === undefined ? lc.scene_routes[idx].steps : (body.steps || []),
+          rules: body.rules === undefined ? lc.scene_routes[idx].rules : (body.rules || null),
+          flow: body.flow === undefined ? lc.scene_routes[idx].flow : (body.flow || null),
+          list_route: body.list_route === undefined ? !!lc.scene_routes[idx].list_route : !!body.list_route,
+          user_owned: true,
+        });
+        writeLocalConfig(lc);
+        syncGateway(lc);
+        return json(res, 200, lc.scene_routes[idx]);
+      }
+    }
     const route = {
       id: rndHex(8),
       scene_name: body.scene_name || '',
       icon: body.icon || '\u{1F500}',
       steps: body.steps || [],
-      model_key: 'llm-router-' + rndHex(6),
+      rules: body.rules || null,
+      flow: body.flow || null,
+      model_key: key || ('llm-router-' + rndHex(6)),
+      list_route: !!body.list_route,
+      user_owned: true,
       created_at: new Date().toISOString(),
     };
     lc.scene_routes.push(route);
@@ -811,6 +833,9 @@ async function handleRequest(req, res) {
         scene_name: body.scene_name,
         icon: body.icon,
         steps: body.steps,
+        ...(body.rules !== undefined ? { rules: body.rules || null } : {}),
+        ...(body.flow !== undefined ? { flow: body.flow || null } : {}),
+        ...(body.list_route !== undefined ? { list_route: !!body.list_route } : {}),
       });
       writeLocalConfig(lc);
       syncGateway(lc);

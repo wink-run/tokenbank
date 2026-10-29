@@ -1039,6 +1039,18 @@ html.tb-electron .tb-scroll-layer {
   to { opacity: 1; }
 }
 
+/* 模型降级链：从右侧滑入 */
+@keyframes tb-drawer-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.tb-drawer-in {
+  animation: tb-drawer-in 180ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tb-drawer-in { animation: none; }
+}
+
 /* 闲置清理：清扫动效（扫帚扫过尘埃） */
 .tb-cleanup-sweep {
   position: relative;

@@ -11,6 +11,7 @@ import ServiceIcon from './ServiceIcon';
 import { resolveProviderBrandIcon } from '../lib/brandIcons';
 import { speedDotClass, statusDotBucket } from '../lib/speed';
 import { parseRoute } from '../lib/route-binding';
+import { prefixModelRoutes } from '../lib/model-prefix-routes';
 import UsageMeter, { usageProviderForDirect } from './UsageMeter';
 
 // 服务质量(上次转发结果)：成功=绿 / 冷却=蓝 / 429=红 / 失败=红 / 无请求=灰。文字区分 429 与 失败。
@@ -51,10 +52,6 @@ const INVALID_MODEL_NAMES = new Set(['_excluded_models', 'excluded_models']);
 function probeTargetBare(current) {
   const pr = parseRoute(current);
   return String(pr.model || current || '').trim().toLowerCase();
-}
-
-function probeTargetProvider(current) {
-  return String(parseRoute(current).provider || '').trim();
 }
 
 /** 模型名（字符串或 { name/id } 对象） */
@@ -752,6 +749,110 @@ function accountDisplayName(inst) {
 }
 
 // ── 第3块：按模型视图（仿社区源 P2P 网格：一行两列，左模型、右供给源 logo）────────
+/** 能写进场景步的网关供给源 id。直连账户没有这个 id，不能被指定。 */
+function sourceChainId(inst) {
+  return String(inst?.gateway_id || '').trim();
+}
+
+/** 默认降级顺序：订阅，然后免费，然后按量。和网关 costRank 同一档。 */
+function sourceBillingRank(inst) {
+  const tag = String(inst?.tag || inst?.kind || '');
+  if (tag === 'api_sub' || tag === 'sub_to_api' || tag === 'app_sub' || tag === 'sub') return 0;
+  if (tag === 'free') return 1;
+  return 2;
+}
+
+function orderChainSources(srcs, route, head, latencyOf) {
+  const auto = [...(srcs || [])].sort((a, b) => {
+    const rank = sourceBillingRank(a) - sourceBillingRank(b);
+    if (rank) return rank;
+    const ta = latencyOf?.(a);
+    const tb = latencyOf?.(b);
+    if (ta != null && tb != null && ta !== tb) return ta - tb;
+    return accountDisplayName(a).localeCompare(accountDisplayName(b));
+  });
+  // 只有钉了账户的步骤才打乱默认序；「自动」步不带 provider
+  const saved = (route?.steps || [])
+    .filter(s => s?.provider && (!s.model || s.model === head))
+    .map(s => s.provider);
+  if (!saved.length) return auto;
+  const byId = new Map();
+  for (const inst of auto) {
+    const id = sourceChainId(inst);
+    if (id && !byId.has(id)) byId.set(id, inst);
+  }
+  const ordered = [];
+  const used = new Set();
+  for (const id of saved) {
+    const inst = byId.get(id);
+    if (!inst || used.has(id)) continue;
+    ordered.push(inst);
+    used.add(id);
+  }
+  for (const inst of auto) {
+    const id = sourceChainId(inst);
+    if (id && used.has(id)) continue;
+    ordered.push(inst);
+    if (id) used.add(id);
+  }
+  return ordered;
+}
+
+/** 一条可排序的链：供给源和追加的模型混在一起，顺序就是场景步骤顺序。 */
+function buildChainItems(srcs, route, head, latencyOf) {
+  const auto = orderChainSources(srcs, null, head, latencyOf);
+  const steps = route?.steps || [];
+  if (!steps.length) return auto.map(inst => ({ kind: 'source', inst }));
+
+  const byId = new Map();
+  for (const inst of auto) {
+    const id = sourceChainId(inst);
+    if (id && !byId.has(id)) byId.set(id, inst);
+  }
+  const items = [];
+  const used = new Set();
+  let placedAuto = false;
+  const placeAuto = () => {
+    if (placedAuto) return;
+    placedAuto = true;
+    for (const inst of auto) {
+      const id = sourceChainId(inst);
+      if (id && used.has(id)) continue;
+      items.push({ kind: 'source', inst });
+      if (id) used.add(id);
+    }
+  };
+
+  for (const step of steps) {
+    const name = String(step?.model || '').trim();
+    if (!name) continue;
+    if (name !== head) {
+      if (!items.some(it => it.kind === 'model' && it.name === name)) items.push({ kind: 'model', name });
+      continue;
+    }
+    if (step.provider) {
+      const inst = byId.get(step.provider);
+      if (inst && !used.has(step.provider)) {
+        items.push({ kind: 'source', inst });
+        used.add(step.provider);
+      }
+      continue;
+    }
+    placeAuto();
+  }
+  if (!placedAuto) {
+    const pending = auto.filter(inst => {
+      const id = sourceChainId(inst);
+      return !id || !used.has(id);
+    });
+    const at = items.findIndex(it => it.kind === 'model');
+    const rows = pending.map(inst => ({ kind: 'source', inst }));
+    if (at === -1) items.push(...rows);
+    else items.splice(at, 0, ...rows);
+  }
+  return items;
+}
+
 export function PersonalSourceModelView({
   instances, t, trailing = null, onEmptyAdd = null, onEmptySync = null, syncing = false,
   syncSecrets = false,
@@ -759,14 +860,25 @@ export function PersonalSourceModelView({
   latencyMap: latencyMapProp = null, onRefreshLatency = null, probeTargets = [],
   // 冷却查询：(...ids) => cooldown | null；冷却中不显示绿色「成功」
   cooldownFor = null,
+  sceneRoutes = [],
+  onSaveListRoute = null,
+  onDeleteListRoute = null,
 }) {
-  const [expandedModel, setExpandedModel] = useState(null);
+  const [chainModel, setChainModel] = useState(null);
   const [latencyMapLocal, setLatencyMapLocal] = useState({});
   const latencyMap = latencyMapProp ?? latencyMapLocal;
   const [probing, setProbing] = useState(null);     // null | { done, total, current }
   const probeAbortRef = useRef(false);
 
-  const byModel = useMemo(() => {
+  const routeByModel = useMemo(() => {
+    const map = new Map();
+    for (const r of sceneRoutes || []) {
+      if (r?.list_route && r.model_key) map.set(r.model_key, r);
+    }
+    return map;
+  }, [sceneRoutes]);
+
+  const modelSources = useMemo(() => {
     const m = {};
     for (const inst of instances) {
       const modelList = (inst.models || []).map(modelEntryName).filter(Boolean);
@@ -777,8 +889,50 @@ export function PersonalSourceModelView({
         if (!list.some(x => (x.id || x.agent_id || x.source_id) === uid)) list.push(inst);
       }
     }
-    return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0]));
+    return m;
   }, [instances]);
+
+  // 短名带上更长的变体。已经写进某条降级链的模型先不单独占卡，移出后恢复。
+  const prefixRoutes = useMemo(() => prefixModelRoutes(Object.keys(modelSources)), [modelSources]);
+  const hiddenChainModels = useMemo(() => {
+    const hidden = new Set();
+    for (const [head, route] of routeByModel) {
+      for (const step of route.steps || []) {
+        const name = String(step?.model || '').trim();
+        if (name && name !== head) hidden.add(name);
+      }
+    }
+    for (const [head, extras] of prefixRoutes.extras) {
+      if (routeByModel.has(head)) continue;
+      for (const name of extras) hidden.add(name);
+    }
+    return hidden;
+  }, [prefixRoutes, routeByModel]);
+
+  const isModelRoute = (name) => routeByModel.has(name) || (prefixRoutes.extras.get(name)?.length > 0);
+
+  const byModel = useMemo(() => {
+    // 有降级链的排在前面，其余按名称字母序
+    return Object.entries(modelSources).sort((a, b) => {
+      const ar = isModelRoute(a[0]) ? 0 : 1;
+      const br = isModelRoute(b[0]) ? 0 : 1;
+      if (ar !== br) return ar - br;
+      return a[0].localeCompare(b[0]);
+    });
+  }, [modelSources, routeByModel, prefixRoutes]);
+
+  const displayModels = useMemo(
+    () => byModel.filter(([name]) => !hiddenChainModels.has(name)),
+    [byModel, hiddenChainModels],
+  );
+
+  function routeForModel(name) {
+    const saved = routeByModel.get(name) || null;
+    if (saved) return saved;
+    const extras = prefixRoutes.extras.get(name) || [];
+    if (!extras.length) return null;
+    return { steps: [{ model: name }, ...extras.map(model => ({ model }))], flow: 'fallback', list_route: true };
+  }
 
   // 探针队列跟网格展示一致：按卡片从左到右、从上到下逐个测
   const orderedProbeTargets = useMemo(() => {
@@ -794,7 +948,7 @@ export function PersonalSourceModelView({
     }
     const out = [];
     const used = new Set();
-    for (const [model] of byModel) {
+    for (const [model] of displayModels) {
       const hits = buckets.get(String(model).trim().toLowerCase());
       if (!hits) continue;
       for (const t of hits) {
@@ -807,7 +961,7 @@ export function PersonalSourceModelView({
       if (!used.has(t)) out.push(t);
     }
     return out;
-  }, [probeTargets, byModel]);
+  }, [probeTargets, displayModels]);
 
   // 全部测速：对每个个人源模型带 tier 前缀（paid:/free:）逐个发探针，强制路由到个人源。
   // 注意：消耗你自己供给源的真实计费（非积分）。完后刷新圆点。
@@ -849,10 +1003,10 @@ export function PersonalSourceModelView({
   useEffect(() => {
     if (latencyMapProp) return undefined;
     loadLatency();
-    const fast = expandedModel ? 5000 : 30000;
+    const fast = chainModel ? 5000 : 30000;
     const id = setInterval(loadLatency, fast);
     return () => clearInterval(id);
-  }, [loadLatency, expandedModel, latencyMapProp]);
+  }, [loadLatency, chainModel, latencyMapProp]);
 
   useEffect(() => {
     if (latencyMapProp || !isElectron() || !window.electronAPI?.localStats?.onChanged) return undefined;
@@ -860,8 +1014,8 @@ export function PersonalSourceModelView({
   }, [loadLatency, latencyMapProp]);
 
   useEffect(() => {
-    if (expandedModel) loadLatency();
-  }, [expandedModel, loadLatency]);
+    if (chainModel) loadLatency();
+  }, [chainModel, loadLatency]);
 
   // 参与供给的账户（按 provider 去重 logo），统计仍用全部账户数
   const uniqueProviders = useMemo(() => {
@@ -926,7 +1080,7 @@ export function PersonalSourceModelView({
             </div>
           )}
           <span className="text-xs text-zinc-500 truncate">
-            {t('psrc.modelView.summary', { accounts: accountCount, models: byModel.length })}
+            {t('psrc.modelView.summary', { accounts: accountCount, models: displayModels.length })}
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -941,7 +1095,7 @@ export function PersonalSourceModelView({
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        {byModel.map(([model, srcs]) => {
+        {displayModels.map(([model, srcs]) => {
           const mType = modelTypeMap[model];
           const skipSpeed = mType === 'image';
           // 速度 + 服务质量(最近成功/失败) 都来自我们的请求历史；按速度(TTFT)升序，折叠取最快源。
@@ -950,7 +1104,6 @@ export function PersonalSourceModelView({
           const fastRow = skipSpeed ? null : rowOf.get(sortedSrcs[0]);
           const fastMs = fastRow?.ttft > 0 ? fastRow.ttft : null;
           const probingThis = !skipSpeed && !!(probing?.current && probeTargetBare(probing.current) === String(model).trim().toLowerCase());
-          const probingPid = probingThis ? probeTargetProvider(probing.current) : '';
           const anyFail = !skipSpeed && !fastMs && sortedSrcs.some(s => {
             const code = rowOf.get(s)?.statusCode;
             return code != null && (code < 200 || code >= 300);
@@ -960,9 +1113,9 @@ export function PersonalSourceModelView({
           <div key={model} className="min-w-0">
             <button
               type="button"
-              onClick={() => setExpandedModel(prev => (prev === model ? null : model))}
+              onClick={() => setChainModel(model)}
               className={`w-full bg-zinc-100 dark:bg-zinc-800 border rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-1.5 min-w-0 text-left transition-colors ${
-                expandedModel === model
+                chainModel === model
                   ? 'border-blue-400/60 dark:border-blue-500/50'
                   : 'border-zinc-300/50 dark:border-zinc-700/50 hover:border-zinc-400/70 dark:hover:border-zinc-600/70'
               }`}
@@ -973,6 +1126,9 @@ export function PersonalSourceModelView({
                   title={probingThis ? '测速中' : (skipSpeed ? t('providers.probe.skipImage') : (fastMs ? `最快 ${(fastMs / 1000).toFixed(1)}s` : (anyFail ? '最近请求失败' : '暂无速度')))}
                 />
                 <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200 truncate" title={model}>{model}</span>
+                {isModelRoute(model) && (
+                  <span className="shrink-0 text-[9px] leading-none px-1 py-px rounded bg-zinc-200/80 dark:bg-zinc-700 text-zinc-500">{t('psrc.route.custom')}</span>
+                )}
                 {mType && mType !== 'chat' && (
                   <span
                     className={`shrink-0 text-[9px] font-sans leading-none px-1 py-px rounded border border-transparent ${modelTypeBtnClass(mType)}`}
@@ -991,49 +1147,254 @@ export function PersonalSourceModelView({
                     {t('providers.p2p.ttftShort', { s: (fastMs / 1000).toFixed(1) })}
                   </span>
                 )}
-                <span className="text-[10px] text-zinc-400">{expandedModel === model ? '▾' : '▸'}</span>
+                <span className="text-[10px] text-zinc-400">▸</span>
               </div>
             </button>
-            {expandedModel === model && (
-              <div className="mt-1 ml-1 pl-2 border-l border-zinc-200 dark:border-zinc-700 space-y-1">
-                {sortedSrcs.map((inst, i) => {
-                  const row = rowOf.get(inst);
-                  const health = skipSpeed || row?.statusCode == null ? null : healthFromStatus(row.statusCode);
-                  const cooling = !!(typeof cooldownFor === 'function' && cooldownFor(
-                    inst.gateway_id, inst.id, inst.agent_id, inst.source_id, inst.provider_id,
-                  ));
-                  const probingSrc = !!(probingPid && accountProviderIds(inst).includes(probingPid));
-                  return (
-                    <div
-                      key={(inst.id || inst.agent_id || inst.source_id) + ':' + i}
-                      className="flex items-center justify-between gap-2 text-[10px] text-zinc-500 dark:text-zinc-400"
-                    >
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        {/* 第一个点 = 速度（与速度排序一致），紧跟 ms */}
-                        <span
-                          className={`w-2 h-2 rounded-full shrink-0 ${skipSpeed ? speedDotClass('unknown') : probingSrc ? 'bg-green-400 tb-probe-pulse' : speedDotClass(statusDotBucket({
-                            ms: row?.ttft,
-                            failed: health === 'fail' || health === 'rate',
-                            ok: health === 'ok',
-                          }))}`}
-                          title={skipSpeed ? t('providers.probe.skipImage') : (probingSrc ? '测速中' : '速度')}
-                        />
-                        <span className="shrink-0 tabular-nums">{skipSpeed ? '—' : (row?.ttft != null ? `${Math.round(row.ttft)}ms` : '—')}</span>
-                        <SourceProviderLogo inst={inst} />
-                        <span className="truncate text-zinc-700 dark:text-zinc-300">{accountDisplayName(inst)}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0 tabular-nums">
-                        <QualityBadge health={health} cooling={cooling} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
           );
         })}
       </div>
+      {chainModel && (
+        <ChainDrawer
+          model={chainModel}
+          sources={byModel.find(([name]) => name === chainModel)?.[1] || []}
+          route={routeForModel(chainModel)}
+          latencyMap={latencyMap}
+          skipSpeed={modelTypeMap[chainModel] === 'image'}
+          cooldownFor={cooldownFor}
+          modelChoices={byModel.map(([name]) => name)}
+          sourcesByModel={Object.fromEntries(byModel)}
+          modelTypeMap={modelTypeMap}
+          t={t}
+          onClose={() => setChainModel(null)}
+          onSave={onSaveListRoute}
+          onReset={onDeleteListRoute}
+        />
+      )}
+    </div>
+  );
+}
+
+/** 右侧面板仍列出供给源和测速。落库步骤与场景路由相同：没调顺序就不钉账户。 */
+function ChainDrawer({
+  model, sources, route, latencyMap, skipSpeed, cooldownFor, modelChoices = [],
+  sourcesByModel = {}, modelTypeMap = {}, t, onClose, onSave, onReset,
+}) {
+  const [pick, setPick] = useState('');
+  const latencyOf = (inst) => {
+    const row = resolveAccountLatencyRow(latencyMap, model, inst);
+    return row?.ttft > 0 ? row.ttft : null;
+  };
+  const chain = buildChainItems(sources, route, model, latencyOf);
+  const extraNames = chain.filter(it => it.kind === 'model').map(it => it.name);
+  const choices = modelChoices.filter(name => name !== model && !extraNames.includes(name));
+  const autoSources = orderChainSources(sources, null, model, latencyOf);
+
+  function persist(items) {
+    const steps = [];
+    for (const it of items) {
+      if (it.kind === 'model') {
+        const name = String(it.name || '').trim();
+        if (name && name !== model) steps.push({ model: name });
+        continue;
+      }
+      const id = sourceChainId(it.inst);
+      if (id) steps.push({ model, provider: id });
+    }
+    const ids = steps.filter(s => s.provider).map(s => s.provider);
+    const autoIds = autoSources.map(sourceChainId).filter(Boolean);
+    const sameOrder = ids.join('\0') === autoIds.join('\0') && steps.every(s => s.model === model);
+    if (sameOrder) {
+      if (route?.id) onReset?.(route.id);
+      return;
+    }
+    if (!steps.length) return;
+    onSave?.(model, { steps });
+  }
+
+  function moveItem(index, dir) {
+    const j = index + dir;
+    if (j < 0 || j >= chain.length) return;
+    const next = chain.slice();
+    const [item] = next.splice(index, 1);
+    next.splice(j, 0, item);
+    persist(next);
+  }
+
+  function addModel() {
+    const name = pick.trim();
+    if (!name || name === model || extraNames.includes(name)) return;
+    setPick('');
+    persist([...chain, { kind: 'model', name }]);
+  }
+
+  function removeModel(name) {
+    persist(chain.filter(it => !(it.kind === 'model' && it.name === name)));
+  }
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') onClose?.();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-40">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/20"
+        aria-label={t('providers.list.close')}
+        onClick={onClose}
+      />
+      <aside className="tb-drawer-in absolute inset-y-0 right-0 w-[min(28rem,100vw)] bg-white dark:bg-zinc-900 border-l border-zinc-200 dark:border-zinc-700 overflow-y-auto">
+        <div className="sticky top-0 z-10 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-700 px-4 py-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-zinc-800 dark:text-zinc-100 truncate" title={model}>{model}</div>
+            <div className="text-[11px] text-zinc-400 mt-0.5">{t('psrc.route.chainTitle')}</div>
+          </div>
+          {/* 避开窗口顶部拖拽条，否则点击会被当成拖动窗口 */}
+          <button type="button" className="electron-no-drag mt-8 text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 shrink-0" onClick={onClose}>
+            {t('providers.list.close')}
+          </button>
+        </div>
+        <div className="px-4 py-3 space-y-3">
+          <p className="text-[11px] leading-relaxed text-zinc-500">{t('psrc.route.chainHint')}</p>
+          <p className="text-[11px] text-zinc-400">{route ? t('psrc.route.custom') : t('psrc.route.auto')}</p>
+          {chain.length < 2 && extraNames.length === 0 && (
+            <p className="text-[11px] text-zinc-400">{t('psrc.route.onlyOne')}</p>
+          )}
+          <ol className="space-y-1">
+            {chain.map((it, i) => {
+              if (it.kind === 'model') {
+                const modelSrcs = sourcesByModel[it.name] || [];
+                const modelSkip = modelTypeMap[it.name] === 'image';
+                let shown = null;
+                for (const inst of modelSrcs) {
+                  const row = resolveAccountLatencyRow(latencyMap, it.name, inst);
+                  if (!row) continue;
+                  // 有成功速度就显示最快的一次；否则显示最近一次失败
+                  const betterSpeed = row.ttft > 0 && (!shown?.row?.ttft || row.ttft < shown.row.ttft);
+                  const newerFail = !(row.ttft > 0) && !(shown?.row?.ttft > 0) && (row.ts || 0) > (shown?.row?.ts || 0);
+                  if (!shown || betterSpeed || newerFail) shown = { inst, row };
+                }
+                const row = shown?.row || null;
+                const health = modelSkip || row?.statusCode == null ? null : healthFromStatus(row.statusCode);
+                const cooling = !!(shown && typeof cooldownFor === 'function' && cooldownFor(
+                  shown.inst.gateway_id, shown.inst.id, shown.inst.agent_id, shown.inst.source_id, shown.inst.provider_id,
+                ));
+                const providerLabel = [...new Set(modelSrcs.map(accountDisplayName))].join(' · ');
+                return (
+                  <li
+                    key={'m:' + it.name}
+                    className="flex items-start gap-2 rounded-lg border border-zinc-200 dark:border-zinc-700 px-2 py-1.5"
+                  >
+                    <span className="w-4 pt-0.5 text-[11px] text-zinc-400 tabular-nums shrink-0">{i + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 text-[11px]">
+                        <span className="shrink-0 tabular-nums text-zinc-400">{modelSkip ? '—' : (row?.ttft != null ? `${Math.round(row.ttft)}ms` : '—')}</span>
+                        {modelSrcs.map((s, si) => (
+                          <SourceProviderLogo key={(s.id || s.source_id || si) + ':' + si} inst={s} />
+                        ))}
+                        <span className="text-zinc-800 dark:text-zinc-200 break-all">{providerLabel}</span>
+                        <QualityBadge health={health} cooling={cooling} />
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-zinc-500 break-all" title={it.name}>{it.name}</div>
+                    </div>
+                    <span className="flex flex-col shrink-0">
+                      <button
+                        type="button"
+                        disabled={i === 0}
+                        className="text-[10px] leading-none px-1 py-0.5 text-zinc-500 disabled:opacity-30 shrink-0"
+                        onClick={() => moveItem(i, -1)}
+                      >{t('psrc.route.moveUp')}</button>
+                    <button
+                      type="button"
+                      disabled={i === chain.length - 1}
+                      className="text-[10px] leading-none px-1 py-0.5 text-zinc-500 disabled:opacity-30 shrink-0"
+                      onClick={() => moveItem(i, 1)}
+                    >{t('psrc.route.moveDown')}</button>
+                    <button
+                      type="button"
+                      className="text-[10px] leading-none px-1 py-0.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 shrink-0"
+                      onClick={() => removeModel(it.name)}
+                    >{t('psrc.route.remove')}</button>
+                    </span>
+                  </li>
+                );
+              }
+              const inst = it.inst;
+              const row = resolveAccountLatencyRow(latencyMap, model, inst);
+              const health = skipSpeed || row?.statusCode == null ? null : healthFromStatus(row.statusCode);
+              const cooling = !!(typeof cooldownFor === 'function' && cooldownFor(
+                inst.gateway_id, inst.id, inst.agent_id, inst.source_id, inst.provider_id,
+              ));
+              return (
+                <li
+                  key={sourceChainId(inst) || i}
+                  className="flex items-start gap-2 rounded-lg border border-zinc-200 dark:border-zinc-700 px-2 py-1.5"
+                >
+                  <span className="w-4 pt-0.5 text-[11px] text-zinc-400 tabular-nums shrink-0">{i + 1}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 text-[11px]">
+                      <span className="shrink-0 tabular-nums text-zinc-400">{skipSpeed ? '—' : (row?.ttft != null ? `${Math.round(row.ttft)}ms` : '—')}</span>
+                      <SourceProviderLogo inst={inst} />
+                      <span className="text-zinc-800 dark:text-zinc-200 break-all">{accountDisplayName(inst)}</span>
+                      <QualityBadge health={health} cooling={cooling} />
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-zinc-500 break-all" title={model}>{model}</div>
+                  </div>
+                  {chain.length > 1 && sourceChainId(inst) && (
+                    <span className="flex flex-col shrink-0">
+                      <button
+                        type="button"
+                        disabled={i === 0}
+                        className="text-[10px] leading-none px-1 py-0.5 text-zinc-500 disabled:opacity-30"
+                        onClick={() => moveItem(i, -1)}
+                      >{t('psrc.route.moveUp')}</button>
+                      <button
+                        type="button"
+                        disabled={i === chain.length - 1}
+                        className="text-[10px] leading-none px-1 py-0.5 text-zinc-500 disabled:opacity-30"
+                        onClick={() => moveItem(i, 1)}
+                      >{t('psrc.route.moveDown')}</button>
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+          <div className="space-y-1.5">
+            <p className="text-[11px] text-zinc-500">{t('psrc.route.modelStep')}</p>
+            {choices.length > 0 && (
+              <div className="flex gap-2">
+                <select
+                  value={pick}
+                  onChange={e => setPick(e.target.value)}
+                  className="flex-1 min-w-0 text-xs bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1"
+                >
+                  <option value="">{t('psrc.route.addModelPh')}</option>
+                  {choices.map(name => <option key={name} value={name}>{name}</option>)}
+                </select>
+                <button
+                  type="button"
+                  disabled={!pick}
+                  className="text-xs px-2.5 py-1 rounded-lg bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-900 shrink-0 disabled:opacity-40"
+                  onClick={addModel}
+                >{t('psrc.route.addModel')}</button>
+              </div>
+            )}
+          </div>
+          {route?.id && (
+            <button
+              type="button"
+              className="text-[11px] text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+              onClick={() => onReset?.(route.id)}
+            >{t('psrc.route.reset')}</button>
+          )}
+        </div>
+      </aside>
     </div>
   );
 }

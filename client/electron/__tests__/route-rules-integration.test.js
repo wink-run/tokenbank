@@ -77,6 +77,16 @@ test('evalWhen: in（枚举）/ is / not', () => {
 
 test('evalWhen: 无效/缺字段 → false，不抛', () => {
   assert.strictEqual(evalWhen(null, {}), false);
+  assert.strictEqual(evalWhen({ type: 'has_tools' }, { has_tools: true }), true);
+  assert.strictEqual(evalWhen({ type: 'has_tools' }, { has_tools: false }), false);
+  assert.strictEqual(modelOf(pickSteps({
+    rules: [{ when: { type: 'has_tools' }, steps: [{ model: 'code-model' }] }],
+    steps: [{ model: 'deepseek-v4-pro' }],
+  }, { has_tools: true })), 'code-model,deepseek-v4-pro');
+  assert.strictEqual(modelOf(pickSteps({
+    rules: [{ when: { type: 'has_tools' }, steps: [{ model: 'code-model' }] }],
+    steps: [{ model: 'deepseek-v4-pro' }],
+  }, { has_tools: false })), 'deepseek-v4-pro');
   assert.strictEqual(evalWhen({ type: 'unknown' }, {}), false);
   assert.strictEqual(evalWhen({ type: 'keyword', op: 'match', value: '[' }, { keyword_text: 'x' }), false);
 });
