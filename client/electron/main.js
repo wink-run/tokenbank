@@ -3976,8 +3976,36 @@ function registerIPC() {
     return billingConfigMod.getUserAccounts(cfg, { boundDirectAgentIds: boundDirectAgentIds() });
   });
 
-  ipcMain.handle('localConfig:createSceneRoute', (_e, { scene_name, icon, steps, rules, classifier, flow, caveman_level, scope, tier }) => {
-    const cfg   = readLocalConfig();
+  ipcMain.handle('localConfig:createSceneRoute', (_e, payload = {}) => {
+    const { scene_name, icon, steps, rules, classifier, flow, caveman_level, scope, tier, model_key, list_route } = payload;
+    const cfg = readLocalConfig();
+    const key = String(model_key || '').trim();
+    // 模型列表的降级链用模型名当 model_key。同名已有则更新，避免调一次多一条。
+    if (key) {
+      const idx = (cfg.scene_routes || []).findIndex(r => r && r.model_key === key);
+      if (idx !== -1) {
+        const prev = cfg.scene_routes[idx];
+        const next = {
+          ...prev,
+          scene_name: scene_name || prev.scene_name,
+          icon: icon || prev.icon,
+          steps: steps === undefined ? prev.steps : (steps || []),
+          rules: rules === undefined ? prev.rules : (rules || null),
+          classifier: classifier === undefined ? prev.classifier : (classifier || null),
+          flow: flow === undefined ? prev.flow : (flow || null),
+          scope: scope === undefined ? prev.scope : (scope || null),
+          tier: tier === undefined ? prev.tier : (tier || null),
+          caveman_level: caveman_level === undefined ? prev.caveman_level : (caveman_level || null),
+          list_route: list_route === undefined ? !!prev.list_route : !!list_route,
+          user_owned: true,
+        };
+        delete next.from_server;
+        cfg.scene_routes[idx] = next;
+        writeLocalConfig(cfg);
+        syncGatewayFromConfig(cfg);
+        return next;
+      }
+    }
     const route = {
       id: rndHex(8), scene_name, icon: icon || '🔀',
       steps: steps || [],             // 每步可选带 when 条件（统一后不再单独存 rules）
@@ -3987,7 +4015,8 @@ function registerIPC() {
       scope: scope || null,           // 路由级来源过滤(personal/community)
       tier: tier || null,             // 路由级价格过滤(free/paid)
       caveman_level: caveman_level || null, // 输出风格
-      model_key: 'llm-router-' + rndHex(6),
+      model_key: key || ('llm-router-' + rndHex(6)),
+      list_route: !!list_route,       // 模型列表里用户调整过顺序的降级链
       user_owned: true,               // 用户自建：在线同步不删、不覆盖
       created_at: new Date().toISOString(),
     };

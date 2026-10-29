@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { modelIdFromRoute } from '../lib/route-binding';
+import { prefixModelRoutes } from '../lib/model-prefix-routes';
 import { modelTypeLabel, modelTypeBtnClass } from './PersonalSources';
 import { speedDotClass, speedTitle, useSpeedMap, speedFor, bucketFromMs, normModelKey } from '../lib/speed';
 import { getNetwork } from '../api/client';
@@ -51,10 +52,10 @@ function isUsableSceneRoute(route, avail) {
   );
 }
 
-/** 可绑到应用的场景路由（排除需重新设置的） */
+/** 可绑到应用的场景路由。降级链不出现在场景路由里。 */
 export function usableSceneRoutes(routes, availableModels) {
   const avail = new Set((availableModels || []).map(m => m.id || m.name));
-  return (routes || []).filter(r => isUsableSceneRoute(r, avail));
+  return (routes || []).filter(r => !r.list_route && isUsableSceneRoute(r, avail));
 }
 
 /** 场景路由 + 模型分层选项（供其他原生 <select> 复用） */
@@ -87,8 +88,41 @@ export function tierOptgroups(availableModels, t) {
   return [grp('local', local), grp('remote', remote)];
 }
 
+/**
+ * 与模型页同一套隐藏规则：
+ * 已写进某条降级链、且不是链头的模型不再单独列出；移出后恢复。
+ * 还没保存过的自动前缀链，同样只留链头。前缀只在本地模型之间合并，避免社区模型被顺带收走。
+ */
+function chainListState(routes, availableModels) {
+  const heads = new Set();
+  const hidden = new Set();
+  const savedHeads = new Set();
+  for (const route of routes || []) {
+    if (!route?.list_route) continue;
+    const head = String(route.model_key || '').trim();
+    if (!head) continue;
+    savedHeads.add(head);
+    heads.add(head);
+    for (const step of route.steps || []) {
+      const name = String(step?.model || '').trim();
+      if (name && name !== head) hidden.add(name);
+    }
+  }
+  const localIds = (availableModels || [])
+    .filter(m => m.tier === 'free' || m.tier === 'paid')
+    .map(m => m.id);
+  const { extras } = prefixModelRoutes(localIds);
+  for (const [head, extra] of extras) {
+    if (extra?.length) heads.add(head);
+    // 链头已经有用户保存的步骤时，以保存结果为准，被移出的模型重新出现
+    if (savedHeads.has(head)) continue;
+    for (const name of extra) hidden.add(name);
+  }
+  return { heads, hidden };
+}
+
 /** 弹出菜单条目 */
-function buildRouteMenuItems({ routes, availableModels, t, showGatewayRoutes, isManual, showOfficial }) {
+function buildRouteMenuItems({ routes, availableModels, t, showGatewayRoutes, isManual, showOfficial, chainHeads, hiddenModels }) {
   const items = [];
   if (!isManual && showOfficial !== false) {
     items.push({ kind: 'option', value: '', label: t('gateway.app.routeOfficial') });
@@ -103,14 +137,16 @@ function buildRouteMenuItems({ routes, availableModels, t, showGatewayRoutes, is
       items.push({ kind: 'option', value: r.model_key || r.id, label: `${icon}${r.scene_name}` });
     }
   }
-  const local = (availableModels || []).filter(m => m.tier === 'free' || m.tier === 'paid');
-  const remote = (availableModels || []).filter(m => m.tier === 'p2p');
+  const listed = (m) => !hiddenModels?.has(m.id);
+  const local = (availableModels || []).filter(m => (m.tier === 'free' || m.tier === 'paid') && listed(m));
+  const remote = (availableModels || []).filter(m => m.tier === 'p2p' && listed(m));
   if (local.length) {
     items.push({ kind: 'group', label: t('gateway.app.tier.local') });
-    for (const m of local) items.push({ kind: 'option', value: modelTierKey(m), label: m.id, type: m.type, modelId: m.id });
+    for (const m of local) items.push({ kind: 'option', value: modelTierKey(m), label: m.id, type: m.type, modelId: m.id, chain: chainHeads?.has(m.id) });
   }
   if (remote.length) {
     items.push({ kind: 'group', label: t('gateway.app.tier.remote') });
+    // 社区源没有本地降级链，同名也不打标
     for (const m of remote) items.push({ kind: 'option', value: modelTierKey(m), label: m.id, type: m.type, modelId: m.id, tier: 'p2p' });
   }
   return items;
@@ -219,6 +255,21 @@ const POPUP_THEME = {
     confirmBtn: 'rounded-md bg-[#007AFF] hover:bg-[#0066E0] active:bg-[#005BD0] text-white text-[11px] font-medium px-2.5 py-1 leading-none transition-colors shrink-0',
   },
 };
+
+/** 下拉里只留一个「链」，悬停再看完整名称。选中行改成浅色字，避免糊在蓝底上。 */
+function ChainBadge({ t, active, compact }) {
+  const activeCls = active
+    ? 'border border-white/45 bg-white/20 text-white'
+    : 'bg-zinc-200/80 dark:bg-zinc-700 text-zinc-500 border border-transparent';
+  return (
+    <span
+      title={t('psrc.route.custom')}
+      className={`shrink-0 font-sans leading-none rounded ${compact ? 'text-[9px] px-1 py-px' : 'text-[10px] px-1.5 py-0.5'} ${activeCls}`}
+    >
+      {t('psrc.route.chainMark')}
+    </span>
+  );
+}
 
 /** 生图 / 嵌入模型在列表项右侧显示的模态标识 */
 function ModelTypeBadge({ type, t, active, compact }) {
@@ -331,7 +382,7 @@ function RouteCheckboxIcon({ marked, active, compact }) {
   );
 }
 
-function RouteMenuRow({ mark, label, modelType, active, theme, compact, multi, t, onEnter, onClick, isModel, speed }) {
+function RouteMenuRow({ mark, label, modelType, chain, active, theme, compact, multi, t, onEnter, onClick, isModel, speed }) {
   return (
     <div
       role={multi ? 'menuitemcheckbox' : 'option'}
@@ -351,7 +402,12 @@ function RouteMenuRow({ mark, label, modelType, active, theme, compact, multi, t
         <span title={speed?.title || speedTitle(speed)} className={`w-1.5 h-1.5 rounded-full shrink-0 mr-1.5 ${speedDotClass(speed?.bucket)}`} />
       )}
       <span className="truncate flex-1 min-w-0">{label}</span>
-      <ModelTypeBadge type={modelType} t={t} active={active} compact={compact} />
+      {(chain || (modelType && modelType !== 'chat')) && (
+        <span className="flex items-center gap-1 shrink-0 ml-1.5">
+          {chain && <ChainBadge t={t} active={active} compact={compact} />}
+          <ModelTypeBadge type={modelType} t={t} active={active} compact={compact} />
+        </span>
+      )}
     </div>
   );
 }
@@ -386,7 +442,20 @@ export default function RouteSelect({
 
   const theme = compact ? POPUP_THEME.compact : POPUP_THEME.normal;
   const cls = `${compact ? ROUTE_SELECT_COMPACT : ROUTE_SELECT_NORMAL} ${className}`.trim();
-  const menuItems = buildRouteMenuItems({ routes, availableModels, t, showGatewayRoutes, isManual, showOfficial });
+  const chainState = useMemo(() => chainListState(routes, availableModels), [routes, availableModels]);
+  const menuItems = useMemo(
+    () => buildRouteMenuItems({
+      routes,
+      availableModels,
+      t,
+      showGatewayRoutes,
+      isManual,
+      showOfficial,
+      chainHeads: chainState.heads,
+      hiddenModels: chainState.hidden,
+    }),
+    [routes, availableModels, t, showGatewayRoutes, isManual, showOfficial, chainState],
+  );
   const [speedMap] = useSpeedMap();
   const communitySpeed = useCommunitySpeed();
   // 每个模型项的圆点数据：社区(p2p)走服务端最快 worker 的 TTFT，其余走我们测速 speedMap。
@@ -513,6 +582,7 @@ export default function RouteSelect({
             mark={isMarked(item.value)}
             label={item.label}
             modelType={item.type}
+            chain={!!item.chain}
             isModel={!!item.modelId}
             speed={speedForItem(item)}
             active={hoverKey === key}

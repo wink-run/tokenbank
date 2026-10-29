@@ -12,6 +12,7 @@ const routingStrategies = require('./routing-strategies');
 const cooldown = require('./gateway-cooldown');
 const upstreamHints = require('./gateway-upstream-hints');
 const { TIER_ROUTE_RE, parseRoute, STRATEGY_NAMES, SCOPE_NAMES, TIER_NAMES, SHARER_RE } = require('../shared/route-binding');
+const { prefixExtensions } = require('../shared/model-prefix-routes');
 const _STRAT_SET = new Set(STRATEGY_NAMES || []);
 const _SCOPE_SET = new Set(SCOPE_NAMES || []);
 const _TIER_SET  = new Set(TIER_NAMES || []);
@@ -637,6 +638,19 @@ function collectPersonalModels() {
     if (!lc) return [];
     return require('./billing-config').collectPersonalModelNames(lc);
   } catch { return []; }
+}
+
+/** 供给源上写明的模型名。空列表表示接受任意模型，不拿来做前缀合并。 */
+function explicitProviderModelNames(providers) {
+  const names = [];
+  for (const p of providers || []) {
+    if (!p || p.type === 'p2p' || !Array.isArray(p.models) || !p.models.length) continue;
+    for (const m of p.models) {
+      const name = typeof m === 'string' ? m : (m && m.name);
+      if (name) names.push(name);
+    }
+  }
+  return names;
 }
 
 // Returns true if provider can serve the given model
@@ -2801,6 +2815,7 @@ function evalWhen(when, ctx) {
     case 'keyword':      cur = (ctx.keyword_text != null ? ctx.keyword_text : ctx.text); break;
     case 'caller':       cur = ctx.caller; break;
     case 'classifier':   cur = ctx.classifier_label; break;   // 语义分类结果（懒计算，见 resolveSteps）
+    case 'has_tools':    return !!ctx.has_tools;               // 请求带 tools 时先走条件步
     default: return false;
   }
   switch (op) {
@@ -3337,7 +3352,23 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
   // Codex：keyScene[模型名] 精确命中已绑定的多选路由；其余未知 gpt-*（内建辅助模型）才兜底到主路由。
   // boundScene 已在上方与 claudeFrom 一并解析。
   const isLlmRouter = origModel.startsWith('llm-router-');
-  const interceptScene = !boundScene ? _routerModelMap[origModel] : null;
+  // 降级链按裸模型名登记。测速和分层选择会带 paid:/free: 前缀，剥掉后再对上同一条链。
+  // 用户没写过这条链时，把「短名-更长变体」自动接上，请求失败后再试变体。
+  let interceptScene = !boundScene
+    ? (_routerModelMap[origModel] || (model && model !== origModel ? _routerModelMap[model] : null) || null)
+    : null;
+  if (!interceptScene && model) {
+    const extras = prefixExtensions(model, explicitProviderModelNames(enabledProviders()));
+    if (extras.length) {
+      interceptScene = {
+        id: 'prefix:' + model,
+        scene_name: model,
+        model_key: model,
+        flow: 'fallback',
+        steps: [{ model }, ...extras.map(name => ({ model: name }))],
+      };
+    }
+  }
   debugLog(`route() 路由判定`, {
     requested_model: origModel,
     callerKey: callerKey?.slice(0, 20),
@@ -3441,6 +3472,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
       modality: modalityOf(reqPath), model: origModel,
       input_tokens: estimateInputTokens(body), text: extractText(body),
       keyword_text: extractLastUserText(body), caller: callerKey,
+      has_tools: !!(body && Array.isArray(body.tools) && body.tools.length > 0),
     };
     let steps = await resolveSteps(scene, ruleCtx);
     // 链级流转策略：按 scene.flow 重排步序（步之间怎么走），fallback 保持原序
