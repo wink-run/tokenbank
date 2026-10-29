@@ -3328,23 +3328,10 @@ function registerIPC() {
     const yamlLib = require('js-yaml');
     const tbDir = path.join(os.homedir(), '.tokenbank');
     if (!fs.existsSync(tbDir)) fs.mkdirSync(tbDir, { recursive: true });
-    // 服务端旧库可能只有 providers，补全 billing_sources 避免个人源目录为空
-    let doc = parsed && typeof parsed === 'object' ? { ...parsed } : {};
-    try {
-      const existing = fs.existsSync(USER_REGISTRY_YAML)
-        ? yamlLib.load(fs.readFileSync(USER_REGISTRY_YAML, 'utf8')) || {}
-        : {};
-      const builtin = yamlLib.load(
-        fs.readFileSync(path.join(__dirname, 'config', 'providers.registry.yaml'), 'utf8'),
-      ) || {};
-      if (!Array.isArray(doc.billing_sources) || !doc.billing_sources.length) {
-        doc.billing_sources = (existing.billing_sources?.length && existing.billing_sources)
-          || builtin.billing_sources
-          || [];
-      }
-    } catch (e) {
-      console.warn('[config] merge billing_sources failed:', e.message);
-    }
+    // 服务端下发什么就写什么，不用内置 yaml 补个人源
+    const doc = parsed && typeof parsed === 'object' ? { ...parsed } : {};
+    if (!Array.isArray(doc.billing_sources)) doc.billing_sources = [];
+    if (!Array.isArray(doc.providers)) doc.providers = [];
     fs.writeFileSync(USER_REGISTRY_YAML, yamlLib.dump(doc, { lineWidth: 120 }), 'utf8');
     try { if (fs.existsSync(TB_TOOLS_YAML)) fs.unlinkSync(TB_TOOLS_YAML); } catch {}
     configLoader.reloadRegistryDoc();

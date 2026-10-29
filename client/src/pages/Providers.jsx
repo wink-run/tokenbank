@@ -2282,11 +2282,14 @@ function ProviderCardBillingSection({
     [standalone, provider?.excluded_models, paygRec?.excluded_models, subRec?.excluded_models],
   );
 
-  // 表格行：用户自配模型 ∪ 服务端目录，去掉本实例隐藏项
+  // 表格行：服务端目录始终在。隐藏列表只挡住用户自配、目录里已经没有的名字。
   const modelNames = useMemo(() => {
     const excluded = new Set(instanceExcluded);
-    return [...userModelNames].filter(n => !excluded.has(n)).sort();
-  }, [userModelNames, instanceExcluded]);
+    const serverNames = serverCatalogModelNames(pricingPid, providerPricing, paygCatalog);
+    return [...userModelNames]
+      .filter(n => serverNames.has(n) || !excluded.has(n))
+      .sort();
+  }, [userModelNames, instanceExcluded, pricingPid, providerPricing, paygCatalog]);
 
   const baseMonthly = subRec?.monthly_usd ?? accountInst?.monthly_usd;
   const [monthly, setMonthly] = useState(baseMonthly != null ? String(baseMonthly) : '');
@@ -2476,6 +2479,8 @@ function ProviderCardBillingSection({
 
   async function removeModel(name) {
     if (!name) return;
+    // 服务端目录里的模型不能从列表拿掉，点 × 也不写进隐藏列表
+    if (!standalone && serverCatalogModelNames(pricingPid, providerPricing, paygCatalog).has(name)) return;
 
     // 清理历史脏数据：_excluded_models 被误写入 provider.models / overrides
     if (PRICING_OVERRIDE_META_KEYS.has(name)) {

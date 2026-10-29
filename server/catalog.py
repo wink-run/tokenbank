@@ -1,7 +1,7 @@
 """供给源目录 —— 通过 GET /api/catalog 下发给客户端。
 
-数据源：static/defaults/providers.registry.yaml（可被 DB config.providers 覆盖）。
-改 registry 即可让所有客户端拿到新源，无需发版客户端。
+数据源是数据库：管理页 config.billing_sources，发布后的 config.providers。
+不读仓库里的 providers.registry.yaml。
 """
 
 from provider_registry import (
@@ -13,11 +13,57 @@ from provider_registry import (
 )
 
 
+def _apply_admin_sources(doc: dict, sources: list[dict]) -> dict:
+    """管理页个人源的模型/刊例价写进 catalog，和编辑页同一份。"""
+    from billing_sources import compile_registry_providers, sort_sources
+
+    compiled = {
+        p["id"]: p
+        for p in compile_registry_providers(sources)
+        if isinstance(p, dict) and p.get("id")
+    }
+    providers = []
+    seen: set[str] = set()
+    for p in doc.get("providers") or []:
+        if not isinstance(p, dict) or not p.get("id"):
+            providers.append(p)
+            continue
+        seen.add(p["id"])
+        inc = compiled.get(p["id"])
+        if not inc:
+            providers.append(p)
+            continue
+        providers.append({
+            **p,
+            "models": inc.get("models") or [],
+            "pricing": inc.get("pricing") or {},
+        })
+    for pid, inc in compiled.items():
+        if pid not in seen:
+            providers.append(inc)
+    out = dict(doc)
+    out["providers"] = providers
+    out["billing_sources"] = sort_sources(sources)
+    return out
+
+
 async def catalog_public_payload() -> dict:
     """registry providers + billing_sources 中的 APP/API 订阅源（个人源模板）。"""
-    from billing_sources import normalize_source, sort_sources
+    import database as db
+    from billing_sources import CONFIG_KEY, normalize_source, sort_sources, load_sources_doc
 
     doc = await load_registry_doc()
+    # 管理页「编辑个人源」读 config.billing_sources。有这份就以它为准，避免和 /api/catalog 各说各的。
+    saved_sources = await db.get_config(CONFIG_KEY, "")
+    if saved_sources.strip():
+        admin = await load_sources_doc()
+        admin_sources = [
+            normalize_source(s)
+            for s in (admin.get("sources") or [])
+            if isinstance(s, dict) and (s.get("id") or s.get("source_id"))
+        ]
+        if admin_sources:
+            doc = _apply_admin_sources(doc, admin_sources)
     billing_sources = sort_sources([
         normalize_source(s)
         for s in (doc.get("billing_sources") or [])

@@ -12,7 +12,6 @@ const configLoader = require('./config-loader');
 const { defaultServerUrlFromEnv } = require('../shared/default-server-url');
 
 const USER_REGISTRY_YAML = path.join(os.homedir(), '.tokenbank', 'providers.registry.yaml');
-const BUILTIN_REGISTRY = path.join(__dirname, 'config', 'providers.registry.yaml');
 const USER_COMMUNITY_CATALOG = path.join(os.homedir(), '.tokenbank', 'community-catalog.yaml');
 const COMMUNITY_SECTIONS = ['mcp', 'prompts', 'skills', 'assistants'];
 const FETCH_TIMEOUT_MS = 12000;
@@ -68,20 +67,8 @@ function applyRegistryDoc(parsed, opts = {}) {
   if (!parsed || typeof parsed !== 'object') return false;
   let doc = { ...parsed };
   try {
-    const existing = fs.existsSync(USER_REGISTRY_YAML)
-      ? yaml.load(fs.readFileSync(USER_REGISTRY_YAML, 'utf8')) || {}
-      : {};
-    const builtin = fs.existsSync(BUILTIN_REGISTRY)
-      ? yaml.load(fs.readFileSync(BUILTIN_REGISTRY, 'utf8')) || {}
-      : {};
-    if (!Array.isArray(doc.billing_sources) || !doc.billing_sources.length) {
-      doc.billing_sources = (existing.billing_sources?.length && existing.billing_sources)
-        || builtin.billing_sources
-        || [];
-    }
-    // 保留 catalog 未下发的内置 provider（如 Ollama）
     if (Array.isArray(doc.providers)) {
-      doc.providers = mergeProvidersFromCatalog(existing.providers, doc.providers);
+      doc.providers = mergeProvidersFromCatalog(null, doc.providers);
     }
   } catch (e) {
     console.warn('[catalog-sync] merge registry doc failed:', e.message);
@@ -366,20 +353,10 @@ function subscriptionSourceToBilling(s, existing) {
   };
 }
 
-/** 合并 providers：catalog 覆盖同 id，保留本地/内置中 catalog 未下发的条目（如 Ollama） */
+/** 服务端 catalog 有列表时整表替换，不再并入内置 yaml。 */
 function mergeProvidersFromCatalog(existingProviders, catalogProviders) {
-  const byId = {};
-  for (const p of existingProviders || []) {
-    if (p?.id) byId[p.id] = p;
-  }
-  // 内置默认中未出现在 catalog 的基础设施源也保留
-  for (const p of configLoader.registryDefaultDoc().providers || []) {
-    if (p?.id && !byId[p.id]) byId[p.id] = p;
-  }
-  for (const p of catalogProviders || []) {
-    if (p?.id) byId[p.id] = p;
-  }
-  return Object.values(byId);
+  if (Array.isArray(catalogProviders) && catalogProviders.length) return catalogProviders;
+  return existingProviders || [];
 }
 
 /** 合并 /api/catalog 到 registry yaml 文档 */
@@ -441,7 +418,7 @@ function readExistingRegistryDoc() {
       return configLoader.mergeRegistryDoc(yaml.load(fs.readFileSync(USER_REGISTRY_YAML, 'utf8')) || {});
     }
   } catch {}
-  return configLoader.mergeRegistryDoc(configLoader.registryDefaultDoc());
+  return { version: 1, providers: [], billing_sources: [] };
 }
 
 /** 写入 ~/.tokenbank/providers.registry.yaml 并刷新内存缓存 */

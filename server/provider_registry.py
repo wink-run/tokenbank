@@ -1,13 +1,11 @@
-"""供给源配置表 — 从 DB config.providers 或 static/defaults/providers.registry.yaml 加载。"""
+"""供给源配置表 — 只从 DB config.providers 加载，不读仓库 yaml。"""
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import yaml
 
-_REGISTRY_PATH = Path(__file__).resolve().parent / "static" / "defaults" / "providers.registry.yaml"
 CONFIG_KEY = "config.providers"
 
 TIERS = ("free", "p2p", "paid")
@@ -16,18 +14,11 @@ HANDLERS = ("local", "openai", "anthropic", "gemini", "p2p", "agnes-image", "jim
 API_FORMATS = ("openai", "anthropic", "gemini")
 
 
-def _load_yaml_file() -> dict:
-    if _REGISTRY_PATH.is_file():
-        return yaml.safe_load(_REGISTRY_PATH.read_text(encoding="utf-8")) or {}
-    return {}
-
-
 def parse_registry_content(content: str) -> dict:
-    """解析 DB 中的 YAML/JSON 文本；空则回退内置默认文件。"""
+    """解析 DB 中的 YAML/JSON 文本。空或损坏时返回空目录，不读仓库文件。"""
     text = (content or "").strip()
     if not text:
-        doc = _load_yaml_file()
-        return doc if isinstance(doc, dict) else {}
+        return {"version": 1, "providers": [], "billing_sources": []}
     try:
         parsed = yaml.safe_load(text)
         if isinstance(parsed, dict):
@@ -40,7 +31,7 @@ def parse_registry_content(content: str) -> dict:
             return parsed
     except json.JSONDecodeError:
         pass
-    return _load_yaml_file() if _REGISTRY_PATH.is_file() else {}
+    return {"version": 1, "providers": [], "billing_sources": []}
 
 
 async def load_registry_doc() -> dict:
@@ -48,12 +39,12 @@ async def load_registry_doc() -> dict:
     from config_merge import merge_providers_doc
 
     content = await db.get_config(CONFIG_KEY, "")
-    # 同 id 的模型列表跟仓库里的 providers.registry.yaml 对齐，避免 DB 旧目录盖住已更新的服务端
     return merge_providers_doc(parse_registry_content(content))
 
 
 def load_registry_doc_sync() -> dict:
-    return parse_registry_content("")
+    # 同步路径没有 DB 连接，不能再回退仓库 yaml
+    return {"version": 1, "providers": [], "billing_sources": []}
 
 
 def list_providers(doc: dict | None = None) -> list[dict]:

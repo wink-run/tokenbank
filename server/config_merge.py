@@ -22,16 +22,8 @@ def _default_apps_doc() -> dict:
 
 
 def _default_sources_doc() -> dict:
-    """[deprecated] 从 providers.registry billing_sources 编译旧四段，供迁移/兼容。"""
-    reg = _default_registry_doc()
-    bs = reg.get("billing_sources") or []
-    if not bs:
-        return {}
-    try:
-        import billing_sources as bs_mod
-        return bs_mod.compile_billing_sections(bs)
-    except Exception:
-        return {}
+    """旧四段不再从仓库 yaml 回填。"""
+    return {}
 
 
 def merge_subscription_apps(current: list | None, defaults: list | None) -> list:
@@ -191,7 +183,7 @@ def merge_apps_yaml_text(content: str) -> str:
 
 
 def merge_sources_doc(current: dict | None) -> dict:
-    """[deprecated] 从 config.providers.billing_sources 编译旧四段；空则回退内置 registry。"""
+    """[deprecated] 只保留库里已有的旧四段，不再用仓库 yaml 补。"""
     if not isinstance(current, dict):
         current = {}
     defaults = _default_sources_doc()
@@ -212,80 +204,17 @@ def merge_sources_doc(current: dict | None) -> dict:
     return out
 
 
-def _default_registry_doc() -> dict:
-    path = _DEFAULTS_DIR / "providers.registry.yaml"
-    if not path.is_file():
-        return {"version": 1, "providers": []}
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-
-
-def _by_id(items) -> dict:
-    out = {}
-    for item in items or []:
-        if isinstance(item, dict) and item.get("id"):
-            out[item["id"]] = item
-    return out
-
-
-def overlay_catalog_models(current_list, default_list) -> tuple[list, bool]:
-    """同 id 的 models/pricing 以内置默认为准，其余字段保留 DB。
-
-    只在缺省时补模型会让目录改了、已有库仍停在旧列表，客户端也就拉不到新模型。
-    """
-    def_by = _by_id(default_list)
-    out: list = []
-    seen: set = set()
-    changed = False
-    for item in current_list or []:
-        if not isinstance(item, dict) or not item.get("id"):
-            out.append(item)
-            continue
-        seen.add(item["id"])
-        default = def_by.get(item["id"])
-        if not default:
-            out.append(item)
-            continue
-        nxt = dict(item)
-        for key in ("models", "pricing"):
-            if key not in default:
-                continue
-            new_val = default.get(key) or ([] if key == "models" else {})
-            if nxt.get(key) != new_val:
-                nxt[key] = new_val
-                changed = True
-        out.append(nxt)
-    for default in default_list or []:
-        if isinstance(default, dict) and default.get("id") and default["id"] not in seen:
-            out.append(default)
-            seen.add(default["id"])
-            changed = True
-    return out, changed
-
-
 def merge_providers_doc(current: dict | None) -> dict:
-    """合并 providers.registry：同 id 的模型/刊例价跟内置默认走，缺段时再补 billing_sources。"""
+    """只整理库里的 providers.registry，不读仓库 yaml。"""
     from provider_registry import sync_catalog_models_pricing
 
     if not isinstance(current, dict):
         current = {}
-    defaults = _default_registry_doc()
     out = dict(current)
     if not out.get("version"):
-        out["version"] = defaults.get("version") or 1
-    providers, _ = overlay_catalog_models(out.get("providers"), defaults.get("providers"))
-    out["providers"] = providers
-    if not out.get("billing_sources"):
-        if defaults.get("billing_sources"):
-            out["billing_sources"] = defaults["billing_sources"]
-        else:
-            try:
-                import billing_sources as bs
-                out["billing_sources"] = bs.sort_sources(bs.import_from_legacy())
-            except Exception:
-                pass
-    else:
-        billing, _ = overlay_catalog_models(out.get("billing_sources"), defaults.get("billing_sources"))
-        out["billing_sources"] = billing
+        out["version"] = 1
+    if not isinstance(out.get("billing_sources"), list):
+        out["billing_sources"] = []
     # 下发前对齐 models / pricing，修复历史漂移
     providers = out.get("providers")
     if isinstance(providers, list):
@@ -301,20 +230,9 @@ def merge_providers_doc(current: dict | None) -> dict:
 
 
 def merge_providers_yaml_text(content: str) -> str:
-    """providers.registry YAML 与内置默认合并；空文本回退默认文件。"""
+    """把库里的 providers.registry 文本规范化后下发，不并入仓库 yaml。"""
     text = (content or "").strip()
-    if not text:
-        reg = _default_registry_doc()
-        if reg:
-            merged = merge_providers_doc(reg)
-            return yaml.dump(
-                merged,
-                allow_unicode=True,
-                sort_keys=False,
-                default_flow_style=False,
-            ).rstrip()
-        return "version: 1\nproviders: []\n"
-    parsed = yaml.safe_load(text) or {}
+    parsed = yaml.safe_load(text) if text else {}
     if not isinstance(parsed, dict):
         parsed = {}
     merged = merge_providers_doc(parsed)

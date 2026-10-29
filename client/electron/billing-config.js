@@ -215,12 +215,17 @@ function mergeCatalogEntries(prev, next) {
     icon: next.icon || prev.icon,
     base_url: next.base_url || prev.base_url || '',
   };
-  // 以 billing_sources 为准，不把 registry 里已下线模型并回来
-  const pricing = { ...(next.pricing || {}) };
-  for (const m of (next.models || [])) {
+  // 同名刊例价以 billing_sources 为准；两边的模型名取并集，避免较短的一段把另一段裁掉
+  const pricing = { ...(prev.pricing || {}), ...(next.pricing || {}) };
+  const names = [];
+  const seen = new Set();
+  for (const m of [...(next.models || []), ...(prev.models || [])]) {
+    if (!m || seen.has(m)) continue;
+    seen.add(m);
+    names.push(m);
     if (!pricing[m]) pricing[m] = { ...(prev.pricing?.[m] || {}) };
   }
-  const synced = syncModelsPricing(next.models || [], pricing);
+  const synced = syncModelsPricing(names, pricing);
   merged.models = synced.models;
   merged.pricing = synced.pricing;
   return merged;

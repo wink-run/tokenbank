@@ -12,12 +12,11 @@ _DEFAULTS_DIR = Path(__file__).resolve().parent / "static" / "defaults"
 _SEED_KEYS = (
     ("config.apps", "apps.default.yaml"),
     ("config.scenes", "scenes.default.yaml"),
-    ("config.providers", "providers.registry.yaml"),
 )
 
 
 async def seed_default_configs() -> None:
-    """DB 中 config.apps / config.scenes / config.providers 为空时，从内置 YAML 种子初始化。"""
+    """DB 中 config.apps / config.scenes 为空时，从内置 YAML 种子初始化。供给源目录只走数据库。"""
     # 旧库迁移：config.apps / config.sources 计费段 → config.providers（须在 seed 之前）
     await migrate_legacy_billing_to_providers()
 
@@ -39,7 +38,6 @@ async def seed_default_configs() -> None:
             await db.set_config(key, content)
 
     await migrate_apps_config_with_defaults()
-    await reconcile_providers_with_defaults()
 
 
 async def seed_default_studio() -> None:
@@ -60,95 +58,6 @@ async def seed_default_studio() -> None:
     for m in (doc.get("mods") or []):
         if m.get("name"):
             await db.create_studio_mod(None, m)
-
-
-def _append_missing_by_id(dst: list, src: list) -> bool:
-    """把 src 中 id 不在 dst 的条目追加到 dst；有变更返回 True。"""
-    if not isinstance(dst, list) or not isinstance(src, list):
-        return False
-    have = {p.get("id") for p in dst if isinstance(p, dict) and p.get("id")}
-    changed = False
-    for item in src:
-        if not isinstance(item, dict):
-            continue
-        pid = item.get("id")
-        if not pid or pid in have:
-            continue
-        dst.append(item)
-        have.add(pid)
-        changed = True
-    return changed
-
-
-async def reconcile_providers_with_defaults() -> None:
-    """已有 config.providers 时，对账内置默认：
-    1) 同 id 的 models/pricing 改为内置默认（目录更新能进库）；
-    2) 默认有、库里没有的 providers / billing_sources 补上；
-    3) 同步补齐独立的 config.billing_sources.sources。
-    """
-    cur = await db.get_config("config.providers", "")
-    if not cur.strip():
-        return
-    path = _DEFAULTS_DIR / "providers.registry.yaml"
-    if not path.is_file():
-        return
-    try:
-        doc = yaml.safe_load(cur) or {}
-        deflt = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError:
-        return
-    if not isinstance(doc, dict) or not isinstance(deflt, dict):
-        return
-
-    from provider_registry import serialize_registry_doc
-
-    from config_merge import overlay_catalog_models
-
-    changed = False
-    # 同 id 的 models/pricing 跟内置默认对齐（目录改了要覆盖旧库，不能只补空列表）
-    for section in ("providers", "billing_sources"):
-        if section not in doc or not isinstance(doc.get(section), list):
-            doc[section] = list(doc.get(section) or [])
-        nxt, section_changed = overlay_catalog_models(doc[section], deflt.get(section) or [])
-        if section_changed:
-            doc[section] = nxt
-            changed = True
-
-    if changed:
-        await db.set_config("config.providers", serialize_registry_doc(doc))
-
-    # 管理端个人源目录可能独立存于 config.billing_sources
-    await _reconcile_billing_sources_doc(deflt.get("billing_sources") or [])
-
-
-async def _reconcile_billing_sources_doc(default_sources: list) -> None:
-    """config.billing_sources.sources 缺省时从内置 billing_sources 补齐。"""
-    import json
-
-    raw = await db.get_config("config.billing_sources", "")
-    if not raw.strip():
-        # 无独立目录时，以刚对账过的 config.providers.billing_sources 为准即可
-        return
-    try:
-        try:
-            bdoc = json.loads(raw)
-        except json.JSONDecodeError:
-            bdoc = yaml.safe_load(raw) or {}
-    except yaml.YAMLError:
-        return
-    if not isinstance(bdoc, dict):
-        return
-    sources = bdoc.get("sources")
-    if not isinstance(sources, list):
-        sources = []
-        bdoc["sources"] = sources
-    if not _append_missing_by_id(sources, default_sources):
-        return
-    bdoc["version"] = bdoc.get("version") or 1
-    await db.set_config(
-        "config.billing_sources",
-        json.dumps(bdoc, ensure_ascii=False, indent=2),
-    )
 
 
 async def migrate_legacy_billing_to_providers() -> None:

@@ -29,44 +29,16 @@ function registryDefaultDoc() {
   try { return yaml.load(fs.readFileSync(REGISTRY_YAML, 'utf8')) || {}; } catch { return {}; }
 }
 
-/** 按 id 把默认里有、用户/云端缺的条目补进数组（不覆盖云端已有项）。 */
-function mergeById(userList, defaultList) {
-  const out = Array.isArray(userList) ? [...userList] : [];
-  const have = new Set(out.map((x) => x && x.id).filter(Boolean));
-  for (const item of Array.isArray(defaultList) ? defaultList : []) {
-    if (!item || !item.id || have.has(item.id)) continue;
-    out.push(item);
-    have.add(item.id);
-  }
-  return out;
-}
-
-/** 用户/云端 registry 缺段或缺条目时从内置默认补全 billing_sources / providers */
+/** 服务端下发的 registry 原样使用，不再用内置 yaml 补模型或补源。 */
 function mergeRegistryDoc(doc) {
   const out = doc && typeof doc === 'object' ? { ...doc } : {};
-  const def = registryDefaultDoc();
-  if (!out.version) out.version = def.version || 1;
-  // 整段缺失 → 用默认；有段但缺新 id（如 volcengine-ark）→ 按 id 补入
-  out.providers = mergeById(
-    Array.isArray(out.providers) && out.providers.length ? out.providers : null,
-    def.providers,
-  );
-  // 若用户段为空，mergeById(null, def) 会得到完整默认
-  if (!Array.isArray(out.providers) || !out.providers.length) {
-    out.providers = Array.isArray(def.providers) ? def.providers : [];
-  }
-  out.billing_sources = mergeById(
-    Array.isArray(out.billing_sources) && out.billing_sources.length ? out.billing_sources : null,
-    def.billing_sources,
-  );
-  if (!Array.isArray(out.billing_sources) || !out.billing_sources.length) {
-    out.billing_sources = Array.isArray(def.billing_sources) ? def.billing_sources : [];
-  }
-  out.providers = out.providers.map(withClaudeOAuthModels);
+  if (!out.version) out.version = 1;
+  out.providers = (Array.isArray(out.providers) ? out.providers : []).map(withClaudeOAuthModels);
+  out.billing_sources = Array.isArray(out.billing_sources) ? out.billing_sources : [];
   return out;
 }
 
-// 加载 providers.registry.yaml：用户目录优先，回退内置默认
+// 只读服务端同步下来的缓存。没有缓存就是空目录，不回退仓库 yaml。
 function loadRegistryDoc() {
   try {
     if (fs.existsSync(USER_REGISTRY_YAML)) {
@@ -76,11 +48,7 @@ function loadRegistryDoc() {
   } catch (e) {
     console.error('[config-loader] 加载 providers.registry.yaml 失败:', e.message);
   }
-  try {
-    _registryDoc = mergeRegistryDoc(yaml.load(fs.readFileSync(REGISTRY_YAML, 'utf8')) || {});
-  } catch {
-    _registryDoc = { version: 1, providers: [], billing_sources: [] };
-  }
+  _registryDoc = { version: 1, providers: [], billing_sources: [] };
   return _registryDoc;
 }
 
