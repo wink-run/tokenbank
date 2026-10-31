@@ -285,6 +285,7 @@ function buildHandlerOpsMaps() {
   const installGuides = {};
   const uninstallGuides = {};
   const npmPackages = {};
+  const npmInstallArgs = {};
   const entities = appEntities();
   const list = entities.length ? entities : (loadDoc().default_entities || []);
   for (const ent of list) {
@@ -295,13 +296,22 @@ function buildHandlerOpsMaps() {
     if (ops.install_guide) installGuides[ent.id] = ops.install_guide;
     if (ops.uninstall_guide) uninstallGuides[ent.id] = ops.uninstall_guide;
     if (ops.npm_package) npmPackages[ent.id] = ops.npm_package;
+    // 只允许 --flag 形式，避免装进 shell
+    if (typeof ops.npm_install_args === 'string' && /^--[a-z0-9-]+(?:\s+--[a-z0-9-]+)*$/i.test(ops.npm_install_args.trim())) {
+      npmInstallArgs[ent.id] = ops.npm_install_args.trim();
+    }
   }
-  return { install, uninstall, installGuides, uninstallGuides, npmPackages };
+  return { install, uninstall, installGuides, uninstallGuides, npmPackages, npmInstallArgs };
 }
 
 /** CLI 工具的 npm 全局包名（有则百宝箱可一键 npm i -g 安装/更新）。 */
 function appNpmPackages() {
   return buildHandlerOpsMaps().npmPackages;
+}
+
+/** 一键安装附加参数（如 Pi 的 --ignore-scripts），已按 flag 白名单过滤 */
+function appNpmInstallArgs() {
+  return buildHandlerOpsMaps().npmInstallArgs;
 }
 
 function appInstallUrls() {
@@ -626,7 +636,7 @@ module.exports = {
   load, get, setCaPath, getCaPath,
   gatewayCtx, mitmDomains, shouldMitm, tools, appPresets, apiKeyApps,
   routing, routingStrategiesMeta, caRef,
-  claudeModels, isClaudeModel, sessionSources, agentHasModelStats, appInstallUrls, appUninstallUrls, appNpmPackages,
+  claudeModels, isClaudeModel, sessionSources, agentHasModelStats, appInstallUrls, appUninstallUrls, appNpmPackages, appNpmInstallArgs,
   appInstallGuides, appUninstallGuides, normalizeGuide, resolveGuide,
   subscriptionApps, apiSubscriptionApps, paygProviders, registryProviders, builtinCatalogPayload,
   registryDefaultDoc, mergeRegistryDoc, subscriptionPlansDefaults,

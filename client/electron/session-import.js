@@ -176,10 +176,13 @@ const isEmpty = (v) => v === undefined || v === null || v === '';
 // in 配合 allow_missing:true 时「字段缺省」也算命中。
 function matchFilter(obj, f) {
   if (!f) return true;
+  // any: 多条件 OR（如 Pi 的 assistant 消息和独立 usage 行）
+  if (Array.isArray(f.any)) return f.any.some(sub => matchFilter(obj, sub));
   // all: 多条件 AND（如 Kimi usage.record + usageScope=turn）
   if (Array.isArray(f.all)) return f.all.every(sub => matchFilter(obj, sub));
   const v = getPath(obj, f.field);
   if ('equals' in f) return v === f.equals;
+  if ('not_equals' in f) return v !== f.not_equals;
   if ('in' in f) {
     if (f.allow_missing && isEmpty(v)) return true;
     return Array.isArray(f.in) && f.in.includes(v);
@@ -550,6 +553,14 @@ function resolveScanRoots(src) {
       }
     }
   } catch { /* cli-instances 不可用 → 回退单 root */ }
+  // Pi / OmO / Prime：环境变量或旧版 senpi 目录把会话根从 YAML 默认值改掉
+  try {
+    const piCfg = require('./pi-config');
+    const profile = piCfg.profileForEntity(src.id)
+      || (src.data_source === 'session-pi' ? piCfg.profileForEntity('pi') : null);
+    const root = profile && piCfg.sessionRootOverride(profile);
+    if (root) return [{ root, dataSourceOverride: null }];
+  } catch { /* pi-config 不可用 → 用 YAML 里的 root */ }
   return [{ root, dataSourceOverride: null }];
 }
 

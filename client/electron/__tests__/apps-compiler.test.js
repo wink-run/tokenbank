@@ -87,6 +87,18 @@ describe('apps-compiler', () => {
     assert.equal(dsh.patch['agent-default-model.provider'], 'tokenbank');
     assert.equal(dsh.patch['llm-pi-ai.providers.tokenbank.baseURL'], '{BASE}/v1');
     assert.equal(dsh.patch['llm-pi-ai.providers.tokenbank.apiKeyEnv'], 'TOKENBANK_DSH_API_KEY');
+    const pi = rt.api_key_apps.find(t => t.id === 'pi');
+    assert.ok(pi, 'pi compiles to an api_key app');
+    assert.equal(pi.command, 'pi');
+    assert.ok(String(pi.config_file).includes('models.json'));
+    assert.equal(pi.patch['providers.tokenbank.api'], 'openai-completions');
+    for (const id of ['omo', 'prime', 'omp']) {
+      const app = rt.api_key_apps.find(t => t.id === id);
+      assert.ok(app, `${id} compiles to an api_key app`);
+      assert.equal(app.patch['providers.tokenbank.api'], 'openai-completions');
+    }
+    assert.equal(rt.api_key_apps.find(t => t.id === 'omp').command, 'omp');
+    assert.ok(String(rt.api_key_apps.find(t => t.id === 'omo').config_file).includes('models.json'));
   });
 
   // kimi-code-cli：云端实体依赖内置 handler，避免「未知 handler」被 skip

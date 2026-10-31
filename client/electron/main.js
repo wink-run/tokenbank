@@ -242,6 +242,17 @@ function isDshApp(app_id) {
   } catch { return false; }
 }
 
+function isPiApp(app_id) {
+  const piCfg = require('./pi-config');
+  const id = String(app_id || '');
+  if (piCfg.profileForEntity(id)) return true;
+  try {
+    const app = (readLocalConfig()?.apps || []).find(a => a.id === app_id);
+    const pid = app?.preset_id || app?.agent_id;
+    return !!piCfg.profileForEntity(pid);
+  } catch { return false; }
+}
+
 /** 还原 config-file 应用配置（与 apps:revertConfigFile IPC 共用） */
 function revertAppConfigFile(app_id, config_file) {
   if (isClaudeDesktopApp(app_id)) runClaude3pSync('revert');
@@ -264,6 +275,17 @@ function revertAppConfigFile(app_id, config_file) {
   // 这里只清我们写入的网关 key，合并保留用户其他凭证（不整份删 .credentials.yaml）。
   if (isDshApp(app_id) && file) {
     try { require('./dsh-config').revertDshCredentials(path.dirname(file)); } catch {}
+  }
+  // Pi 家族：合并写入，还原只删 tokenbank 并交回原来的默认模型
+  if (isPiApp(app_id)) {
+    try {
+      const piCfg = require('./pi-config');
+      const app = (readLocalConfig()?.apps || []).find(a => a.id === app_id);
+      const profile = piCfg.profileForEntity(app_id)
+        || piCfg.profileForEntity(app?.preset_id || app?.agent_id);
+      piCfg.revertFamily(profile);
+    } catch {}
+    return;
   }
   if (file) {
     const bak = file + '.tokenbank-bak';
@@ -2277,6 +2299,15 @@ function allowCreateMissingProxyConfig(handlerId, { isClaudeDesktop } = {}) {
       if (isDshPresent() || commandInstalled('dsh')) return true;
     } catch { /* ignore */ }
   }
+  // Pi 家族：探测认命令或已有 agent 目录，不认 models.json / models.yml
+  try {
+    const pi = require('./pi-config');
+    const profile = pi.profileForHandler(handlerId);
+    if (profile) {
+      if (commandInstalled(profile.command)) return true;
+      if (pi.familyReady(profile)) return true;
+    }
+  } catch { /* ignore */ }
   return false;
 }
 
@@ -2353,6 +2384,16 @@ function apiKeyDetect(d) {
       if (isDshPresent()) strong = true;
     } catch { /* ignore */ }
   }
+  // Pi 家族：命令或 agent 目录。不把纳管新建的 models.json / models.yml 当强信号。
+  try {
+    const pi = require('./pi-config');
+    const profile = pi.profileForEntity(d.id);
+    if (profile) {
+      strongDefined = true;
+      if (commandInstalled(profile.command)) strong = true;
+      if (!strong && pi.familyReady(profile)) strong = true;
+    }
+  } catch { /* ignore */ }
   let weak = false;
   if (d.config_file) {
     const cf = configFileDetect(d);
@@ -4374,12 +4415,14 @@ function registerIPC() {
   // 一键安装/更新 CLI 工具：跑 npm i -g <包>@latest（用户级全局，无需管理员）。
   // 异步 exec，不阻塞主进程；装完前端刷新检测状态。
   ipcMain.handle('apps:npmGlobalInstall', async (_e, { id } = {}) => {
-    const pkg = (require('./config-loader').appNpmPackages() || {})[id];
+    const cl = require('./config-loader');
+    const pkg = (cl.appNpmPackages() || {})[id];
     if (!pkg) return { ok: false, error: 'no-npm-package' };
+    const extra = (cl.appNpmInstallArgs() || {})[id] || '';
     const npmCmd = `"${resolveNpmCmd()}"`;
     return await new Promise((resolve) => {
       try {
-        require('child_process').exec(`${npmCmd} i -g ${pkg}@latest`, { timeout: 300000, windowsHide: true },
+        require('child_process').exec(`${npmCmd} i -g ${pkg}@latest${extra ? ` ${extra}` : ''}`, { timeout: 300000, windowsHide: true },
           (err, _stdout, stderr) => {
             if (err) resolve({ ok: false, error: (String(stderr || '') || err.message).slice(0, 400) });
             else {
@@ -5296,6 +5339,36 @@ function registerIPC() {
         fs.writeFileSync(file, yaml.dump(doc, { lineWidth: 120 }), 'utf8');
         setAppHosted(app_id, true);
         return { ok: true, file, envCount: 0 };
+      }
+      // Pi 家族：只合并 tokenbank 提供商。默认模型写 settings.json，omp 写 modelRoles.default。
+      {
+        const piCfg = require('./pi-config');
+        const profile = piCfg.profileForHandler(handlerId);
+        if (profile) {
+          file = piCfg.modelsFile(profile);
+          const ensured = ensureProxyConfigWritable(file, {
+            allowCreate: allowCreateMissingProxyConfig(handlerId),
+          });
+          if (!ensured.ok) return { ok: false, error: ensured.error || 'config-missing', file };
+          let modelIds = piCfg.modelIdsFromPatch(resolvedPatch);
+          if (!modelIds.length) {
+            try {
+              const res = await fetch(`${patchCtx.base}/v1/models`, {
+                headers: patchCtx.key ? { Authorization: `Bearer ${patchCtx.key}` } : {},
+              });
+              if (res.ok) {
+                const json = await res.json();
+                modelIds = [...new Set(
+                  (Array.isArray(json?.data) ? json.data : [])
+                    .map(m => m?.id).filter(x => typeof x === 'string' && x.trim()),
+                )];
+              }
+            } catch (e) { console.warn('[pi] fetch /v1/models failed:', e.message); }
+          }
+          piCfg.applyFamily(profile, { patch: resolvedPatch, modelIds });
+          setAppHosted(app_id, true);
+          return { ok: true, file, envCount: 0 };
+        }
       }
       // Trae：模型配置由用户在 IDE 内手工填写，此处不写入 state.vscdb
       // 纳管 = 备份原配置文件（整份，仅首次），再写入我们的配置（整份替换）。

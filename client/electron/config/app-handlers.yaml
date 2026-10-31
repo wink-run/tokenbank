@@ -143,6 +143,145 @@ handlers:
       trace:
         profile: dsh-trace
 
+  # Pi（badlogic/pi）：合并写入 ~/.pi/agent/models.json 的 tokenbank 提供商（OpenAI 兼容），
+  # 默认模型写 settings.json 的 defaultProvider/defaultModel。还原只删这一段。
+  # 见 main.js handlerId==='pi-cli' 与 pi-config.js。命令 `pi` 或已有 agent 目录才算装上，
+  # 不把我们新建的 models.json 当成安装证据。
+  pi-cli:
+    label: Pi
+    label_zh: Pi
+    description: Pi 编程代理 · 合并 models.json 注册网关 provider
+    default_icon: "π"
+    default_name: Pi
+    capabilities: [gateway_proxy, session_import]
+    proxy:
+      mode: api_key
+      protocol: openai
+      route_bindable: true
+      allow_direct: false
+      detect_type: command
+      detect_value: pi
+      detect_command: pi
+      detect_version_arg: "--version"
+      config_file: "{PI_CODING_AGENT_DIR|~/.pi/agent}/models.json"
+      marker: tokenbank
+      patch:
+        providers.tokenbank.name: Token Bank
+        providers.tokenbank.baseUrl: "{BASE}/v1"
+        providers.tokenbank.api: openai-completions
+        providers.tokenbank.apiKey: "{KEY}"
+        providers.tokenbank.authHeader: true
+      patch_route:
+        strategy: tokenbank_models
+        models_key: providers.tokenbank.models
+        multi_select: true
+    session:
+      source_id: pi
+      standalone: false
+      activity_agent_id: pi
+      trace_agent_id: pi
+
+  # OmO（omo-ai / senpi）：Pi 的引擎，配置仍是 agent 目录里的 models.json + settings.json。
+  # 目录优先 OMO_CODING_AGENT_DIR，其次 SENPI_CODING_AGENT_DIR；没有 ~/.omo 时回退 ~/.senpi/agent。
+  omo-cli:
+    label: OmO
+    label_zh: OmO
+    description: OmO · 合并 models.json 注册网关 provider
+    default_icon: "◇"
+    default_name: OmO
+    capabilities: [gateway_proxy, session_import]
+    proxy:
+      mode: api_key
+      protocol: openai
+      route_bindable: true
+      allow_direct: false
+      detect_type: command
+      detect_value: omo
+      detect_command: omo
+      detect_version_arg: "--version"
+      config_file: "{OMO_CODING_AGENT_DIR|~/.omo/agent}/models.json"
+      marker: tokenbank
+      patch:
+        providers.tokenbank.name: Token Bank
+        providers.tokenbank.baseUrl: "{BASE}/v1"
+        providers.tokenbank.api: openai-completions
+        providers.tokenbank.apiKey: "{KEY}"
+        providers.tokenbank.authHeader: true
+      patch_route:
+        strategy: tokenbank_models
+        models_key: providers.tokenbank.models
+        multi_select: true
+    session:
+      source_id: omo
+      standalone: false
+      activity_agent_id: omo
+      trace_agent_id: omo
+
+  # Prime Agent：同样读 Pi 的 settings.json / models.json。命令是 prime-agent。
+  prime-cli:
+    label: Prime Agent
+    label_zh: Prime Agent
+    description: Prime Agent · 合并 models.json 注册网关 provider
+    default_icon: "✦"
+    default_name: Prime Agent
+    capabilities: [gateway_proxy, session_import]
+    proxy:
+      mode: api_key
+      protocol: openai
+      route_bindable: true
+      allow_direct: false
+      detect_type: command
+      detect_value: prime-agent
+      detect_command: prime-agent
+      detect_version_arg: "--version"
+      config_file: "{PRIME_AGENT_CODING_AGENT_DIR|~/.prime/agent}/models.json"
+      marker: tokenbank
+      patch:
+        providers.tokenbank.name: Token Bank
+        providers.tokenbank.baseUrl: "{BASE}/v1"
+        providers.tokenbank.api: openai-completions
+        providers.tokenbank.apiKey: "{KEY}"
+        providers.tokenbank.authHeader: true
+      patch_route:
+        strategy: tokenbank_models
+        models_key: providers.tokenbank.models
+        multi_select: true
+    session:
+      source_id: prime
+      standalone: false
+      activity_agent_id: prime
+      trace_agent_id: prime
+
+  # oh-my-pi（omp）：提供商在 models.yml，默认模型是 config.yml 的 modelRoles.default。
+  omp-cli:
+    label: oh-my-pi
+    label_zh: oh-my-pi
+    description: oh-my-pi · 合并 models.yml 注册网关 provider
+    default_icon: "π"
+    default_name: oh-my-pi
+    capabilities: [gateway_proxy]
+    proxy:
+      mode: api_key
+      protocol: openai
+      route_bindable: true
+      allow_direct: false
+      detect_type: command
+      detect_value: omp
+      detect_command: omp
+      detect_version_arg: "--version"
+      config_file: ~/.omp/agent/models.yml
+      marker: tokenbank
+      patch:
+        providers.tokenbank.name: Token Bank
+        providers.tokenbank.baseUrl: "{BASE}/v1"
+        providers.tokenbank.api: openai-completions
+        providers.tokenbank.apiKey: "{KEY}"
+        providers.tokenbank.authHeader: true
+      patch_route:
+        strategy: tokenbank_models
+        models_key: providers.tokenbank.models
+        multi_select: true
+
   # Moonshot Kimi Code CLI：通过 KIMI_MODEL_* 指到网关（Anthropic 兼容协议）
   kimi-code-cli:
     label: Kimi Code CLI
@@ -396,6 +535,10 @@ default_entities:
   - { id: workbuddy, handler: workbuddy-stats, vars: { route_multi_select: true } }
   - { id: trae-work, handler: trae-work-stats }
   - { id: deepseek-harness, handler: deepseek-harness-cli }
+  - { id: pi, handler: pi-cli, vars: { route_multi_select: true } }
+  - { id: omo, handler: omo-cli, vars: { route_multi_select: true } }
+  - { id: prime, handler: prime-cli, vars: { route_multi_select: true } }
+  - { id: omp, handler: omp-cli, vars: { route_multi_select: true } }
 
 # vars 可覆盖字段（管理后台运营配置，下发在 app_entities[].vars）
 var_schema:

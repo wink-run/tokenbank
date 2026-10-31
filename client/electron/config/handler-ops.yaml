@@ -80,6 +80,52 @@ ops:
   deepseek-harness-cli:
     install_url: https://github.com/deepseek-ai/deepseek-harness
     npm_package: '@deepseek-ai/dsh'
+  pi-cli:
+    install_url: https://pi.dev
+    # 0.74 起包名迁到 @earendil-works；一键安装须 --ignore-scripts（官方 npm 安装方式）
+    npm_package: '@earendil-works/pi-coding-agent'
+    npm_install_args: '--ignore-scripts'
+    install_guide:
+      mac: '1. 需要 Node.js 22.19 或更新版本
+
+        2. 终端执行：curl -fsSL https://pi.dev/install.sh | sh
+
+        3. 或：npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+        4. 执行 pi --version 确认成功，然后刷新百宝箱
+
+        '
+      win: '1. 需要 Node.js 22.19 或更新版本
+
+        2. PowerShell 执行：irm https://pi.dev/install.ps1 | iex
+
+        3. 或：npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
+        4. 执行 pi --version 确认成功，然后刷新百宝箱
+
+        '
+    uninstall_guide:
+      mac: '1. 安装脚本装的：再次执行 curl -fsSL https://pi.dev/install.sh | sh，选择卸载
+
+        2. npm 装的：npm uninstall -g @earendil-works/pi-coding-agent
+
+        3. 刷新百宝箱确认已卸载
+
+        '
+      win: '1. 安装脚本装的：再次执行 irm https://pi.dev/install.ps1 | iex，选择卸载
+
+        2. npm 装的：npm uninstall -g @earendil-works/pi-coding-agent
+
+        3. 刷新百宝箱确认已卸载
+
+        '
+  omo-cli:
+    install_url: https://omo.dev
+    npm_package: omo-ai
+  prime-cli:
+    install_url: https://github.com/PrimeIntellect-ai/prime-agent
+  omp-cli:
+    install_url: https://github.com/can1357/oh-my-pi
   kimi-code-cli:
     install_url: https://moonshotai.github.io/kimi-code/
     install_guide:

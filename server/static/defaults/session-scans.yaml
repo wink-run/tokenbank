@@ -353,6 +353,166 @@ scans:
       input_tokens: data.usage.inputTokens
       output_tokens: data.usage.outputTokens
       cache_read_tokens: data.usage.cacheReadTokens
+  # Pi：~/.pi/agent/sessions/**/*.jsonl
+  # assistant / 带 usage 的 toolResult，以及独立 usage、compaction、branch_summary。
+  # provider=tokenbank 的行是走网关的，跳过，避免和 proxy 日志各记一次。
+  pi:
+    data_source: session-pi
+    agent_id: pi
+    provider_id: pi-cli
+    tier: paid
+    billing_type: api-key
+    direct_only: false
+    app_name: Pi
+    app_icon: π
+    root: ~/.pi/agent/sessions
+    glob: '**/*.jsonl'
+    format: jsonl
+    meta:
+    - filter:
+        field: type
+        equals: session
+      set:
+        session_id: id
+    - filter:
+        field: type
+        equals: model_change
+      set:
+        model: modelId
+    record_filter:
+      all:
+      - any:
+        - all:
+          - { field: type, equals: message }
+          - { field: message.role, in: [assistant, toolResult] }
+        - { field: type, in: [usage, compaction, branch_summary] }
+      - { field: message.provider, not_equals: tokenbank }
+      - { field: provider, not_equals: tokenbank }
+    skip_if_zero: true
+    request_id: pi:{session_id}:{id}
+    require_request_id: true
+    fields:
+      ts: timestamp
+      model:
+      - message.model
+      - model
+      input_tokens:
+      - message.usage.input
+      - usage.input
+      output_tokens:
+      - message.usage.output
+      - usage.output
+      cache_read_tokens:
+      - message.usage.cacheRead
+      - usage.cacheRead
+      cache_create_tokens:
+      - message.usage.cacheWrite
+      - usage.cacheWrite
+  # OmO / Prime 与 Pi 同一份 JSONL。走网关的 tokenbank 行跳过。
+  omo:
+    data_source: session-omo
+    agent_id: omo
+    provider_id: omo-cli
+    tier: paid
+    billing_type: api-key
+    direct_only: false
+    app_name: OmO
+    app_icon: ◇
+    root: ~/.omo/agent/sessions
+    glob: '**/*.jsonl'
+    format: jsonl
+    meta:
+    - filter:
+        field: type
+        equals: session
+      set:
+        session_id: id
+    - filter:
+        field: type
+        equals: model_change
+      set:
+        model: modelId
+    record_filter:
+      all:
+      - any:
+        - all:
+          - { field: type, equals: message }
+          - { field: message.role, in: [assistant, toolResult] }
+        - { field: type, in: [usage, compaction, branch_summary] }
+      - { field: message.provider, not_equals: tokenbank }
+      - { field: provider, not_equals: tokenbank }
+    skip_if_zero: true
+    request_id: omo:{session_id}:{id}
+    require_request_id: true
+    fields:
+      ts: timestamp
+      model:
+      - message.model
+      - model
+      input_tokens:
+      - message.usage.input
+      - usage.input
+      output_tokens:
+      - message.usage.output
+      - usage.output
+      cache_read_tokens:
+      - message.usage.cacheRead
+      - usage.cacheRead
+      cache_create_tokens:
+      - message.usage.cacheWrite
+      - usage.cacheWrite
+  prime:
+    data_source: session-prime
+    agent_id: prime
+    provider_id: prime-cli
+    tier: paid
+    billing_type: api-key
+    direct_only: false
+    app_name: Prime Agent
+    app_icon: ✦
+    root: ~/.prime/agent/sessions
+    glob: '**/*.jsonl'
+    format: jsonl
+    meta:
+    - filter:
+        field: type
+        equals: session
+      set:
+        session_id: id
+    - filter:
+        field: type
+        equals: model_change
+      set:
+        model: modelId
+    record_filter:
+      all:
+      - any:
+        - all:
+          - { field: type, equals: message }
+          - { field: message.role, in: [assistant, toolResult] }
+        - { field: type, in: [usage, compaction, branch_summary] }
+      - { field: message.provider, not_equals: tokenbank }
+      - { field: provider, not_equals: tokenbank }
+    skip_if_zero: true
+    request_id: prime:{session_id}:{id}
+    require_request_id: true
+    fields:
+      ts: timestamp
+      model:
+      - message.model
+      - model
+      input_tokens:
+      - message.usage.input
+      - usage.input
+      output_tokens:
+      - message.usage.output
+      - usage.output
+      cache_read_tokens:
+      - message.usage.cacheRead
+      - usage.cacheRead
+      cache_create_tokens:
+      - message.usage.cacheWrite
+      - usage.cacheWrite
   trae-work:
     data_source: session-trae-work
     agent_id: trae-work
