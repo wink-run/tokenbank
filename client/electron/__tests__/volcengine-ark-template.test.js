@@ -48,14 +48,43 @@ describe('mergeRegistryDoc 按 id 补全缺项', () => {
 });
 
 describe('getSourceTemplates 含 volcengine-ark', () => {
-  it('reload 后模板库可见按量方舟', () => {
+  it('只认服务端下发的 registry 缓存，不用仓库 yaml 补源', () => {
     const loader = require('../config-loader');
-    loader.reloadRegistryDoc();
     const billing = require('../billing-config');
-    const tpls = billing.getSourceTemplates({});
-    const ark = tpls.find((t) => t.key === 'volcengine-ark');
-    assert.ok(ark, '应出现 volcengine-ark');
-    assert.equal(ark.kind, 'payg');
-    assert.match(String(ark.base_url || ''), /\/api\/v3/);
+    const userPath = path.join(os.homedir(), '.tokenbank', 'providers.registry.yaml');
+    const backup = fs.existsSync(userPath) ? fs.readFileSync(userPath) : null;
+    fs.mkdirSync(path.dirname(userPath), { recursive: true });
+    const fixture = {
+      version: 1,
+      providers: [],
+      billing_sources: [{
+        id: 'volcengine-ark',
+        category: 'payg',
+        label: '火山引擎（按量）',
+        base_url: 'https://ark.cn-beijing.volces.com/api/v3/',
+        api_format: 'openai',
+        models: [{ id: 'doubao-seed-2.1-pro', modality: 'chat' }],
+      }],
+    };
+    try {
+      fs.writeFileSync(userPath, yaml.dump(fixture));
+      loader.reloadRegistryDoc();
+      const ark = billing.getSourceTemplates({}).find((t) => t.key === 'volcengine-ark');
+      assert.ok(ark, '缓存中的 volcengine-ark 应出现');
+      assert.equal(ark.kind, 'payg');
+      assert.match(String(ark.base_url || ''), /\/api\/v3/);
+
+      // CI 机器没有 ~/.tokenbank 缓存；空缓存不得回退仓库 yaml
+      fs.unlinkSync(userPath);
+      loader.reloadRegistryDoc();
+      assert.equal(
+        billing.getSourceTemplates({}).find((t) => t.key === 'volcengine-ark'),
+        undefined,
+      );
+    } finally {
+      if (backup) fs.writeFileSync(userPath, backup);
+      else if (fs.existsSync(userPath)) fs.unlinkSync(userPath);
+      loader.reloadRegistryDoc();
+    }
   });
 });
