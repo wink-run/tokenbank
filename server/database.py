@@ -2227,6 +2227,8 @@ def merge_device_inventories(device_rows: list, days: int) -> dict:
             "platform": dev.get("platform"),
             "version": dev.get("version") or "",
             "online": bool(dev.get("online")),
+            # 供客户端过滤陈旧离线设备，避免用残留 accounts_config 同步出幽灵账户
+            "last_seen": dev.get("last_seen") or "",
             "calls": int(snap.get("total_calls") or 0),
             "tokens": int(snap.get("total_tokens") or 0),
             "cost": float(snap.get("total_cost") or 0),

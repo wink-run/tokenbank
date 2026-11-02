@@ -3959,6 +3959,22 @@ function registerIPC() {
     if (patch.direct_source_billing && typeof patch.direct_source_billing === 'object') {
       cfg.direct_source_billing = patch.direct_source_billing;           // 直连应用计费
     }
+    // 跨端同步删除墓碑：阻止已删账户被其它终端残留快照再次拉回
+    const syncMod = require('../shared/account-config-sync');
+    if (patch.removed_account_ids && typeof patch.removed_account_ids === 'object') {
+      cfg.removed_account_ids = syncMod.mergeRemovedMaps(cfg.removed_account_ids, patch.removed_account_ids);
+    }
+    if (patch.removed_direct_ids && typeof patch.removed_direct_ids === 'object') {
+      cfg.removed_direct_ids = syncMod.mergeRemovedMaps(cfg.removed_direct_ids, patch.removed_direct_ids);
+    }
+    const presentAcct = [];
+    for (const row of cfg.user_subscriptions || []) if (row?.id) presentAcct.push(row.id);
+    for (const row of cfg.user_payg_providers || []) if (row?.id) presentAcct.push(row.id);
+    cfg.removed_account_ids = syncMod.pruneRemovedAgainstPresent(cfg.removed_account_ids, presentAcct);
+    cfg.removed_direct_ids = syncMod.pruneRemovedAgainstPresent(
+      cfg.removed_direct_ids,
+      Object.keys(cfg.direct_source_billing || {}),
+    );
     // 个人供给源仅写本机；账户摘要由设备心跳单向上报
     applyUserBillingCfg(cfg);
     return cfg;

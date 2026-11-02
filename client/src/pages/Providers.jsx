@@ -17,7 +17,14 @@ import { resolveModelsForModelView } from '../lib/personalAvailableModels';
 import { buildPersonalModelTypeMap, inferModelTypeFromName } from '../api/gatewayModels';
 import { encodeRoute, parseRoute } from '../lib/route-binding';
 import { avatarColor } from '../components/UserAvatar';
-import { mergeRemoteAccountConfigs, mergeGatewayProviders } from '../lib/account-config-sync';
+import {
+  mergeRemoteAccountConfigs,
+  mergeGatewayProviders,
+  selectRemoteAccountConfigs,
+  noteRemovedAccountIds,
+  noteRemovedDirectIds,
+  referencedGatewayIds,
+} from '../lib/account-config-sync';
 import { alignSyncAccountSecretsFromCloud } from '../lib/sync-account-secrets';
 import UsageMeter, { UsageInline, usageProviderForDirect } from '../components/UsageMeter';
 
@@ -3854,6 +3861,7 @@ export default function Providers() {
   }
 
   // 从其他终端心跳上报的账户配置合并进本机（不含 Key；同 id 以本机为准）
+  // 只采信在线/近期设备，并尊重删除墓碑，避免离线残留把已删账户（如 test）拉回来
   async function syncAccountsFromOtherDevices() {
     if (accountSyncing) return;
     setAccountSyncing(true);
@@ -3862,9 +3870,7 @@ export default function Providers() {
       const inv = await getInventoryStats(1);
       const devices = inv?.data?.devices || [];
       const myId = await resolveLocalDeviceId();
-      const remotes = devices
-        .filter(d => d && d.device_id && d.device_id !== myId && d.accounts_config)
-        .map(d => d.accounts_config);
+      const remotes = selectRemoteAccountConfigs(devices, myId);
       const local = accountsData || await loadUserAccounts({ localOnly: true });
       const cfg = await getConfig().read().catch(() => ({}));
       // 其它终端若已关掉，这次同步也按关掉处理，不写入密钥
@@ -3873,10 +3879,16 @@ export default function Providers() {
       setSyncAccountSecrets(includeSecrets);
       const merged = mergeRemoteAccountConfigs(local, remotes, { includeSecrets });
       // 用当前列表计算，避免在 setState 里写副作用（Strict Mode 会跑两次）
-      const gw = mergeGatewayProviders(providers, merged.gateway_provider_lists, { includeSecrets });
+      const allowedGw = referencedGatewayIds(merged);
+      const gw = mergeGatewayProviders(providers, merged.gateway_provider_lists, {
+        includeSecrets,
+        allowedIds: allowedGw,
+      });
       const remoteIds = new Set();
       for (const remote of remotes) {
-        for (const id of gatewayIdsFromSyncedConfig(remote)) remoteIds.add(id);
+        for (const id of gatewayIdsFromSyncedConfig(remote)) {
+          if (allowedGw.has(id)) remoteIds.add(id);
+        }
       }
       // 同步进来的源默认打开，再测一次连通性，结果写回 test_verified
       const nextProviders = gw.providers.map(p => ({ ...p }));
@@ -3928,6 +3940,8 @@ export default function Providers() {
           direct_source_billing: merged.direct_source_billing,
           source_template_overrides: merged.source_template_overrides,
           custom_source_templates: merged.custom_source_templates,
+          removed_account_ids: merged.removed_account_ids,
+          removed_direct_ids: merged.removed_direct_ids,
         });
       }
       const n = merged.count || (providersChanged ? 1 : 0);
@@ -4692,13 +4706,18 @@ export default function Providers() {
   }, [accountInstances, directByAgent, bill, extraEnabledSources, personalFilter, providers]);
 
   // 删除单个账户实例：仅删对应 user_payg/sub 行；无其他实例共用 gateway_id 时才停用 provider
+  // 写入删除墓碑，避免其它终端残留快照在下次同步时把该账户加回来
   const removeAccountInstance = async (inst) => {
     const gwId = inst.gateway_id;
     let nextPayg = userPayg;
     let nextSubs = userSubscriptions;
     if (inst.kind === 'payg') nextPayg = nextPayg.filter(p => p.id !== inst.id);
     else if (inst.kind === 'sub') nextSubs = nextSubs.filter(s => s.id !== inst.id);
-    const patch = { user_payg_providers: nextPayg, user_subscriptions: nextSubs };
+    const patch = {
+      user_payg_providers: nextPayg,
+      user_subscriptions: nextSubs,
+      removed_account_ids: noteRemovedAccountIds(accountsData?.removed_account_ids, inst.id),
+    };
     await saveUserAccounts(patch);
     const stillUsed = nextPayg.some(p => paygInstGatewayId(p) === gwId)
       || nextSubs.some(s => subInstGatewayId(s) === gwId);
@@ -4725,6 +4744,10 @@ export default function Providers() {
     await saveUserAccounts({
       ...billingPatch,
       ...(nextSubs.length !== userSubscriptions.length ? { user_subscriptions: nextSubs } : {}),
+      removed_direct_ids: noteRemovedDirectIds(
+        accountsData?.removed_direct_ids,
+        [agentId, sourceId].filter(Boolean),
+      ),
     });
     loadUserPaidAccounts();
   };

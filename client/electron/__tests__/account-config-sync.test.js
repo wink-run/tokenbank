@@ -7,6 +7,9 @@ const {
   mergeRemoteAccountConfigs,
   mergeGatewayProviders,
   pickSyncAccountSecrets,
+  selectRemoteAccountConfigs,
+  noteRemovedAccountIds,
+  hasAccountsConfigPayload,
 } = require('../../shared/account-config-sync');
 
 test('buildAccountsConfig 去掉 key，并带上网关 base_url', () => {
@@ -178,4 +181,109 @@ test('同步密钥开关按较新的修改时间在各终端间对齐', () => {
     { includeSecrets: false },
   );
   assert.equal(gw.providers[0].token, '');
+});
+
+test('空 accounts_config 不算可同步载荷', () => {
+  assert.equal(hasAccountsConfigPayload({}), false);
+  assert.equal(hasAccountsConfigPayload(null), false);
+  assert.equal(hasAccountsConfigPayload({ user_subscriptions: [] }), false);
+  assert.equal(hasAccountsConfigPayload({
+    user_subscriptions: [{ id: 'test', app_name: 'test' }],
+  }), true);
+});
+
+test('优先采信在线设备，忽略过期离线残留里的幽灵账户', () => {
+  const now = Date.parse('2026-11-02T06:00:00Z');
+  const devices = [
+    {
+      device_id: 'me',
+      online: true,
+      accounts_config: { user_subscriptions: [{ id: 'local-only' }] },
+    },
+    {
+      device_id: 'ghost-old',
+      online: false,
+      last_seen: '2026-09-01T00:00:00Z',
+      accounts_config: {
+        user_subscriptions: [{ id: 'test', app_name: 'test', models: ['m'] }],
+      },
+    },
+    {
+      device_id: 'peer-online',
+      online: true,
+      last_seen: '2026-11-02T05:59:00Z',
+      accounts_config: {
+        user_subscriptions: [{ id: 'claude', app_name: 'Claude' }],
+      },
+    },
+  ];
+  const remotes = selectRemoteAccountConfigs(devices, 'me', { now });
+  assert.equal(remotes.length, 1);
+  assert.equal(remotes[0].user_subscriptions[0].id, 'claude');
+
+  // 没有在线对端时，才退回 7 天内见过的离线设备
+  const offlineOnly = selectRemoteAccountConfigs([
+    devices[0],
+    devices[1],
+    {
+      device_id: 'recent-offline',
+      online: false,
+      last_seen: '2026-11-01T12:00:00Z',
+      accounts_config: { user_payg_providers: [{ id: 'p1', provider_id: 'deepseek' }] },
+    },
+  ], 'me', { now });
+  assert.equal(offlineOnly.length, 1);
+  assert.equal(offlineOnly[0].user_payg_providers[0].id, 'p1');
+});
+
+test('本机删除墓碑阻止已删账户从远端残留复活', () => {
+  const now = Date.now();
+  const removed = noteRemovedAccountIds({}, 'test', now - 1000);
+  const merged = mergeRemoteAccountConfigs(
+    {
+      user_subscriptions: [{ id: 'keep', app_name: 'Keep', source_id: 'keep-gw' }],
+      removed_account_ids: removed,
+    },
+    [{
+      user_subscriptions: [
+        { id: 'test', app_name: 'test', models: ['x'], source_id: 'test-gw', gateway_id: 'test-gw' },
+        { id: 'new', app_name: 'New', source_id: 'new-gw', gateway_id: 'new-gw' },
+      ],
+      gateway_providers: [
+        { id: 'test-gw', base_url: 'https://example.com' },
+        { id: 'new-gw', base_url: 'https://new.example.com' },
+      ],
+    }],
+  );
+  assert.equal(merged.user_subscriptions.some(s => s.id === 'test'), false);
+  assert.equal(merged.user_subscriptions.some(s => s.id === 'new'), true);
+  assert.equal(merged.user_subscriptions.some(s => s.id === 'keep'), true);
+  // 已删账户关联的网关源也不该再并进来
+  const gwIds = merged.gateway_provider_lists.flat().map(p => p.id);
+  assert.equal(gwIds.includes('test-gw'), false);
+  assert.equal(gwIds.includes('new-gw'), true);
+  assert.ok(merged.removed_account_ids.test);
+});
+
+test('对端墓碑也能拦住另一份残留快照里的同 id 账户', () => {
+  const now = Date.now();
+  const merged = mergeRemoteAccountConfigs(
+    { user_subscriptions: [] },
+    [
+      { removed_account_ids: { test: now - 500 }, user_subscriptions: [] },
+      { user_subscriptions: [{ id: 'test', app_name: 'test' }] },
+    ],
+  );
+  assert.equal(merged.user_subscriptions.length, 0);
+  assert.ok(merged.removed_account_ids.test);
+});
+
+test('buildAccountsConfig 上报墓碑，且本机已重新加回的 id 会清掉', () => {
+  const now = Date.now();
+  const cfg = buildAccountsConfig({
+    user_subscriptions: [{ id: 'alive', app_name: 'Alive' }],
+    removed_account_ids: { alive: now - 10, dead: now - 20 },
+  }, []);
+  assert.equal(cfg.removed_account_ids.alive, undefined);
+  assert.equal(cfg.removed_account_ids.dead, now - 20);
 });

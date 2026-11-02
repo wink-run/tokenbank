@@ -2,7 +2,7 @@
 
 import { getConfig } from '../api/adapter';
 import { getInventoryStats } from '../api/client';
-import { pickSyncAccountSecrets } from './account-config-sync';
+import { pickSyncAccountSecrets, selectRemoteAccountConfigs } from './account-config-sync';
 
 export function syncSecretsFromConfig(cfg) {
   return {
@@ -23,9 +23,8 @@ export async function alignSyncAccountSecretsFromCloud(cfg) {
     return local;
   }
   const myId = current.device_id || '';
-  const remotes = devices
-    .filter(d => d && d.accounts_config && (!myId || d.device_id !== myId))
-    .map(d => d.accounts_config);
+  // 与账户同步同一套设备过滤：忽略空配置与过期离线残留
+  const remotes = selectRemoteAccountConfigs(devices, myId);
   const picked = pickSyncAccountSecrets(local, remotes);
   if (picked.at > local.at && picked.value !== local.value) {
     try {

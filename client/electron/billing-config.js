@@ -1266,6 +1266,9 @@ function getUserAccounts(cfg = {}, opts = {}) {
     custom_source_templates: cfg.custom_source_templates || {},
     direct_source_instances: directInstances,
     direct_source_billing: cfg.direct_source_billing || {},
+    // 跨端同步用的删除墓碑（阻止已删账户被残留快照复活）
+    removed_account_ids: cfg.removed_account_ids || {},
+    removed_direct_ids: cfg.removed_direct_ids || {},
     sync_diff: computeSyncDiff(cfg),
     account_stats: accountStats(cfg, directInstances),
     ...billing,
