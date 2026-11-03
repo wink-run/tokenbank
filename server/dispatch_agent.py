@@ -37,11 +37,19 @@ def _public_progress_parts(raw) -> list:
             continue
         kind = str(item.get("type") or "")
         if kind == "tool":
-            out.append({
+            tool = {
                 "type": "tool",
                 "name": str(item.get("name") or "tool")[:80],
                 "detail": str(item.get("detail") or "")[:4000],
-            })
+            }
+            result = str(item.get("result") or "")
+            if result:
+                tool["result"] = result[:4000]
+            if item.get("done"):
+                tool["done"] = True
+            if item.get("error"):
+                tool["error"] = True
+            out.append(tool)
             continue
         if kind not in ("text", "thinking"):
             continue

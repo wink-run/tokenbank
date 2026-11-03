@@ -765,13 +765,21 @@ async function handleAgentTask(msg, cfg) {
 
   function applyToolResult(step) {
     const detail = String(step.content || '').slice(0, 4000);
-    if (!detail) return;
     const last = [...parts].reverse().find((p) => p.type === 'tool');
     if (!last) {
-      parts.push({ type: 'tool', name: 'tool', detail, open: false });
+      parts.push({
+        type: 'tool',
+        name: String(step.tool_name || 'tool').slice(0, 80),
+        detail: '',
+        result: detail,
+        error: !!step.is_error,
+        open: false,
+      });
       return;
     }
-    last.detail = last.detail ? `${last.detail}\n${detail}`.slice(0, 4000) : detail;
+    // 参数留在 detail，结果单独放，调用方才能把工具收成完成而不是「未收到结果」
+    last.result = detail;
+    last.error = !!step.is_error;
     last.open = false;
   }
 
@@ -788,6 +796,9 @@ async function handleAgentTask(msg, cfg) {
           type: 'tool',
           name: String(p.name || 'tool').slice(0, 80),
           detail: String(p.detail || '').slice(0, 4000),
+          result: p.result ? String(p.result).slice(0, 4000) : undefined,
+          done: !p.open,
+          error: !!p.error,
         });
         continue;
       }

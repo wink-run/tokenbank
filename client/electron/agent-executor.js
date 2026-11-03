@@ -1083,9 +1083,14 @@ class AgentExecutor extends EventEmitter {
     }
   }
 
-  /** 把云端进度收成和本地智能体一样的 output / tool_call 步骤。 */
+  /** 把云端进度收成和本地智能体一样的 output / tool_call / tool_result 步骤。 */
   _noteCommunityProgress(taskId, ev, state) {
     if (!taskId || !ev || this._isTaskCancelled(taskId)) return;
+    const parts = Array.isArray(ev.parts) && ev.parts.length ? ev.parts : null;
+    if (parts) {
+      this._noteCommunityParts(taskId, parts, state);
+      return;
+    }
     const text = String(ev.text || '');
     if (text && text !== state.text) {
       state.text = text;
@@ -1110,6 +1115,70 @@ class AgentExecutor extends EventEmitter {
         ...this._taskEventMeta(taskId),
       });
     }
+  }
+
+  /**
+   * 进度分段是累积快照。工具一旦后面有新段，或带 done，就补一条结果，
+   * 避免收尾时把已经跑完的工具画成「未收到结果 / 失败」。
+   */
+  _noteCommunityParts(taskId, parts, state) {
+    if (!state.partCursor) state.partCursor = [];
+    const meta = this._taskEventMeta(taskId);
+    parts.forEach((part, index) => {
+      if (!part || typeof part !== 'object') return;
+      const prev = state.partCursor[index] || {};
+      const kind = String(part.type || '');
+      if (kind === 'text' || kind === 'thinking') {
+        const text = String(part.text || '');
+        if (!text || prev.text === text) return;
+        state.partCursor[index] = { text };
+        this.emit('task:step', {
+          taskId,
+          stepType: kind === 'thinking' ? 'thinking' : 'output',
+          content: text,
+          is_snapshot: true,
+          timestamp: Date.now(),
+          ...meta,
+        });
+        return;
+      }
+      if (kind !== 'tool') return;
+      const name = String(part.name || 'tool');
+      const detail = String(part.detail || '');
+      const id = `cpart-${index}`;
+      if (!prev.called) {
+        this.emit('task:step', {
+          taskId,
+          stepType: 'tool_call',
+          tool_name: name,
+          tool_use_id: id,
+          content: detail || name,
+          timestamp: Date.now(),
+          ...meta,
+        });
+        prev.called = true;
+        prev.callDetail = detail;
+      }
+      const finished = part.done === true || index < parts.length - 1;
+      if (finished && !prev.done) {
+        let result = String(part.result || '');
+        if (!result && detail && prev.callDetail && detail !== prev.callDetail && detail.startsWith(prev.callDetail)) {
+          result = detail.slice(prev.callDetail.length).trim();
+        }
+        this.emit('task:step', {
+          taskId,
+          stepType: 'tool_result',
+          tool_name: name,
+          tool_use_id: id,
+          content: result || (part.error ? '(失败)' : '(完成)'),
+          is_error: !!part.error,
+          timestamp: Date.now(),
+          ...meta,
+        });
+        prev.done = true;
+      }
+      state.partCursor[index] = prev;
+    });
   }
 
   /**
