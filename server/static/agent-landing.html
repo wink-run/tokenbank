@@ -99,7 +99,7 @@
       </div>
     </header>
 
-    <div class="cscroll" ref="chatEl" @click="onChatClick" @mouseover="onImgOver" @mouseout="onImgOut" @scroll="onImgHide">
+    <div class="cscroll" ref="chatEl" @click="onChatClick" @mouseover="onImgOver" @mouseout="onImgOut" @scroll="onChatScroll" @load.capture="onChatMedia" @loadedmetadata.capture="onChatMedia">
       <div class="cinner">
         <div v-if="!messages.length" class="empty">
           <div v-if="appIcon" class="av lg brand"><img :src="appIcon" alt=""></div>
@@ -809,10 +809,28 @@ createApp({
       return { r, data }
     }
 
+    // 打开时贴在最新一条；用户往上翻之后就不再拽回去
+    let stickToBottom = true
+    function pinChatBottom() {
+      const el = chatEl.value
+      if (!el) return
+      const prev = el.style.scrollBehavior
+      el.style.scrollBehavior = 'auto'
+      el.scrollTop = el.scrollHeight
+      el.style.scrollBehavior = prev
+    }
     async function scrollChat() {
       await nextTick()
+      stickToBottom = true
+      pinChatBottom()
+    }
+    function onChatScroll() {
       const el = chatEl.value
-      if (el) el.scrollTop = el.scrollHeight
+      if (el) stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+      onImgHide()
+    }
+    function onChatMedia() {
+      if (stickToBottom) pinChatBottom()
     }
 
     async function openChat(aid) {
@@ -1063,7 +1081,6 @@ createApp({
           applyMeta()
           if (loggedIn.value) await fetchProfile()
           startPresenceWatch()
-          await scrollChat()
           return
         }
         // 名片不在了：分享来的记录仍打开，只是不能接着聊
@@ -1075,7 +1092,6 @@ createApp({
           if (fromShare.value && messages.value.length) {
             applyMeta()
             startPresenceWatch()
-            await scrollChat()
             return
           }
           agent.value = null
@@ -1091,6 +1107,8 @@ createApp({
         fatal.value = T.value.notFound
       } finally {
         loading.value = false
+        // 加载骨架卸掉后对话区才挂上，这时才能滚到内容底部
+        if (agent.value) await scrollChat()
       }
     }
 
