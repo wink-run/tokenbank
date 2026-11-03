@@ -33,16 +33,25 @@ function clampSidebarWidth(w) {
   return Math.max(SIDEBAR_W_MIN, Math.min(max, Math.round(w)));
 }
 
-/** 内置 Agent 用品牌 logo；自定义智能体保持文字回退 */
+/** 默认出租应用：community:app:claude-code@用户 → claude-code */
+function rentedAppRuntime(agent) {
+  const id = String(agent?.assistantId || agent?.id || '');
+  const m = id.match(/(?:^|:)app:([A-Za-z0-9._-]+)/);
+  return m ? m[1].split('@')[0] : '';
+}
+
+/** 内置 Agent 和出租的默认应用用品牌 logo；自定义智能体保持文字回退 */
 function AgentBrandIcon({ agent, isCustom }) {
-  if (isCustom) {
+  const appRt = rentedAppRuntime(agent);
+  if (isCustom && !appRt) {
     return <span className="text-[9px] font-mono leading-none text-zinc-500">{FALLBACK_ICON.assistant}</span>;
   }
+  const hay = appRt || `${agent.id || ''} ${agent.name || ''}`;
   // Kimi 用组件渲染（与 @lobehub/icons Kimi.Avatar 同构），避免 img 裂图
-  if (/kimi|moonshot/i.test(`${agent.id || ''} ${agent.name || ''}`)) {
+  if (/kimi|moonshot/i.test(hay)) {
     return <KimiAvatar size={14} />;
   }
-  const brand = resolveBrandIcon(`${agent.id || ''} ${agent.name || ''}`);
+  const brand = resolveBrandIcon(hay);
   if (brand) {
     return (
       <img

@@ -44,6 +44,10 @@ button{font-family:inherit}
 .av{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:17px;flex-shrink:0}
 .av.lg{width:64px;height:64px;border-radius:18px;font-size:26px}
 .av.sm{width:28px;height:28px;border-radius:9px;font-size:12px}
+.av.brand{background:#fff;border:1px solid rgba(0,0,0,.08);padding:7px;color:inherit}
+.av.sm.brand{padding:4px}
+.av.lg.brand{padding:12px}
+.av.brand img{width:100%;height:100%;object-fit:contain;display:block}
 .id{min-width:0;flex:1}
 .id-t{display:flex;align-items:center;gap:8px;min-width:0}
 .id-name{font-size:16px;font-weight:650;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

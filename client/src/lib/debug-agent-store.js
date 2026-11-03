@@ -830,6 +830,43 @@ export function buildInterruptedContinuePrompt(userPrompt, lastTurn) {
   return `${base}\n\n${uiT('debug.agent.progressHeader')}\n${bits.slice(-10).join('\n')}`;
 }
 
+/** 上一轮是否因超时结束（错误文案里带 timeout） */
+export function turnTimedOut(turn) {
+  return /timeout/i.test(`${turn?.result?.error || ''} ${turn?.result?.stderr || ''}`);
+}
+
+/** 超时后续跑要用的正文：优先最终结果，否则拼接输出步骤 */
+export function partialAssistantText(turn) {
+  const direct = String(turn?.result?.summary || turn?.result?.output || '').trim();
+  if (direct) return direct.slice(0, 80_000);
+  const bits = [];
+  for (const s of turn?.steps || []) {
+    const kind = s?.stepType || s?.kind;
+    if (kind !== 'output' && kind !== 'text') continue;
+    const text = String(s?.content || '').trim();
+    if (text) bits.push(text);
+  }
+  if (!bits.length) return '';
+  const last = bits[bits.length - 1];
+  // 快照会把全文反复推送，最后一条已经包含前面的就不要再拼一遍
+  if (bits.length > 1 && last.startsWith(bits[0])) return last.slice(0, 80_000);
+  return bits.join('\n\n').slice(0, 80_000);
+}
+
+/**
+ * 超时后续跑。远程任务每次都是新会话，必须把已生成内容放进 prompt。
+ */
+export function buildTimeoutContinuePrompt(userPrompt, lastTurn) {
+  const base = String(userPrompt || '').trim() || uiT('debug.agent.resumePrompt');
+  const priorUser = String(lastTurn?.user || '').trim().slice(0, 4_000);
+  const partial = partialAssistantText(lastTurn);
+  const parts = [uiT('debug.agent.timeoutContinueLead')];
+  if (priorUser) parts.push(`${uiT('debug.agent.timeoutOriginal')}\n${priorUser}`);
+  if (partial) parts.push(`${uiT('debug.agent.timeoutPartial')}\n${partial}`);
+  parts.push(base);
+  return parts.join('\n\n');
+}
+
 /** Debug Agent 列表前端缓存（stale-while-revalidate） */
 let agentsListCache = null;
 

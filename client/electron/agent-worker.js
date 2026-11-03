@@ -876,8 +876,10 @@ async function handleAgentTask(msg, cfg) {
       try { await executor.cancel(localId); } catch { /* 轮询会看到 cancelled */ }
     }
 
+    // 比云端截止早一点交卷，已生成的正文才能在服务端放弃前送到调用方
     const timeoutMs = Math.max(30_000, Number(msg.timeout_ms) || 10 * 60 * 1000);
-    const deadline = Date.now() + timeoutMs;
+    const localTimeoutMs = Math.max(20_000, timeoutMs - 20_000);
+    const deadline = Date.now() + localTimeoutMs;
     let status = null;
     while (Date.now() < deadline) {
       status = await executor.getTaskStatus(localId);
@@ -885,14 +887,40 @@ async function handleAgentTask(msg, cfg) {
       await new Promise((r) => setTimeout(r, 400));
     }
     if (!status || !['completed', 'failed', 'cancelled'].includes(status.status)) {
+      pushProgress({ force: true });
+      const partial = String(textAcc || '').slice(0, 200_000);
+      let artifacts = [];
+      try {
+        artifacts = collectWorkspaceArtifacts(workingDir, partial, started);
+      } catch (e) {
+        log(`[agent] timeout artifacts failed: ${e.message}`);
+      }
       try { await executor.cancel(localId); } catch { /* ignore */ }
+      const ARTIFACT_INLINE_CHARS = 1_500_000;
+      let inlineArtifacts = null;
+      if (artifacts.length) {
+        try {
+          const packed = JSON.stringify(artifacts);
+          if (packed.length <= ARTIFACT_INLINE_CHARS) inlineArtifacts = artifacts;
+        } catch { /* 序列化失败就走单独一帧 */ }
+      }
       send({
         type: 'agent_task_result',
         task_id: taskId,
         status: 'timeout',
-        error: `Agent task timeout (${Math.round(timeoutMs / 1000)}s)`,
+        error: `Agent task timeout (${Math.round(localTimeoutMs / 1000)}s)`,
+        output: partial,
         usage: { duration_ms: Date.now() - started },
+        artifacts: inlineArtifacts || undefined,
+        artifacts_follow: inlineArtifacts ? undefined : (artifacts.length ? true : undefined),
       });
+      if (artifacts.length && !inlineArtifacts) {
+        try {
+          send({ type: 'agent_task_artifacts', task_id: taskId, artifacts });
+        } catch (e) {
+          log(`[agent] send artifacts failed: ${e.message}`);
+        }
+      }
       return;
     }
 

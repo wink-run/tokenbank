@@ -11,6 +11,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/community.css">
 <script src="/static/vue.global.prod.js"></script>
+<script src="/static/app-runtime-icon.js"></script>
 <style>
 .mrow{grid-template-columns:minmax(0,1fr) 90px 110px 96px}
 .lrow{grid-template-columns:44px minmax(0,1fr) 120px 90px}
@@ -143,7 +144,8 @@ a.rk:hover{background:var(--bg-soft,#fafafa)}
         <div class="grid" v-if="shownAgents.length">
           <a v-for="a in shownAgents" :key="a.id + '@' + (a.worker_id || '')" class="card" :href="'/a/' + encodeURIComponent(a.id)">
             <div class="card-h">
-              <span class="av" :style="{ background: color(agentName(a)) }">{{ agentName(a).slice(0, 1) }}</span>
+              <span v-if="appIcon(a)" class="av brand"><img :src="appIcon(a)" alt=""></span>
+              <span v-else class="av" :style="{ background: color(agentName(a)) }">{{ agentName(a).slice(0, 1) }}</span>
               <div style="min-width:0;flex:1">
                 <div class="card-t ell">{{ agentName(a) }}</div>
                 <div class="xs muted ell">@{{ a.owner_nickname || '—' }}<template v-if="a.runtime"> · {{ a.runtime }}</template></div>
@@ -363,6 +365,7 @@ createApp({
     })
     const shownModels = computed(() => models.value.filter(m => (mtype.value === 'all' || m.mtype === mtype.value) && match(m.name)))
 
+    function appIcon(a) { return window.TBAppIcon ? window.TBAppIcon.url(a) : '' }
     function agentName(a) {
       const owner = String(a.owner_nickname || '').trim()
       let n = String(a.display_name || a.name || a.id || '').trim()
@@ -519,7 +522,7 @@ createApp({
     return {
       lang, T, toggleLang, loggedIn, loading, fatal, summary, stats, TABS, tab, setTab, q, mtype, rtype,
       modelFilters, shownModels, shownAgents, resFilters, shownResources, shownCircles, topWorkers,
-      agentName, typeLabel, typeBadge, speedCls, fmtMs, fmtTok, offerText, circleStatus, circleBadge, pct, color,
+      agentName, appIcon, typeLabel, typeBadge, speedCls, fmtMs, fmtTok, offerText, circleStatus, circleBadge, pct, color,
     }
   },
 }).mount('#app')

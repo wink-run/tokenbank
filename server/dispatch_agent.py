@@ -110,6 +110,10 @@ async def _iter_agent_messages(ctx: dict):
             continue
         kind = msg.get("type")
         if kind == "agent_task_progress" and held is None:
+            # 超时交卷时把已经流过的正文带回，调用方才能接着跑
+            text = str(msg.get("text") or "")
+            if text:
+                ctx["partial_output"] = text[:200_000]
             yield msg
             continue
         if kind == "agent_task_artifacts" and held is not None:
@@ -455,11 +459,13 @@ async def _refund_timeout(ctx: dict) -> dict:
             note=f"agent_task timeout refund task_id={task_id}",
         )
     worker.record_agent_complete(aid, False)
+    partial = str(ctx.get("partial_output") or "")
     return {
         "ok": False,
         "task_id": task_id,
         "status": "timeout",
         "error": f"Agent task timeout ({int(timeout_sec)}s)",
+        "output": partial,
         "credits_refunded": 0 if guest else AGENT_TASK_CREDITS,
     }
 

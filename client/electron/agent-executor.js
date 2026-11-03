@@ -1239,7 +1239,40 @@ class AgentExecutor extends EventEmitter {
     }
 
     if (!result?.ok) {
-      throw new Error(result?.error || result?.status || 'community task failed');
+      // 超时也留下已生成正文，桌面端才能自动续跑
+      const errText = String(result?.error || result?.status || 'community task failed');
+      const output = String(result?.output || progress.text || '');
+      const artifacts = normalizeCommunityArtifacts(result?.artifacts);
+      const payload = {
+        success: false,
+        summary: output,
+        output,
+        stderr: errText,
+        error: errText,
+        files: [],
+        artifacts,
+        stepCount: 0,
+        usage: result?.usage || null,
+      };
+      try {
+        db.prepare(`
+          UPDATE agent_tasks
+          SET status = 'failed', error = ?, result = ?, completed_at = ?
+          WHERE id = ?
+        `).run(errText, JSON.stringify(payload), Date.now(), taskId);
+      } catch (e) {
+        console.warn('[AgentExecutor] community task fail persist failed:', e.message);
+        this._updateTaskStatus(taskId, 'failed', errText);
+      }
+      this.emit('task:failed', {
+        taskId,
+        error: errText,
+        result: payload,
+        status: 'failed',
+        ...this._taskEventMeta(taskId),
+      });
+      this.taskMetaCache.delete(taskId);
+      return;
     }
 
     const artifacts = normalizeCommunityArtifacts(result.artifacts);

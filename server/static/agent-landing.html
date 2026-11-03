@@ -13,6 +13,7 @@
 <script src="/static/purifier.min.js"></script>
 <link rel="stylesheet" href="/static/chat.css">
 <script src="/static/chat-ui.js"></script>
+<script src="/static/app-runtime-icon.js"></script>
 </head>
 <body>
 <div id="app" class="chat-app" v-cloak>
@@ -73,7 +74,8 @@
   <main v-else-if="agent" class="cmain">
     <header class="chead">
       <div class="cinner">
-        <div class="av" :style="{ background: avatarColor(agentName) }">{{ agentName.slice(0, 1).toUpperCase() }}</div>
+        <div v-if="appIcon" class="av brand"><img :src="appIcon" alt=""></div>
+        <div v-else class="av" :style="{ background: avatarColor(agentName) }">{{ agentName.slice(0, 1).toUpperCase() }}</div>
         <div class="id">
           <div class="id-t"><span class="id-name">{{ agentName }}</span>
             <span class="tag" :class="{ circle: agent.visibility === 'circle' }">{{ agent.visibility === 'circle' ? T.circleShare : T.publicShare }}</span>
@@ -97,7 +99,8 @@
     <div class="cscroll" ref="chatEl" @click="onChatClick">
       <div class="cinner">
         <div v-if="!messages.length" class="empty">
-          <div class="av lg" :style="{ background: avatarColor(agentName) }">{{ agentName.slice(0, 1).toUpperCase() }}</div>
+          <div v-if="appIcon" class="av lg brand"><img :src="appIcon" alt=""></div>
+          <div v-else class="av lg" :style="{ background: avatarColor(agentName) }">{{ agentName.slice(0, 1).toUpperCase() }}</div>
           <h2>{{ agentName }}</h2>
           <p>{{ agent.description || T.noDesc }}</p>
           <div class="sugs">
@@ -106,7 +109,8 @@
         </div>
         <div v-for="(m, i) in messages" :key="i" class="msg" :class="[m.role, { pending: m.pending }]">
           <template v-if="m.role === 'assistant'">
-            <div class="av sm" :style="{ background: avatarColor(agentName) }">{{ agentName.slice(0, 1).toUpperCase() }}</div>
+            <div v-if="appIcon" class="av sm brand"><img :src="appIcon" alt=""></div>
+            <div v-else class="av sm" :style="{ background: avatarColor(agentName) }">{{ agentName.slice(0, 1).toUpperCase() }}</div>
             <div class="abody">
               <template v-if="m.parts && m.parts.length">
                 <div v-for="(p, pi) in m.parts" :key="pi" class="apart" :class="'apart-' + p.type">
@@ -262,6 +266,8 @@ createApp({
         chatHint: '未登录可试一轮', chatEmpty: '发送一条消息试用；可粘贴图片；登录后可多轮追问。',
         clear: '清空对话', thinking: '…', thinkingLabel: '思考', toolLabel: '工具', streaming: '生成中…', toolRunning: '调用工具：{name}',
         pause: '暂停', paused: '已暂停',
+        autoContinue: '上一次执行超时了，请从中断处继续，不要重头开始。',
+        timeoutStopped: '已自动续跑两次，仍超时。再发一条消息可以继续。',
         newChat: '新对话', copy: '复制', copied: '已复制', attach: '添加附件', hires: '{n} 次雇佣',
         imageOnly: '请根据附图完成任务', fileOnly: '请根据附件完成任务',
         enterHint: 'Enter 换行 · Shift+Enter 发送', trialDone: '本次已用完', gateSub: '再看一次广告，或登录后按积分继续。', watchAdAgain: '再看广告',
@@ -293,6 +299,8 @@ createApp({
         chatHint: 'One free guest turn', chatEmpty: 'Try one message (paste images OK); sign in for multi-turn chat.',
         clear: 'Clear', thinking: '…', thinkingLabel: 'Thinking', toolLabel: 'Tool', streaming: 'Generating…', toolRunning: 'Tool: {name}',
         pause: 'Pause', paused: 'Paused',
+        autoContinue: 'The previous run timed out. Continue from where it stopped. Do not start over.',
+        timeoutStopped: 'Auto-continue stopped after two timeouts. Send another message to go on.',
         newChat: 'New chat', copy: 'Copy', copied: 'Copied', attach: 'Add attachment', hires: '{n} hires',
         imageOnly: 'Please use the attached images.', fileOnly: 'Please use the attached files.',
         enterHint: 'Enter for newline · Shift+Enter to send', trialDone: 'Turn used up', gateSub: 'Watch another ad, or sign in to continue (credits).', watchAdAgain: 'Watch ad',
@@ -346,6 +354,8 @@ createApp({
     let runAbort = null
     let runSettle = null
     let stopRequested = false
+    // 同一次用户请求里，超时后续跑的次数。用户自己再发消息时清零
+    let autoContinues = 0
     const err = ref('')
     // 未登录已用完一轮试用
     const guestUsed = ref(false)
@@ -675,12 +685,16 @@ createApp({
       if (!prior.length) return nextUser
       const lines = prior.map(m => {
         const who = m.role === 'user' ? 'User' : 'Assistant'
-        const note = m.paused ? '\n(paused so the user can add information)' : ''
+        const note = m.paused
+          ? '\n(paused so the user can add information)'
+          : (m.timedOut ? '\n(timed out; continue this work, do not restart)' : '')
         return `${who}: ${m.content}${note}`
       })
       const lead = prior.some(m => m.paused)
         ? 'The previous turn was paused. Keep the work already done and apply the new user message.\n\n'
-        : ''
+        : prior.some(m => m.timedOut)
+          ? 'The previous turn timed out. Continue the unfinished work from the partial answer. Do not restart.\n\n'
+          : ''
       return `${lead}Conversation so far:\n${lines.join('\n\n')}\n\nUser: ${nextUser}\n\nAssistant:`
     }
 
@@ -867,7 +881,10 @@ createApp({
       if (wait) await wait
     }
 
-    async function sendMessage() {
+    async function sendMessage(arg) {
+      // 点击事件也会传进来；只有显式 true 才是超时后续跑
+      const auto = arg === true
+      if (!auto) autoContinues = 0
       if (running.value) {
         const followUp = hasDraft.value
         await pauseRun()
@@ -911,6 +928,8 @@ createApp({
       runAbort = new AbortController()
       let resolveSettle = () => {}
       runSettle = new Promise((resolve) => { resolveSettle = resolve })
+      // 本轮若超时，finally 之后用这句话自动再开一轮
+      let nextAuto = ''
       await scrollChat()
 
       const setAssistant = (content, { pending = true } = {}) => {
@@ -1084,6 +1103,40 @@ createApp({
                 freezePartial(asstIdx)
                 return
               }
+              const timeoutEv = /timeout/i.test(`${ev.status || ''} ${ev.error || ''}`)
+              if (timeoutEv) {
+                const row = messages.value[asstIdx]
+                const remote = String(ev.output || '').trim()
+                const cur = answerOf(row).trim()
+                const text = remote.length > cur.length ? remote : cur
+                if (row) {
+                  row.pending = false
+                  row.timedOut = true
+                  if (text) {
+                    row.content = text
+                    row.parts = [{ type: 'text', text }]
+                  } else {
+                    messages.value.splice(asstIdx, 1)
+                  }
+                }
+                const arts = cleanArtifacts(ev.artifacts)
+                const kept = messages.value[asstIdx]
+                if (arts.length && kept && kept.role === 'assistant') {
+                  kept.artifacts = arts
+                  if (kept.content) kept.content = swapArtifactPaths(kept.content, arts)
+                }
+                if (!isGuest && autoContinues < 2) {
+                  autoContinues += 1
+                  nextAuto = T.value.autoContinue
+                  err.value = ''
+                } else if (!isGuest) {
+                  err.value = T.value.timeoutStopped
+                } else {
+                  err.value = String(ev.error || ev.status || 'timeout')
+                }
+                if (isGuest) guestUsed.value = true
+                return
+              }
               finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
               const msg = ev.error || ev.detail || ev.status || 'failed'
               // 已有流式正文时保留并标注失败；否则回退整轮
@@ -1149,6 +1202,13 @@ createApp({
         runAbort = null
         resolveSettle()
         runSettle = null
+        // return 会跳过 finally 之后的代码，续跑放在这里才能执行
+        if (nextAuto) {
+          const text = nextAuto
+          nextAuto = ''
+          prompt.value = text
+          await sendMessage(true)
+        }
       }
     }
 
@@ -1189,6 +1249,7 @@ createApp({
     }
     const autoGrow = (el) => ChatUI.autoGrow(el)
     const avatarColor = (n) => ChatUI.avatarColor(n)
+    const appIcon = computed(() => (window.TBAppIcon ? window.TBAppIcon.url(agent.value) : ''))
     const renderRich = (raw) => ChatUI.wrapCode(renderMarkdown(raw), T.value.copy)
     const onChatClick = (e) => ChatUI.onCopyClick(e, T.value.copied, T.value.copy)
     function copyMsg(m, e) {
@@ -1200,7 +1261,7 @@ createApp({
     }
 
     return {
-      authOpen, openAuth, composerEl, fileEl, agentName, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor,
+      authOpen, openAuth, composerEl, fileEl, agentName, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor, appIcon,
       renderRich, onChatClick, copyMsg, answerOf, downloadArtifact,
       lang, T, toggleLang, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,

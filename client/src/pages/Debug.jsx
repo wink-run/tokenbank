@@ -42,6 +42,8 @@ import {
   shouldContinueCliSession,
   canResumeInterruptedSession,
   buildInterruptedContinuePrompt,
+  buildTimeoutContinuePrompt,
+  turnTimedOut,
   normalizeWorkingDir,
   workingDirBasename,
   hasOpenToolCalls,
@@ -929,6 +931,8 @@ export default function Debug() {
   const agentTextareaRef = useRef(null);
   const selectedAgentRef = useRef(null);
   selectedAgentRef.current = selectedAgent;
+  const executeAgentRef = useRef(null);
+  const maybeAutoContinueRef = useRef(null);
   const agentsRef = useRef([]);
   agentsRef.current = agents;
   const syncSessionToStateRef = useRef(null);
@@ -1892,6 +1896,9 @@ export default function Debug() {
             taskResult: status.result || data.result || null,
             taskSteps: preferRicherSteps(steps, getStoreSession(key).taskSteps || []),
           });
+          const timeoutHint = [status.error, status.result?.error, status.result?.stderr, data.error]
+            .filter(Boolean).join(' ');
+          maybeAutoContinueRef.current?.(key, timeoutHint, terminalStatus);
           return;
         }
       } catch (err) {
@@ -1915,6 +1922,8 @@ export default function Debug() {
         taskResult: data.result || null,
         taskSteps: steps.length ? steps : getStoreSession(key).taskSteps,
       });
+      const timeoutHint = [data.error, data.result?.error, data.result?.stderr].filter(Boolean).join(' ');
+      maybeAutoContinueRef.current?.(key, timeoutHint, terminalStatus);
     };
 
     const handleDispatched = ({ parentTaskId, childTaskId, agentId, prompt, parentSessionKey, parentSessionInstanceId }) => {
@@ -2343,6 +2352,8 @@ export default function Debug() {
           taskResult: status.result || null,
           taskSteps: steps.length ? steps : sess.taskSteps,
         });
+        const timeoutHint = [status.error, status.result?.error, status.result?.stderr].filter(Boolean).join(' ');
+        maybeAutoContinueRef.current?.(execKey, timeoutHint, status.status);
         return;
       } catch {
         // 继续轮询
@@ -2351,7 +2362,8 @@ export default function Debug() {
   }
 
   // Execute agent task（promptOverride 供「继续」一键续接，避免等 setState）
-  async function executeAgent(promptOverride) {
+  async function executeAgent(promptOverride, opts) {
+    const autoContinue = !!(opts && opts.autoContinue);
     const text = String(promptOverride != null ? promptOverride : agentPrompt).trim();
     const attachList = promptOverride != null ? [] : pendingImages;
     const imageItems = attachList.filter(p => p.kind !== 'file');
@@ -2366,7 +2378,8 @@ export default function Debug() {
     if (!activeAgent || !prompt || !window.electronAPI?.agent) {
       return;
     }
-    if (executing || taskCanStop) return;
+    // 超时续跑时 React 状态可能还没刷新，以 store 里的 executing 为准
+    if (!autoContinue && (executing || taskCanStop)) return;
     if (activeAgent.custom && isHubMode) {
       return;
     }
@@ -2380,6 +2393,7 @@ export default function Debug() {
       return;
     }
     const execKey = agentSessionKey(selectedAgent);
+    if (autoContinue && getStoreSession(execKey).executing) return;
     const workDir = normalizeWorkingDir(
       getStoreSession(execKey).sessionWorkingDir || agentWorkingDir.trim(),
     );
@@ -2425,10 +2439,20 @@ export default function Debug() {
       ? (sess.cliSessionId || lastTurn?.cliSessionId || lastTurn?.result?.cliSessionId || undefined)
       : undefined;
     // 无 sessionId 时把上次进度写进 prompt，避免停止后续接「失忆」
-    const execPrompt = (continueSession && !resumeCliSessionId
-      && ['cancelled', 'failed'].includes(lastTurn?.status))
-      ? buildInterruptedContinuePrompt(prompt, lastTurn)
-      : prompt;
+    // 没有可恢复的 CLI 会话时，超时续跑要把已生成正文整段带上
+    const execPrompt = ((autoContinue || turnTimedOut(lastTurn)) && !resumeCliSessionId)
+      ? buildTimeoutContinuePrompt(prompt, lastTurn)
+      : (continueSession && !resumeCliSessionId
+        && ['cancelled', 'failed'].includes(lastTurn?.status))
+        ? buildInterruptedContinuePrompt(prompt, lastTurn)
+        : prompt;
+    if (autoContinue) {
+      const n = getStoreSession(execKey).timeoutContinues || 0;
+      if (n >= 2) return;
+      patchStoreSession(execKey, { timeoutContinues: n + 1 });
+    } else {
+      patchStoreSession(execKey, { timeoutContinues: 0, timeoutContinuePending: false });
+    }
     const instanceId = beginSessionInstance(execKey);
 
     // 粘住历史线程：有轮次时务必带上 historyThreadId，防止后续归档按新 taskId 拆条
@@ -2507,6 +2531,27 @@ export default function Debug() {
       alert(t('debug.agent.execFailed', { msg: error.message }));
     }
   }
+  executeAgentRef.current = executeAgent;
+
+  /** 超时结束后自动再开一轮，最多两次。用户取消或换了标签则不续。 */
+  maybeAutoContinueRef.current = (key, errorText, status) => {
+    if (status === 'cancelled') return;
+    if (!/timeout/i.test(String(errorText || ''))) return;
+    if (agentSessionKey(selectedAgentRef.current) !== key) return;
+    const sess = getStoreSession(key);
+    if (sess.executing || sess.timeoutContinuePending) return;
+    if ((sess.timeoutContinues || 0) >= 2) return;
+    // 完成事件和轮询可能各触发一次，先占住，避免连开两轮
+    const stamp = Date.now();
+    patchStoreSession(key, { timeoutContinuePending: stamp });
+    setTimeout(() => {
+      if (getStoreSession(key).timeoutContinuePending !== stamp) return;
+      patchStoreSession(key, { timeoutContinuePending: false });
+      if (getStoreSession(key).executing) return;
+      if (agentSessionKey(selectedAgentRef.current) !== key) return;
+      executeAgentRef.current?.(t('debug.agent.resumePrompt'), { autoContinue: true });
+    }, 500);
+  };
 
   async function pickWorkingDir() {
     if (!window.electronAPI?.agent?.pickWorkingDir) return;

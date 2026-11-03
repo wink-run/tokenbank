@@ -21,6 +21,7 @@ import {
   LIB_LIST_CLS, libRowCls, LibraryRowTitle, LibraryInspector, InspectorSection, LibrarySectionHead, FilterMenu,
 } from '../components/LibraryControls';
 import ServiceIcon from '../components/ServiceIcon';
+import { resolveBrandIcon } from '../lib/brandIcons';
 import { getServerUrl } from '../config';
 import { copyText } from '../lib/resource-enable';
 function multiplierToStars(m) {
@@ -1045,8 +1046,27 @@ function communityAgentTitle(a) {
   return parseCommunityAgent(a).name;
 }
 
-/** 社区智能体卡片左侧图标：按名称着色 + 首字，辅以简易智能体符号 */
-function CommunityAgentIcon({ name, selected, small = false }) {
+/** app:claude-code / community:app:claude-code@用户 → claude-code；自定义智能体返回空 */
+function rentedAppRuntime(agent) {
+  const id = String(agent?.id || agent?.assistantId || '');
+  const m = id.match(/(?:^|:)app:([A-Za-z0-9._-]+)/);
+  return m ? m[1].split('@')[0] : '';
+}
+
+/** 社区智能体卡片左侧图标。默认出租的应用用它自己的图标，其余仍是首字。 */
+function CommunityAgentIcon({ agent, name, selected, small = false }) {
+  const rt = rentedAppRuntime(agent);
+  if (rt && resolveBrandIcon(rt)) {
+    return (
+      <ServiceIcon
+        id={rt}
+        name={name || rt}
+        boxClass={small ? 'w-9 h-9' : 'w-11 h-11'}
+        imgClass={small ? 'w-5 h-5' : 'w-6 h-6'}
+        className={`!rounded-xl ring-1 ring-black/5 dark:ring-white/10 ${selected ? 'ring-2 ring-amber-400 dark:ring-amber-500' : ''}`}
+      />
+    );
+  }
   const label = String(name || '?').trim() || '?';
   const initial = label[0].toUpperCase();
   return (
@@ -1412,7 +1432,7 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
                     className={`${libRowCls(sel)} grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1fr)_8rem_6.5rem_4.5rem_4rem]`}
                   >
                     <LibraryRowTitle
-                      logo={<CommunityAgentIcon name={title} small />}
+                      logo={<CommunityAgentIcon agent={a} name={title} small />}
                       name={owner ? (
                         <>
                           <span className="text-zinc-400 dark:text-zinc-500 font-normal">{owner}</span>
@@ -1475,7 +1495,7 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
         </div>
         {selected && (
           <LibraryInspector
-            logo={<CommunityAgentIcon name={selected.display_name || selected.id} />}
+            logo={<CommunityAgentIcon agent={selected} name={selected.display_name || selected.id} />}
             title={selectedFull}
             chips={(
               <>

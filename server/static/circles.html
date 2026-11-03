@@ -11,6 +11,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/community.css">
 <script src="/static/vue.global.prod.js"></script>
+<script src="/static/app-runtime-icon.js"></script>
 <style>
 .srow{grid-template-columns:minmax(0,1fr) 110px 92px}
 @media (max-width:720px){.srow{grid-template-columns:minmax(0,1fr) 84px}}
@@ -221,7 +222,8 @@
             <template v-else-if="curSupply === 'agents'">
               <a v-for="a in detail.agents" :key="'a' + (a.worker_id || '') + ':' + (a.id || a.name)" class="trow srow" :href="'/a/' + encodeURIComponent(a.id)">
                 <div style="display:flex;align-items:center;gap:10px;min-width:0">
-                  <span class="av sm" :style="{ background: color(a.display_name || a.name) }">{{ (a.display_name || a.name || a.id || '?').slice(0, 1) }}</span>
+                  <span v-if="appIcon(a)" class="av sm brand"><img :src="appIcon(a)" alt=""></span>
+                  <span v-else class="av sm" :style="{ background: color(a.display_name || a.name) }">{{ (a.display_name || a.name || a.id || '?').slice(0, 1) }}</span>
                   <div style="min-width:0">
                     <div class="ell" style="font-weight:550">{{ a.display_name || a.name || a.id }}</div>
                     <div class="ell xs muted">{{ a.description || T.noDesc }}</div>
@@ -770,6 +772,8 @@ createApp({
       }
     }
 
+    function appIcon(a) { return window.TBAppIcon ? window.TBAppIcon.url(a) : '' }
+
     onMounted(() => {
       document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
       boot()
@@ -780,7 +784,7 @@ createApp({
       view, mine, requestCounts, totalPending, loadingMine, browseQ, shownBrowse, loadingBrowse, applyingId, busy, modal,
       createForm, createCircle, joinInput, joinPreview, joinErr, previewJoin, confirmJoin, closeJoin, apply, pct, color,
       detail, detailLoading, detailErr, members, sortedMembers, joinRequests, supplyTabs, supplyTab, curSupply, supplyCount,
-      copied, menuOpen, copyInvite, dissolve, leave, approveReq, rejectReq, buyMod, typeLabel, modelHref, goHome, goDetail,
+      copied, menuOpen, copyInvite, dissolve, leave, approveReq, rejectReq, buyMod, typeLabel, modelHref, goHome, goDetail, appIcon,
     }
   },
 }).mount('#app')
