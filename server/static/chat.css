@@ -94,6 +94,15 @@ button{font-family:inherit}
 @keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:1}}
 .uimgs{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;justify-content:flex-end}
 .uimgs img{max-width:180px;max-height:140px;border-radius:12px;object-fit:cover;display:block;border:1px solid var(--border)}
+.apart{display:block;margin:0 0 10px}
+.apart-label{display:block;font-size:11px;font-weight:650;letter-spacing:.04em;color:var(--text-muted);margin-bottom:4px}
+.apart-thinking{display:block;background:var(--bg-muted);border-radius:12px;padding:8px 12px}
+.apart-thinking .apart-body{display:block;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word;color:var(--text-2);font-size:13px;line-height:1.6}
+.apart-tool{display:block;border:1px solid var(--border);border-radius:12px;padding:8px 12px;background:var(--bg)}
+.apart-tool .apart-name{display:block;font-family:var(--mono);font-size:12.5px;font-weight:650}
+.apart-tool pre{margin:6px 0 0;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.55;max-height:160px;overflow:auto;color:var(--text-2)}
+.apart-text+.apart-text{margin-top:2px}
+.stream-caret{display:flex;margin-top:6px}
 .msg-tools{margin-top:6px;display:flex;gap:4px;opacity:0;transition:opacity .12s}
 .msg.assistant:hover .msg-tools{opacity:1}
 .mini{border:none;background:transparent;color:var(--text-muted);font-size:12px;padding:3px 7px;border-radius:7px;cursor:pointer}
@@ -145,6 +154,16 @@ button{font-family:inherit}
 .thumb{position:relative;width:56px;height:56px;border-radius:10px;overflow:hidden;border:1px solid var(--border);background:var(--bg-muted)}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .thumb button{position:absolute;top:3px;right:3px;width:18px;height:18px;border:none;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:11px;line-height:18px;cursor:pointer;padding:0}
+.filechip{display:inline-flex;align-items:center;gap:6px;max-width:220px;height:32px;padding:0 6px 0 10px;border-radius:10px;border:1px solid var(--border);background:var(--bg);font-size:12px;color:var(--text-2)}
+.filechip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.filechip button{border:none;background:transparent;color:var(--text-muted);cursor:pointer;font-size:14px;line-height:1;padding:0 2px}
+.ufiles{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;justify-content:flex-end}
+.ufile{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 10px;border-radius:999px;background:var(--bg-muted);border:1px solid var(--border);font-size:12px;color:var(--text-2)}
+.afiles{display:flex;flex-direction:column;gap:12px;margin-top:12px}
+.afig{margin:0}
+.afig img{display:block;max-width:100%;border-radius:12px;border:1px solid var(--border);background:var(--bg)}
+.afile{display:inline-flex;margin-top:6px;max-width:100%;padding:6px 10px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text-2);font-size:12.5px;cursor:pointer;font-family:inherit}
+.afile:hover{border-color:var(--text-muted);color:var(--text)}
 .foot-hint{margin-top:8px;text-align:center;font-size:12px;color:var(--text-faint)}
 .foot-hint a,.foot-hint button{color:var(--text-muted);text-decoration:underline;background:none;border:none;cursor:pointer;font-size:12px;padding:0}
 .err{margin:0 0 8px;padding:8px 12px;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;color:var(--danger);font-size:13px}

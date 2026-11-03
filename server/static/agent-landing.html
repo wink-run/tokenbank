@@ -108,15 +108,37 @@
           <template v-if="m.role === 'assistant'">
             <div class="av sm" :style="{ background: avatarColor(agentName) }">{{ agentName.slice(0, 1).toUpperCase() }}</div>
             <div class="abody">
-              <span v-if="m.pending && (!m.content || m.content === T.thinking)" class="typing"><i></i><i></i><i></i></span>
-              <div v-else class="md-body" v-html="renderRich(m.content)"></div>
-              <div v-if="!m.pending && m.content" class="msg-tools">
+              <template v-if="m.parts && m.parts.length">
+                <div v-for="(p, pi) in m.parts" :key="pi" class="apart" :class="'apart-' + p.type">
+                  <template v-if="p.type === 'thinking'">
+                    <div class="apart-label">{{ T.thinkingLabel }}</div>
+                    <div class="apart-body">{{ p.text }}</div>
+                  </template>
+                  <template v-else-if="p.type === 'tool'">
+                    <div class="apart-label">{{ T.toolLabel }}</div>
+                    <div class="apart-name">{{ p.name }}</div>
+                    <pre v-if="p.detail">{{ p.detail }}</pre>
+                  </template>
+                  <div v-else class="md-body" v-html="renderRich(p.text)"></div>
+                </div>
+              </template>
+              <div v-else-if="m.content && m.content !== T.thinking" class="md-body" v-html="renderRich(m.content)"></div>
+              <span v-if="m.pending && !(m.parts && m.parts.length) && (!m.content || m.content === T.thinking)" class="typing"><i></i><i></i><i></i></span>
+              <span v-else-if="m.pending" class="typing stream-caret"><i></i><i></i><i></i></span>
+              <div v-if="m.artifacts && m.artifacts.length" class="afiles">
+                <figure v-for="(f, j) in m.artifacts" :key="j" class="afig">
+                  <img v-if="f.kind === 'image'" :src="f.dataUrl" :alt="f.name">
+                  <button type="button" class="afile" @click="downloadArtifact(f)">{{ f.name }}</button>
+                </figure>
+              </div>
+              <div v-if="!m.pending && answerOf(m)" class="msg-tools">
                 <button type="button" class="mini" @click="copyMsg(m, $event)">{{ T.copy }}</button>
               </div>
             </div>
           </template>
           <div v-else style="display:flex;flex-direction:column;align-items:flex-end;max-width:100%">
             <div v-if="m.content" class="ubub">{{ m.content }}</div>
+            <div v-if="m.files && m.files.length" class="ufiles"><span v-for="(f, j) in m.files" :key="j" class="ufile">{{ f.name }}</span></div>
             <div v-if="m.images && m.images.length" class="uimgs"><img v-for="(src, j) in m.images" :key="j" :src="src" alt=""></div>
           </div>
         </div>
@@ -134,10 +156,16 @@
         </div>
         <div v-else class="box">
           <div v-if="pendingImages.length" class="attach">
-            <div v-for="(p, i) in pendingImages" :key="p.id" class="thumb">
-              <img :src="p.dataUrl" alt="">
-              <button type="button" :disabled="running" @click="removePendingImage(i)" title="×">×</button>
-            </div>
+            <template v-for="(p, i) in pendingImages" :key="p.id">
+              <div v-if="p.kind === 'file'" class="filechip">
+                <span>{{ p.name }}</span>
+                <button type="button" :disabled="running" @click="removePendingImage(i)" title="×">×</button>
+              </div>
+              <div v-else class="thumb">
+                <img :src="p.dataUrl" alt="">
+                <button type="button" :disabled="running" @click="removePendingImage(i)" title="×">×</button>
+              </div>
+            </template>
           </div>
           <textarea
             ref="composerEl"
@@ -150,7 +178,7 @@
             @paste="onComposerPaste"
           ></textarea>
           <div class="box-row">
-            <input ref="fileEl" type="file" accept="image/*" multiple hidden @change="onPickFiles">
+            <input ref="fileEl" type="file" multiple hidden @change="onPickFiles">
             <button type="button" class="icon-btn" :disabled="running" :title="T.attach" @click="fileEl && fileEl.click()">
               <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14.5 9.5 9.6 14.4a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3l-5.5 5.5a1 1 0 0 1-1.5-1.5L11.6 6.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
@@ -217,7 +245,7 @@ createApp({
         loading: '加载中…', unavailable: '无法访问此智能体', backHome: '返回首页',
         backNetwork: '← 社区网络',
         noDesc: '暂无简介', online: '在线', publicShare: '全球分享', circleShare: '圈子分享',
-        creditsPerTask: '每次 {n} 积分', promptPh: '输入消息或粘贴图片，Enter 发送…',
+        creditsPerTask: '每次 {n} 积分', promptPh: '输入消息，或添加图片和文件，Enter 发送…',
         send: '发送', running: '思考中…', needLogin: '圈子分享仅成员可见；全球分享未登录可试一轮。',
         loginToContinue: '试用一轮已结束，登录后可继续对话（按正常积分扣费）。',
         login: '登录', register: '注册', loggingIn: '登录中…', registering: '注册中…',
@@ -225,13 +253,14 @@ createApp({
         balance: '余额 {n} 积分', footer: '已分享智能体的网页版',
         notFound: '智能体不存在、离线，或你无权访问（圈子分享需成为成员）。',
         needAuthCircle: '这是圈子分享的智能体，请先登录后再查看。',
-        emptyPrompt: '请先输入内容或粘贴图片',
-        attachHint: '最多 3 张，粘贴即可',
-        attachLimit: '最多附 3 张图',
-        attachSize: '单张图片过大',
+        emptyPrompt: '请先输入内容，或添加图片和文件',
+        attachHint: '图片最多 3 张，其他文件最多 4 个',
+        attachLimit: '附件数量已达上限',
+        attachSize: '附件过大',
         chatHint: '未登录可试一轮', chatEmpty: '发送一条消息试用；可粘贴图片；登录后可多轮追问。',
-        clear: '清空对话', thinking: '…', streaming: '生成中…', toolRunning: '调用工具：{name}',
-        newChat: '新对话', copy: '复制', copied: '已复制', attach: '添加图片', hires: '{n} 次雇佣',
+        clear: '清空对话', thinking: '…', thinkingLabel: '思考', toolLabel: '工具', streaming: '生成中…', toolRunning: '调用工具：{name}',
+        newChat: '新对话', copy: '复制', copied: '已复制', attach: '添加附件', hires: '{n} 次雇佣',
+        imageOnly: '请根据附图完成任务', fileOnly: '请根据附件完成任务',
         enterHint: 'Enter 发送 · Shift+Enter 换行', trialDone: '本次已用完', gateSub: '再看一次广告，或登录后按积分继续。', watchAdAgain: '再看广告',
         runsRemote: '任务在分享者设备上执行', authTitleLogin: '登录 Token Bank', authTitleRegister: '注册 Token Bank',
         authSub: '登录后可多轮对话，按次扣积分。',
@@ -246,7 +275,7 @@ createApp({
         loading: 'Loading…', unavailable: 'Agent unavailable', backHome: 'Home',
         backNetwork: '← Network',
         noDesc: 'No description', online: 'Online', publicShare: 'Global', circleShare: 'Circle',
-        creditsPerTask: '{n} credits / turn', promptPh: 'Message or paste image, Enter to send…',
+        creditsPerTask: '{n} credits / turn', promptPh: 'Message, or add an image or file. Enter to send…',
         send: 'Send', running: 'Thinking…', needLogin: 'Circle agents are members-only. Public agents: one free guest turn.',
         loginToContinue: 'Guest trial used. Sign in to continue (normal credits).',
         login: 'Sign in', register: 'Sign up', loggingIn: 'Signing in…', registering: 'Signing up…',
@@ -254,13 +283,14 @@ createApp({
         balance: 'Balance {n} credits', footer: 'Web version of a shared agent',
         notFound: 'Not found, offline, or not visible to you (circle members only).',
         needAuthCircle: 'Circle-shared agent — sign in to view.',
-        emptyPrompt: 'Enter a message or paste an image',
-        attachHint: 'Up to 3 images — paste to attach',
-        attachLimit: 'At most 3 images',
-        attachSize: 'Image too large',
+        emptyPrompt: 'Enter a message, or add an image or file',
+        attachHint: 'Up to 3 images and 4 other files',
+        attachLimit: 'Too many attachments',
+        attachSize: 'Attachment too large',
         chatHint: 'One free guest turn', chatEmpty: 'Try one message (paste images OK); sign in for multi-turn chat.',
-        clear: 'Clear', thinking: '…', streaming: 'Generating…', toolRunning: 'Tool: {name}',
-        newChat: 'New chat', copy: 'Copy', copied: 'Copied', attach: 'Add image', hires: '{n} hires',
+        clear: 'Clear', thinking: '…', thinkingLabel: 'Thinking', toolLabel: 'Tool', streaming: 'Generating…', toolRunning: 'Tool: {name}',
+        newChat: 'New chat', copy: 'Copy', copied: 'Copied', attach: 'Add attachment', hires: '{n} hires',
+        imageOnly: 'Please use the attached images.', fileOnly: 'Please use the attached files.',
         enterHint: 'Enter to send · Shift+Enter for newline', trialDone: 'Turn used up', gateSub: 'Watch another ad, or sign in to continue (credits).', watchAdAgain: 'Watch ad',
         runsRemote: "Runs on the sharer's device", authTitleLogin: 'Sign in to Token Bank', authTitleRegister: 'Create your account',
         authSub: 'Sign in for multi-turn chat, billed per turn.',
@@ -302,7 +332,9 @@ createApp({
     // 待发送附图（仅本轮；不写入本地历史以免撑爆 quota）
     const pendingImages = ref([])
     const ATTACH_MAX = 3
+    const FILE_MAX = 4
     const ATTACH_MAX_BYTES = 4 * 1024 * 1024
+    const FILE_MAX_BYTES = 8 * 1024 * 1024
     const chatEl = ref(null)
     const running = ref(false)
     const err = ref('')
@@ -329,23 +361,97 @@ createApp({
     function guestUsedKey(aid) {
       return `tb_agent_guest_used:${String(aid || '').trim()}`
     }
+    function cleanParts(parts) {
+      if (!Array.isArray(parts)) return undefined
+      const out = []
+      for (const p of parts) {
+        if (!p || typeof p !== 'object') continue
+        if (p.type === 'tool') {
+          out.push({
+            type: 'tool',
+            name: String(p.name || 'tool').slice(0, 80),
+            detail: String(p.detail || '').slice(0, 4000),
+          })
+          continue
+        }
+        if (p.type !== 'text' && p.type !== 'thinking') continue
+        const text = String(p.text || '').slice(0, 80_000)
+        if (!text.trim()) continue
+        out.push({ type: p.type, text })
+      }
+      return out.length ? out : undefined
+    }
+    function answerOf(m) {
+      const parts = cleanParts(m && m.parts)
+      if (parts) {
+        const text = parts.filter(p => p.type === 'text').map(p => p.text).join('\n\n').trim()
+        if (text) return text
+      }
+      return String((m && m.content) || '').trim()
+    }
+    function cleanArtifacts(raw) {
+      if (!Array.isArray(raw)) return []
+      const out = []
+      for (const item of raw) {
+        if (!item || typeof item !== 'object') continue
+        const dataUrl = String(item.dataUrl || '')
+        if (!dataUrl.startsWith('data:') || dataUrl.indexOf(';base64,') < 0) continue
+        const name = String(item.name || 'file').split(/[/\\]/).pop().slice(0, 120) || 'file'
+        const mime = String(item.mime || '')
+        const kind = mime.startsWith('image/') && mime.indexOf('svg') < 0 ? 'image' : 'file'
+        out.push({ name, mime, kind, dataUrl })
+        if (out.length >= 4) break
+      }
+      return out
+    }
+    function downloadArtifact(f) {
+      const url = String((f && f.dataUrl) || '')
+      const comma = url.indexOf(',')
+      if (comma < 0) return
+      const mime = (url.slice(0, comma).match(/^data:([^;]+)/) || [])[1] || 'application/octet-stream'
+      let bytes
+      try {
+        const bin = atob(url.slice(comma + 1))
+        bytes = new Uint8Array(bin.length)
+        for (let n = 0; n < bin.length; n += 1) bytes[n] = bin.charCodeAt(n)
+      } catch { return }
+      const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }))
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = (f && f.name) || 'file'
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1500)
+    }
+    function mergeStreamText(prev, next) {
+      const a = String(prev || '')
+      const b = String(next || '')
+      if (!b) return a
+      if (!a || b.startsWith(a)) return b
+      if (a.startsWith(b) || a.includes(b)) return a
+      return `${a}\n\n${b}`
+    }
     function serializeChat(msgs) {
       // 附图不落盘（data URL 过大）；仅图消息用占位文案保留一轮痕迹
       const cleaned = (msgs || [])
         .filter(m => {
           if (!m || (m.role !== 'user' && m.role !== 'assistant')) return false
-          if (String(m.content || '').trim()) return true
+          if (answerOf(m)) return true
+          if (cleanParts(m.parts)) return true
           return m.role === 'user' && Array.isArray(m.images) && m.images.length
         })
-        .map(m => ({
-          role: m.role,
-          content: String(m.content || '').trim()
-            || (m.role === 'user' && m.images?.length ? '[image]' : ''),
-        }))
-        .filter(m => String(m.content || '').trim())
+        .map(m => {
+          const parts = m.role === 'assistant' ? cleanParts(m.parts) : undefined
+          return {
+            role: m.role,
+            content: (answerOf(m) || (m.role === 'user' && m.images?.length ? '[image]' : '')).slice(0, 80_000),
+            parts,
+          }
+        })
+        .filter(m => String(m.content || '').trim() || (m.parts && m.parts.length))
         .map(m => ({
           role: m.role,
           content: String(m.content || '').slice(0, 80_000),
+          parts: m.parts,
         }))
         .slice(-CHAT_MAX_MSGS)
       let total = 0
@@ -378,8 +484,13 @@ createApp({
         const data = JSON.parse(raw)
         const list = Array.isArray(data?.messages) ? data.messages : (Array.isArray(data) ? data : [])
         return list
-          .filter(m => m && (m.role === 'user' || m.role === 'assistant') && String(m.content || '').trim())
-          .map(m => ({ role: m.role, content: String(m.content), pending: false }))
+          .filter(m => m && (m.role === 'user' || m.role === 'assistant') && (String(m.content || '').trim() || (Array.isArray(m.parts) && m.parts.length)))
+          .map(m => ({
+            role: m.role,
+            content: String(m.content || ''),
+            pending: false,
+            parts: cleanParts(m.parts),
+          }))
       } catch {
         return []
       }
@@ -465,50 +576,59 @@ createApp({
     }
 
     async function addAttachFiles(fileList) {
-      const files = Array.from(fileList || []).filter(f => f && String(f.type || '').startsWith('image/'))
-      if (!files.length) return
-      const room = ATTACH_MAX - pendingImages.value.length
-      if (room <= 0) {
-        err.value = T.value.attachLimit
-        return
-      }
-      const take = files.slice(0, room)
-      if (files.length > room) err.value = T.value.attachLimit
+      const incoming = Array.from(fileList || []).filter(Boolean)
+      if (!incoming.length) return
       const next = pendingImages.value.slice()
-      for (const file of take) {
-        if (file.size > ATTACH_MAX_BYTES) {
+      let hitLimit = false
+      for (const file of incoming) {
+        const isImage = String(file.type || '').startsWith('image/')
+        const cap = isImage ? ATTACH_MAX : FILE_MAX
+        // 图片和其他文件分开计数
+        const have = next.filter(p => isImage ? p.kind !== 'file' : p.kind === 'file').length
+        if (have >= cap) {
+          hitLimit = true
+          continue
+        }
+        if (file.size > (isImage ? ATTACH_MAX_BYTES : FILE_MAX_BYTES)) {
           err.value = T.value.attachSize
           continue
         }
         try {
           const dataUrl = await fileToDataUrl(file)
-          if (!dataUrl || !dataUrl.startsWith('data:image/')) continue
+          if (!dataUrl || !dataUrl.startsWith('data:')) continue
+          if (isImage && !dataUrl.startsWith('data:image/')) continue
           next.push({
             id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             dataUrl,
-            name: file.name || 'image',
+            name: file.name || (isImage ? 'image' : 'file'),
+            kind: isImage ? 'image' : 'file',
           })
         } catch {
           err.value = T.value.attachSize
         }
       }
-      pendingImages.value = next.slice(0, ATTACH_MAX)
+      if (hitLimit) err.value = T.value.attachLimit
+      pendingImages.value = next
     }
 
     function onComposerPaste(e) {
-      const items = e.clipboardData?.items
-      if (!items) return
-      const imageFiles = []
-      for (const item of items) {
-        if (item.type && item.type.startsWith('image/')) {
+      const dt = e.clipboardData
+      if (!dt) return
+      const picked = []
+      const list = dt.files && dt.files.length ? dt.files : null
+      if (list) {
+        for (const f of list) if (f) picked.push(f)
+      } else if (dt.items) {
+        for (const item of dt.items) {
+          if (item.kind !== 'file') continue
           const f = item.getAsFile()
-          if (f) imageFiles.push(f)
+          if (f) picked.push(f)
         }
       }
-      if (!imageFiles.length) return
+      if (!picked.length) return
       e.preventDefault()
       err.value = ''
-      addAttachFiles(imageFiles)
+      addAttachFiles(picked)
     }
 
 
@@ -688,11 +808,10 @@ createApp({
     async function sendMessage() {
       err.value = ''
       const text = prompt.value.trim()
-      const attachList = pendingImages.value.map(p => ({
-        dataUrl: p.dataUrl,
-        name: p.name || 'image',
-      })).filter(p => p.dataUrl)
-      if (!text && !attachList.length) {
+      const pending = pendingImages.value.slice()
+      const imageItems = pending.filter(p => p.kind !== 'file' && String(p.dataUrl || '').startsWith('data:image/'))
+      const fileItems = pending.filter(p => p.kind === 'file' && p.dataUrl)
+      if (!text && !imageItems.length && !fileItems.length) {
         err.value = T.value.emptyPrompt
         return
       }
@@ -701,16 +820,19 @@ createApp({
         err.value = T.value.loginToContinue
         return
       }
-      // 仅图时由服务端补默认 prompt；本地气泡展示占位
-      const displayText = text || (attachList.length ? '请根据附图完成任务' : '')
+      // 只有附件时补一句说明，本地气泡也显示它
+      const displayText = text
+        || (fileItems.length ? T.value.fileOnly : '')
+        || (imageItems.length ? T.value.imageOnly : '')
       const history = messages.value.slice()
       // 访客单轮不带历史；登录后压缩多轮上下文
       const apiPrompt = isGuest ? text : buildPromptWithHistory(history, text || displayText)
-      const attachUrls = attachList.map(p => p.dataUrl)
+      const attachUrls = imageItems.map(p => p.dataUrl)
       messages.value.push({
         role: 'user',
         content: displayText,
         images: attachUrls.length ? attachUrls.slice() : undefined,
+        files: fileItems.length ? fileItems.map(p => ({ name: p.name || 'file' })) : undefined,
       })
       messages.value.push({ role: 'assistant', content: '', pending: true })
       const asstIdx = messages.value.length - 1
@@ -744,7 +866,12 @@ createApp({
           worker_id: agent.value.worker_id || undefined,
           stream: true,
         }
-        if (attachList.length) body.images = attachList
+        if (imageItems.length) {
+          body.images = imageItems.map(p => ({ dataUrl: p.dataUrl, name: p.name || 'image' }))
+        }
+        if (fileItems.length) {
+          body.files = fileItems.map(p => ({ dataUrl: p.dataUrl, name: p.name || 'file' }))
+        }
         const ticketForTurn = gateTicket.value
         if (isGuest && ticketForTurn) body.gate_ticket = ticketForTurn
         const r = await fetch('/api/agent-tasks', {
@@ -803,14 +930,25 @@ createApp({
             try { ev = JSON.parse(line.slice(6)) } catch { continue }
             if (!ev || typeof ev !== 'object') continue
             if (ev.event === 'progress') {
-              const body = String(ev.text || '')
-              if (body) setAssistant(body, { pending: true })
-              else if (ev.tool) {
-                setAssistant(
-                  (messages.value[asstIdx]?.content || '') ||
-                    T.value.toolRunning.replace('{name}', String(ev.tool)),
-                  { pending: true },
-                )
+              const row = messages.value[asstIdx]
+              const parts = cleanParts(ev.parts)
+              if (row && parts) {
+                row.parts = parts
+                row.content = answerOf(row)
+                row.pending = true
+              } else {
+                const body = String(ev.text || '')
+                if (body) setAssistant(mergeStreamText(row?.content, body), { pending: true })
+                else if (ev.tool && row) {
+                  const name = String(ev.tool)
+                  const partsNow = cleanParts(row.parts) || []
+                  const last = partsNow[partsNow.length - 1]
+                  if (!(last && last.type === 'tool' && last.name === name)) {
+                    partsNow.push({ type: 'tool', name, detail: '' })
+                  }
+                  row.parts = partsNow
+                  row.pending = true
+                }
               }
               await scrollChat()
               continue
@@ -818,18 +956,45 @@ createApp({
             if (ev.event === 'done') {
               finalOk = !!ev.ok
               finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
-              const out = ev.output || ev.result || ev.text || ev.message || ''
-              setAssistant(String(out || messages.value[asstIdx]?.content || '(empty)'), { pending: false })
+              const out = String(ev.output || ev.result || ev.text || ev.message || '')
+              const row = messages.value[asstIdx]
+              if (row) {
+                row.pending = false
+                // 已有分段时只补最终正文里多出来的部分，不把思考和工具盖掉
+                if (row.parts && row.parts.length) {
+                  const shown = answerOf(row)
+                  if (out && out !== shown && !shown.includes(out) && !out.includes(shown)) {
+                    row.parts = [...row.parts, { type: 'text', text: out }]
+                  } else if (out.startsWith(shown) && out.length > shown.length) {
+                    const extra = out.slice(shown.length).replace(/^\s+/, '')
+                    if (extra) row.parts = [...row.parts, { type: 'text', text: extra }]
+                  }
+                  row.content = answerOf(row) || out || '(empty)'
+                } else {
+                  setAssistant(out || row.content || '(empty)', { pending: false })
+                }
+                const arts = cleanArtifacts(ev.artifacts)
+                if (arts.length) row.artifacts = arts
+              }
               continue
             }
             if (ev.event === 'error') {
               finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
               const msg = ev.error || ev.detail || ev.status || 'failed'
               // 已有流式正文时保留并标注失败；否则回退整轮
-              const cur = String(messages.value[asstIdx]?.content || '').trim()
+              const row = messages.value[asstIdx]
+              const cur = answerOf(row).trim()
               if (cur && cur !== '…') {
-                setAssistant(`${cur}\n\n[${msg}]`, { pending: false })
+                if (row?.parts?.length) {
+                  row.parts = [...row.parts, { type: 'text', text: `[${msg}]` }]
+                  row.content = answerOf(row)
+                  row.pending = false
+                } else {
+                  setAssistant(`${cur}\n\n[${msg}]`, { pending: false })
+                }
                 err.value = String(msg)
+                const arts = cleanArtifacts(ev.artifacts)
+                if (arts.length) row.artifacts = arts
               } else {
                 err.value = String(msg)
                 dropTurn()
@@ -913,7 +1078,7 @@ createApp({
 
     return {
       authOpen, openAuth, composerEl, fileEl, agentName, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor,
-      renderRich, onChatClick, copyMsg,
+      renderRich, onChatClick, copyMsg, answerOf, downloadArtifact,
       lang, T, toggleLang, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,

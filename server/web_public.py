@@ -16,7 +16,11 @@ WEB_CHAT_MAX_IMAGE_CHARS = 5_500_000  # data URL 约 4MB 图
 WEB_IMAGE_MAX_PROMPT_CHARS = 2000
 WEB_AGENT_MAX_IMAGES = 3
 WEB_AGENT_MAX_IMAGE_CHARS = 5_500_000
+WEB_AGENT_MAX_FILES = 4
+# data URL 约 20MB 文件
+WEB_AGENT_MAX_FILE_CHARS = 28_000_000
 WEB_AGENT_IMAGE_ONLY_PROMPT = "请根据附图完成任务"
+WEB_AGENT_ATTACH_ONLY_PROMPT = "请根据附件完成任务"
 
 # 未登录网页试用：按 IP 限流（默认每小时 3 次成功调用）
 GUEST_TRIAL_MAX_PER_HOUR = 3
@@ -235,6 +239,35 @@ def normalize_agent_images(raw: Any) -> list[dict]:
         out.append({"dataUrl": url, "name": name[:120]})
         if len(out) > WEB_AGENT_MAX_IMAGES:
             raise ValueError(f"at most {WEB_AGENT_MAX_IMAGES} images")
+    return out
+
+
+def normalize_agent_files(raw: Any) -> list[dict]:
+    """智能体任务附件：[{dataUrl, name?}]，data:*;base64,…。图片仍走 images。"""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("files must be array")
+    out: list[dict] = []
+    for i, item in enumerate(raw):
+        if isinstance(item, str):
+            url, name = item.strip(), f"file-{i + 1}"
+        elif isinstance(item, dict):
+            url = str(item.get("dataUrl") or "").strip()
+            name = str(item.get("name") or f"file-{i + 1}").strip() or f"file-{i + 1}"
+        else:
+            continue
+        if not url:
+            continue
+        header, _, _ = url.partition(",")
+        if not header.startswith("data:") or not header.endswith(";base64"):
+            raise ValueError(f"files[{i}] must be data URL")
+        if len(url) > WEB_AGENT_MAX_FILE_CHARS:
+            raise ValueError(f"files[{i}] too large")
+        name = name.replace("\\", "/").split("/")[-1][:120] or f"file-{i + 1}"
+        out.append({"dataUrl": url, "name": name})
+        if len(out) > WEB_AGENT_MAX_FILES:
+            raise ValueError(f"at most {WEB_AGENT_MAX_FILES} files")
     return out
 
 

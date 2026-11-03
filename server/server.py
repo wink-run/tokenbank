@@ -55,6 +55,7 @@ from web_public import (
     extract_assistant_text,
     guest_trial_allowed,
     infer_model_type,
+    normalize_agent_files,
     normalize_agent_images,
     validate_guest_web_chat_messages,
     validate_web_chat_body,
@@ -951,6 +952,8 @@ class AgentTaskBody(BaseModel):
     stream: Optional[bool] = False
     # 本轮附图：[{dataUrl, name?}]，仅 data:image/…
     images: Optional[list] = None
+    # 普通附件：[{dataUrl, name?}]，data:*;base64,…
+    files: Optional[list] = None
     # 工具合集通行门票据：看广告后匿名可用一次（见 /api/tools/gate）
     gate_ticket: Optional[str] = None
 
@@ -968,6 +971,7 @@ async def create_agent_task(
     """
     try:
         task_images = normalize_agent_images(body.images)
+        task_files = normalize_agent_files(body.files)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -985,7 +989,7 @@ async def create_agent_task(
         gate_pass = True
     if guest:
         text = (body.prompt or "").strip()
-        if not text and not task_images:
+        if not text and not task_images and not task_files:
             raise HTTPException(400, "prompt required")
         # 访客禁止带历史（前端多轮会包装 Conversation so far）
         if text.startswith("Conversation so far:"):
@@ -1006,6 +1010,7 @@ async def create_agent_task(
             guest=guest,
             guest_ip=guest_ip,
             images=task_images or None,
+            files=task_files or None,
         )
         return StreamingResponse(
             gen,
@@ -1026,6 +1031,7 @@ async def create_agent_task(
         timeout_ms=body.timeout_ms,
         guest_ip=guest_ip,
         images=task_images or None,
+        files=task_files or None,
     )
     if not result.get("ok"):
         status = result.get("status") or "failed"

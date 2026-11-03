@@ -25,6 +25,7 @@ const {
   resolveConsumerKey,
   contributeSessionKey,
   ensureContributeWorkspace,
+  collectWorkspaceArtifacts,
 } = require('./contribute-session');
 
 // 贡献者 worker 回传上游错误时，把上游的限流/配额重置时刻从响应头(Retry-After / *-ratelimit-*-reset)
@@ -714,20 +715,87 @@ async function handleAgentTask(msg, cfg) {
   let trackedTaskId = null;
   let textAcc = '';
   let lastProgressAt = 0;
+  // 分段记录：后一句另起一段，不盖掉前一句；思考和工具各自成段
+  const parts = [];
 
-  /** 合并 output 步骤正文（snapshot / delta） */
-  function mergeOutput(acc, content, isDelta, isSnapshot) {
+  function closeOpen() {
+    const last = parts[parts.length - 1];
+    if (last && last.open) last.open = false;
+  }
+
+  /** 正文 / 思考：增量接在当前段；快照只加长当前段，对不上就新开一段 */
+  function applySegment(type, content, isDelta, isSnapshot) {
     const c = String(content || '');
-    if (!c) return acc;
-    if (isDelta) return acc + c;
-    if (isSnapshot) {
-      if (!acc) return c;
-      if (c.startsWith(acc)) return c;
-      if (acc.startsWith(c)) return acc;
-      return c;
+    if (!c) return;
+    let part = parts[parts.length - 1];
+    if (!part || part.type !== type || !part.open) {
+      closeOpen();
+      part = { type, text: '', open: true };
+      parts.push(part);
     }
-    if (acc.includes(c)) return acc;
-    return acc ? `${acc}\n${c}` : c;
+    if (isDelta) {
+      part.text += c;
+      return;
+    }
+    if (isSnapshot) {
+      if (!part.text || c.startsWith(part.text)) {
+        part.text = c;
+        return;
+      }
+      if (part.text.startsWith(c)) return;
+      part.open = false;
+      parts.push({ type, text: c, open: true });
+      return;
+    }
+    if (part.text.includes(c)) return;
+    part.text = part.text ? `${part.text}\n${c}` : c;
+  }
+
+  function applyTool(step) {
+    const name = String(step.tool_name || 'tool').slice(0, 80);
+    const detail = String(step.content || '').slice(0, 4000);
+    const last = parts[parts.length - 1];
+    if (last && last.type === 'tool' && last.open && last.name === name) {
+      if (detail) last.detail = detail;
+      return;
+    }
+    closeOpen();
+    parts.push({ type: 'tool', name, detail, open: true });
+  }
+
+  function applyToolResult(step) {
+    const detail = String(step.content || '').slice(0, 4000);
+    if (!detail) return;
+    const last = [...parts].reverse().find((p) => p.type === 'tool');
+    if (!last) {
+      parts.push({ type: 'tool', name: 'tool', detail, open: false });
+      return;
+    }
+    last.detail = last.detail ? `${last.detail}\n${detail}`.slice(0, 4000) : detail;
+    last.open = false;
+  }
+
+  function joinedText() {
+    return parts.filter((p) => p.type === 'text' && p.text).map((p) => p.text).join('\n\n');
+  }
+
+  function publicParts() {
+    const out = [];
+    for (const p of parts) {
+      if (p.type === 'tool') {
+        if (!p.name && !p.detail) continue;
+        out.push({
+          type: 'tool',
+          name: String(p.name || 'tool').slice(0, 80),
+          detail: String(p.detail || '').slice(0, 4000),
+        });
+        continue;
+      }
+      const text = String(p.text || '');
+      if (!text.trim()) continue;
+      out.push({ type: p.type, text: text.slice(0, 80_000) });
+    }
+    return out;
   }
 
   function pushProgress(extra = {}) {
@@ -735,10 +803,12 @@ async function handleAgentTask(msg, cfg) {
     // 节流：至少 80ms 或强制（工具事件 / 收尾）
     if (!extra.force && now - lastProgressAt < 80) return;
     lastProgressAt = now;
+    textAcc = joinedText();
     send({
       type: 'agent_task_progress',
       task_id: taskId,
       text: String(textAcc || '').slice(0, 200_000),
+      parts: publicParts(),
       ...extra,
     });
   }
@@ -747,16 +817,23 @@ async function handleAgentTask(msg, cfg) {
     if (!trackedTaskId || !step || step.taskId !== trackedTaskId) return;
     const st = String(step.stepType || '');
     if (st === 'output') {
-      textAcc = mergeOutput(textAcc, step.content, !!step.is_delta, !!step.is_snapshot);
-      pushProgress({ delta: String(step.content || '').slice(0, 4000) });
+      applySegment('text', step.content, !!step.is_delta, !!step.is_snapshot);
+      pushProgress();
+      return;
+    }
+    if (st === 'thinking') {
+      applySegment('thinking', step.content, !!step.is_delta, !!step.is_snapshot);
+      pushProgress();
       return;
     }
     if (st === 'tool_call') {
-      pushProgress({
-        force: true,
-        event: 'tool',
-        tool: step.tool_name || 'tool',
-      });
+      applyTool(step);
+      pushProgress({ force: true, event: 'tool', tool: step.tool_name || 'tool' });
+      return;
+    }
+    if (st === 'tool_result') {
+      applyToolResult(step);
+      pushProgress({ force: true, event: 'tool' });
     }
   };
 
@@ -800,22 +877,38 @@ async function handleAgentTask(msg, cfg) {
       return;
     }
 
+    pushProgress({ force: true });
+    const transcript = textAcc;
     const output = status?.result?.summary
       || status?.result?.output
-      || textAcc
+      || transcript
       || '';
-    if (output && !textAcc) textAcc = String(output);
-    else if (output && String(output).length > textAcc.length) textAcc = String(output);
-    pushProgress({ force: true });
+    // 执行器摘要更完整时用它做最终正文；分段过程仍留给网页
+    const finalText = (output && String(output).length > String(transcript || '').length)
+      ? String(output)
+      : String(transcript || output || '');
+    textAcc = finalText;
 
     const ok = status?.status === 'completed';
+    const finalBody = String(textAcc || output || '');
+    // 工作目录里本轮写出的图片和文件，回传给网页展示或下载
+    let artifacts = [];
+    try {
+      artifacts = collectWorkspaceArtifacts(workingDir, finalBody, started);
+    } catch (e) {
+      log(`[agent] collect artifacts failed: ${e.message}`);
+    }
+    if (artifacts.length) {
+      log(`[agent] artifacts ${artifacts.map((a) => a.name).join(', ')}`);
+    }
     send({
       type: 'agent_task_result',
       task_id: taskId,
       status: ok ? 'completed' : (status?.status || 'failed'),
-      output: String(textAcc || output || '').slice(0, 200_000),
+      output: finalBody.slice(0, 200_000),
       error: ok ? null : (status?.error || status?.result?.output || 'failed'),
       usage: { duration_ms: Date.now() - started },
+      artifacts: artifacts.length ? artifacts : undefined,
     });
   } catch (e) {
     send({

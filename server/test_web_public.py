@@ -115,6 +115,17 @@ def test_validate_web_chat_multimodal_and_agent_images():
     except ValueError as e:
         assert "at most" in str(e)
 
+    from web_public import normalize_agent_files
+    files = normalize_agent_files([
+        {"dataUrl": "data:text/plain;base64,aGVsbG8=", "name": "../notes.txt"},
+    ])
+    assert files == [{"dataUrl": "data:text/plain;base64,aGVsbG8=", "name": "notes.txt"}]
+    try:
+        normalize_agent_files([{"dataUrl": "https://evil.example/a.pdf"}])
+        assert False
+    except ValueError as e:
+        assert "data URL" in str(e)
+
 
 def test_extract_assistant_text():
     assert extract_assistant_text({

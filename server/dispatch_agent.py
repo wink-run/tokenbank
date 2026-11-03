@@ -27,6 +27,62 @@ def _sse(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def _public_progress_parts(raw) -> list:
+    """网页对话用的分段：正文 / 思考 / 工具。丢掉未知字段，限制长度。"""
+    out = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw[:80]:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("type") or "")
+        if kind == "tool":
+            out.append({
+                "type": "tool",
+                "name": str(item.get("name") or "tool")[:80],
+                "detail": str(item.get("detail") or "")[:4000],
+            })
+            continue
+        if kind not in ("text", "thinking"):
+            continue
+        text = str(item.get("text") or "")
+        if not text.strip():
+            continue
+        out.append({"type": kind, "text": text[:80_000]})
+    return out
+
+
+_ARTIFACT_MAX = 4
+_ARTIFACT_MAX_CHARS = 8_000_000
+
+
+def _public_artifacts(raw) -> list:
+    """出租方回传的成品。只保留 data URL，图片可内嵌，其他文件供下载。"""
+    out = []
+    if not isinstance(raw, list):
+        return out
+    total = 0
+    for item in raw:
+        if len(out) >= _ARTIFACT_MAX:
+            break
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("dataUrl") or "").strip()
+        header, sep, _body = url.partition(",")
+        if not sep or not header.startswith("data:") or not header.endswith(";base64"):
+            continue
+        if len(url) > _ARTIFACT_MAX_CHARS or total + len(url) > _ARTIFACT_MAX_CHARS:
+            continue
+        name = str(item.get("name") or "file").replace("\\", "/").split("/")[-1][:120] or "file"
+        mime = str(item.get("mime") or "application/octet-stream").split(";")[0].strip()[:80]
+        if "/" not in mime:
+            mime = "application/octet-stream"
+        kind = "image" if mime.startswith("image/") and "svg" not in mime else "file"
+        out.append({"name": name, "mime": mime, "kind": kind, "dataUrl": url})
+        total += len(url)
+    return out
+
+
 async def _finalize_agent_result(
     *,
     result: dict,
@@ -55,7 +111,7 @@ async def _finalize_agent_result(
                 multiplier=1.0,
                 note=f"agent_task failed refund task_id={task_id} status={status}",
             )
-        return {
+        failed = {
             "ok": False,
             "task_id": task_id,
             "status": status,
@@ -63,6 +119,10 @@ async def _finalize_agent_result(
             "output": (result or {}).get("output") or "",
             "credits_refunded": 0 if guest else AGENT_TASK_CREDITS,
         }
+        arts = _public_artifacts((result or {}).get("artifacts"))
+        if arts:
+            failed["artifacts"] = arts
+        return failed
 
     if worker.user_id:
         await db.award_credits(
@@ -98,7 +158,7 @@ async def _finalize_agent_result(
         except Exception:
             logger.exception("[agent_task] log_settlement failed task_id=%s", task_id)
 
-    return {
+    done = {
         "ok": True,
         "task_id": task_id,
         "status": "completed",
@@ -106,6 +166,10 @@ async def _finalize_agent_result(
         "usage": usage,
         "credits_charged": AGENT_TASK_CREDITS,
     }
+    arts = _public_artifacts((result or {}).get("artifacts"))
+    if arts:
+        done["artifacts"] = arts
+    return done
 
 
 def consumer_isolation_key(
@@ -132,17 +196,26 @@ async def _prepare_agent_task(
     timeout_ms: Optional[int] = None,
     guest_ip: Optional[str] = None,
     images: Optional[list] = None,
+    files: Optional[list] = None,
 ) -> tuple[Optional[dict], Optional[dict]]:
     """预检 + 下发。成功返回 (ctx, None)；失败返回 (None, error_dict)。"""
-    from web_public import WEB_AGENT_IMAGE_ONLY_PROMPT, normalize_agent_images
+    from web_public import (
+        WEB_AGENT_ATTACH_ONLY_PROMPT,
+        WEB_AGENT_IMAGE_ONLY_PROMPT,
+        normalize_agent_files,
+        normalize_agent_images,
+    )
 
     aid = (assistant_id or "").strip()
     text = (prompt or "").strip()
     try:
         img_list = normalize_agent_images(images)
+        file_list = normalize_agent_files(files)
     except ValueError as e:
         return None, {"ok": False, "error": str(e), "status": "rejected"}
-    if not text and img_list:
+    if not text and file_list:
+        text = WEB_AGENT_ATTACH_ONLY_PROMPT
+    elif not text and img_list:
         text = WEB_AGENT_IMAGE_ONLY_PROMPT
     if not aid or not text:
         return None, {"ok": False, "error": "assistant_id and prompt required", "status": "rejected"}
@@ -215,6 +288,7 @@ async def _prepare_agent_task(
             "consumer_key": consumer_key,
             "consumer_user_id": consumer_user_id,
             "images": img_list or None,
+            "files": file_list or None,
         })
         logger.info(
             "[agent_task] dispatch task_id=%s assistant=%s worker=%s user=%s guest=%s key=%s",
@@ -290,6 +364,7 @@ async def handle_agent_task(
     timeout_ms: Optional[int] = None,
     guest_ip: Optional[str] = None,
     images: Optional[list] = None,
+    files: Optional[list] = None,
 ) -> dict:
     """选 worker → 预扣积分 → 下发 → 等待终态结果；失败退款。"""
     ctx, err = await _prepare_agent_task(
@@ -301,6 +376,7 @@ async def handle_agent_task(
         timeout_ms=timeout_ms,
         guest_ip=guest_ip,
         images=images,
+        files=files,
     )
     if err:
         return err
@@ -357,6 +433,7 @@ async def iter_agent_task_sse(
     guest: bool = False,
     guest_ip: Optional[str] = None,
     images: Optional[list] = None,
+    files: Optional[list] = None,
 ) -> AsyncIterator[str]:
     """SSE：progress 事件推正文，done/error 收尾。"""
     ctx, err = await _prepare_agent_task(
@@ -368,6 +445,7 @@ async def iter_agent_task_sse(
         timeout_ms=timeout_ms,
         guest_ip=guest_ip,
         images=images,
+        files=files,
     )
     if err:
         payload = {**err, "event": "error", "guest": guest, "need_login_to_continue": guest}
@@ -396,6 +474,7 @@ async def iter_agent_task_sse(
                     "text": str((msg or {}).get("text") or "")[:200_000],
                     "tool": (msg or {}).get("tool"),
                     "progress_event": (msg or {}).get("event"),
+                    "parts": _public_progress_parts((msg or {}).get("parts")),
                 })
                 continue
 
