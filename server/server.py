@@ -1310,14 +1310,17 @@ async def get_agent_chat_share_route(share_id: str, hold: str = ""):
         messages = []
     created = row.get("created_at")
     from agent_chat_share import share_author_label
-    return {
-        "id": row.get("id"),
-        "assistant_id": row.get("assistant_id"),
-        "author": share_author_label(row.get("author_nickname"), row.get("author_email")),
-        "created_at": created.isoformat() if hasattr(created, "isoformat") else created,
-        "messages": messages,
-        "turn": _public_share_turn(row, (hold or "").strip()[:40]),
-    }
+    return JSONResponse(
+        content={
+            "id": row.get("id"),
+            "assistant_id": row.get("assistant_id"),
+            "author": share_author_label(row.get("author_nickname"), row.get("author_email")),
+            "created_at": created.isoformat() if hasattr(created, "isoformat") else created,
+            "messages": messages,
+            "turn": _public_share_turn(row, (hold or "").strip()[:40]),
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/agent-downloads")

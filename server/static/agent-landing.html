@@ -913,7 +913,7 @@ createApp({
         const tok = getToken()
         if (tok) headers.Authorization = `Bearer ${tok}`
       }
-      const r = await fetch(url, { ...opts, headers })
+      const r = await fetch(url, { cache: 'no-store', ...opts, headers })
       let data = null
       try { data = await r.json() } catch { data = null }
       return { r, data }
@@ -1096,34 +1096,55 @@ createApp({
         }
       } catch { /* 断流后靠轮询把定稿接回来 */ }
     }
+    let pollBusy = false
+    function transcriptKey(list) {
+      return (list || []).filter(m => m && !m.liveTurn && !m.pending).map(m => `${m.role}\n${m.content || ''}`).join('\n---\n')
+    }
     async function pollShareTurn() {
+      // 自己正在说的这轮不用被刷新打断；别人的页面要一直把新内容拉下来
+      if (running.value || pollBusy) return
       const sid = relayShareId.value
-      if (!sid || running.value) return
-      const hold = myTurnToken(sid)
-      const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '?hold=' + encodeURIComponent(hold))
-      if (!r.ok || !data) return
-      const turn = data.turn
-      if (turn && turn.mine) {
-        holdingTurn.value = true
+      const aid = agent.value?.id || assistantIdFromPath()
+      if (!sid && !fromShare.value) return
+      pollBusy = true
+      try {
+        const kept = messages.value.filter(m => !m.liveTurn)
+        const before = transcriptKey(kept)
+        if (aid && getToken()) await mergeRemoteShares(aid, kept)
+        let turn = null
+        if (sid) {
+          const hold = myTurnToken(sid)
+          const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '?hold=' + encodeURIComponent(hold))
+          if (r.ok && data) {
+            absorbShare(kept, data)
+            turn = data.turn || null
+          }
+        }
+        if (turn && turn.mine) {
+          holdingTurn.value = true
+          foreignTurn.value = null
+          return
+        }
+        const hadLive = messages.value.some(m => m && m.liveTurn) || !!foreignTurn.value
+        if (turn && (turn.text || turn.task_id)) {
+          holdingTurn.value = false
+          if (transcriptKey(kept) !== before) {
+            messages.value = sortMessages(loadChatHistoryFrom(kept))
+            saveChatHistory(aid, messages.value)
+          }
+          showForeignTurn(turn)
+          return
+        }
         foreignTurn.value = null
-        return
+        watchingTask = ''
+        try { turnWatchAbort?.abort() } catch { /* 这轮已经结束 */ }
+        if (!hadLive && transcriptKey(kept) === before) return
+        messages.value = sortMessages(loadChatHistoryFrom(kept))
+        saveChatHistory(aid, messages.value)
+        if (stickToBottom) scrollChat()
+      } finally {
+        pollBusy = false
       }
-      if (turn && (turn.text || turn.task_id)) {
-        holdingTurn.value = false
-        showForeignTurn(turn)
-        return
-      }
-      const hadLive = messages.value.some(m => m && m.liveTurn) || !!foreignTurn.value
-      foreignTurn.value = null
-      watchingTask = ''
-      if (!hadLive && !(Array.isArray(data.messages) && data.messages.length)) return
-      const kept = messages.value.filter(m => !m.liveTurn)
-      const before = kept.length
-      absorbShare(kept, data)
-      if (!hadLive && kept.length === before) return
-      messages.value = sortMessages(loadChatHistoryFrom(kept))
-      saveChatHistory(agent.value?.id || assistantIdFromPath(), messages.value)
-      if (stickToBottom) scrollChat()
     }
     function startShareWatch() {
       if (sharePollTimer || !relayShareId.value) return
@@ -1286,6 +1307,7 @@ createApp({
         if (data.id) relayShareId.value = data.id
         fromShare.value = true
         saveChatHistory(aid, messages.value)
+        startShareWatch()
       } catch {
         err.value = T.value.shareFail
       } finally {
@@ -1804,6 +1826,7 @@ createApp({
       }
       const last = messages.value[messages.value.length - 1]
       if (last && last.pending && last.taskId && !running.value) resumeTask(last.taskId)
+      else pollShareTurn()
     }
     async function pauseRun() {
       if (!running.value) return
