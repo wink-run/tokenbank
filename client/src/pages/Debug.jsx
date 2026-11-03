@@ -71,7 +71,7 @@ import {
   B64_OMITTED, persistImageList, resolveImageList, serializeImageSrc, isImageRef,
   collectImageRefIds, deleteUnreferencedImageIds, fileMarker,
 } from '../lib/debug-image-store';
-import { presentRemoteAgentResult, presentRemoteAgentSteps } from '../../shared/remote-artifact-paths.cjs';
+import { presentRemoteAgentResult, presentRemoteAgentSteps } from '../../shared/remote-artifact-paths.js';
 import { useResolvedImageSrc } from '../components/ResolvedDebugImage';
 
 /** 下拉 value：同 id 跨层时用 tier:id，避免 HTML option 重复 value 选中错位 */

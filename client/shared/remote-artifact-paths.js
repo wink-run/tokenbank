@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * 雇佣远程智能体时，正文里的出租方绝对路径换成中转地址。
  * 没有对应成品的路径只留文件名，避免把对方磁盘路径展示出来。
@@ -35,12 +33,12 @@ function swapRemoteArtifactPaths(text, artifacts) {
   return s;
 }
 
-function presentRemoteAgentText(text, artifacts) {
+export function presentRemoteAgentText(text, artifacts) {
   const swapped = swapRemoteArtifactPaths(text, artifacts);
   return swapped.replace(LOCAL_PATH_RE, (full) => pathBasename(full));
 }
 
-function presentRemoteAgentSteps(steps, artifacts) {
+export function presentRemoteAgentSteps(steps, artifacts) {
   if (!Array.isArray(steps)) return steps;
   return steps.map((step) => {
     if (!step || typeof step.content !== 'string' || !step.content) return step;
@@ -50,7 +48,7 @@ function presentRemoteAgentSteps(steps, artifacts) {
   });
 }
 
-function presentRemoteAgentResult(result, artifacts) {
+export function presentRemoteAgentResult(result, artifacts) {
   if (!result || typeof result !== 'object') return result;
   const arts = artifacts || result.artifacts;
   let next = result;
@@ -63,9 +61,3 @@ function presentRemoteAgentResult(result, artifacts) {
   }
   return next;
 }
-
-module.exports = {
-  presentRemoteAgentText,
-  presentRemoteAgentSteps,
-  presentRemoteAgentResult,
-};
