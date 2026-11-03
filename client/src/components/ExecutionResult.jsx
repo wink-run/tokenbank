@@ -4,6 +4,53 @@ import React from 'react';
 import { useLang } from '../store/lang';
 import { PathLink } from './RichMediaContent';
 
+/** 把 data URL 存成文件。坏数据只是下不下来，不打断结果卡。 */
+function downloadDataUrl(file) {
+  const url = String(file?.dataUrl || '');
+  const comma = url.indexOf(',');
+  if (comma < 0) return;
+  const mime = (url.slice(0, comma).match(/^data:([^;]+)/) || [])[1] || 'application/octet-stream';
+  try {
+    const bin = atob(url.slice(comma + 1));
+    const bytes = new Uint8Array(bin.length);
+    for (let n = 0; n < bin.length; n += 1) bytes[n] = bin.charCodeAt(n);
+    const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = file.name || 'file';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
+  } catch { /* ignore */ }
+}
+
+/** 远程成品：图片直接看，其余提供下载。不走本机路径预览。 */
+export function RemoteArtifacts({ artifacts }) {
+  const list = (Array.isArray(artifacts) ? artifacts : []).filter((item) => item && item.dataUrl);
+  if (!list.length) return null;
+  return (
+    <div className="mt-2 space-y-2">
+      {list.map((file, index) => (
+        <figure key={`${file.name || 'file'}-${index}`} className="space-y-1">
+          {file.kind === 'image' && (
+            <img
+              src={file.dataUrl}
+              alt={file.name || ''}
+              className="max-h-64 max-w-full rounded-lg border border-black/10 dark:border-white/10"
+            />
+          )}
+          <button
+            type="button"
+            onClick={() => downloadDataUrl(file)}
+            className="text-xs font-mono text-zinc-700 dark:text-zinc-300 underline-offset-2 hover:underline"
+          >
+            {file.name || 'file'}
+          </button>
+        </figure>
+      ))}
+    </div>
+  );
+}
+
 export default function ExecutionResult({ result, task }) {
   const { t } = useLang();
   if (!result) return null;
@@ -38,6 +85,8 @@ export default function ExecutionResult({ result, task }) {
           </div>
         </div>
       )}
+
+      <RemoteArtifacts artifacts={result.artifacts} />
 
       {/* 修改的文件 */}
       {result.files && result.files.length > 0 && (

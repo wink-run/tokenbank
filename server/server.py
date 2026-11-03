@@ -1274,10 +1274,23 @@ async def worker_ws(ws: WebSocket):
                     await entry["queue"].put(msg)
                 continue
 
-            # 武将任务结果：用 task_id，与模型 req_id 分流
-            if kind == "agent_task_result":
+            # 文件后到。正文还挂在 pending 上时才能并进去
+            if kind == "agent_task_artifacts":
                 task_id = msg.get("task_id")
                 entry = worker.pending_agents.pop(task_id, None) if task_id else None
+                if entry:
+                    await entry["queue"].put(msg)
+                continue
+
+            # 武将任务结果：用 task_id，与模型 req_id 分流。
+            # 声明还有文件时先不摘 pending，断线才能被读端识别成「正文已到」
+            if kind == "agent_task_result":
+                task_id = msg.get("task_id")
+                follow = bool(msg.get("artifacts_follow"))
+                if follow:
+                    entry = worker.pending_agents.get(task_id) if task_id else None
+                else:
+                    entry = worker.pending_agents.pop(task_id, None) if task_id else None
                 if entry:
                     await entry["queue"].put(msg)
                     worker.active_requests = max(0, worker.active_requests - 1)

@@ -916,18 +916,33 @@ createApp({
         let buf = ''
         let finalOk = false
         let finalGuest = isGuest
+        // 多行 data: 要拼起来。只取第一行时，被拆开的 done（带文件）会解析失败，页面变成 empty response
+        const parseSseBlock = (block) => {
+          const data = String(block || '').split('\n')
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(line.startsWith('data: ') ? 6 : 5).trim())
+            .join('\n')
+          if (!data || data === '[DONE]') return null
+          try { return JSON.parse(data) } catch { return null }
+        }
 
         while (true) {
           const { done, value } = await reader.read()
-          if (done) break
-          buf += decoder.decode(value, { stream: true })
-          const parts = buf.split('\n\n')
-          buf = parts.pop() || ''
-          for (const block of parts) {
-            const line = block.split('\n').find((l) => l.startsWith('data: '))
-            if (!line) continue
-            let ev = null
-            try { ev = JSON.parse(line.slice(6)) } catch { continue }
+          if (done) buf += decoder.decode()
+          else buf += decoder.decode(value, { stream: true })
+          const blocks = []
+          if (done) {
+            const pending = buf
+            buf = ''
+            const parts = pending.split('\n\n')
+            for (const block of parts) if (block.trim()) blocks.push(block)
+          } else {
+            const parts = buf.split('\n\n')
+            buf = parts.pop() || ''
+            blocks.push(...parts)
+          }
+          for (const block of blocks) {
+            const ev = parseSseBlock(block)
             if (!ev || typeof ev !== 'object') continue
             if (ev.event === 'progress') {
               const row = messages.value[asstIdx]
@@ -1003,6 +1018,7 @@ createApp({
               return
             }
           }
+          if (done) break
         }
 
         if (!finalOk && !(messages.value[asstIdx]?.content || '').trim()) {

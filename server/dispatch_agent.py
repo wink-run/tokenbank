@@ -83,6 +83,72 @@ def _public_artifacts(raw) -> list:
     return out
 
 
+# 正文先到、文件后到。这段时间内断线仍保留正文，不改写成 worker disconnected
+_ARTIFACT_FOLLOW_SEC = 20
+
+
+async def _iter_agent_messages(ctx: dict):
+    """读队列：进度原样吐出；终态若声明还有文件，就再等一帧再结束。
+
+    文件帧丢失或连接随大包断开时，已经入队的正文仍然按原状态返回。
+    超时且没有任何终态时产出 None，由调用方退款。
+    """
+    q = ctx["queue"]
+    worker = ctx["worker"]
+    task_id = ctx["task_id"]
+    deadline = time.time() + float(ctx["timeout_sec"])
+    held = None
+    file_deadline = None
+
+    def _release(msg: dict) -> dict:
+        worker.pending_agents.pop(task_id, None)
+        out = dict(msg)
+        out.pop("artifacts_follow", None)
+        return out
+
+    while True:
+        now = time.time()
+        limit = file_deadline if held is not None and file_deadline is not None else deadline
+        if now >= limit:
+            break
+        try:
+            msg = await asyncio.wait_for(q.get(), timeout=max(0.1, limit - now))
+        except asyncio.TimeoutError:
+            break
+        if not isinstance(msg, dict):
+            continue
+        kind = msg.get("type")
+        if kind == "agent_task_progress" and held is None:
+            yield msg
+            continue
+        if kind == "agent_task_artifacts" and held is not None:
+            merged = dict(held)
+            merged["artifacts"] = msg.get("artifacts")
+            yield _release(merged)
+            return
+        if kind == "agent_task_result":
+            # 出租方先交正文，文件单独再来。先挂起，避免随后的断线覆盖成功结果
+            if msg.get("artifacts_follow"):
+                held = msg
+                file_deadline = min(deadline, time.time() + _ARTIFACT_FOLLOW_SEC)
+                continue
+            yield _release(msg)
+            return
+        if held is not None and msg.get("error") == "worker disconnected":
+            yield _release(held)
+            return
+        if msg.get("status") or msg.get("error"):
+            if held is not None:
+                yield _release(held)
+                return
+            yield _release(msg)
+            return
+    if held is not None:
+        yield _release(held)
+        return
+    yield None
+
+
 async def _finalize_agent_result(
     *,
     result: dict,
@@ -381,22 +447,20 @@ async def handle_agent_task(
     if err:
         return err
     assert ctx is not None
-    q = ctx["queue"]
-    timeout_sec = ctx["timeout_sec"]
     try:
-        while True:
-            msg = await asyncio.wait_for(q.get(), timeout=timeout_sec)
-            if (msg or {}).get("type") == "agent_task_progress":
+        async for msg in _iter_agent_messages(ctx):
+            if msg is None:
+                return await _refund_timeout(ctx)
+            if msg.get("type") == "agent_task_progress":
                 continue  # 非流式忽略过程事件
             return await _finalize_agent_result(
-                result=msg or {},
+                result=msg,
                 task_id=ctx["task_id"],
                 aid=ctx["aid"],
                 worker=ctx["worker"],
                 guest=ctx["guest"],
                 consumer_user_id=ctx["consumer_user_id"],
             )
-    except asyncio.TimeoutError:
         return await _refund_timeout(ctx)
     except Exception as e:
         worker = ctx["worker"]
@@ -453,33 +517,26 @@ async def iter_agent_task_sse(
         return
 
     assert ctx is not None
-    q = ctx["queue"]
-    timeout_sec = ctx["timeout_sec"]
-    deadline = time.time() + timeout_sec
     try:
-        while True:
-            remain = max(1.0, deadline - time.time())
-            try:
-                msg = await asyncio.wait_for(q.get(), timeout=remain)
-            except asyncio.TimeoutError:
+        async for msg in _iter_agent_messages(ctx):
+            if msg is None:
                 final = await _refund_timeout(ctx)
                 yield _sse({**final, "event": "error", "guest": guest, "need_login_to_continue": guest})
                 return
 
-            kind = (msg or {}).get("type")
-            if kind == "agent_task_progress":
+            if msg.get("type") == "agent_task_progress":
                 yield _sse({
                     "event": "progress",
                     "task_id": ctx["task_id"],
-                    "text": str((msg or {}).get("text") or "")[:200_000],
-                    "tool": (msg or {}).get("tool"),
-                    "progress_event": (msg or {}).get("event"),
-                    "parts": _public_progress_parts((msg or {}).get("parts")),
+                    "text": str(msg.get("text") or "")[:200_000],
+                    "tool": msg.get("tool"),
+                    "progress_event": msg.get("event"),
+                    "parts": _public_progress_parts(msg.get("parts")),
                 })
                 continue
 
             final = await _finalize_agent_result(
-                result=msg or {},
+                result=msg,
                 task_id=ctx["task_id"],
                 aid=ctx["aid"],
                 worker=ctx["worker"],

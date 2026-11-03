@@ -12,6 +12,7 @@ import {
   findUserFacingStart,
 } from '../../shared/stream-text-merge.js';
 import { MarkdownContent, StreamMarkdownContent, PathLink } from './RichMediaContent';
+import { RemoteArtifacts } from './ExecutionResult';
 import { useLang } from '../store/lang';
 import { usePinBottomScroll } from '../lib/use-pin-bottom-scroll';
 import { closePendingToolSteps, hasOpenToolCalls } from '../lib/debug-agent-store';
@@ -680,6 +681,8 @@ function TaskCompletionCard({ result, task }) {
           )}
         </div>
       )}
+
+      <RemoteArtifacts artifacts={result?.artifacts} />
 
       {files.length > 0 && (
         <div className="space-y-1 mt-2">

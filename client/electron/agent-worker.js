@@ -901,6 +901,7 @@ async function handleAgentTask(msg, cfg) {
     if (artifacts.length) {
       log(`[agent] artifacts ${artifacts.map((a) => a.name).join(', ')}`);
     }
+    // 正文先发。文件单独再发，大包把连接打断时云端仍保留已完成的正文
     send({
       type: 'agent_task_result',
       task_id: taskId,
@@ -908,8 +909,15 @@ async function handleAgentTask(msg, cfg) {
       output: finalBody.slice(0, 200_000),
       error: ok ? null : (status?.error || status?.result?.output || 'failed'),
       usage: { duration_ms: Date.now() - started },
-      artifacts: artifacts.length ? artifacts : undefined,
+      artifacts_follow: artifacts.length ? true : undefined,
     });
+    if (artifacts.length) {
+      send({
+        type: 'agent_task_artifacts',
+        task_id: taskId,
+        artifacts,
+      });
+    }
   } catch (e) {
     send({
       type: 'agent_task_result',

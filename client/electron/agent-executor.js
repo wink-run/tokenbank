@@ -481,6 +481,32 @@ function sleep(ms) {
 }
 
 /**
+ * 云端回传的成品。只留 data URL，调用方用它展示和下载，不把出租方磁盘路径当本地文件。
+ */
+function normalizeCommunityArtifacts(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  let total = 0;
+  for (const item of raw) {
+    if (out.length >= 4) break;
+    if (!item || typeof item !== 'object') continue;
+    const dataUrl = String(item.dataUrl || '').trim();
+    const comma = dataUrl.indexOf(',');
+    if (comma < 0 || !dataUrl.startsWith('data:')) continue;
+    const header = dataUrl.slice(0, comma);
+    if (!header.endsWith(';base64')) continue;
+    if (dataUrl.length > 8_000_000 || total + dataUrl.length > 8_000_000) continue;
+    const name = String(item.name || 'file').replace(/\\/g, '/').split('/').pop().slice(0, 120) || 'file';
+    let mime = String(item.mime || 'application/octet-stream').split(';')[0].trim().slice(0, 80);
+    if (!mime.includes('/')) mime = 'application/octet-stream';
+    const kind = mime.startsWith('image/') && !mime.includes('svg') ? 'image' : 'file';
+    out.push({ name, mime, kind, dataUrl });
+    total += dataUrl.length;
+  }
+  return out;
+}
+
+/**
  * Agent 执行器
  * 统一调用已纳管的 Agent（Claude Code, Codex, Cursor 等）
  */
@@ -1013,6 +1039,7 @@ class AgentExecutor extends EventEmitter {
           : undefined,
       });
       const ok = !!result?.ok;
+      const artifacts = normalizeCommunityArtifacts(result?.artifacts);
       const status = {
         status: ok ? 'completed' : (result?.status || 'failed'),
         agent_id: canonicalId,
@@ -1020,6 +1047,7 @@ class AgentExecutor extends EventEmitter {
         result: {
           output: result?.output || '',
           summary: result?.output || '',
+          artifacts,
         },
         usage: result?.usage || null,
       };
@@ -1136,12 +1164,15 @@ class AgentExecutor extends EventEmitter {
       throw new Error(result?.error || result?.status || 'community task failed');
     }
 
+    const artifacts = normalizeCommunityArtifacts(result.artifacts);
     const payload = {
       success: true,
       summary: result.output || '',
       output: result.output || '',
       stderr: '',
       files: [],
+      // 对方工作目录里的成品。本机没有这些路径，用 data URL 展示和下载
+      artifacts,
       stepCount: 0,
       usage: result.usage || null,
     };
@@ -1167,6 +1198,7 @@ class AgentExecutor extends EventEmitter {
         summary: payload.summary,
         stderr: '',
         files: [],
+        artifacts: payload.artifacts,
         stepCount: 0,
       },
       status: 'completed',
