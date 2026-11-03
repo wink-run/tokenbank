@@ -1223,6 +1223,15 @@ createApp({
         if (!isGuest) await fetchProfile()
         await scrollChat()
       } catch (e) {
+        const msg = String((e && e.message) || '')
+        // 切页或刷新会掐断连接，浏览器报 Load failed。留下已生成的内容，不当成失败
+        if (e?.name === 'AbortError' || /load failed|failed to fetch|networkerror|network connection was lost|aborted a request/i.test(msg)) {
+          const row = messages.value[asstIdx]
+          if (row && String(row.content || '').trim()) row.pending = false
+          else dropTurn()
+          err.value = ''
+          return
+        }
         dropTurn()
         err.value = e?.message || 'Network error'
       } finally {

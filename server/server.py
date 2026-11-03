@@ -1063,6 +1063,25 @@ async def cancel_agent_task_route(
     return {"ok": True, "task_id": task_id}
 
 
+@app.get("/api/agent-tasks/{task_id}/events")
+async def resume_agent_task_events(task_id: str):
+    """刷新或切页之后接上还在跑的对话。任务号本身就是凭证。"""
+    from dispatch_agent import agent_feed_exists, iter_agent_feed_sse
+
+    safe = (task_id or "").strip()
+    if not agent_feed_exists(safe):
+        raise HTTPException(404, "task not found")
+    return StreamingResponse(
+        iter_agent_feed_sse(safe),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 class AgentChatShareBody(BaseModel):
     assistant_id: str
     messages: list

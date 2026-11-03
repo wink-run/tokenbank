@@ -698,9 +698,11 @@ createApp({
             files: m.role === 'user' && Array.isArray(m.files) ? m.files.map(f => ({ name: String((f && f.name) || 'file').slice(0, 120) })).slice(0, 4) : undefined,
             startedAt: Number(m.startedAt) || undefined,
             finishedAt: Number(m.finishedAt) || undefined,
+            pending: m.role === 'assistant' && m.pending && m.taskId ? true : undefined,
+            taskId: m.role === 'assistant' && m.taskId ? String(m.taskId).slice(0, 40) : undefined,
           }
         })
-        .filter(m => String(m.content || '').trim() || (m.parts && m.parts.length) || (m.artifacts && m.artifacts.length))
+        .filter(m => String(m.content || '').trim() || (m.parts && m.parts.length) || (m.artifacts && m.artifacts.length) || (m.pending && m.taskId))
         .map(m => ({
           role: m.role,
           content: String(m.content || '').slice(0, 80_000),
@@ -709,6 +711,8 @@ createApp({
           files: m.files && m.files.length ? m.files : undefined,
           startedAt: m.startedAt,
           finishedAt: m.finishedAt,
+          pending: m.pending || undefined,
+          taskId: m.taskId || undefined,
         }))
         .slice(-CHAT_MAX_MSGS)
       let total = 0
@@ -742,11 +746,12 @@ createApp({
         const data = JSON.parse(raw)
         const list = Array.isArray(data?.messages) ? data.messages : (Array.isArray(data) ? data : [])
         return list
-          .filter(m => m && (m.role === 'user' || m.role === 'assistant') && (String(m.content || '').trim() || (Array.isArray(m.parts) && m.parts.length) || (Array.isArray(m.artifacts) && m.artifacts.length)))
+          .filter(m => m && (m.role === 'user' || m.role === 'assistant') && (String(m.content || '').trim() || (Array.isArray(m.parts) && m.parts.length) || (Array.isArray(m.artifacts) && m.artifacts.length) || (m.pending && m.taskId)))
           .map(m => ({
             role: m.role,
             content: String(m.content || ''),
-            pending: false,
+            pending: !!(m.pending && m.taskId),
+            taskId: m.taskId ? String(m.taskId).slice(0, 40) : undefined,
             parts: cleanParts(m.parts),
             artifacts: mergeArtifacts(m.artifacts, [m.content].concat(Array.isArray(m.parts) ? m.parts.map(p => p && p.text) : [])),
             files: Array.isArray(m.files) ? m.files.map(f => ({ name: String((f && f.name) || 'file').slice(0, 120) })).slice(0, 4) : undefined,
@@ -1109,6 +1114,11 @@ createApp({
         loading.value = false
         // 加载骨架卸掉后对话区才挂上，这时才能滚到内容底部
         if (agent.value) await scrollChat()
+        const last = messages.value[messages.value.length - 1]
+        if (last && last.pending && last.taskId) {
+          if (agent.value?.offline) last.pending = false
+          else resumeTask(last.taskId)
+        }
       }
     }
 
@@ -1215,6 +1225,236 @@ createApp({
       } catch { /* 页面先停；远端没停时任务会自己超时 */ }
     }
 
+    function isTransportAbort(e) {
+      const msg = String((e && e.message) || '')
+      // Safari 切页/刷新是 “Load failed”，Chrome 是 “Failed to fetch”，都不是任务失败
+      return /load failed|failed to fetch|networkerror|network connection was lost|aborted a request/i.test(msg)
+    }
+    /** 读一条任务流。进度是全文快照，刷新后重放也不会把正文叠两遍。 */
+    async function readAgentSse(r, asstIdx, isGuest) {
+      const setAssistant = (content, { pending = true } = {}) => {
+        const row = messages.value[asstIdx]
+        if (!row || row.role !== 'assistant') return
+        row.content = content
+        row.pending = pending
+      }
+      const dropStreamTurn = () => {
+        if (messages.value[asstIdx]?.role === 'assistant') messages.value.splice(asstIdx, 1)
+        const last = messages.value[messages.value.length - 1]
+        if (last?.role === 'user') messages.value.pop()
+      }
+      const reader = r.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      let finalOk = false
+      let finalGuest = isGuest
+      let nextAuto = ''
+      const parseSseBlock = (block) => {
+        const data = String(block || '').split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(line.startsWith('data: ') ? 6 : 5).trim())
+          .join('\n')
+        if (!data || data === '[DONE]') return null
+        try { return JSON.parse(data) } catch { return null }
+      }
+      const finish = (stopped) => ({ stopped, finalOk, finalGuest, nextAuto })
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) buf += decoder.decode()
+        else buf += decoder.decode(value, { stream: true })
+        const blocks = []
+        if (done) {
+          const pending = buf
+          buf = ''
+          const parts = pending.split('\n\n')
+          for (const block of parts) if (block.trim()) blocks.push(block)
+        } else {
+          const parts = buf.split('\n\n')
+          buf = parts.pop() || ''
+          blocks.push(...parts)
+        }
+        for (const block of blocks) {
+          const ev = parseSseBlock(block)
+          if (!ev || typeof ev !== 'object') continue
+          if (ev.task_id) {
+            activeTaskId.value = String(ev.task_id)
+            const row = messages.value[asstIdx]
+            if (row) row.taskId = activeTaskId.value
+          }
+          if (ev.event === 'started') continue
+          if (ev.event === 'progress') {
+            const row = messages.value[asstIdx]
+            const parts = cleanParts(ev.parts)
+            if (row && parts) {
+              row.parts = withToolTimes(row.parts, parts)
+              row.content = answerOf(row)
+              row.pending = true
+            } else {
+              const body = String(ev.text || '')
+              if (body) setAssistant(mergeStreamText(row?.content, body), { pending: true })
+              else if (ev.tool && row) {
+                const name = String(ev.tool)
+                const partsNow = cleanParts(row.parts) || []
+                const last = partsNow[partsNow.length - 1]
+                if (!(last && last.type === 'tool' && last.name === name)) {
+                  partsNow.push({ type: 'tool', name, detail: '', startedAt: Date.now() })
+                } else if (!last.startedAt) {
+                  last.startedAt = Date.now()
+                }
+                row.parts = partsNow
+                row.pending = true
+              }
+            }
+            await scrollChat()
+            continue
+          }
+          if (ev.event === 'done') {
+            finalOk = !!ev.ok
+            finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
+            const arts = cleanArtifacts(ev.artifacts)
+            const row = messages.value[asstIdx]
+            const out = rewriteShown(String(ev.output || ev.result || ev.text || ev.message || ''), arts)
+            if (row) {
+              row.pending = false
+              row.taskId = undefined
+              if (arts.length) row.artifacts = arts
+              if (row.parts && row.parts.length) {
+                row.parts = rewriteParts(row.parts, arts)
+                const shown = answerOf(row)
+                if (out && out !== shown && !shown.includes(out) && !out.includes(shown)) {
+                  row.parts = [...row.parts, { type: 'text', text: out }]
+                } else if (out.startsWith(shown) && out.length > shown.length) {
+                  const extra = out.slice(shown.length).replace(/^\s+/, '')
+                  if (extra) row.parts = [...row.parts, { type: 'text', text: extra }]
+                }
+                row.content = answerOf(row) || out || '(empty)'
+              } else {
+                setAssistant(out || rewriteShown(row.content, arts) || '(empty)', { pending: false })
+              }
+              if (arts.length) row.artifacts = arts
+            }
+            continue
+          }
+          if (ev.event === 'error') {
+            if (ev.status === 'cancelled' || ev.error === 'cancelled' || stopRequested) {
+              freezePartial(asstIdx)
+              return finish(true)
+            }
+            const timeoutEv = /timeout/i.test(`${ev.status || ''} ${ev.error || ''}`)
+            if (timeoutEv) {
+              const row = messages.value[asstIdx]
+              const arts = cleanArtifacts(ev.artifacts)
+              const remote = rewriteShown(String(ev.output || ''), arts)
+              const cur = rewriteShown(answerOf(row), arts)
+              const text = remote.length > cur.length ? remote : cur
+              if (row) {
+                row.pending = false
+                row.taskId = undefined
+                row.timedOut = true
+                if (arts.length) row.artifacts = arts
+                if (text) {
+                  row.content = text
+                  row.parts = [{ type: 'text', text }]
+                } else {
+                  messages.value.splice(asstIdx, 1)
+                }
+              }
+              if (!isGuest && autoContinues < 2) {
+                autoContinues += 1
+                nextAuto = T.value.autoContinue
+                err.value = ''
+              } else if (!isGuest) {
+                err.value = T.value.timeoutStopped
+              } else {
+                err.value = String(ev.error || ev.status || 'timeout')
+              }
+              if (isGuest) guestUsed.value = true
+              return finish(true)
+            }
+            finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
+            const msg = ev.error || ev.detail || ev.status || 'failed'
+            const row = messages.value[asstIdx]
+            const cur = answerOf(row).trim()
+            if (cur && cur !== '…') {
+              if (row?.parts?.length) {
+                row.parts = [...row.parts, { type: 'text', text: `[${msg}]` }]
+                row.content = answerOf(row)
+                row.pending = false
+              } else {
+                setAssistant(`${cur}\n\n[${msg}]`, { pending: false })
+              }
+              if (row) row.taskId = undefined
+              err.value = String(msg)
+              const arts = cleanArtifacts(ev.artifacts)
+              if (arts.length && row) row.artifacts = arts
+              if (row?.parts?.length) row.parts = rewriteParts(row.parts, arts)
+              if (row?.content) row.content = rewriteShown(row.content, arts)
+            } else {
+              err.value = String(msg)
+              dropStreamTurn()
+            }
+            if (finalGuest) guestUsed.value = true
+            return finish(true)
+          }
+        }
+        if (done) break
+      }
+      return finish(false)
+    }
+    let resumeBusy = false
+    async function resumeTask(taskId) {
+      const id = String(taskId || '').trim()
+      if (!id || running.value || resumeBusy) return
+      const idx = messages.value.findIndex((m) => m && m.role === 'assistant' && m.pending && m.taskId === id)
+      if (idx < 0) return
+      resumeBusy = true
+      running.value = true
+      startTick()
+      activeTaskId.value = id
+      err.value = ''
+      stopRequested = false
+      const row = messages.value[idx]
+      try {
+        const headers = { Accept: 'text/event-stream' }
+        const tok = getToken()
+        if (tok) headers.Authorization = `Bearer ${tok}`
+        const r = await fetch('/api/agent-tasks/' + encodeURIComponent(id) + '/events', { headers, cache: 'no-store' })
+        if (!r.ok || !(r.headers.get('content-type') || '').includes('text/event-stream')) {
+          row.pending = false
+          return
+        }
+        const outcome = await readAgentSse(r, idx, !getToken())
+        if (!outcome.stopped && messages.value[idx]) {
+          messages.value[idx].pending = false
+          messages.value[idx].taskId = undefined
+        }
+        if (!getToken() && outcome.finalGuest) guestUsed.value = true
+        if (outcome.nextAuto && getToken()) {
+          prompt.value = outcome.nextAuto
+          resumeBusy = false
+          running.value = false
+          stopTick()
+          await sendMessage(true)
+        }
+      } catch (e) {
+        // 又被切页打断：留下进度，回来再接，不提示 Load failed
+        if (!(e && (e.name === 'AbortError' || isTransportAbort(e)))) row.pending = false
+        persistNow()
+      } finally {
+        resumeBusy = false
+        running.value = false
+        sealTimes(messages.value[idx])
+        stopTick()
+      }
+    }
+    function onPageLife() {
+      if (document.visibilityState === 'hidden') {
+        persistNow()
+        return
+      }
+      const last = messages.value[messages.value.length - 1]
+      if (last && last.pending && last.taskId && !running.value) resumeTask(last.taskId)
+    }
     async function pauseRun() {
       if (!running.value) return
       stopRequested = true
@@ -1349,156 +1589,11 @@ createApp({
           return
         }
 
-        const reader = r.body.getReader()
-        const decoder = new TextDecoder()
-        let buf = ''
-        let finalOk = false
-        let finalGuest = isGuest
-        // 多行 data: 要拼起来。只取第一行时，被拆开的 done（带文件）会解析失败，页面变成 empty response
-        const parseSseBlock = (block) => {
-          const data = String(block || '').split('\n')
-            .filter((line) => line.startsWith('data:'))
-            .map((line) => line.slice(line.startsWith('data: ') ? 6 : 5).trim())
-            .join('\n')
-          if (!data || data === '[DONE]') return null
-          try { return JSON.parse(data) } catch { return null }
-        }
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) buf += decoder.decode()
-          else buf += decoder.decode(value, { stream: true })
-          const blocks = []
-          if (done) {
-            const pending = buf
-            buf = ''
-            const parts = pending.split('\n\n')
-            for (const block of parts) if (block.trim()) blocks.push(block)
-          } else {
-            const parts = buf.split('\n\n')
-            buf = parts.pop() || ''
-            blocks.push(...parts)
-          }
-          for (const block of blocks) {
-            const ev = parseSseBlock(block)
-            if (!ev || typeof ev !== 'object') continue
-            if (ev.task_id) activeTaskId.value = String(ev.task_id)
-            if (ev.event === 'started') continue
-            if (ev.event === 'progress') {
-              const row = messages.value[asstIdx]
-              const parts = cleanParts(ev.parts)
-              if (row && parts) {
-                row.parts = withToolTimes(row.parts, parts)
-                row.content = answerOf(row)
-                row.pending = true
-              } else {
-                const body = String(ev.text || '')
-                if (body) setAssistant(mergeStreamText(row?.content, body), { pending: true })
-                else if (ev.tool && row) {
-                  const name = String(ev.tool)
-                  const partsNow = cleanParts(row.parts) || []
-                  const last = partsNow[partsNow.length - 1]
-                  if (!(last && last.type === 'tool' && last.name === name)) {
-                    partsNow.push({ type: 'tool', name, detail: '', startedAt: Date.now() })
-                  } else if (!last.startedAt) {
-                    last.startedAt = Date.now()
-                  }
-                  row.parts = partsNow
-                  row.pending = true
-                }
-              }
-              await scrollChat()
-              continue
-            }
-            if (ev.event === 'done') {
-              finalOk = !!ev.ok
-              finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
-              const arts = cleanArtifacts(ev.artifacts)
-              const row = messages.value[asstIdx]
-              const out = rewriteShown(String(ev.output || ev.result || ev.text || ev.message || ''), arts)
-              if (row) {
-                row.pending = false
-                if (arts.length) row.artifacts = arts
-                if (row.parts && row.parts.length) {
-                  row.parts = rewriteParts(row.parts, arts)
-                  const shown = answerOf(row)
-                  if (out && out !== shown && !shown.includes(out) && !out.includes(shown)) {
-                    row.parts = [...row.parts, { type: 'text', text: out }]
-                  } else if (out.startsWith(shown) && out.length > shown.length) {
-                    const extra = out.slice(shown.length).replace(/^\s+/, '')
-                    if (extra) row.parts = [...row.parts, { type: 'text', text: extra }]
-                  }
-                  row.content = answerOf(row) || out || '(empty)'
-                } else {
-                  setAssistant(out || rewriteShown(row.content, arts) || '(empty)', { pending: false })
-                }
-                if (arts.length) row.artifacts = arts
-              }
-              continue
-            }
-            if (ev.event === 'error') {
-              if (ev.status === 'cancelled' || ev.error === 'cancelled' || stopRequested) {
-                freezePartial(asstIdx)
-                return
-              }
-              const timeoutEv = /timeout/i.test(`${ev.status || ''} ${ev.error || ''}`)
-              if (timeoutEv) {
-                const row = messages.value[asstIdx]
-                const arts = cleanArtifacts(ev.artifacts)
-                const remote = rewriteShown(String(ev.output || ''), arts)
-                const cur = rewriteShown(answerOf(row), arts)
-                const text = remote.length > cur.length ? remote : cur
-                if (row) {
-                  row.pending = false
-                  row.timedOut = true
-                  if (arts.length) row.artifacts = arts
-                  if (text) {
-                    row.content = text
-                    row.parts = [{ type: 'text', text }]
-                  } else {
-                    messages.value.splice(asstIdx, 1)
-                  }
-                }
-                if (!isGuest && autoContinues < 2) {
-                  autoContinues += 1
-                  nextAuto = T.value.autoContinue
-                  err.value = ''
-                } else if (!isGuest) {
-                  err.value = T.value.timeoutStopped
-                } else {
-                  err.value = String(ev.error || ev.status || 'timeout')
-                }
-                if (isGuest) guestUsed.value = true
-                return
-              }
-              finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
-              const msg = ev.error || ev.detail || ev.status || 'failed'
-              // 已有流式正文时保留并标注失败；否则回退整轮
-              const row = messages.value[asstIdx]
-              const cur = answerOf(row).trim()
-              if (cur && cur !== '…') {
-                if (row?.parts?.length) {
-                  row.parts = [...row.parts, { type: 'text', text: `[${msg}]` }]
-                  row.content = answerOf(row)
-                  row.pending = false
-                } else {
-                  setAssistant(`${cur}\n\n[${msg}]`, { pending: false })
-                }
-                err.value = String(msg)
-                const arts = cleanArtifacts(ev.artifacts)
-                if (arts.length && row) row.artifacts = arts
-                if (row?.parts?.length) row.parts = rewriteParts(row.parts, arts)
-                if (row?.content) row.content = rewriteShown(row.content, arts)
-              } else {
-                err.value = String(msg)
-                dropTurn()
-              }
-              if (finalGuest) guestUsed.value = true
-              return
-            }
-          }
-          if (done) break
-        }
+        const outcome = await readAgentSse(r, asstIdx, isGuest)
+        const finalOk = outcome.finalOk
+        const finalGuest = outcome.finalGuest
+        nextAuto = outcome.nextAuto || ''
+        if (outcome.stopped) return
 
         if (!finalOk && !(messages.value[asstIdx]?.content || '').trim()) {
           err.value = 'empty response'
@@ -1517,21 +1612,39 @@ createApp({
         if (!isGuest) await fetchProfile()
         await scrollChat()
       } catch (e) {
-        if (stopRequested || e?.name === 'AbortError') {
+        if (stopRequested) {
           freezePartial(asstIdx)
+          return
+        }
+        // 切页、刷新或浏览器掐断连接：留下已生成的内容，回来再接
+        if (e?.name === 'AbortError' || isTransportAbort(e)) {
+          const row = messages.value[asstIdx]
+          if (row && activeTaskId.value) {
+            row.pending = true
+            row.taskId = activeTaskId.value
+          } else if (row) {
+            row.pending = false
+          }
+          err.value = ''
+          persistNow()
           return
         }
         dropTurn()
         err.value = e?.message || 'Network error'
       } finally {
+        const row = messages.value[asstIdx]
+        const resumeId = !stopRequested && row?.pending && row?.taskId && document.visibilityState === 'visible'
+          ? String(row.taskId) : ''
         running.value = false
-        sealTimes(messages.value[asstIdx])
+        sealTimes(row)
         stopTick()
         runAbort = null
         resolveSettle()
         runSettle = null
         // return 会跳过 finally 之后的代码，续跑放在这里才能执行
-        if (nextAuto) {
+        if (resumeId) {
+          await resumeTask(resumeId)
+        } else if (nextAuto) {
           const text = nextAuto
           nextAuto = ''
           prompt.value = text
@@ -1542,9 +1655,16 @@ createApp({
 
     onMounted(() => {
       document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
+      window.addEventListener('pagehide', persistNow)
+      document.addEventListener('visibilitychange', onPageLife)
       loadAgent()
     })
-    onUnmounted(() => { stopTick(); stopPresenceWatch() })
+    onUnmounted(() => {
+      stopTick()
+      stopPresenceWatch()
+      window.removeEventListener('pagehide', persistNow)
+      document.removeEventListener('visibilitychange', onPageLife)
+    })
 
     // 消息变化时落盘（流式过程中也会节流写入，刷新可尽量保住）
     let _saveTimer = null
