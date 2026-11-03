@@ -78,10 +78,10 @@
         <div v-else class="av" :style="{ background: avatarColor(agentName) }">{{ agentName.slice(0, 1).toUpperCase() }}</div>
         <div class="id">
           <div class="id-t"><span class="id-name">{{ agentName }}</span>
-            <span class="tag" :class="{ circle: agent.visibility === 'circle' }">{{ agent.visibility === 'circle' ? T.circleShare : T.publicShare }}</span>
+            <span v-if="agent.visibility" class="tag" :class="{ circle: agent.visibility === 'circle' }">{{ agent.visibility === 'circle' ? T.circleShare : T.publicShare }}</span>
           </div>
           <div class="id-sub">
-            <span><span class="dot"></span>&nbsp; {{ T.online }}</span>
+            <span><span class="dot" :class="{ off: agentOffline }"></span>&nbsp; {{ agentOffline ? T.offline : T.online }}</span>
             <template v-if="agent.owner_nickname"><span class="sep">·</span><a :href="'/u/' + encodeURIComponent(agent.owner_nickname)">@{{ agent.owner_nickname }}</a></template>
             <template v-if="agent.runtime"><span class="sep">·</span><span>{{ agent.runtime }}</span></template>
             <span class="sep">·</span><span>{{ T.creditsPerTask.replace('{n}', String(creditsPerTask)) }}</span>
@@ -158,8 +158,15 @@
     <footer class="cfoot">
       <div class="cinner">
         <p v-if="err" class="err">{{ err }}</p>
-        <p v-if="fromShare && !guestLocked" class="share-note">{{ T.sharedContinue }}</p>
-        <div v-if="guestLocked" class="gate">
+        <p v-if="fromShare && !guestLocked && !shareReadOnly" class="share-note">{{ T.sharedContinue }}</p>
+        <div v-if="shareReadOnly" class="box locked">
+          <div class="box-lock">{{ T.shareOffline }}</div>
+          <textarea rows="1" disabled :placeholder="T.promptPh"></textarea>
+          <div class="box-row">
+            <span class="box-meta">{{ T.enterHint }}</span>
+          </div>
+        </div>
+        <div v-else-if="guestLocked" class="gate">
           <span class="g-ic">🔒</span>
           <div class="g-t"><b>{{ T.trialDone }}</b>{{ T.gateSub }}</div>
           <a class="btn sm" href="/tools" style="text-decoration:none;display:inline-flex;align-items:center">{{ T.watchAdAgain }}</a>
@@ -256,7 +263,7 @@ createApp({
       zh: {
         loading: '加载中…', unavailable: '无法访问此智能体', backHome: '返回首页',
         backNetwork: '← 社区网络',
-        noDesc: '暂无简介', online: '在线', publicShare: '全球分享', circleShare: '圈子分享',
+        noDesc: '暂无简介', online: '在线', offline: '离线', publicShare: '全球分享', circleShare: '圈子分享',
         creditsPerTask: '每次 {n} 积分', promptPh: '输入消息，或添加图片和文件，Shift+Enter 发送…',
         send: '发送', running: '思考中…', needLogin: '圈子分享仅成员可见；全球分享未登录可试一轮。',
         loginToContinue: '试用一轮已结束，登录后可继续对话（按正常积分扣费）。',
@@ -277,6 +284,7 @@ createApp({
         timeoutStopped: '已自动续跑两次，仍超时。再发一条消息可以继续。',
         newChat: '新对话', share: '分享', shared: '链接已复制', shareFail: '分享失败',
         sharedContinue: '这是分享来的对话，直接发消息就能接着聊。', shareMissing: '分享不存在或已失效',
+        shareOffline: '这个智能体已下线，分享的对话只能查看，暂时不能继续聊。',
         copy: '复制', copied: '已复制', attach: '添加附件', hires: '{n} 次雇佣',
         imageOnly: '请根据附图完成任务', fileOnly: '请根据附件完成任务',
         enterHint: 'Enter 换行 · Shift+Enter 发送', trialDone: '本次已用完', gateSub: '再看一次广告，或登录后按积分继续。', watchAdAgain: '再看广告',
@@ -292,7 +300,7 @@ createApp({
       en: {
         loading: 'Loading…', unavailable: 'Agent unavailable', backHome: 'Home',
         backNetwork: '← Network',
-        noDesc: 'No description', online: 'Online', publicShare: 'Global', circleShare: 'Circle',
+        noDesc: 'No description', online: 'Online', offline: 'Offline', publicShare: 'Global', circleShare: 'Circle',
         creditsPerTask: '{n} credits / turn', promptPh: 'Message, or add an image or file. Shift+Enter to send…',
         send: 'Send', running: 'Thinking…', needLogin: 'Circle agents are members-only. Public agents: one free guest turn.',
         loginToContinue: 'Guest trial used. Sign in to continue (normal credits).',
@@ -313,6 +321,7 @@ createApp({
         timeoutStopped: 'Auto-continue stopped after two timeouts. Send another message to go on.',
         newChat: 'New chat', share: 'Share', shared: 'Link copied', shareFail: 'Could not share',
         sharedContinue: 'This conversation was shared. Send a message to continue.', shareMissing: 'This share is missing',
+        shareOffline: 'This agent is offline. The shared conversation is read-only for now.',
         copy: 'Copy', copied: 'Copied', attach: 'Add attachment', hires: '{n} hires',
         imageOnly: 'Please use the attached images.', fileOnly: 'Please use the attached files.',
         enterHint: 'Enter for newline · Shift+Enter to send', trialDone: 'Turn used up', gateSub: 'Watch another ad, or sign in to continue (credits).', watchAdAgain: 'Watch ad',
@@ -354,6 +363,9 @@ createApp({
     const prompt = ref('')
     const messages = ref([])
     const fromShare = ref(false)
+    // 分享来的对话：智能体下线后只能看，不能接着发
+    const agentOffline = ref(false)
+    const shareReadOnly = computed(() => (fromShare.value && agentOffline.value) || !!agent.value?.offline)
     const shareBusy = ref(false)
     const shareCopied = ref(false)
     // 待发送附图（仅本轮；不写入本地历史以免撑爆 quota）
@@ -716,6 +728,7 @@ createApp({
         storageSet(chatStorageKey(id), JSON.stringify({
           v: 1,
           updatedAt: Date.now(),
+          shared: fromShare.value || undefined,
           messages: serializeChat(msgs),
         }))
       } catch { /* quota */ }
@@ -821,6 +834,52 @@ createApp({
       }
       const restored = loadChatHistory(aid)
       if (restored.length) messages.value = restored
+      if (storedChatShared(aid)) fromShare.value = true
+    }
+    function storedChatShared(aid) {
+      try {
+        const raw = storageGet(chatStorageKey(aid))
+        if (!raw) return false
+        const data = JSON.parse(raw)
+        return !!(data && data.shared)
+      } catch { return false }
+    }
+    /** 名片还在，说明分享者设备在线。公开和圈子各查一次。 */
+    async function probeAgent(id) {
+      let { r, data } = await fetchJson(`/public/agents/${encodeURIComponent(id)}`)
+      if (r.ok && data?.agent) return { agent: data.agent, credits: data.credits_per_task }
+      if (getToken()) {
+        ;({ r, data } = await fetchJson(`/api/agents/${encodeURIComponent(id)}`, { auth: true }))
+        if (r.status === 401) return { auth: true }
+        if (r.ok && data?.agent) return { agent: data.agent, credits: data.credits_per_task }
+      }
+      return { missing: true }
+    }
+    let presenceTimer = null
+    function stopPresenceWatch() {
+      if (presenceTimer) clearInterval(presenceTimer)
+      presenceTimer = null
+    }
+    async function refreshAgentPresence() {
+      if (!fromShare.value) return
+      const id = agent.value?.id || assistantIdFromPath()
+      if (!id) return
+      try {
+        const found = await probeAgent(id)
+        if (found.auth) return
+        if (found.agent) {
+          agent.value = found.agent
+          if (found.credits != null) creditsPerTask.value = found.credits
+          agentOffline.value = false
+          applyMeta()
+          return
+        }
+        agentOffline.value = true
+      } catch { /* 网络抖动时保持当前状态 */ }
+    }
+    function startPresenceWatch() {
+      if (presenceTimer || !fromShare.value) return
+      presenceTimer = setInterval(() => { refreshAgentPresence() }, 20000)
     }
     function loadChatHistoryFrom(list) {
       const raw = Array.isArray(list) ? list : []
@@ -976,6 +1035,7 @@ createApp({
       fatal.value = ''
       showAuthGate.value = false
       agent.value = null
+      agentOffline.value = false
       const id = assistantIdFromPath()
       if (!id) {
         fatal.value = T.value.notFound
@@ -983,54 +1043,50 @@ createApp({
         return
       }
       try {
-        let { r, data } = await fetchJson(`/public/agents/${encodeURIComponent(id)}`)
-        if (r.ok && data?.agent) {
-          agent.value = data.agent
-          creditsPerTask.value = data.credits_per_task ?? 10
-          await openChat(data.agent.id)
+        const found = await probeAgent(id)
+        if (found.auth) {
+          logout()
+          fatal.value = T.value.needAuthCircle
+          showAuthGate.value = true
+          return
+        }
+        if (found.agent) {
+          agent.value = found.agent
+          creditsPerTask.value = found.credits ?? 10
+          await openChat(found.agent.id)
           if (gateTicket.value) {
             guestUsed.value = false
-            storageRemove(guestUsedKey(data.agent.id))
+            storageRemove(guestUsedKey(found.agent.id))
           } else {
-            guestUsed.value = storageGet(guestUsedKey(data.agent.id)) === '1'
+            guestUsed.value = storageGet(guestUsedKey(found.agent.id)) === '1'
           }
           applyMeta()
-          loading.value = false
           if (loggedIn.value) await fetchProfile()
+          startPresenceWatch()
           await scrollChat()
           return
+        }
+        // 名片不在了：分享来的记录仍打开，只是不能接着聊
+        const sid = (new URLSearchParams(location.search).get('share') || '').trim()
+        if (sid || storedChatShared(id)) {
+          agent.value = { id, name: id, offline: true }
+          agentOffline.value = true
+          await openChat(id)
+          if (fromShare.value && messages.value.length) {
+            applyMeta()
+            startPresenceWatch()
+            await scrollChat()
+            return
+          }
+          agent.value = null
+          agentOffline.value = false
         }
         if (!getToken()) {
           fatal.value = T.value.needAuthCircle
           showAuthGate.value = true
-          loading.value = false
           return
         }
-        ;({ r, data } = await fetchJson(`/api/agents/${encodeURIComponent(id)}`, { auth: true }))
-        if (r.status === 401) {
-          logout()
-          fatal.value = T.value.needAuthCircle
-          showAuthGate.value = true
-          loading.value = false
-          return
-        }
-        if (!r.ok || !data?.agent) {
-          fatal.value = (typeof data?.detail === 'string' ? data.detail : '') || T.value.notFound
-          loading.value = false
-          return
-        }
-        agent.value = data.agent
-        creditsPerTask.value = data.credits_per_task ?? 10
-        await openChat(data.agent.id)
-        if (gateTicket.value) {
-          guestUsed.value = false
-          storageRemove(guestUsedKey(data.agent.id))
-        } else {
-          guestUsed.value = storageGet(guestUsedKey(data.agent.id)) === '1'
-        }
-        applyMeta()
-        await fetchProfile()
-        await scrollChat()
+        fatal.value = T.value.notFound
       } catch {
         fatal.value = T.value.notFound
       } finally {
@@ -1154,6 +1210,7 @@ createApp({
     async function sendMessage(arg) {
       // 点击事件也会传进来；只有显式 true 才是超时后续跑
       const auto = arg === true
+      if (shareReadOnly.value || agent.value?.offline) return
       if (!auto) autoContinues = 0
       if (running.value) {
         const followUp = hasDraft.value
@@ -1469,7 +1526,7 @@ createApp({
       document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
       loadAgent()
     })
-    onUnmounted(() => stopTick())
+    onUnmounted(() => { stopTick(); stopPresenceWatch() })
 
     // 消息变化时落盘（流式过程中也会节流写入，刷新可尽量保住）
     let _saveTimer = null
@@ -1493,6 +1550,7 @@ createApp({
       return T.value.sugs || []
     })
     function useSuggestion(sg) {
+      if (shareReadOnly.value) return
       prompt.value = sg.d
       nextTick(() => { const el = composerEl.value; if (el) { el.focus(); ChatUI.autoGrow(el) } })
     }
@@ -1524,7 +1582,7 @@ createApp({
       lang, T, toggleLang, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,
-      sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, fromShare, renderMarkdown, onComposerPaste, removePendingImage,
+      sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, fromShare, shareReadOnly, agentOffline, renderMarkdown, onComposerPaste, removePendingImage,
     }
   },
 }).mount('#app')

@@ -55,6 +55,7 @@ button{font-family:inherit}
 .id-sub{margin-top:3px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:12px;color:var(--text-muted)}
 .id-sub .sep{color:var(--text-faint)}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--success);display:inline-block;box-shadow:0 0 0 3px rgba(22,163,74,.12)}
+.dot.off{background:#a8a29e;box-shadow:0 0 0 3px rgba(168,162,158,.18)}
 .tag{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);background:var(--bg);color:var(--text-muted);white-space:nowrap}
 .tag.txt{color:#0369a1;border-color:#bae6fd;background:#f0f9ff}
 .tag.vision{color:#0f766e;border-color:#99f6e4;background:#f0fdfa}
@@ -146,7 +147,9 @@ button{font-family:inherit}
 
 /* 底部输入 */
 .cfoot{flex-shrink:0;padding:0 0 14px;background:linear-gradient(180deg,rgba(250,249,245,0),var(--bg-subtle) 28%)}
-.box{border:1px solid var(--border);background:var(--bg);border-radius:20px;padding:10px 10px 10px 16px;box-shadow:0 6px 24px rgba(0,0,0,.05);transition:border-color .12s,box-shadow .12s}
+.box{position:relative;border:1px solid var(--border);background:var(--bg);border-radius:20px;padding:10px 10px 10px 16px;box-shadow:0 6px 24px rgba(0,0,0,.05);transition:border-color .12s,box-shadow .12s}
+.box.locked textarea,.box.locked .box-row{opacity:.35}
+.box-lock{position:absolute;z-index:2;left:12px;right:12px;top:50%;transform:translateY(-50%);padding:10px 14px;border:1px solid #fde8a8;border-radius:14px;background:rgba(255,251,235,.96);color:var(--text);font-size:13px;line-height:1.5;text-align:center}
 .box:focus-within{border-color:#cbc6c1;box-shadow:0 8px 28px rgba(0,0,0,.07)}
 .box textarea{width:100%;border:none;outline:none;resize:none;background:transparent;font-family:inherit;font-size:15px;line-height:1.55;color:var(--text);min-height:24px;max-height:200px;padding:4px 0}
 .box textarea::placeholder{color:var(--text-faint)}
