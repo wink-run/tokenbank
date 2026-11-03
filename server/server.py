@@ -1152,10 +1152,43 @@ async def list_agent_chat_shares_route(
         shares.append({
             "id": row.get("id"),
             "author": share_author_label(row.get("author_nickname"), row.get("author_email")),
+            "mine": int(row.get("user_id") or 0) == int(uid),
             "preview": share_preview(messages),
             "created_at": created.isoformat() if hasattr(created, "isoformat") else created,
+            "messages": messages if isinstance(messages, list) else [],
         })
     return {"shares": shares}
+
+
+class AgentChatShareAppendBody(BaseModel):
+    messages: list = []
+
+
+@app.post("/api/agent-chats/shares/{share_id}/messages")
+async def append_agent_chat_share_route(share_id: str, body: AgentChatShareAppendBody):
+    """后来的人接着说，补进同一条分享，不覆盖前面的发言。"""
+    import json as _json
+
+    from agent_chat_share import SHARE_MAX_CHARS, append_share_turns
+
+    safe = (share_id or "").strip()
+    if not safe or len(safe) > 40 or not re.fullmatch(r"[A-Za-z0-9_-]+", safe):
+        raise HTTPException(404, "share not found")
+    row = await db.get_agent_chat_share(safe)
+    if not row:
+        raise HTTPException(404, "share not found")
+    try:
+        existing = _json.loads(row.get("messages") or "[]")
+    except Exception:
+        existing = []
+    merged = append_share_turns(existing, body.messages)
+    if not merged:
+        raise HTTPException(400, "empty chat")
+    blob = _json.dumps(merged, ensure_ascii=False)
+    if len(blob) > SHARE_MAX_CHARS:
+        raise HTTPException(413, "chat too large")
+    await db.replace_agent_chat_share_messages(safe, blob)
+    return {"id": safe, "messages": merged}
 
 
 @app.get("/api/agent-chats/shares/{share_id}")

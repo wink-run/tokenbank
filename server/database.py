@@ -421,7 +421,7 @@ async def get_agent_chat_share(share_id: str) -> Optional[dict]:
 
 async def list_agent_chat_shares(assistant_id: str, viewer_id: int, include_all: bool = False) -> list[dict]:
     """当前用户自己分享的对话。智能体主人能看到这个智能体下所有人的分享。"""
-    sql = """SELECT s.id, s.messages, s.created_at,
+    sql = """SELECT s.id, s.user_id, s.messages, s.created_at,
                     u.nickname AS author_nickname, u.email AS author_email
              FROM agent_chat_shares s
              LEFT JOIN users u ON u.id = s.user_id
@@ -435,6 +435,15 @@ async def list_agent_chat_shares(assistant_id: str, viewer_id: int, include_all:
         async with db.execute(sql, tuple(args)) as cur:
             rows = await cur.fetchall()
     return [dict(row) for row in rows]
+
+
+async def replace_agent_chat_share_messages(share_id: str, messages_json: str) -> None:
+    async with connect() as db:
+        await db.execute(
+            "UPDATE agent_chat_shares SET messages=? WHERE id=?",
+            (messages_json, share_id),
+        )
+        await db.commit()
 
 
 async def _migrate_password_reset_codes() -> None:

@@ -40,13 +40,6 @@ button{font-family:inherit}
 
 /* 身份头：模型 / 智能体 */
 .chead{flex-shrink:0;border-bottom:1px solid var(--border-light);background:var(--bg-subtle)}
-.threads{flex-shrink:0;border-bottom:1px solid var(--border-light);background:var(--bg-subtle)}
-.threads-in{display:flex;gap:8px;overflow-x:auto;padding-top:8px;padding-bottom:8px}
-.thread{flex:0 0 auto;max-width:220px;text-align:left;border:1px solid var(--border);background:var(--bg);border-radius:12px;padding:7px 10px;cursor:pointer}
-.thread.on{border-color:#0a0a0a}
-.thread:disabled{cursor:default;opacity:.6}
-.thread b{display:block;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.thread span{display:block;margin-top:2px;font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
 .chead .cinner{display:flex;align-items:center;gap:12px;padding-top:14px;padding-bottom:14px}
 .av{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:17px;flex-shrink:0}
 .av.lg{width:64px;height:64px;border-radius:18px;font-size:26px}
@@ -99,6 +92,7 @@ button{font-family:inherit}
 .msg.user{justify-content:flex-end}
 /* 宽度限制放在外层。气泡按内容收缩，短句保持一行，长文才在上限处换行 */
 .msg.user .uside{display:flex;flex-direction:column;align-items:flex-end;max-width:78%;min-width:0}
+.uwho{font-size:11px;color:var(--text-muted);margin-bottom:4px;padding-right:4px}
 .msg.user .ubub{max-width:100%;background:#efece8;color:var(--text);padding:10px 14px;border-radius:18px 18px 6px 18px;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;line-height:1.6;font-size:14px}
 .msg.assistant .abody{flex:1;min-width:0;padding-top:4px;font-size:14.5px;line-height:1.7;color:var(--text)}
 .msg.assistant.pending .abody{color:var(--text-2)}

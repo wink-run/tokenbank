@@ -32,6 +32,21 @@ def test_share_keeps_transcript_and_proxy_video():
     assert art["name"].endswith(".mp4")
 
 
+def test_share_appends_later_speaker_in_time_order():
+    from agent_chat_share import append_share_turns
+    base = [
+        {"role": "user", "content": "阿达先问", "author": "阿达", "at": 1000},
+        {"role": "assistant", "content": "好", "at": 1100},
+    ]
+    extra = [
+        {"role": "user", "content": "小波接上", "author": "小波", "at": 5000},
+        {"role": "assistant", "content": "好", "at": 5100},
+    ]
+    out = append_share_turns(base, extra)
+    assert [m["content"] for m in out] == ["阿达先问", "好", "小波接上", "好"]
+    assert append_share_turns(out, extra) == out
+
+
 def test_share_labels_people_and_preview():
     from agent_chat_share import share_author_label, share_preview
     assert share_author_label("阿达", "a@b.c") == "阿达"

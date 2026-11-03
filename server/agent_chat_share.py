@@ -81,12 +81,19 @@ def normalize_share_messages(raw) -> list:
                     images.append(url)
             if images:
                 msg["images"] = images
+        if role == "user":
+            author = str(item.get("author") or "").strip()[:40]
+            if author:
+                msg["author"] = author
         started = item.get("startedAt")
         finished = item.get("finishedAt")
+        spoken = item.get("at")
         if isinstance(started, (int, float)) and started > 0:
             msg["startedAt"] = int(started)
         if isinstance(finished, (int, float)) and finished > 0:
             msg["finishedAt"] = int(finished)
+        if isinstance(spoken, (int, float)) and spoken > 0:
+            msg["at"] = int(spoken)
         if msg["content"].strip() or msg.get("parts") or msg.get("artifacts") or msg.get("images") or msg.get("files"):
             out.append(msg)
     return out
@@ -101,6 +108,43 @@ def share_author_label(nickname, email) -> str:
     if "@" in mail:
         return mail.split("@", 1)[0][:40]
     return ""
+
+
+def _spoken_at(msg, index: int) -> int:
+    for key in ("at", "startedAt", "finishedAt"):
+        value = msg.get(key)
+        if isinstance(value, (int, float)) and value > 0:
+            return int(value)
+    return index
+
+
+def _same_turn(old, new) -> bool:
+    if old.get("role") != new.get("role"):
+        return False
+    if str(old.get("content") or "").strip() != str(new.get("content") or "").strip():
+        return False
+    old_author = old.get("author") or ""
+    new_author = new.get("author") or ""
+    if old_author and new_author and old_author != new_author:
+        return False
+    old_at = _spoken_at(old, 0)
+    new_at = _spoken_at(new, 0)
+    # 同一句隔了几秒以上，就当成另一次发言
+    if old_at and new_at and abs(old_at - new_at) > 2000:
+        return False
+    return True
+
+
+def append_share_turns(existing, incoming) -> list:
+    """把后来的人接上的发言补进同一条分享，已有的句子不重复。"""
+    merged = normalize_share_messages(existing)
+    for msg in normalize_share_messages(incoming):
+        if any(_same_turn(old, msg) for old in merged):
+            continue
+        merged.append(msg)
+    ordered = list(enumerate(merged))
+    ordered.sort(key=lambda item: (_spoken_at(item[1], item[0]), item[0]))
+    return [msg for _, msg in ordered][-SHARE_MAX_MSGS:]
 
 
 def share_preview(messages) -> str:
