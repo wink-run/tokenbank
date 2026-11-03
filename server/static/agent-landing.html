@@ -96,7 +96,7 @@
       </div>
     </header>
 
-    <div class="cscroll" ref="chatEl" @click="onChatClick">
+    <div class="cscroll" ref="chatEl" @click="onChatClick" @mouseover="onImgOver" @mouseout="onImgOut" @scroll="onImgHide">
       <div class="cinner">
         <div v-if="!messages.length" class="empty">
           <div v-if="appIcon" class="av lg brand"><img :src="appIcon" alt=""></div>
@@ -120,7 +120,7 @@
                   </template>
                   <template v-else-if="p.type === 'tool'">
                     <div class="apart-label">{{ T.toolLabel }}</div>
-                    <div class="apart-name">{{ p.name }}</div>
+                    <div class="apart-name">{{ p.name }}<span v-if="toolElapsed(p, m)" class="apart-time">{{ toolElapsed(p, m) }}</span></div>
                     <pre v-if="p.detail">{{ p.detail }}</pre>
                   </template>
                   <div v-else class="md-body" v-html="renderRich(p.text)"></div>
@@ -129,6 +129,7 @@
               <div v-else-if="m.content && m.content !== T.thinking" class="md-body" v-html="renderRich(m.content)"></div>
               <span v-if="m.pending && !(m.parts && m.parts.length) && (!m.content || m.content === T.thinking)" class="typing"><i></i><i></i><i></i></span>
               <span v-else-if="m.pending" class="typing stream-caret"><i></i><i></i><i></i></span>
+              <div v-if="runLabel(m)" class="run-time">{{ runLabel(m) }}</div>
               <div v-if="m.artifacts && m.artifacts.length" class="afiles">
                 <figure v-for="(f, j) in m.artifacts" :key="j" class="afig">
                   <img v-if="f.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name || '')" :src="f.url || f.dataUrl" :alt="f.name">
@@ -233,7 +234,7 @@
 </div>
 
 <script>
-const { createApp, ref, computed, onMounted, nextTick, watch } = Vue
+const { createApp, ref, computed, onMounted, onUnmounted, nextTick, watch } = Vue
 
 /* localStorage 在受限环境可能不可用 */
 let _storageOk = false
@@ -265,6 +266,7 @@ createApp({
         attachSize: '附件过大',
         chatHint: '未登录可试一轮', chatEmpty: '发送一条消息试用；可粘贴图片；登录后可多轮追问。',
         clear: '清空对话', thinking: '…', thinkingLabel: '思考', toolLabel: '工具', streaming: '生成中…', toolRunning: '调用工具：{name}',
+        runningFor: '已运行 {t}', ranFor: '用时 {t}',
         pause: '暂停', paused: '已暂停',
         autoContinue: '上一次执行超时了，请从中断处继续，不要重头开始。',
         timeoutStopped: '已自动续跑两次，仍超时。再发一条消息可以继续。',
@@ -298,6 +300,7 @@ createApp({
         attachSize: 'Attachment too large',
         chatHint: 'One free guest turn', chatEmpty: 'Try one message (paste images OK); sign in for multi-turn chat.',
         clear: 'Clear', thinking: '…', thinkingLabel: 'Thinking', toolLabel: 'Tool', streaming: 'Generating…', toolRunning: 'Tool: {name}',
+        runningFor: 'Running {t}', ranFor: '{t}',
         pause: 'Pause', paused: 'Paused',
         autoContinue: 'The previous run timed out. Continue from where it stopped. Do not start over.',
         timeoutStopped: 'Auto-continue stopped after two timeouts. Send another message to go on.',
@@ -386,10 +389,15 @@ createApp({
       for (const p of parts) {
         if (!p || typeof p !== 'object') continue
         if (p.type === 'tool') {
+          const startedAt = Number(p.startedAt) || 0
+          const finishedAt = Number(p.finishedAt) || 0
           out.push({
             type: 'tool',
             name: String(p.name || 'tool').slice(0, 80),
             detail: String(p.detail || '').slice(0, 4000),
+            done: !!p.done,
+            ...(startedAt ? { startedAt } : {}),
+            ...(finishedAt ? { finishedAt } : {}),
           })
           continue
         }
@@ -407,6 +415,68 @@ createApp({
         if (text) return text
       }
       return String((m && m.content) || '').trim()
+    }
+    // 执行计时。nowTick 每秒跳一次，进行中的工具和整轮才会跟着变
+    const nowTick = ref(Date.now())
+    let tickTimer = null
+    function startTick() {
+      if (tickTimer) return
+      nowTick.value = Date.now()
+      tickTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
+    }
+    function stopTick() {
+      if (!tickTimer) return
+      clearInterval(tickTimer)
+      tickTimer = null
+    }
+    function formatElapsed(ms) {
+      const raw = Math.max(0, Number(ms) || 0)
+      // 刚开始的不到 1 秒显示成 1s，避免卡片上出现 0s
+      let s = Math.floor(raw / 1000)
+      if (raw > 0 && s === 0) s = 1
+      const m = Math.floor(s / 60)
+      const h = Math.floor(m / 60)
+      const ss = String(s % 60).padStart(2, '0')
+      if (h > 0) return `${h}:${String(m % 60).padStart(2, '0')}:${ss}`
+      if (m > 0) return `${m}:${ss}`
+      return `${s}s`
+    }
+    /** 进度分段会整包替换。同一条工具沿用开始时间，结束时记下结束时间。 */
+    function withToolTimes(prev, parts) {
+      const old = Array.isArray(prev) ? prev : []
+      return parts.map((p, i) => {
+        if (!p || p.type !== 'tool') return p
+        const before = old[i]
+        const same = before && before.type === 'tool' && before.name === p.name
+        const startedAt = same && before.startedAt ? before.startedAt : Date.now()
+        let finishedAt = same ? before.finishedAt : 0
+        if (p.done && !finishedAt) finishedAt = Date.now()
+        if (!p.done) finishedAt = 0
+        return { ...p, startedAt, ...(finishedAt ? { finishedAt } : {}), done: !!p.done }
+      })
+    }
+    function runLabel(m) {
+      if (!m || !m.startedAt) return ''
+      const live = !!m.pending
+      const end = live ? nowTick.value : Number(m.finishedAt || 0)
+      if (!end) return ''
+      const text = formatElapsed(end - m.startedAt)
+      return (live ? T.value.runningFor : T.value.ranFor).replace('{t}', text)
+    }
+    function toolElapsed(p, m) {
+      if (!p || p.type !== 'tool' || !p.startedAt) return ''
+      const live = !!(m && m.pending) && !p.done
+      const end = live ? nowTick.value : Number(p.finishedAt || (m && m.finishedAt) || 0)
+      if (!end) return ''
+      return formatElapsed(end - p.startedAt)
+    }
+    function sealTimes(row) {
+      if (!row || row.role !== 'assistant' || row.pending) return
+      if (!row.finishedAt) row.finishedAt = Date.now()
+      if (!Array.isArray(row.parts)) return
+      for (const p of row.parts) {
+        if (p && p.type === 'tool' && p.startedAt && !p.finishedAt) p.finishedAt = row.finishedAt
+      }
     }
     function artifactUrl(item) {
       const url = String((item && item.url) || '')
@@ -483,6 +553,8 @@ createApp({
             role: m.role,
             content: (answerOf(m) || (m.role === 'user' && m.images?.length ? '[image]' : '')).slice(0, 80_000),
             parts,
+            startedAt: Number(m.startedAt) || undefined,
+            finishedAt: Number(m.finishedAt) || undefined,
           }
         })
         .filter(m => String(m.content || '').trim() || (m.parts && m.parts.length))
@@ -490,6 +562,8 @@ createApp({
           role: m.role,
           content: String(m.content || '').slice(0, 80_000),
           parts: m.parts,
+          startedAt: m.startedAt,
+          finishedAt: m.finishedAt,
         }))
         .slice(-CHAT_MAX_MSGS)
       let total = 0
@@ -528,6 +602,8 @@ createApp({
             content: String(m.content || ''),
             pending: false,
             parts: cleanParts(m.parts),
+            startedAt: Number(m.startedAt) || undefined,
+            finishedAt: Number(m.finishedAt) || undefined,
           }))
       } catch {
         return []
@@ -918,11 +994,12 @@ createApp({
         images: attachUrls.length ? attachUrls.slice() : undefined,
         files: fileItems.length ? fileItems.map(p => ({ name: p.name || 'file' })) : undefined,
       })
-      messages.value.push({ role: 'assistant', content: '', pending: true })
+      messages.value.push({ role: 'assistant', content: '', pending: true, startedAt: Date.now() })
       const asstIdx = messages.value.length - 1
       prompt.value = ''
       pendingImages.value = []
       running.value = true
+      startTick()
       stopRequested = false
       activeTaskId.value = ''
       runAbort = new AbortController()
@@ -1042,7 +1119,7 @@ createApp({
               const row = messages.value[asstIdx]
               const parts = cleanParts(ev.parts)
               if (row && parts) {
-                row.parts = parts
+                row.parts = withToolTimes(row.parts, parts)
                 row.content = answerOf(row)
                 row.pending = true
               } else {
@@ -1053,7 +1130,9 @@ createApp({
                   const partsNow = cleanParts(row.parts) || []
                   const last = partsNow[partsNow.length - 1]
                   if (!(last && last.type === 'tool' && last.name === name)) {
-                    partsNow.push({ type: 'tool', name, detail: '' })
+                    partsNow.push({ type: 'tool', name, detail: '', startedAt: Date.now() })
+                  } else if (!last.startedAt) {
+                    last.startedAt = Date.now()
                   }
                   row.parts = partsNow
                   row.pending = true
@@ -1199,6 +1278,8 @@ createApp({
         err.value = e?.message || 'Network error'
       } finally {
         running.value = false
+        sealTimes(messages.value[asstIdx])
+        stopTick()
         runAbort = null
         resolveSettle()
         runSettle = null
@@ -1216,6 +1297,7 @@ createApp({
       document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
       loadAgent()
     })
+    onUnmounted(() => stopTick())
 
     // 消息变化时落盘（流式过程中也会节流写入，刷新可尽量保住）
     let _saveTimer = null
@@ -1252,6 +1334,9 @@ createApp({
     const appIcon = computed(() => (window.TBAppIcon ? window.TBAppIcon.url(agent.value) : ''))
     const renderRich = (raw) => ChatUI.wrapCode(renderMarkdown(raw), T.value.copy)
     const onChatClick = (e) => ChatUI.onCopyClick(e, T.value.copied, T.value.copy)
+    const onImgOver = (e) => ChatUI.showImagePreview(e)
+    const onImgOut = (e) => ChatUI.hideImagePreview(e)
+    const onImgHide = () => ChatUI.hideImagePreview({ target: document.body })
     function copyMsg(m, e) {
       const btn = e.currentTarget
       ChatUI.copyText(String(m.content || '')).then(() => {
@@ -1262,7 +1347,8 @@ createApp({
 
     return {
       authOpen, openAuth, composerEl, fileEl, agentName, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor, appIcon,
-      renderRich, onChatClick, copyMsg, answerOf, downloadArtifact,
+      runLabel, toolElapsed,
+      renderRich, onChatClick, onImgOver, onImgOut, onImgHide, copyMsg, answerOf, downloadArtifact,
       lang, T, toggleLang, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,

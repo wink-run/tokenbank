@@ -105,7 +105,9 @@ button{font-family:inherit}
 .apart-thinking{display:block;background:var(--bg-muted);border-radius:12px;padding:8px 12px}
 .apart-thinking .apart-body{display:block;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word;color:var(--text-2);font-size:13px;line-height:1.6}
 .apart-tool{display:block;border:1px solid var(--border);border-radius:12px;padding:8px 12px;background:var(--bg)}
-.apart-tool .apart-name{display:block;font-family:var(--mono);font-size:12.5px;font-weight:650}
+.apart-tool .apart-name{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12.5px;font-weight:650}
+.apart-time{margin-left:auto;font-family:var(--mono);font-size:11px;font-weight:550;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.run-time{margin-top:6px;font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums}
 .apart-tool pre{margin:6px 0 0;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.55;max-height:160px;overflow:auto;color:var(--text-2)}
 .apart-text+.apart-text{margin-top:2px}
 .stream-caret{display:flex;margin-top:6px}
@@ -170,6 +172,9 @@ button{font-family:inherit}
 .afig img{display:block;max-width:100%;border-radius:12px;border:1px solid var(--border);background:var(--bg)}
 .afile{display:inline-flex;margin-top:6px;max-width:100%;padding:6px 10px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text-2);font-size:12.5px;cursor:pointer;font-family:inherit;text-decoration:none}
 .afile:hover{border-color:var(--text-muted);color:var(--text)}
+.img-hover-pop{position:fixed;z-index:80;padding:6px;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.18);pointer-events:none}
+.img-hover-pop[hidden]{display:none}
+.img-hover-pop img{display:block;max-width:min(420px,72vw);max-height:320px;object-fit:contain;border-radius:8px;background:var(--bg-muted)}
 .foot-hint{margin-top:8px;text-align:center;font-size:12px;color:var(--text-faint)}
 .foot-hint a,.foot-hint button{color:var(--text-muted);text-decoration:underline;background:none;border:none;cursor:pointer;font-size:12px;padding:0}
 .err{margin:0 0 8px;padding:8px 12px;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;color:var(--danger);font-size:13px}

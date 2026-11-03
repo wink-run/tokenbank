@@ -44,6 +44,77 @@ window.ChatUI = (function () {
     })
   }
 
+  const IMG_URL = /^https?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg)(?:[?#]\S*)?$/i
+  const IMG_PATH = /^\/media\/agent\/\S+\.(?:png|jpe?g|gif|webp|svg)(?:[?#]\S*)?$/i
+
+  /** 链接或行内代码若是图片地址，返回可预览的 src */
+  function imagePreviewSrc(node) {
+    if (!node || !node.closest) return ''
+    const el = node.closest('a, code')
+    if (!el || el.closest('pre') || !el.closest('.md-body, .afiles')) return ''
+    let raw = el.tagName === 'A' ? (el.getAttribute('href') || '') : (el.textContent || '')
+    raw = String(raw).trim().replace(/[),.;，。；]+$/, '')
+    if (IMG_URL.test(raw) || IMG_PATH.test(raw)) return raw
+    return ''
+  }
+
+  let imgPop = null
+  let imgPopSrc = ''
+
+  function ensureImagePop() {
+    if (imgPop) return imgPop
+    imgPop = document.createElement('div')
+    imgPop.className = 'img-hover-pop'
+    imgPop.hidden = true
+    const img = document.createElement('img')
+    img.alt = ''
+    img.onload = () => { if (!imgPop.hidden) placeImagePop(imgPop._anchor) }
+    img.onerror = () => { imgPop.hidden = true }
+    imgPop.appendChild(img)
+    document.body.appendChild(imgPop)
+    return imgPop
+  }
+
+  function placeImagePop(anchor) {
+    if (!imgPop || !anchor || !anchor.getBoundingClientRect) return
+    const r = anchor.getBoundingClientRect()
+    const w = imgPop.offsetWidth || 280
+    const h = imgPop.offsetHeight || 180
+    let left = Math.min(Math.max(8, r.left), window.innerWidth - w - 8)
+    let top = r.top - h - 8
+    if (top < 8) top = Math.min(r.bottom + 8, window.innerHeight - h - 8)
+    imgPop.style.left = left + 'px'
+    imgPop.style.top = Math.max(8, top) + 'px'
+  }
+
+  /** 悬停图片链接或图片地址时，在旁边显示预览 */
+  function showImagePreview(e) {
+    const node = e && e.target && e.target.closest ? e.target.closest('a, code') : null
+    const src = imagePreviewSrc(node)
+    if (!src) {
+      // 指针移到普通文字或非图片文件上时收起，避免预览粘住
+      if (imgPop && !imgPop.hidden && (!node || node !== imgPop._anchor)) imgPop.hidden = true
+      return
+    }
+    const pop = ensureImagePop()
+    const img = pop.querySelector('img')
+    pop._anchor = node
+    if (imgPopSrc !== src) {
+      imgPopSrc = src
+      img.src = src
+    }
+    pop.hidden = false
+    placeImagePop(node)
+  }
+
+  function hideImagePreview(e) {
+    if (!imgPop || imgPop.hidden) return
+    const node = e && e.target && e.target.closest ? e.target.closest('a, code') : null
+    const to = e && e.relatedTarget
+    if (node && to && node.contains(to)) return
+    imgPop.hidden = true
+  }
+
   /** textarea 随内容自适应高度（上限由 CSS max-height 控制） */
   function autoGrow(el) {
     if (!el) return
@@ -51,5 +122,5 @@ window.ChatUI = (function () {
     el.style.height = Math.min(el.scrollHeight, 200) + 'px'
   }
 
-  return { avatarColor, wrapCode, copyText, onCopyClick, autoGrow }
+  return { avatarColor, wrapCode, copyText, onCopyClick, autoGrow, showImagePreview, hideImagePreview }
 })()
