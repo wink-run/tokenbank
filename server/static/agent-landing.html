@@ -11,8 +11,8 @@
 <script src="/static/vue.global.prod.js"></script>
 <script src="/static/marked.min.js"></script>
 <script src="/static/purifier.min.js"></script>
-<link rel="stylesheet" href="/static/chat.css">
-<script src="/static/chat-ui.js"></script>
+<link rel="stylesheet" href="/static/chat.css?v={{JS_VER}}">
+<script src="/static/chat-ui.js?v={{JS_VER}}"></script>
 <script src="/static/app-runtime-icon.js"></script>
 </head>
 <body>
@@ -1351,9 +1351,10 @@ createApp({
     const appIcon = computed(() => (window.TBAppIcon ? window.TBAppIcon.url(agent.value) : ''))
     const renderRich = (raw) => ChatUI.wrapCode(renderMarkdown(raw), T.value.copy)
     const onChatClick = (e) => ChatUI.onCopyClick(e, T.value.copied, T.value.copy)
-    const onImgOver = (e) => ChatUI.showImagePreview(e)
-    const onImgOut = (e) => ChatUI.hideImagePreview(e)
-    const onImgHide = () => ChatUI.hideImagePreview({ target: document.body })
+    // 旧缓存的 chat-ui.js 没有这两个方法，缺了就跳过，避免悬停直接报错
+    const onImgOver = (e) => { if (typeof ChatUI.showImagePreview === 'function') ChatUI.showImagePreview(e) }
+    const onImgOut = (e) => { if (typeof ChatUI.hideImagePreview === 'function') ChatUI.hideImagePreview(e) }
+    const onImgHide = () => { if (typeof ChatUI.hideImagePreview === 'function') ChatUI.hideImagePreview({ target: document.body }) }
     function copyMsg(m, e) {
       const btn = e.currentTarget
       ChatUI.copyText(String(m.content || '')).then(() => {

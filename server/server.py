@@ -19,7 +19,7 @@ except ImportError:
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 
@@ -294,12 +294,28 @@ async def tool_task_page(task_id: str):
     return FileResponse("static/tools.html")
 
 
+def _chat_static_ver() -> str:
+    """chat-ui.js / chat.css 的版本号。改文件后自动变，避免浏览器继续用旧脚本。"""
+    try:
+        return str(int(max(
+            os.path.getmtime(f"static/{name}")
+            for name in ("chat-ui.js", "chat.css")
+        )))
+    except OSError:
+        return "0"
+
+
+def _chat_page(path: str) -> HTMLResponse:
+    html = open(path, encoding="utf-8").read().replace("{{JS_VER}}", _chat_static_ver())
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache, max-age=0"})
+
+
 @app.get("/a/{assistant_id}")
 async def agent_landing_page(assistant_id: str):
     """已分享智能体的网页版落地页（全球 / 圈子共用同一入口）"""
     # assistant_id 仅用于前端路由解析；静态页本身不依赖路径参数
     _ = (assistant_id or "").strip()
-    return FileResponse("static/agent-landing.html")
+    return _chat_page("static/agent-landing.html")
 
 
 @app.get("/api/catalog")
