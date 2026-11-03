@@ -59,10 +59,11 @@ function ensureContributeWorkspace(assistantId, consumerKey) {
   return dir;
 }
 
-// 回传给调用方的成品：图片可在网页里看，其他文件可下载
+// 回传给调用方的成品：图片和视频可直接看，字幕等其它文件可下载。
+// 短视频常见 5–20MB，旧的 4MB 上限会把成片留在出租方磁盘上。
 const ARTIFACT_MAX = 4;
-const ARTIFACT_MAX_BYTES = 4 * 1024 * 1024;
-const ARTIFACT_TOTAL_CHARS = 8_000_000;
+const ARTIFACT_MAX_BYTES = 32 * 1024 * 1024;
+const ARTIFACT_TOTAL_CHARS = 64_000_000;
 const ARTIFACT_MIME = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -79,8 +80,14 @@ const ARTIFACT_MIME = {
   '.zip': 'application/zip',
   '.mp3': 'audio/mpeg',
   '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
   '.mp4': 'video/mp4',
+  '.m4v': 'video/x-m4v',
   '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.mkv': 'video/x-matroska',
+  '.srt': 'text/plain',
+  '.vtt': 'text/vtt',
 };
 const ARTIFACT_EXT = Object.keys(ARTIFACT_MIME).map((ext) => ext.slice(1)).join('|').replace('jpeg|', 'jpe?g|');
 
@@ -112,8 +119,9 @@ function mentionedPaths(text, workingDir) {
     if (p.startsWith('~/')) p = path.join(os.homedir(), p.slice(2));
     found.push(p);
   }
+  // 目录和文件名可以是中文，例如 outputs/宣传片.srt
   const relRe = new RegExp(
-    String.raw`(?:^|[\s'"\`（(])((?:[\w.-]+[\\/])+[\w.-]+\.(?:${ARTIFACT_EXT}))`,
+    String.raw`(?:^|[\s'"\`（(])((?:[^\s'"\`<>|*?\u0000/\\]+[\\/])+[^\s'"\`<>|*?\u0000/\\]+\.(?:${ARTIFACT_EXT}))`,
     'gim',
   );
   while ((m = relRe.exec(raw))) {

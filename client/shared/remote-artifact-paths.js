@@ -29,6 +29,12 @@ function swapRemoteArtifactPaths(text, artifacts) {
       'g',
     );
     s = s.replace(re, url);
+    // 相对路径如 outputs/成片.mp4。前面已是中转地址时不再改。
+    const rel = new RegExp(
+      '(?<![:/\\w])(?:\\.{1,2}[\\\\/])?(?:[^\\s`\'"<>|\\\\/]+[\\\\/])+' + esc,
+      'g',
+    );
+    s = s.replace(rel, (raw) => (raw.includes('://') || raw.includes('/media/agent/') ? raw : url));
   }
   return s;
 }

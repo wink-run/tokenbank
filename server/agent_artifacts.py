@@ -12,8 +12,9 @@ AGENT_MEDIA_DIR = Path(__file__).resolve().parent / "data" / "agent_media"
 # 中转成品默认留 3 天，可用 AGENT_MEDIA_TTL_DAYS 覆盖
 _DEFAULT_TTL_DAYS = 3
 _ARTIFACT_MAX = 4
-_ARTIFACT_MAX_CHARS = 8_000_000
-_ARTIFACT_MAX_BYTES = 4 * 1024 * 1024
+_ARTIFACT_MAX_CHARS = 64_000_000
+# 短视频常见几 MB 到二十多 MB；太小的上限会把成片留在出租方本机
+_ARTIFACT_MAX_BYTES = 32 * 1024 * 1024
 
 # 绝对路径，结尾必须是成品文件名。不改正文里单独出现的文件名。
 # 盘符前不能再是字母，否则 https:// 里的 s:/ 会被当成路径再拼一次。
@@ -119,8 +120,14 @@ def media_type_for_name(name: str) -> str | None:
         "zip": "application/zip",
         "mp3": "audio/mpeg",
         "wav": "audio/wav",
+        "m4a": "audio/mp4",
         "mp4": "video/mp4",
+        "m4v": "video/x-m4v",
         "webm": "video/webm",
+        "mov": "video/quicktime",
+        "mkv": "video/x-matroska",
+        "srt": "text/plain",
+        "vtt": "text/vtt",
     }.get(ext)
 
 
@@ -216,8 +223,26 @@ def rewrite_artifact_paths(text: str, artifacts: list) -> str:
         local = str(art.get("local") or "")
         if local:
             out = out.replace(local, url)
+            # 正文里常写工作目录下的相对路径，如 outputs/成片.mp4，不单留文件名
+            parts = [p for p in local.replace("\\", "/").split("/") if p]
+            for i in range(1, len(parts) - 1):
+                rel = "/".join(parts[i:])
+                if rel:
+                    out = out.replace(rel, url)
         pat = re.compile(_PATH_PREFIX + r"[^\s`'\"<>|]*?" + re.escape(name))
         out = pat.sub(url, out)
+        # 至少带一层目录，避免把单独出现的文件名换成地址。已换成的中转地址不再改。
+        rel_pat = re.compile(
+            r"(?<![:/\w])(?:\.{1,2}[\\/])?(?:[^\s`'\"<>|\\/]+[\\/])+" + re.escape(name)
+        )
+
+        def _keep_url(match: re.Match, repl: str = url) -> str:
+            raw = match.group(0)
+            if "://" in raw or "/media/agent/" in raw:
+                return raw
+            return repl
+
+        out = rel_pat.sub(_keep_url, out)
     return out
 
 

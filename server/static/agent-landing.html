@@ -133,6 +133,7 @@
               <div v-if="m.artifacts && m.artifacts.length" class="afiles">
                 <figure v-for="(f, j) in m.artifacts" :key="j" class="afig">
                   <img v-if="f.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name || '')" :src="f.url || f.dataUrl" :alt="f.name">
+                  <video v-else-if="isVideoFile(f) && (f.url || f.dataUrl)" class="avid" controls preload="metadata" :src="f.url || f.dataUrl"></video>
                   <a v-if="f.url" class="afile" :href="f.url" :download="f.name" target="_blank" rel="noopener">{{ f.name }}</a>
                   <button v-else type="button" class="afile" @click="downloadArtifact(f)">{{ f.name }}</button>
                 </figure>
@@ -509,8 +510,46 @@ createApp({
         const name = String(f.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
         const re = new RegExp('(?:~/|/(?:Users|home|tmp|var|opt|private|Volumes)|(?<![A-Za-z])[A-Za-z]:[\\\\/])[^\\s`\'"<>|]*?' + name, 'g')
         s = s.replace(re, f.url)
+        // 相对路径如 outputs/成片.mp4。已经换成的中转地址不再改。
+        const rel = new RegExp('(?<![:/\\w])(?:\\.{1,2}[\\\\/])?(?:[^\\s`\'"<>|\\\\/]+[\\\\/])+' + name, 'g')
+        s = s.replace(rel, (raw) => (raw.includes('://') || raw.includes('/media/agent/') ? raw : f.url))
       }
       return s
+    }
+    /** 没换成中转地址的绝对路径只留文件名，避免把出租方磁盘路径留给雇佣方。 */
+    function scrubLocalPaths(text) {
+      return String(text || '').replace(
+        /(?:~\/|\/(?:Users|home|tmp|var|opt|private|Volumes)|(?<![A-Za-z])[A-Za-z]:[\\/])[^\s`'"<>|]+/g,
+        (full) => {
+          const parts = String(full).split(/[/\\]/).filter(Boolean)
+          return parts.length ? parts[parts.length - 1] : full
+        },
+      )
+    }
+    function rewriteShown(text, arts) {
+      return scrubLocalPaths(swapArtifactPaths(text, arts))
+    }
+    function rewriteParts(parts, arts) {
+      if (!Array.isArray(parts)) return parts
+      return parts.map((p) => {
+        if (!p) return p
+        if (p.type === 'text' || p.type === 'thinking') {
+          const text = rewriteShown(p.text, arts)
+          return text === p.text ? p : { ...p, text }
+        }
+        if (p.type === 'tool') {
+          const detail = p.detail ? rewriteShown(p.detail, arts) : p.detail
+          const result = p.result ? rewriteShown(p.result, arts) : p.result
+          if (detail === p.detail && result === p.result) return p
+          return { ...p, detail, result }
+        }
+        return p
+      })
+    }
+    function isVideoFile(f) {
+      const mime = String((f && f.mime) || '')
+      if (mime.startsWith('video/')) return true
+      return /\.(mp4|m4v|webm|mov|mkv)$/i.test(String((f && f.name) || ''))
     }
     function downloadArtifact(f) {
       const url = String((f && f.dataUrl) || '')
@@ -1146,22 +1185,12 @@ createApp({
               finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
               const arts = cleanArtifacts(ev.artifacts)
               const row = messages.value[asstIdx]
-              if (row && arts.length) {
-                row.artifacts = arts
-                if (row.parts && row.parts.length) {
-                  row.parts = row.parts.map((p) => (
-                    p && (p.type === 'text' || p.type === 'thinking')
-                      ? { ...p, text: swapArtifactPaths(p.text, arts) }
-                      : p
-                  ))
-                }
-                if (row.content) row.content = swapArtifactPaths(row.content, arts)
-              }
-              const out = swapArtifactPaths(String(ev.output || ev.result || ev.text || ev.message || ''), arts)
+              const out = rewriteShown(String(ev.output || ev.result || ev.text || ev.message || ''), arts)
               if (row) {
                 row.pending = false
-                // 已有分段时只补最终正文里多出来的部分，不把思考和工具盖掉
+                if (arts.length) row.artifacts = arts
                 if (row.parts && row.parts.length) {
+                  row.parts = rewriteParts(row.parts, arts)
                   const shown = answerOf(row)
                   if (out && out !== shown && !shown.includes(out) && !out.includes(shown)) {
                     row.parts = [...row.parts, { type: 'text', text: out }]
@@ -1171,7 +1200,7 @@ createApp({
                   }
                   row.content = answerOf(row) || out || '(empty)'
                 } else {
-                  setAssistant(out || row.content || '(empty)', { pending: false })
+                  setAssistant(out || rewriteShown(row.content, arts) || '(empty)', { pending: false })
                 }
                 if (arts.length) row.artifacts = arts
               }
@@ -1185,24 +1214,20 @@ createApp({
               const timeoutEv = /timeout/i.test(`${ev.status || ''} ${ev.error || ''}`)
               if (timeoutEv) {
                 const row = messages.value[asstIdx]
-                const remote = String(ev.output || '').trim()
-                const cur = answerOf(row).trim()
+                const arts = cleanArtifacts(ev.artifacts)
+                const remote = rewriteShown(String(ev.output || ''), arts)
+                const cur = rewriteShown(answerOf(row), arts)
                 const text = remote.length > cur.length ? remote : cur
                 if (row) {
                   row.pending = false
                   row.timedOut = true
+                  if (arts.length) row.artifacts = arts
                   if (text) {
                     row.content = text
                     row.parts = [{ type: 'text', text }]
                   } else {
                     messages.value.splice(asstIdx, 1)
                   }
-                }
-                const arts = cleanArtifacts(ev.artifacts)
-                const kept = messages.value[asstIdx]
-                if (arts.length && kept && kept.role === 'assistant') {
-                  kept.artifacts = arts
-                  if (kept.content) kept.content = swapArtifactPaths(kept.content, arts)
                 }
                 if (!isGuest && autoContinues < 2) {
                   autoContinues += 1
@@ -1231,17 +1256,9 @@ createApp({
                 }
                 err.value = String(msg)
                 const arts = cleanArtifacts(ev.artifacts)
-                if (arts.length && row) {
-                  row.artifacts = arts
-                  if (row.parts && row.parts.length) {
-                    row.parts = row.parts.map((p) => (
-                      p && (p.type === 'text' || p.type === 'thinking')
-                        ? { ...p, text: swapArtifactPaths(p.text, arts) }
-                        : p
-                    ))
-                  }
-                  if (row.content) row.content = swapArtifactPaths(row.content, arts)
-                }
+                if (arts.length && row) row.artifacts = arts
+                if (row?.parts?.length) row.parts = rewriteParts(row.parts, arts)
+                if (row?.content) row.content = rewriteShown(row.content, arts)
               } else {
                 err.value = String(msg)
                 dropTurn()
@@ -1348,7 +1365,7 @@ createApp({
     return {
       authOpen, openAuth, composerEl, fileEl, agentName, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor, appIcon,
       runLabel, toolElapsed,
-      renderRich, onChatClick, onImgOver, onImgOut, onImgHide, copyMsg, answerOf, downloadArtifact,
+      renderRich, onChatClick, onImgOver, onImgOut, onImgHide, copyMsg, answerOf, downloadArtifact, isVideoFile,
       lang, T, toggleLang, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,

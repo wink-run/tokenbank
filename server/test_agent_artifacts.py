@@ -94,6 +94,43 @@ def test_chinese_filename_keeps_extension():
     assert stored[0]["name"] == "骑自行车的人.svg"
 
 
+def test_video_and_relative_subtitle_become_proxy_urls():
+    tmp = tempfile.mkdtemp(prefix="tb-art-")
+    tmp_path = Path(tmp)
+    video = "/Users/ully/.tokenbank/contribute-workspaces/res-assistant-video-gen-agent/u1/outputs/轻记账技能-宣传片-16x9.mp4"
+    sub = "/Users/ully/.tokenbank/contribute-workspaces/res-assistant-video-gen-agent/u1/outputs/轻记账技能-宣传片-16x9.srt"
+    blob = b"\x00" * (5 * 1024 * 1024)
+    stored = publish_agent_artifacts(
+        "task_vid",
+        [
+            {
+                "name": "轻记账技能-宣传片-16x9.mp4",
+                "mime": "video/mp4",
+                "dataUrl": "data:video/mp4;base64," + base64.b64encode(blob).decode(),
+                "localPath": video,
+            },
+            {
+                "name": "轻记账技能-宣传片-16x9.srt",
+                "mime": "text/plain",
+                "dataUrl": "data:text/plain;base64," + base64.b64encode("1\n你好\n".encode()).decode(),
+                "localPath": sub,
+            },
+        ],
+        media_dir=tmp_path,
+        origin="https://tokenbank.wink.run",
+    )
+    assert len(stored) == 2
+    assert stored[0]["mime"] == "video/mp4"
+    text = f"成片：{video} ： 1920×1080\n字幕：outputs/轻记账技能-宣传片-16x9.srt （13 条）"
+    rewritten = rewrite_artifact_paths(text, stored)
+    assert "/Users/ully" not in rewritten
+    assert "outputs/" not in rewritten
+    assert stored[0]["url"] in rewritten
+    assert stored[1]["url"] in rewritten
+    assert rewrite_artifact_paths(rewritten, stored) == rewritten
+    assert "httphttps://" not in rewritten
+
+
 def test_publish_rejects_outside_bytes():
     tmp = tempfile.mkdtemp(prefix="tb-art-")
     tmp_path = Path(tmp)

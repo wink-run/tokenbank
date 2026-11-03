@@ -79,3 +79,27 @@ test('collectWorkspaceArtifacts keeps in-workspace outputs', () => {
   fs.rmSync(root, { recursive: true, force: true });
   fs.unlinkSync(outside);
 });
+
+test('collectWorkspaceArtifacts ships video and subtitle, including paths over 4MB', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-art-'));
+  const outDir = path.join(root, 'outputs');
+  fs.mkdirSync(outDir);
+  const videoName = '轻记账技能-宣传片-16x9.mp4';
+  const subName = '轻记账技能-宣传片-16x9.srt';
+  const video = path.join(outDir, videoName);
+  const sub = path.join(outDir, subName);
+  fs.writeFileSync(video, Buffer.alloc(5 * 1024 * 1024, 1));
+  fs.writeFileSync(sub, '1\n00:00:00,000 --> 00:00:01,000\n你好\n');
+  const started = Date.now() - 1000;
+  const text = `成片：${video}\n字幕：outputs/${subName}`;
+  const arts = collectWorkspaceArtifacts(root, text, started);
+  const names = arts.map((a) => a.name);
+  assert.ok(names.includes(videoName));
+  assert.ok(names.includes(subName));
+  const mp4 = arts.find((a) => a.name === videoName);
+  assert.equal(mp4.mime, 'video/mp4');
+  assert.equal(mp4.kind, 'file');
+  assert.ok(mp4.dataUrl.startsWith('data:video/mp4;base64,'));
+  assert.equal(mp4.localPath, fs.realpathSync(video));
+  fs.rmSync(root, { recursive: true, force: true });
+});

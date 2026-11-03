@@ -40,6 +40,7 @@ export function RemoteArtifacts({ artifacts }) {
         const href = artifactHref(file);
         const name = String(file.name || '');
         const previewable = file.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)$/i.test(name);
+        const video = /^video\//.test(String(file.mime || '')) || /\.(mp4|m4v|webm|mov|mkv)$/i.test(name);
         const src = previewable ? (href || file.dataUrl) : '';
         return (
           <figure key={`${file.name || 'file'}-${index}`} className="space-y-1">
@@ -49,6 +50,9 @@ export function RemoteArtifacts({ artifacts }) {
                 alt={file.name || ''}
                 className="max-h-64 max-w-full rounded-lg border border-black/10 dark:border-white/10"
               />
+            )}
+            {video && href && (
+              <video src={href} controls preload="metadata" className="max-h-64 w-full rounded-lg bg-black" />
             )}
             {href ? (
               <a
