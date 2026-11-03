@@ -374,6 +374,45 @@ async def init_db() -> None:
     await _migrate_password_reset_codes()
     await _migrate_community_catalog_installs()
     await _migrate_studio()
+    await _migrate_agent_chat_shares()
+
+
+async def _migrate_agent_chat_shares() -> None:
+    """一场网页对话的分享。链接知道的人都能打开并接着聊，不要求登录。"""
+    async with connect() as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS agent_chat_shares (
+                id            TEXT PRIMARY KEY,
+                assistant_id  TEXT NOT NULL,
+                user_id       INTEGER,
+                messages      TEXT NOT NULL,
+                created_at    TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await db.commit()
+
+
+async def create_agent_chat_share(assistant_id: str, messages_json: str, user_id: Optional[int] = None) -> str:
+    share_id = secrets.token_urlsafe(9)
+    async with connect() as db:
+        await db.execute(
+            "INSERT INTO agent_chat_shares(id, assistant_id, user_id, messages) VALUES(?,?,?,?)",
+            (share_id, assistant_id, user_id, messages_json),
+        )
+        await db.commit()
+    return share_id
+
+
+async def get_agent_chat_share(share_id: str) -> Optional[dict]:
+    async with connect() as db:
+        async with db.execute(
+            "SELECT id, assistant_id, messages, created_at FROM agent_chat_shares WHERE id=?",
+            (share_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return None
+    return dict(row)
 
 
 async def _migrate_password_reset_codes() -> None:

@@ -1063,6 +1063,63 @@ async def cancel_agent_task_route(
     return {"ok": True, "task_id": task_id}
 
 
+class AgentChatShareBody(BaseModel):
+    assistant_id: str
+    messages: list
+
+
+@app.post("/api/agent-chats/shares")
+async def create_agent_chat_share_route(
+    body: AgentChatShareBody,
+    uid: Optional[int] = Depends(optional_auth_api_key_or_jwt),
+):
+    """把当前网页对话存成链接。对方打开后可以直接接着聊。未登录也可以分享。"""
+    import json as _json
+    from urllib.parse import quote
+
+    from agent_artifacts import public_origin
+    from agent_chat_share import SHARE_MAX_CHARS, normalize_share_messages
+
+    assistant_id = (body.assistant_id or "").strip()[:200]
+    if not assistant_id:
+        raise HTTPException(400, "missing assistant")
+    messages = normalize_share_messages(body.messages)
+    if not messages:
+        raise HTTPException(400, "empty chat")
+    blob = _json.dumps(messages, ensure_ascii=False)
+    if len(blob) > SHARE_MAX_CHARS:
+        raise HTTPException(413, "chat too large")
+    share_id = await db.create_agent_chat_share(assistant_id, blob, uid)
+    url = f"{public_origin()}/a/{quote(assistant_id, safe='')}?share={quote(share_id, safe='')}"
+    return {"id": share_id, "url": url}
+
+
+@app.get("/api/agent-chats/shares/{share_id}")
+async def get_agent_chat_share_route(share_id: str):
+    """打开分享。知道链接就能看，也可以在这个智能体上接着聊。"""
+    import json as _json
+
+    safe = (share_id or "").strip()
+    if not safe or len(safe) > 40 or not re.fullmatch(r"[A-Za-z0-9_-]+", safe):
+        raise HTTPException(404, "share not found")
+    row = await db.get_agent_chat_share(safe)
+    if not row:
+        raise HTTPException(404, "share not found")
+    try:
+        messages = _json.loads(row.get("messages") or "[]")
+    except Exception:
+        messages = []
+    if not isinstance(messages, list):
+        messages = []
+    created = row.get("created_at")
+    return {
+        "id": row.get("id"),
+        "assistant_id": row.get("assistant_id"),
+        "created_at": created.isoformat() if hasattr(created, "isoformat") else created,
+        "messages": messages,
+    }
+
+
 @app.get("/api/agent-downloads")
 async def agent_downloads():
     items: list[dict] = []

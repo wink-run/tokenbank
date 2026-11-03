@@ -89,6 +89,9 @@
           </div>
         </div>
         <div class="head-actions">
+          <button v-if="messages.length" type="button" class="nbtn" :disabled="running || shareBusy" @click="shareChat" :title="T.share">
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 5H5.5A1.5 1.5 0 0 0 4 6.5v8A1.5 1.5 0 0 0 5.5 16h8a1.5 1.5 0 0 0 1.5-1.5V12" stroke-linecap="round"/><path d="M11 4h5v5M16 4 9.5 10.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>{{ shareCopied ? T.shared : T.share }}</span>
+          </button>
           <button v-if="messages.length" type="button" class="nbtn" :disabled="running" @click="clearChat" :title="T.clear">
             <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 4v12M4 10h12" stroke-linecap="round"/></svg><span>{{ T.newChat }}</span>
           </button>
@@ -155,6 +158,7 @@
     <footer class="cfoot">
       <div class="cinner">
         <p v-if="err" class="err">{{ err }}</p>
+        <p v-if="fromShare && !guestLocked" class="share-note">{{ T.sharedContinue }}</p>
         <div v-if="guestLocked" class="gate">
           <span class="g-ic">🔒</span>
           <div class="g-t"><b>{{ T.trialDone }}</b>{{ T.gateSub }}</div>
@@ -271,7 +275,9 @@ createApp({
         pause: '暂停', paused: '已暂停',
         autoContinue: '上一次执行超时了，请从中断处继续，不要重头开始。',
         timeoutStopped: '已自动续跑两次，仍超时。再发一条消息可以继续。',
-        newChat: '新对话', copy: '复制', copied: '已复制', attach: '添加附件', hires: '{n} 次雇佣',
+        newChat: '新对话', share: '分享', shared: '链接已复制', shareFail: '分享失败',
+        sharedContinue: '这是分享来的对话，直接发消息就能接着聊。', shareMissing: '分享不存在或已失效',
+        copy: '复制', copied: '已复制', attach: '添加附件', hires: '{n} 次雇佣',
         imageOnly: '请根据附图完成任务', fileOnly: '请根据附件完成任务',
         enterHint: 'Enter 换行 · Shift+Enter 发送', trialDone: '本次已用完', gateSub: '再看一次广告，或登录后按积分继续。', watchAdAgain: '再看广告',
         runsRemote: '任务在分享者设备上执行', authTitleLogin: '登录 Token Bank', authTitleRegister: '注册 Token Bank',
@@ -305,7 +311,9 @@ createApp({
         pause: 'Pause', paused: 'Paused',
         autoContinue: 'The previous run timed out. Continue from where it stopped. Do not start over.',
         timeoutStopped: 'Auto-continue stopped after two timeouts. Send another message to go on.',
-        newChat: 'New chat', copy: 'Copy', copied: 'Copied', attach: 'Add attachment', hires: '{n} hires',
+        newChat: 'New chat', share: 'Share', shared: 'Link copied', shareFail: 'Could not share',
+        sharedContinue: 'This conversation was shared. Send a message to continue.', shareMissing: 'This share is missing',
+        copy: 'Copy', copied: 'Copied', attach: 'Add attachment', hires: '{n} hires',
         imageOnly: 'Please use the attached images.', fileOnly: 'Please use the attached files.',
         enterHint: 'Enter for newline · Shift+Enter to send', trialDone: 'Turn used up', gateSub: 'Watch another ad, or sign in to continue (credits).', watchAdAgain: 'Watch ad',
         runsRemote: "Runs on the sharer's device", authTitleLogin: 'Sign in to Token Bank', authTitleRegister: 'Create your account',
@@ -345,6 +353,9 @@ createApp({
     })
     const prompt = ref('')
     const messages = ref([])
+    const fromShare = ref(false)
+    const shareBusy = ref(false)
+    const shareCopied = ref(false)
     // 待发送附图（仅本轮；不写入本地历史以免撑爆 quota）
     const pendingImages = ref([])
     const ATTACH_MAX = 3
@@ -502,6 +513,13 @@ createApp({
       }
       return out
     }
+    /** 分享和本地记录只留中转地址，不带 data URL。 */
+    function proxyArtifacts(raw) {
+      return cleanArtifacts(raw)
+        .map(f => ({ name: f.name, mime: f.mime, kind: f.kind, url: f.url }))
+        .filter(f => f.url)
+        .slice(0, 4)
+    }
     /** 流式正文里已经出现的本机路径，收尾时换成中转地址。 */
     function swapArtifactPaths(text, arts) {
       let s = String(text || '')
@@ -584,6 +602,7 @@ createApp({
           if (!m || (m.role !== 'user' && m.role !== 'assistant')) return false
           if (answerOf(m)) return true
           if (cleanParts(m.parts)) return true
+          if (proxyArtifacts(m.artifacts).length) return true
           return m.role === 'user' && Array.isArray(m.images) && m.images.length
         })
         .map(m => {
@@ -592,15 +611,19 @@ createApp({
             role: m.role,
             content: (answerOf(m) || (m.role === 'user' && m.images?.length ? '[image]' : '')).slice(0, 80_000),
             parts,
+            artifacts: m.role === 'assistant' ? proxyArtifacts(m.artifacts) : undefined,
+            files: m.role === 'user' && Array.isArray(m.files) ? m.files.map(f => ({ name: String((f && f.name) || 'file').slice(0, 120) })).slice(0, 4) : undefined,
             startedAt: Number(m.startedAt) || undefined,
             finishedAt: Number(m.finishedAt) || undefined,
           }
         })
-        .filter(m => String(m.content || '').trim() || (m.parts && m.parts.length))
+        .filter(m => String(m.content || '').trim() || (m.parts && m.parts.length) || (m.artifacts && m.artifacts.length))
         .map(m => ({
           role: m.role,
           content: String(m.content || '').slice(0, 80_000),
           parts: m.parts,
+          artifacts: m.artifacts && m.artifacts.length ? m.artifacts : undefined,
+          files: m.files && m.files.length ? m.files : undefined,
           startedAt: m.startedAt,
           finishedAt: m.finishedAt,
         }))
@@ -635,12 +658,14 @@ createApp({
         const data = JSON.parse(raw)
         const list = Array.isArray(data?.messages) ? data.messages : (Array.isArray(data) ? data : [])
         return list
-          .filter(m => m && (m.role === 'user' || m.role === 'assistant') && (String(m.content || '').trim() || (Array.isArray(m.parts) && m.parts.length)))
+          .filter(m => m && (m.role === 'user' || m.role === 'assistant') && (String(m.content || '').trim() || (Array.isArray(m.parts) && m.parts.length) || (Array.isArray(m.artifacts) && m.artifacts.length)))
           .map(m => ({
             role: m.role,
             content: String(m.content || ''),
             pending: false,
             parts: cleanParts(m.parts),
+            artifacts: cleanArtifacts(m.artifacts),
+            files: Array.isArray(m.files) ? m.files.map(f => ({ name: String((f && f.name) || 'file').slice(0, 120) })).slice(0, 4) : undefined,
             startedAt: Number(m.startedAt) || undefined,
             finishedAt: Number(m.finishedAt) || undefined,
           }))
@@ -706,11 +731,73 @@ createApp({
       if (el) el.scrollTop = el.scrollHeight
     }
 
+    async function openChat(aid) {
+      const sid = (new URLSearchParams(location.search).get('share') || '').trim()
+      if (sid) {
+        const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid))
+        const same = r.ok && data && String(data.assistant_id) === String(aid)
+        const list = same ? loadChatHistoryFrom(data.messages) : []
+        if (list.length) {
+          messages.value = list
+          fromShare.value = true
+          saveChatHistory(aid, list)
+          const url = new URL(location.href)
+          url.searchParams.delete('share')
+          history.replaceState(null, '', url.pathname + url.search + url.hash)
+          return
+        }
+        err.value = T.value.shareMissing
+      }
+      const restored = loadChatHistory(aid)
+      if (restored.length) messages.value = restored
+    }
+    function loadChatHistoryFrom(list) {
+      const raw = Array.isArray(list) ? list : []
+      return raw
+        .filter(m => m && (m.role === 'user' || m.role === 'assistant') && (String(m.content || '').trim() || (Array.isArray(m.parts) && m.parts.length) || (Array.isArray(m.artifacts) && m.artifacts.length)))
+        .map(m => ({
+          role: m.role,
+          content: String(m.content || ''),
+          pending: false,
+          parts: cleanParts(m.parts),
+          artifacts: cleanArtifacts(m.artifacts),
+          files: Array.isArray(m.files) ? m.files.map(f => ({ name: String((f && f.name) || 'file').slice(0, 120) })).slice(0, 4) : undefined,
+          startedAt: Number(m.startedAt) || undefined,
+          finishedAt: Number(m.finishedAt) || undefined,
+        }))
+    }
+    async function shareChat() {
+      if (shareBusy.value || running.value || !messages.value.length) return
+      const aid = agent.value?.id || assistantIdFromPath()
+      if (!aid) return
+      shareBusy.value = true
+      shareCopied.value = false
+      try {
+        const { r, data } = await fetchJson('/api/agent-chats/shares', {
+          method: 'POST',
+          auth: !!getToken(),
+          body: JSON.stringify({ assistant_id: aid, messages: serializeChat(messages.value) }),
+        })
+        if (!r.ok || !data || !data.url) {
+          err.value = T.value.shareFail
+          return
+        }
+        err.value = ''
+        await ChatUI.copyText(data.url)
+        shareCopied.value = true
+        setTimeout(() => { shareCopied.value = false }, 1600)
+      } catch {
+        err.value = T.value.shareFail
+      } finally {
+        shareBusy.value = false
+      }
+    }
     function clearChat() {
       if (running.value) return
       messages.value = []
       pendingImages.value = []
       err.value = ''
+      fromShare.value = false
       const id = agent.value?.id || assistantIdFromPath()
       clearChatHistory(id)
     }
@@ -829,9 +916,7 @@ createApp({
         if (r.ok && data?.agent) {
           agent.value = data.agent
           creditsPerTask.value = data.credits_per_task ?? 10
-          // 恢复本智能体历史对话
-          const restored = loadChatHistory(data.agent.id)
-          if (restored.length) messages.value = restored
+          await openChat(data.agent.id)
           if (gateTicket.value) {
             guestUsed.value = false
             storageRemove(guestUsedKey(data.agent.id))
@@ -865,8 +950,7 @@ createApp({
         }
         agent.value = data.agent
         creditsPerTask.value = data.credits_per_task ?? 10
-        const restored = loadChatHistory(data.agent.id)
-        if (restored.length) messages.value = restored
+        await openChat(data.agent.id)
         if (gateTicket.value) {
           guestUsed.value = false
           storageRemove(guestUsedKey(data.agent.id))
@@ -1369,7 +1453,7 @@ createApp({
       lang, T, toggleLang, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,
-      sendMessage, pauseRun, hasDraft, clearChat, renderMarkdown, onComposerPaste, removePendingImage,
+      sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, fromShare, renderMarkdown, onComposerPaste, removePendingImage,
     }
   },
 }).mount('#app')

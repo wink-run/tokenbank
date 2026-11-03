@@ -176,6 +176,7 @@ button{font-family:inherit}
 .img-hover-pop{position:fixed;z-index:80;padding:6px;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.18);pointer-events:none}
 .img-hover-pop[hidden]{display:none}
 .img-hover-pop img{display:block;max-width:min(420px,72vw);max-height:320px;object-fit:contain;border-radius:8px;background:var(--bg-muted)}
+.share-note{margin:0 0 8px;font-size:12.5px;color:var(--text-2)}
 .foot-hint{margin-top:8px;text-align:center;font-size:12px;color:var(--text-faint)}
 .foot-hint a,.foot-hint button{color:var(--text-muted);text-decoration:underline;background:none;border:none;cursor:pointer;font-size:12px;padding:0}
 .err{margin:0 0 8px;padding:8px 12px;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;color:var(--danger);font-size:13px}
