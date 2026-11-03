@@ -103,3 +103,15 @@ test('collectWorkspaceArtifacts ships video and subtitle, including paths over 4
   assert.equal(mp4.localPath, fs.realpathSync(video));
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test('collectWorkspaceArtifacts picks a cover named only by filename', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-art-'));
+  const outDir = path.join(root, 'outputs');
+  fs.mkdirSync(outDir);
+  const cover = '轻记账技能-封面-16x9.png';
+  fs.writeFileSync(path.join(outDir, cover), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const started = Date.now() - 1000;
+  const arts = collectWorkspaceArtifacts(root, '封面图\n`轻记账技能-封面-16x9.png`', started);
+  assert.ok(arts.some((a) => a.name === cover && a.mime === 'image/png'));
+  fs.rmSync(root, { recursive: true, force: true });
+});

@@ -548,25 +548,48 @@ createApp({
       }
       return base
     }
+    /** 和中转文件名同一规则：中文换成下划线，方便文件名对上地址。 */
+    function safeArtifactName(name) {
+      const base = String(name || 'file').replace(/\\/g, '/').split('/').pop()
+      const dot = base.lastIndexOf('.')
+      const stem = dot > 0 ? base.slice(0, dot) : base
+      const ext = dot > 0 ? base.slice(dot + 1) : ''
+      const extClean = ext.replace(/[^A-Za-z0-9]/g, '').toLowerCase().slice(0, 8)
+      let stemClean = stem.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^[._]+|[._]+$/g, '').slice(0, 80)
+      if (!stemClean) stemClean = 'file'
+      const out = extClean ? stemClean + '.' + extClean : stemClean
+      return out.slice(0, 120) || 'file'
+    }
     /** 封面只写了文件名时，挂上对应成品地址，悬停才能出图。 */
     function decorateRich(html, arts) {
-      let out = String(html || '')
+      const byKey = new Map()
       for (const f of cleanArtifacts(arts)) {
         if (!f.url || !f.name) continue
-        const image = f.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name)
+        const leaf = decodeURIComponent(String(f.url).split('/').pop() || '').split('?')[0]
+        const image = f.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name) || /\.(png|jpe?g|gif|webp|svg)$/i.test(leaf)
         if (!image) continue
-        const esc = String(f.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        const src = String(f.url).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
-        out = out.replace(new RegExp('<code>' + esc + '</code>', 'g'), '<code data-src="' + src + '">' + f.name + '</code>')
+        byKey.set(f.name, f.url)
+        byKey.set(safeArtifactName(f.name), f.url)
+        if (leaf) byKey.set(leaf, f.url)
       }
-      return out
+      if (!byKey.size || typeof DOMParser === 'undefined') return html
+      const doc = new DOMParser().parseFromString('<div id="tb-rich">' + html + '</div>', 'text/html')
+      const root = doc.getElementById('tb-rich')
+      if (!root) return html
+      root.querySelectorAll('code').forEach((code) => {
+        if (code.closest('pre')) return
+        const text = String(code.textContent || '').trim()
+        const url = byKey.get(text) || byKey.get(safeArtifactName(text))
+        if (url) code.setAttribute('data-src', url)
+      })
+      return root.innerHTML
     }
     /** 分享和本地记录只留中转地址，不带 data URL。 */
     function proxyArtifacts(raw) {
       return cleanArtifacts(raw)
         .map(f => ({ name: f.name, mime: f.mime, kind: f.kind, url: f.url }))
         .filter(f => f.url)
-        .slice(0, 4)
+        .slice(0, 8)
     }
     /** 流式正文里已经出现的本机路径，收尾时换成中转地址。 */
     function swapArtifactPaths(text, arts) {

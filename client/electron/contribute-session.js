@@ -129,7 +129,36 @@ function mentionedPaths(text, workingDir) {
     if (rel.split(/[\\/]/).includes('..')) continue;
     found.push(path.resolve(workingDir, rel));
   }
+  // 封面常只写文件名，例如 `轻记账技能-封面-16x9.png`，没有目录也要能找到。
+  const bareRe = new RegExp(
+    String.raw`(?:^|[\s'"\`（(])([^\s'"\`<>|*?\u0000/\\]{1,120}\.(?:${ARTIFACT_EXT}))`,
+    'gim',
+  );
+  const bareNames = [];
+  while ((m = bareRe.exec(raw))) bareNames.push(m[1]);
+  for (const name of bareNames) {
+    for (const hit of findByBasename(workingDir, name)) found.push(hit);
+  }
   return found;
+}
+
+/** 在工作目录里按文件名查找，深度与最近文件扫描一致。 */
+function findByBasename(root, base) {
+  const hits = [];
+  const walk = (dir, depth) => {
+    if (depth > 4 || hits.length >= 4) return;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const ent of entries) {
+      if (hits.length >= 4) return;
+      if (ent.name.startsWith('.') || ent.name === 'node_modules') continue;
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) walk(full, depth + 1);
+      else if (ent.isFile() && ent.name === base) hits.push(full);
+    }
+  };
+  walk(root, 0);
+  return hits;
 }
 
 function walkRecentFiles(dir, rootReal, startedAt, acc, depth) {
