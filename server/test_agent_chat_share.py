@@ -32,6 +32,16 @@ def test_share_keeps_transcript_and_proxy_video():
     assert art["name"].endswith(".mp4")
 
 
+def test_share_labels_people_and_preview():
+    from agent_chat_share import share_author_label, share_preview
+    assert share_author_label("阿达", "a@b.c") == "阿达"
+    assert share_author_label("", "ada@example.com") == "ada"
+    assert share_preview([
+        {"role": "assistant", "content": "先别算"},
+        {"role": "user", "content": "帮我做一张封面"},
+    ]) == "帮我做一张封面"
+
+
 def test_share_drops_empty_chat():
     assert normalize_share_messages([]) == []
     assert normalize_share_messages([{"role": "assistant", "content": "  "}]) == []

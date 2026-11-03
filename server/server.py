@@ -1113,6 +1113,51 @@ async def create_agent_chat_share_route(
     return {"id": share_id, "url": url}
 
 
+def _online_agent_owner_id(assistant_id: str) -> Optional[int]:
+    """这个智能体当前在线节点的主人。下线时无从判断，就只按分享者本人列。"""
+    from worker_pool import pool, worker_owner_id
+
+    aid = (assistant_id or "").strip()
+    for worker in pool.all_workers():
+        for card in getattr(worker, "agents", None) or []:
+            if isinstance(card, dict) and str(card.get("id") or "") == aid:
+                owner_id = worker_owner_id(worker)
+                if owner_id is not None:
+                    return int(owner_id)
+    return None
+
+
+@app.get("/api/agent-chats/shares")
+async def list_agent_chat_shares_route(
+    assistant_id: str = "",
+    uid: Optional[int] = Depends(optional_auth_api_key_or_jwt),
+):
+    """按时间顺序列出分享过的对话。客人只能看到自己的，主人能看到大家的。"""
+    import json as _json
+
+    from agent_chat_share import share_author_label, share_preview
+
+    aid = (assistant_id or "").strip()[:200]
+    if not uid or not aid:
+        return {"shares": []}
+    owner_id = _online_agent_owner_id(aid)
+    rows = await db.list_agent_chat_shares(aid, uid, include_all=owner_id is not None and owner_id == uid)
+    shares = []
+    for row in rows:
+        try:
+            messages = _json.loads(row.get("messages") or "[]")
+        except Exception:
+            messages = []
+        created = row.get("created_at")
+        shares.append({
+            "id": row.get("id"),
+            "author": share_author_label(row.get("author_nickname"), row.get("author_email")),
+            "preview": share_preview(messages),
+            "created_at": created.isoformat() if hasattr(created, "isoformat") else created,
+        })
+    return {"shares": shares}
+
+
 @app.get("/api/agent-chats/shares/{share_id}")
 async def get_agent_chat_share_route(share_id: str):
     """打开分享。知道链接就能看，也可以在这个智能体上接着聊。"""
@@ -1131,9 +1176,11 @@ async def get_agent_chat_share_route(share_id: str):
     if not isinstance(messages, list):
         messages = []
     created = row.get("created_at")
+    from agent_chat_share import share_author_label
     return {
         "id": row.get("id"),
         "assistant_id": row.get("assistant_id"),
+        "author": share_author_label(row.get("author_nickname"), row.get("author_email")),
         "created_at": created.isoformat() if hasattr(created, "isoformat") else created,
         "messages": messages,
     }

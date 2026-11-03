@@ -406,13 +406,35 @@ async def create_agent_chat_share(assistant_id: str, messages_json: str, user_id
 async def get_agent_chat_share(share_id: str) -> Optional[dict]:
     async with connect() as db:
         async with db.execute(
-            "SELECT id, assistant_id, messages, created_at FROM agent_chat_shares WHERE id=?",
+            """SELECT s.id, s.assistant_id, s.messages, s.created_at,
+                      u.nickname AS author_nickname, u.email AS author_email
+               FROM agent_chat_shares s
+               LEFT JOIN users u ON u.id = s.user_id
+               WHERE s.id=?""",
             (share_id,),
         ) as cur:
             row = await cur.fetchone()
     if not row:
         return None
     return dict(row)
+
+
+async def list_agent_chat_shares(assistant_id: str, viewer_id: int, include_all: bool = False) -> list[dict]:
+    """当前用户自己分享的对话。智能体主人能看到这个智能体下所有人的分享。"""
+    sql = """SELECT s.id, s.messages, s.created_at,
+                    u.nickname AS author_nickname, u.email AS author_email
+             FROM agent_chat_shares s
+             LEFT JOIN users u ON u.id = s.user_id
+             WHERE s.assistant_id=?"""
+    args: list = [assistant_id]
+    if not include_all:
+        sql += " AND s.user_id=?"
+        args.append(viewer_id)
+    sql += " ORDER BY s.created_at ASC LIMIT 40"
+    async with connect() as db:
+        async with db.execute(sql, tuple(args)) as cur:
+            rows = await cur.fetchall()
+    return [dict(row) for row in rows]
 
 
 async def _migrate_password_reset_codes() -> None:

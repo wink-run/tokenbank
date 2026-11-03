@@ -99,6 +99,15 @@
       </div>
     </header>
 
+    <div v-if="threadItems.length > 1" class="threads">
+      <div class="cinner threads-in">
+        <button v-for="t in threadItems" :key="t.id" type="button" class="thread" :class="{ on: t.id === activeThreadId }" :disabled="running" @click="switchThread(t.id)">
+          <b>{{ t.label }}</b>
+          <span>{{ t.preview }}</span>
+        </button>
+      </div>
+    </div>
+
     <div class="cscroll" ref="chatEl" @click="onChatClick" @mouseover="onImgOver" @mouseout="onImgOut" @scroll="onChatScroll" @load.capture="onChatMedia" @loadedmetadata.capture="onChatMedia">
       <div class="cinner">
         <div v-if="!messages.length" class="empty">
@@ -284,6 +293,7 @@ createApp({
         timeoutStopped: '已自动续跑两次，仍超时。再发一条消息可以继续。',
         newChat: '新对话', share: '分享', shared: '链接已复制', shareFail: '分享失败',
         sharedContinue: '这是分享来的对话，直接发消息就能接着聊。', shareMissing: '分享不存在或已失效',
+        myChat: '我的对话', sharedChat: '分享的对话', sharedBy: '{name}的对话', emptyThread: '暂无内容',
         shareOffline: '这个智能体已下线，分享的对话只能查看，暂时不能继续聊。',
         copy: '复制', copied: '已复制', attach: '添加附件', hires: '{n} 次雇佣',
         imageOnly: '请根据附图完成任务', fileOnly: '请根据附件完成任务',
@@ -321,6 +331,7 @@ createApp({
         timeoutStopped: 'Auto-continue stopped after two timeouts. Send another message to go on.',
         newChat: 'New chat', share: 'Share', shared: 'Link copied', shareFail: 'Could not share',
         sharedContinue: 'This conversation was shared. Send a message to continue.', shareMissing: 'This share is missing',
+        myChat: 'My chat', sharedChat: 'Shared chat', sharedBy: "{name}'s chat", emptyThread: 'Empty',
         shareOffline: 'This agent is offline. The shared conversation is read-only for now.',
         copy: 'Copy', copied: 'Copied', attach: 'Add attachment', hires: '{n} hires',
         imageOnly: 'Please use the attached images.', fileOnly: 'Please use the attached files.',
@@ -363,6 +374,9 @@ createApp({
     const prompt = ref('')
     const messages = ref([])
     const fromShare = ref(false)
+    // 自己的对话和别人分享来的对话分开存，按时间排在一起
+    const threads = ref([])
+    const activeThreadId = ref('local')
     // 分享来的对话：智能体下线后只能看，不能接着发
     const agentOffline = ref(false)
     const shareReadOnly = computed(() => (fromShare.value && agentOffline.value) || !!agent.value?.offline)
@@ -403,6 +417,67 @@ createApp({
     const CHAT_MAX_CHARS = 200_000
     function chatStorageKey(aid) {
       return `tb_agent_chat:${String(aid || '').trim()}`
+    }
+    function threadStoreKey(aid) {
+      return `tb_agent_threads:${String(aid || '').trim()}`
+    }
+    function transcriptKey(msgs) {
+      return (Array.isArray(msgs) ? msgs : []).map(m => `${m && m.role || ''}\n${m && m.content || ''}`).join('\n---\n')
+    }
+    function previewOf(msgs) {
+      const list = Array.isArray(msgs) ? msgs : []
+      const user = list.find(m => m && m.role === 'user' && String(m.content || '').trim())
+      const text = user ? user.content : ((list[0] && list[0].content) || '')
+      return String(text).replace(/\s+/g, ' ').trim().slice(0, 42)
+    }
+    function normalizeStoredThread(t) {
+      if (!t || !t.id) return null
+      return {
+        id: String(t.id).slice(0, 80),
+        updatedAt: Number(t.updatedAt) || 0,
+        shared: !!t.shared,
+        author: String(t.author || '').slice(0, 40),
+        preview: String(t.preview || '').slice(0, 80),
+        messages: Array.isArray(t.messages) ? t.messages : [],
+      }
+    }
+    function ensureLocalThread() {
+      if (!threads.value.some(t => t.id === 'local')) {
+        threads.value.unshift({ id: 'local', updatedAt: 0, shared: false, author: '', preview: '', messages: [] })
+      }
+    }
+    function readThreadStore(aid) {
+      const id = String(aid || '').trim()
+      threads.value = []
+      activeThreadId.value = 'local'
+      let loaded = false
+      try {
+        const raw = storageGet(threadStoreKey(id))
+        if (raw) {
+          const data = JSON.parse(raw)
+          const list = Array.isArray(data?.threads) ? data.threads : []
+          threads.value = list.map(normalizeStoredThread).filter(Boolean)
+          if (data.active && threads.value.some(t => t.id === data.active)) activeThreadId.value = data.active
+          loaded = threads.value.length > 0
+        }
+      } catch { /* 坏数据就当没有 */ }
+      if (!loaded) {
+        try {
+          const raw = storageGet(chatStorageKey(id))
+          if (raw) {
+            const data = JSON.parse(raw)
+            const msgs = Array.isArray(data?.messages) ? data.messages : []
+            const updatedAt = Number(data?.updatedAt) || Date.now()
+            if (data?.shared && msgs.length) {
+              threads.value.push({ id: 's:kept', updatedAt, shared: true, author: '', preview: previewOf(msgs), messages: msgs })
+              activeThreadId.value = 's:kept'
+            } else if (msgs.length) {
+              threads.value.push({ id: 'local', updatedAt, shared: false, author: '', preview: previewOf(msgs), messages: msgs })
+            }
+          }
+        } catch { /* 旧记录读不了就从空对话开始 */ }
+      }
+      ensureLocalThread()
     }
     function guestUsedKey(aid) {
       return `tb_agent_guest_used:${String(aid || '').trim()}`
@@ -728,12 +803,30 @@ createApp({
     function saveChatHistory(aid, msgs) {
       const id = String(aid || '').trim()
       if (!id) return
+      ensureLocalThread()
+      const serialized = serializeChat(msgs)
+      let cur = threads.value.find(t => t.id === activeThreadId.value)
+      if (!cur) {
+        cur = { id: activeThreadId.value || 'local', updatedAt: 0, shared: activeThreadId.value !== 'local', author: '', preview: '', messages: [] }
+        threads.value.push(cur)
+      }
+      const same = transcriptKey(cur.messages) === transcriptKey(serialized)
+      cur.messages = serialized
+      cur.preview = previewOf(serialized)
+      cur.shared = cur.id !== 'local'
+      // 只是打开或刷新时不改顺序，真正有新内容才排到后面
+      if (!same) cur.updatedAt = Date.now()
       try {
+        storageSet(threadStoreKey(id), JSON.stringify({
+          v: 1,
+          active: activeThreadId.value,
+          threads: threads.value,
+        }))
         storageSet(chatStorageKey(id), JSON.stringify({
           v: 1,
-          updatedAt: Date.now(),
-          shared: fromShare.value || undefined,
-          messages: serializeChat(msgs),
+          updatedAt: cur.updatedAt || Date.now(),
+          shared: cur.shared || undefined,
+          messages: serialized,
         }))
       } catch { /* quota */ }
     }
@@ -839,32 +932,119 @@ createApp({
     }
 
     async function openChat(aid) {
+      readThreadStore(aid)
       const sid = (new URLSearchParams(location.search).get('share') || '').trim()
       if (sid) {
         const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid))
         const same = r.ok && data && String(data.assistant_id) === String(aid)
         const list = same ? loadChatHistoryFrom(data.messages) : []
         if (list.length) {
-          messages.value = list
+          const tid = 's:' + sid
+          const existing = threads.value.find(t => t.id === tid)
+          const keepLocal = existing && Array.isArray(existing.messages) && existing.messages.length >= list.length
+          if (!keepLocal) {
+            const created = Date.parse(data.created_at)
+            const row = {
+              id: tid,
+              shared: true,
+              author: String(data.author || '').slice(0, 40),
+              preview: previewOf(data.messages),
+              updatedAt: Number.isFinite(created) ? created : Date.now(),
+              messages: data.messages,
+            }
+            const at = threads.value.findIndex(t => t.id === tid)
+            if (at < 0) threads.value.push(row)
+            else threads.value[at] = row
+          } else if (data.author && !existing.author) {
+            existing.author = String(data.author).slice(0, 40)
+          }
+          activeThreadId.value = tid
+          messages.value = loadChatHistoryFrom(keepLocal ? existing.messages : data.messages)
           fromShare.value = true
-          saveChatHistory(aid, list)
+          saveChatHistory(aid, messages.value)
           const url = new URL(location.href)
           url.searchParams.delete('share')
           history.replaceState(null, '', url.pathname + url.search + url.hash)
+          await loadSharedThreads(aid)
           return
         }
         err.value = T.value.shareMissing
       }
-      const restored = loadChatHistory(aid)
-      if (restored.length) messages.value = restored
-      if (storedChatShared(aid)) fromShare.value = true
+      const active = threads.value.find(t => t.id === activeThreadId.value) || threads.value.find(t => t.id === 'local')
+      if (active) {
+        activeThreadId.value = active.id
+        if (active.messages && active.messages.length) messages.value = loadChatHistoryFrom(active.messages)
+        fromShare.value = !!active.shared
+      }
+      await loadSharedThreads(aid)
+    }
+    async function loadSharedThreads(aid) {
+      if (!getToken()) return
+      const { r, data } = await fetchJson('/api/agent-chats/shares?assistant_id=' + encodeURIComponent(aid), { auth: true })
+      if (!r.ok || !Array.isArray(data?.shares)) return
+      let changed = false
+      for (const s of data.shares) {
+        if (!s || !s.id) continue
+        const tid = 's:' + s.id
+        const created = Date.parse(s.created_at)
+        const hit = threads.value.find(t => t.id === tid)
+        if (hit) {
+          if (!hit.author && s.author) { hit.author = String(s.author).slice(0, 40); changed = true }
+          if (!hit.preview && s.preview) { hit.preview = String(s.preview).slice(0, 80); changed = true }
+          if (!hit.updatedAt && Number.isFinite(created)) { hit.updatedAt = created; changed = true }
+          continue
+        }
+        threads.value.push({
+          id: tid,
+          shared: true,
+          author: String(s.author || '').slice(0, 40),
+          preview: String(s.preview || '').slice(0, 80),
+          updatedAt: Number.isFinite(created) ? created : 0,
+          messages: [],
+        })
+        changed = true
+      }
+      if (!changed) return
+      try {
+        storageSet(threadStoreKey(aid), JSON.stringify({ v: 1, active: activeThreadId.value, threads: threads.value }))
+      } catch { /* quota */ }
+    }
+    async function switchThread(id) {
+      if (running.value || !id || id === activeThreadId.value) return
+      const aid = agent.value?.id || assistantIdFromPath()
+      const cur = threads.value.find(t => t.id === activeThreadId.value)
+      if (cur) {
+        cur.messages = serializeChat(messages.value)
+        cur.preview = previewOf(cur.messages)
+      }
+      let next = threads.value.find(t => t.id === id)
+      if (!next) return
+      if (next.shared && next.id.indexOf('s:') === 0 && next.id !== 's:kept' && (!next.messages || !next.messages.length)) {
+        const sid = next.id.slice(2)
+        const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid))
+        if (r.ok && data && Array.isArray(data.messages)) {
+          next.messages = data.messages
+          if (data.author) next.author = String(data.author).slice(0, 40)
+          next.preview = next.preview || previewOf(data.messages)
+        }
+      }
+      activeThreadId.value = next.id
+      messages.value = loadChatHistoryFrom(next.messages)
+      fromShare.value = !!next.shared
+      err.value = ''
+      if (aid) saveChatHistory(aid, messages.value)
+      await scrollChat()
     }
     function storedChatShared(aid) {
       try {
-        const raw = storageGet(chatStorageKey(aid))
-        if (!raw) return false
-        const data = JSON.parse(raw)
-        return !!(data && data.shared)
+        const raw = storageGet(threadStoreKey(aid))
+        if (raw) {
+          const data = JSON.parse(raw)
+          return Array.isArray(data?.threads) && data.threads.some(t => t && t.shared && ((t.messages && t.messages.length) || t.preview))
+        }
+        const old = storageGet(chatStorageKey(aid))
+        if (!old) return false
+        return !!JSON.parse(old).shared
       } catch { return false }
     }
     /** 名片还在，说明分享者设备在线。公开和圈子各查一次。 */
@@ -907,11 +1087,12 @@ createApp({
     function loadChatHistoryFrom(list) {
       const raw = Array.isArray(list) ? list : []
       return raw
-        .filter(m => m && (m.role === 'user' || m.role === 'assistant') && (String(m.content || '').trim() || (Array.isArray(m.parts) && m.parts.length) || (Array.isArray(m.artifacts) && m.artifacts.length)))
+        .filter(m => m && (m.role === 'user' || m.role === 'assistant') && (String(m.content || '').trim() || (Array.isArray(m.parts) && m.parts.length) || (Array.isArray(m.artifacts) && m.artifacts.length) || (m.pending && m.taskId)))
         .map(m => ({
           role: m.role,
           content: String(m.content || ''),
-          pending: false,
+          pending: !!(m.pending && m.taskId),
+          taskId: m.taskId ? String(m.taskId).slice(0, 40) : undefined,
           parts: cleanParts(m.parts),
           artifacts: mergeArtifacts(m.artifacts, [m.content].concat(Array.isArray(m.parts) ? m.parts.map(p => p && p.text) : [])),
           files: Array.isArray(m.files) ? m.files.map(f => ({ name: String((f && f.name) || 'file').slice(0, 120) })).slice(0, 4) : undefined,
@@ -939,6 +1120,18 @@ createApp({
         await ChatUI.copyText(data.url)
         shareCopied.value = true
         setTimeout(() => { shareCopied.value = false }, 1600)
+        // 分享是一份单独留下的对话，不替换当前这条
+        if (data.id && !threads.value.some(t => t.id === 's:' + data.id)) {
+          threads.value.push({
+            id: 's:' + data.id,
+            shared: true,
+            author: currentUserLabel.value,
+            preview: previewOf(messages.value),
+            updatedAt: Date.now(),
+            messages: serializeChat(messages.value),
+          })
+          saveChatHistory(aid, messages.value)
+        }
       } catch {
         err.value = T.value.shareFail
       } finally {
@@ -947,12 +1140,21 @@ createApp({
     }
     function clearChat() {
       if (running.value) return
+      // 新对话只清空自己的，分享来的记录留在列表里
+      activeThreadId.value = 'local'
+      fromShare.value = false
       messages.value = []
       pendingImages.value = []
       err.value = ''
-      fromShare.value = false
       const id = agent.value?.id || assistantIdFromPath()
-      clearChatHistory(id)
+      const local = threads.value.find(t => t.id === 'local')
+      if (local) {
+        local.messages = []
+        local.preview = ''
+        local.updatedAt = Date.now()
+        local.shared = false
+      }
+      saveChatHistory(id, [])
     }
 
     function fileToDataUrl(file) {
@@ -1682,6 +1884,16 @@ createApp({
     watch(loggedIn, (v) => { if (v) authOpen.value = false })
     watch(prompt, (v) => { if (!v) nextTick(() => ChatUI.autoGrow(composerEl.value)) })
     const agentName = computed(() => String(agent.value?.display_name || agent.value?.name || agent.value?.id || '?'))
+    const threadItems = computed(() => threads.value
+      .map(t => ({
+        id: t.id,
+        updatedAt: Number(t.updatedAt) || 0,
+        label: t.id === 'local'
+          ? T.value.myChat
+          : (t.author ? T.value.sharedBy.replace('{name}', t.author) : T.value.sharedChat),
+        preview: (t.id === activeThreadId.value ? previewOf(messages.value) : t.preview) || T.value.emptyThread,
+      }))
+      .sort((a, b) => a.updatedAt - b.updatedAt))
     const suggestions = computed(() => {
       const starters = Array.isArray(agent.value?.starters) ? agent.value.starters.filter(Boolean).slice(0, 4) : []
       if (starters.length) return starters.map((x) => ({ t: String(x).slice(0, 18), d: String(x) }))
@@ -1720,7 +1932,7 @@ createApp({
       lang, T, toggleLang, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,
-      sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, fromShare, shareReadOnly, agentOffline, renderMarkdown, onComposerPaste, removePendingImage,
+      sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, fromShare, shareReadOnly, agentOffline, threadItems, activeThreadId, switchThread, renderMarkdown, onComposerPaste, removePendingImage,
     }
   },
 }).mount('#app')

@@ -90,3 +90,27 @@ def normalize_share_messages(raw) -> list:
         if msg["content"].strip() or msg.get("parts") or msg.get("artifacts") or msg.get("images") or msg.get("files"):
             out.append(msg)
     return out
+
+
+def share_author_label(nickname, email) -> str:
+    """列表上显示的人。有昵称用昵称，否则用邮箱前缀。"""
+    nick = str(nickname or "").strip()
+    if nick:
+        return nick[:40]
+    mail = str(email or "").strip()
+    if "@" in mail:
+        return mail.split("@", 1)[0][:40]
+    return ""
+
+
+def share_preview(messages) -> str:
+    """用第一句用户话当对话摘要。"""
+    if not isinstance(messages, list):
+        return ""
+    for item in messages:
+        if not isinstance(item, dict) or item.get("role") != "user":
+            continue
+        text = " ".join(str(item.get("content") or "").split())
+        if text:
+            return text[:42]
+    return ""
