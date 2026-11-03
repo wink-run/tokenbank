@@ -47,6 +47,17 @@ def test_share_appends_later_speaker_in_time_order():
     assert append_share_turns(out, extra) == out
 
 
+def test_share_turn_expires_when_idle_or_too_long():
+    from datetime import datetime, timedelta, timezone
+    from agent_chat_share import share_turn_expired
+    now = datetime(2026, 11, 3, tzinfo=timezone.utc)
+    assert share_turn_expired(None, "", now) is True
+    assert share_turn_expired(now - timedelta(seconds=10), "", now) is False
+    assert share_turn_expired(now - timedelta(seconds=31), "", now) is True
+    assert share_turn_expired(now - timedelta(minutes=5), "at-abc", now) is False
+    assert share_turn_expired(now - timedelta(minutes=21), "at-abc", now) is True
+
+
 def test_share_labels_people_and_preview():
     from agent_chat_share import share_author_label, share_preview
     assert share_author_label("阿达", "a@b.c") == "阿达"

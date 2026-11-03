@@ -6,6 +6,9 @@ import re
 
 SHARE_MAX_MSGS = 40
 SHARE_MAX_CHARS = 1_200_000
+# 抢到发言权却一直没开任务，很快让出来；任务跑起来后给一轮足够长的时间
+TURN_IDLE_SEC = 30
+TURN_MAX_SEC = 20 * 60
 _MEDIA_URL = re.compile(
     r"^(?:https?://\S+)?/media/agent/[A-Za-z0-9_-]+/[^/?#\s]+$",
     re.I,
@@ -97,6 +100,31 @@ def normalize_share_messages(raw) -> list:
         if msg["content"].strip() or msg.get("parts") or msg.get("artifacts") or msg.get("images") or msg.get("files"):
             out.append(msg)
     return out
+
+
+def share_turn_expired(started_at, task_id, now=None) -> bool:
+    """这轮发言是否已经作废。没人收尾时，别人才能重新抢。"""
+    if started_at is None:
+        return True
+    current = now
+    if current is None:
+        from datetime import datetime, timezone
+        current = datetime.now(timezone.utc)
+    if getattr(started_at, "tzinfo", None) and getattr(current, "tzinfo", None) is None:
+        from datetime import timezone
+        current = current.replace(tzinfo=timezone.utc)
+    if getattr(current, "tzinfo", None) and getattr(started_at, "tzinfo", None) is None:
+        from datetime import timezone
+        started_at = started_at.replace(tzinfo=timezone.utc)
+    try:
+        age = (current - started_at).total_seconds()
+    except Exception:
+        return False
+    if age < 0:
+        return False
+    if not str(task_id or "").strip() and age > TURN_IDLE_SEC:
+        return True
+    return age > TURN_MAX_SEC
 
 
 def share_author_label(nickname, email) -> str:

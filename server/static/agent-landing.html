@@ -159,8 +159,15 @@
     <footer class="cfoot">
       <div class="cinner">
         <p v-if="err" class="err">{{ err }}</p>
-        <p v-if="fromShare && !guestLocked && !shareReadOnly" class="share-note">{{ T.sharedContinue }}</p>
-        <div v-if="shareReadOnly" class="box locked">
+        <p v-if="fromShare && !guestLocked && !shareReadOnly && !shareTurnLocked" class="share-note">{{ T.sharedContinue }}</p>
+        <div v-if="shareTurnLocked" class="box locked">
+          <div class="box-lock">{{ turnLockText }}</div>
+          <textarea rows="1" disabled :value="prompt" :placeholder="T.promptPh"></textarea>
+          <div class="box-row">
+            <span class="box-meta">{{ T.enterHint }}</span>
+          </div>
+        </div>
+        <div v-else-if="shareReadOnly" class="box locked">
           <div class="box-lock">{{ T.shareOffline }}</div>
           <textarea rows="1" disabled :placeholder="T.promptPh"></textarea>
           <div class="box-row">
@@ -285,6 +292,7 @@ createApp({
         timeoutStopped: '已自动续跑两次，仍超时。再发一条消息可以继续。',
         newChat: '新对话', share: '分享', shared: '链接已复制', shareFail: '分享失败',
         sharedContinue: '大家的发言按时间接在同一条对话里，直接发消息就能接着聊。', shareMissing: '分享不存在或已失效',
+        turnWait: '{name} 正在让智能体回复，这轮结束后才能接着说。谁先发出去，谁算下一轮。', someone: '有人',
         myChat: '我的对话', sharedChat: '分享的对话', sharedBy: '{name}的对话', emptyThread: '暂无内容',
         shareOffline: '这个智能体已下线，分享的对话只能查看，暂时不能继续聊。',
         copy: '复制', copied: '已复制', attach: '添加附件', hires: '{n} 次雇佣',
@@ -323,6 +331,7 @@ createApp({
         timeoutStopped: 'Auto-continue stopped after two timeouts. Send another message to go on.',
         newChat: 'New chat', share: 'Share', shared: 'Link copied', shareFail: 'Could not share',
         sharedContinue: 'Everyone’s messages stay in one timeline. Send a message to continue.', shareMissing: 'This share is missing',
+        turnWait: '{name} is waiting on the agent. You can send after this turn. First send wins the next turn.', someone: 'Someone',
         myChat: 'My chat', sharedChat: 'Shared chat', sharedBy: "{name}'s chat", emptyThread: 'Empty',
         shareOffline: 'This agent is offline. The shared conversation is read-only for now.',
         copy: 'Copy', copied: 'Copied', attach: 'Add attachment', hires: '{n} hires',
@@ -368,6 +377,14 @@ createApp({
     const fromShare = ref(false)
     // 正在接着聊的那条分享。新发言会补回这条记录，别人打开还是同一条历史
     const relayShareId = ref('')
+    // 别人正在这一轮里说话。自己抢到的那轮不算锁住
+    const foreignTurn = ref(null)
+    const holdingTurn = ref(false)
+    const shareTurnLocked = computed(() => !!foreignTurn.value && !holdingTurn.value && !running.value)
+    const turnLockText = computed(() => {
+      const name = (foreignTurn.value && foreignTurn.value.author) || T.value.someone
+      return String(T.value.turnWait || '').replace('{name}', name)
+    })
     // 分享来的对话：智能体下线后只能看，不能接着发
     const agentOffline = ref(false)
     const shareReadOnly = computed(() => (fromShare.value && agentOffline.value) || !!agent.value?.offline)
@@ -757,7 +774,8 @@ createApp({
       // 附图不落盘（data URL 过大）；仅图消息用占位文案保留一轮痕迹
       const cleaned = (msgs || [])
         .filter(m => {
-          if (!m || (m.role !== 'user' && m.role !== 'assistant')) return false
+          if (!m || m.liveTurn) return false
+          if (m.role !== 'user' && m.role !== 'assistant') return false
           if (answerOf(m)) return true
           if (cleanParts(m.parts)) return true
           if (proxyArtifacts(m.artifacts).length) return true
@@ -961,6 +979,8 @@ createApp({
       messages.value = sortMessages(loadChatHistoryFrom(merged))
       fromShare.value = !!relayShareId.value || messages.value.some(m => m.shared)
       saveChatHistory(aid, messages.value)
+      startShareWatch()
+      await pollShareTurn()
     }
     async function mergeRemoteShares(aid, into) {
       if (!getToken()) return
@@ -976,18 +996,196 @@ createApp({
       }
       if (!relayShareId.value && newestMine) relayShareId.value = newestMine.id
     }
-    async function appendRelay() {
-      const sid = relayShareId.value
-      if (!sid) return
-      const tail = messages.value.filter(m => m && !m.pending).slice(-2)
-      if (!tail.length) return
+    function turnTokenKey(sid) { return `tb_share_hold:${sid}` }
+    function myTurnToken(sid) {
+      const key = turnTokenKey(sid)
+      let token = ''
+      try { token = sessionStorage.getItem(key) || '' } catch { /* 隐私模式就只放内存 */ }
+      if (!token) {
+        token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`.slice(0, 40)
+        try { sessionStorage.setItem(key, token) } catch { /* 拿不到存储也继续用这份 */ }
+      }
+      return token
+    }
+    function clearTurnToken(sid) {
+      try { sessionStorage.removeItem(turnTokenKey(sid)) } catch { /* 忽略 */ }
+    }
+    function dropLiveTurn() {
+      if (!messages.value.some(m => m && m.liveTurn)) return
+      messages.value = messages.value.filter(m => !m.liveTurn)
+    }
+    function showForeignTurn(turn) {
+      if (!turn) return
+      foreignTurn.value = {
+        author: String(turn.author || '').slice(0, 40),
+        text: String(turn.text || ''),
+        at: Number(turn.at) || Date.now(),
+        taskId: String(turn.task_id || '').slice(0, 40),
+      }
+      const live = foreignTurn.value
+      let user = messages.value.find(m => m && m.liveTurn && m.role === 'user')
+      let asst = messages.value.find(m => m && m.liveTurn && m.role === 'assistant')
+      if (!user) {
+        messages.value.push({ role: 'user', content: live.text, author: live.author, at: live.at, liveTurn: true, shared: true })
+      } else {
+        user.content = live.text
+        user.author = live.author
+        user.at = live.at
+      }
+      if (!asst) {
+        messages.value.push({ role: 'assistant', content: '', pending: true, liveTurn: true, shared: true, startedAt: live.at })
+      }
+      watchForeignStream(live.taskId)
+      if (stickToBottom) scrollChat()
+    }
+    function readSseBlock(block) {
+      const data = String(block || '').split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(line.startsWith('data: ') ? 6 : 5).trim())
+        .join('\n')
+      if (!data || data === '[DONE]') return null
+      try { return JSON.parse(data) } catch { return null }
+    }
+    let publishedTurnTask = ''
+    let sharePollTimer = null
+    let turnWatchAbort = null
+    let watchingTask = ''
+    async function watchForeignStream(taskId) {
+      const id = String(taskId || '').trim()
+      if (!id || id === watchingTask) return
+      watchingTask = id
+      try { turnWatchAbort?.abort() } catch { /* 换一轮 */ }
+      const ac = new AbortController()
+      turnWatchAbort = ac
       try {
-        await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '/messages', {
+        const headers = { Accept: 'text/event-stream' }
+        const tok = getToken()
+        if (tok) headers.Authorization = `Bearer ${tok}`
+        const r = await fetch('/api/agent-tasks/' + encodeURIComponent(id) + '/events', { headers, cache: 'no-store', signal: ac.signal })
+        if (!r.ok || !(r.headers.get('content-type') || '').includes('text/event-stream') || !r.body) return
+        const reader = r.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = ''
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += decoder.decode(value, { stream: true })
+          const parts = buf.split('\n\n')
+          buf = parts.pop() || ''
+          for (const block of parts) {
+            const ev = readSseBlock(block)
+            if (!ev) continue
+            const row = messages.value.find(m => m && m.liveTurn && m.role === 'assistant')
+            if (!row) continue
+            if (ev.event === 'progress') {
+              const partsNow = cleanParts(ev.parts)
+              if (partsNow) {
+                row.parts = partsNow
+                row.content = answerOf(row)
+              } else if (ev.text) {
+                row.content = String(ev.text)
+              }
+              row.pending = true
+              if (stickToBottom) scrollChat()
+            } else if (ev.event === 'done' || ev.event === 'error') {
+              const text = String(ev.output || ev.result || ev.text || ev.message || row.content || '')
+              if (text) row.content = text
+              row.pending = false
+            }
+          }
+        }
+      } catch { /* 断流后靠轮询把定稿接回来 */ }
+    }
+    async function pollShareTurn() {
+      const sid = relayShareId.value
+      if (!sid || running.value) return
+      const hold = myTurnToken(sid)
+      const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '?hold=' + encodeURIComponent(hold))
+      if (!r.ok || !data) return
+      const turn = data.turn
+      if (turn && turn.mine) {
+        holdingTurn.value = true
+        foreignTurn.value = null
+        return
+      }
+      if (turn && (turn.text || turn.task_id)) {
+        holdingTurn.value = false
+        showForeignTurn(turn)
+        return
+      }
+      const hadLive = messages.value.some(m => m && m.liveTurn) || !!foreignTurn.value
+      foreignTurn.value = null
+      watchingTask = ''
+      if (!hadLive && !(Array.isArray(data.messages) && data.messages.length)) return
+      const kept = messages.value.filter(m => !m.liveTurn)
+      const before = kept.length
+      absorbShare(kept, data)
+      if (!hadLive && kept.length === before) return
+      messages.value = sortMessages(loadChatHistoryFrom(kept))
+      saveChatHistory(agent.value?.id || assistantIdFromPath(), messages.value)
+      if (stickToBottom) scrollChat()
+    }
+    function startShareWatch() {
+      if (sharePollTimer || !relayShareId.value) return
+      pollShareTurn()
+      sharePollTimer = setInterval(() => { pollShareTurn() }, 1500)
+    }
+    function stopShareWatch() {
+      if (sharePollTimer) clearInterval(sharePollTimer)
+      sharePollTimer = null
+      try { turnWatchAbort?.abort() } catch { /* 页面关了 */ }
+    }
+    async function claimRelayTurn(text) {
+      const sid = relayShareId.value
+      if (!sid) return true
+      const token = myTurnToken(sid)
+      const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '/turn', {
+        method: 'POST',
+        body: JSON.stringify({
+          token,
+          author: currentUserLabel.value || '',
+          text,
+          at: Date.now(),
+        }),
+      })
+      if (r.ok && data && data.ok) {
+        holdingTurn.value = true
+        foreignTurn.value = null
+        return true
+      }
+      const turn = data && (data.turn || (data.detail && data.detail.turn))
+      if (turn) showForeignTurn(turn)
+      holdingTurn.value = false
+      return false
+    }
+    async function publishTurnTask(taskId) {
+      const sid = relayShareId.value
+      const id = String(taskId || '').trim()
+      if (!sid || !id || !holdingTurn.value || publishedTurnTask === id) return
+      publishedTurnTask = id
+      try {
+        await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '/turn/task', {
           method: 'POST',
-          auth: !!getToken(),
-          body: JSON.stringify({ messages: serializeChat(tail) }),
+          body: JSON.stringify({ token: myTurnToken(sid), task_id: id }),
         })
-      } catch { /* 接不上就先留在本地，下次打开再合并 */ }
+      } catch { publishedTurnTask = '' }
+    }
+    async function endRelayTurn(commit) {
+      const sid = relayShareId.value
+      if (!sid || !holdingTurn.value) return
+      holdingTurn.value = false
+      const token = myTurnToken(sid)
+      const tail = commit
+        ? serializeChat(messages.value.filter(m => m && !m.pending && !m.liveTurn).slice(-2))
+        : []
+      try {
+        await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '/turn/finish', {
+          method: 'POST',
+          body: JSON.stringify({ token, messages: tail }),
+        })
+      } catch { /* 锁过期后别人也能重新抢 */ }
+      clearTurnToken(sid)
+      publishedTurnTask = ''
     }
     function storedChatShared(aid) {
       try {
@@ -1430,6 +1628,7 @@ createApp({
             activeTaskId.value = String(ev.task_id)
             const row = messages.value[asstIdx]
             if (row) row.taskId = activeTaskId.value
+            publishTurnTask(activeTaskId.value)
           }
           if (ev.event === 'started') continue
           if (ev.event === 'progress') {
@@ -1578,7 +1777,7 @@ createApp({
           messages.value[idx].pending = false
           messages.value[idx].taskId = undefined
         }
-        if (outcome.finalOk) await appendRelay()
+        if (outcome.finalOk && !outcome.nextAuto) await endRelayTurn(true)
         if (!getToken() && outcome.finalGuest) guestUsed.value = true
         if (outcome.nextAuto && getToken()) {
           prompt.value = outcome.nextAuto
@@ -1619,7 +1818,7 @@ createApp({
     async function sendMessage(arg) {
       // 点击事件也会传进来；只有显式 true 才是超时后续跑
       const auto = arg === true
-      if (shareReadOnly.value || agent.value?.offline) return
+      if (shareReadOnly.value || shareTurnLocked.value || agent.value?.offline) return
       if (!auto) autoContinues = 0
       if (running.value) {
         const followUp = hasDraft.value
@@ -1644,6 +1843,11 @@ createApp({
       const displayText = text
         || (fileItems.length ? T.value.fileOnly : '')
         || (imageItems.length ? T.value.imageOnly : '')
+      // 分享里先抢轮次。没抢到就留下草稿，等这轮结束再发
+      if (relayShareId.value && !auto) {
+        const won = await claimRelayTurn(displayText)
+        if (!won) return
+      }
       const history = messages.value.slice()
       // 访客单轮不带历史；登录后压缩多轮上下文
       const apiPrompt = isGuest ? text : buildPromptWithHistory(history, text || displayText)
@@ -1678,10 +1882,11 @@ createApp({
         row.pending = pending
       }
       const dropTurn = () => {
-        // 去掉本轮 assistant + user
+        // 去掉本轮 assistant + user，并把抢到的轮次让出去
         if (messages.value[asstIdx]?.role === 'assistant') messages.value.splice(asstIdx, 1)
         const last = messages.value[messages.value.length - 1]
         if (last?.role === 'user' && last.content === displayText) messages.value.pop()
+        endRelayTurn(false)
       }
 
       try {
@@ -1754,7 +1959,7 @@ createApp({
           return
         }
         if (messages.value[asstIdx]) messages.value[asstIdx].pending = false
-        if (finalOk) await appendRelay()
+        if (finalOk && !nextAuto) await endRelayTurn(true)
         if (ticketForTurn) {
           // 广告票一次性；用完后清掉，再聊需重新看广告或登录
           gateTicket.value = ''
@@ -1768,6 +1973,7 @@ createApp({
       } catch (e) {
         if (stopRequested) {
           freezePartial(asstIdx)
+          await endRelayTurn(true)
           return
         }
         // 切页、刷新或浏览器掐断连接：留下已生成的内容，回来再接
@@ -1784,6 +1990,7 @@ createApp({
           return
         }
         dropTurn()
+        endRelayTurn(false)
         err.value = e?.message || 'Network error'
       } finally {
         const row = messages.value[asstIdx]
@@ -1816,6 +2023,7 @@ createApp({
     onUnmounted(() => {
       stopTick()
       stopPresenceWatch()
+      stopShareWatch()
       window.removeEventListener('pagehide', persistNow)
       document.removeEventListener('visibilitychange', onPageLife)
     })
@@ -1842,7 +2050,7 @@ createApp({
       return T.value.sugs || []
     })
     function useSuggestion(sg) {
-      if (shareReadOnly.value) return
+      if (shareReadOnly.value || shareTurnLocked.value) return
       prompt.value = sg.d
       nextTick(() => { const el = composerEl.value; if (el) { el.focus(); ChatUI.autoGrow(el) } })
     }
@@ -1874,7 +2082,7 @@ createApp({
       lang, T, toggleLang, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,
-      sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, fromShare, shareReadOnly, agentOffline, renderMarkdown, onComposerPaste, removePendingImage,
+      sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, fromShare, shareReadOnly, shareTurnLocked, turnLockText, agentOffline, renderMarkdown, onComposerPaste, removePendingImage,
     }
   },
 }).mount('#app')
