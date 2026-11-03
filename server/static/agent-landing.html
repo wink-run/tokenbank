@@ -137,7 +137,7 @@
               </div>
             </div>
           </template>
-          <div v-else style="display:flex;flex-direction:column;align-items:flex-end;max-width:100%">
+          <div v-else class="uside">
             <div v-if="m.content" class="ubub">{{ m.content }}</div>
             <div v-if="m.files && m.files.length" class="ufiles"><span v-for="(f, j) in m.files" :key="j" class="ufile">{{ f.name }}</span></div>
             <div v-if="m.images && m.images.length" class="uimgs"><img v-for="(src, j) in m.images" :key="j" :src="src" alt=""></div>

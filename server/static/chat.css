@@ -85,7 +85,9 @@ button{font-family:inherit}
 /* 消息 */
 .msg{display:flex;gap:12px;min-width:0}
 .msg.user{justify-content:flex-end}
-.msg.user .ubub{max-width:78%;background:#efece8;color:var(--text);padding:10px 14px;border-radius:18px 18px 6px 18px;white-space:pre-wrap;word-break:break-word;line-height:1.6;font-size:14px}
+/* 宽度限制放在外层。气泡按内容收缩，短句保持一行，长文才在上限处换行 */
+.msg.user .uside{display:flex;flex-direction:column;align-items:flex-end;max-width:78%;min-width:0}
+.msg.user .ubub{max-width:100%;background:#efece8;color:var(--text);padding:10px 14px;border-radius:18px 18px 6px 18px;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;line-height:1.6;font-size:14px}
 .msg.assistant .abody{flex:1;min-width:0;padding-top:4px;font-size:14.5px;line-height:1.7;color:var(--text)}
 .msg.assistant.pending .abody{color:var(--text-2)}
 .typing{display:inline-flex;gap:4px;align-items:center;height:22px}
@@ -210,7 +212,7 @@ button{font-family:inherit}
   .cinner{padding:0 14px}
   .chead .cinner{padding-top:10px;padding-bottom:10px}
   .sugs{grid-template-columns:minmax(0,1fr)}
-  .msg.user .ubub{max-width:88%}
+  .msg.user .uside{max-width:88%}
   .msg-tools{opacity:1}
   .head-actions .nbtn span{display:none}
 }
