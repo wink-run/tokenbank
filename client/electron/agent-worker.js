@@ -912,7 +912,15 @@ async function handleAgentTask(msg, cfg) {
     if (artifacts.length) {
       log(`[agent] artifacts ${artifacts.map((a) => a.name).join(', ')}`);
     }
-    // 正文先发。文件单独再发，大包把连接打断时云端仍保留已完成的正文
+    // 常见图片直接跟在结果里。太大才拆成第二帧，避免一帧过大把连接打断后文件丢失
+    const ARTIFACT_INLINE_CHARS = 1_500_000;
+    let inlineArtifacts = null;
+    if (artifacts.length) {
+      try {
+        const packed = JSON.stringify(artifacts);
+        if (packed.length <= ARTIFACT_INLINE_CHARS) inlineArtifacts = artifacts;
+      } catch { /* 序列化失败就走单独一帧 */ }
+    }
     send({
       type: 'agent_task_result',
       task_id: taskId,
@@ -920,14 +928,19 @@ async function handleAgentTask(msg, cfg) {
       output: finalBody.slice(0, 200_000),
       error: ok ? null : (status?.error || status?.result?.output || 'failed'),
       usage: { duration_ms: Date.now() - started },
-      artifacts_follow: artifacts.length ? true : undefined,
+      artifacts: inlineArtifacts || undefined,
+      artifacts_follow: inlineArtifacts ? undefined : (artifacts.length ? true : undefined),
     });
-    if (artifacts.length) {
-      send({
-        type: 'agent_task_artifacts',
-        task_id: taskId,
-        artifacts,
-      });
+    if (artifacts.length && !inlineArtifacts) {
+      try {
+        send({
+          type: 'agent_task_artifacts',
+          task_id: taskId,
+          artifacts,
+        });
+      } catch (e) {
+        log(`[agent] send artifacts failed: ${e.message}`);
+      }
     }
   } catch (e) {
     send({

@@ -563,16 +563,30 @@ function buildTurnTimeline(turn, delegations = {}, agentNames = {}, t) {
   const hasCleanAssistant = items.some(
     it => it.kind === 'assistant' && it.content?.trim() && !looksLikeLeakedReasoning(it.content),
   );
-  if (hasCleanAssistant) return items;
-  const summary = normalizeDisplayText(
-    turn.result?.summary || turn.result?.output || '',
-  );
-  if (!summary || looksLikeLeakedReasoning(summary)) return items;
-  items.push({
-    kind: 'assistant',
-    content: summary,
-    timestamp: turn.timestamp,
-  });
+  if (!hasCleanAssistant) {
+    const summary = normalizeDisplayText(
+      turn.result?.summary || turn.result?.output || '',
+    );
+    if (summary && !looksLikeLeakedReasoning(summary)) {
+      items.push({
+        kind: 'assistant',
+        content: summary,
+        timestamp: turn.timestamp,
+      });
+    }
+  }
+  return attachTurnArtifacts(items, turn.result?.artifacts);
+}
+
+/** 远程成品挂在本轮最后一条回复上，文件名本身打不开图。 */
+function attachTurnArtifacts(items, artifacts) {
+  if (!Array.isArray(items) || !Array.isArray(artifacts) || !artifacts.length) return items;
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i]?.kind !== 'assistant') continue;
+    const next = items.slice();
+    next[i] = { ...items[i], artifacts };
+    return next;
+  }
   return items;
 }
 
@@ -1501,6 +1515,8 @@ export default function ExecutionLog({
           items.push({ kind: 'assistant', content: summary, timestamp: task?.completed_at });
         }
       }
+      const withArts = attachTurnArtifacts(items.slice(currentStart), result.artifacts);
+      items.splice(currentStart, items.length - currentStart, ...withArts);
     }
     return { timeline: items, currentStart };
   }, [conversationTurns, userPrompt, userImages, steps, delegations, agentNames, status, result, task?.completed_at, t]);
@@ -1616,6 +1632,7 @@ export default function ExecutionLog({
                   content={normalizeDisplayText(item.content)}
                   live={isLive}
                 />
+                <RemoteArtifacts artifacts={item.artifacts} />
                 {isLive && (
                   <span className="inline-block animate-pulse text-blue-500 dark:text-blue-400 ml-0.5">▊</span>
                 )}

@@ -1111,6 +1111,10 @@ async def serve_agent_media(task_id: str, filename: str):
     # 超过默认 3 天的成品不再提供
     if drop_if_expired(path):
         raise HTTPException(404, "Not found")
+    from agent_artifacts import media_type_for_name
+    media_type = media_type_for_name(safe_name)
+    if media_type:
+        return FileResponse(path, media_type=media_type)
     return FileResponse(path)
 
 

@@ -68,6 +68,32 @@ def test_publish_rewrites_local_path():
     assert public[0]["url"] == url
 
 
+def test_chinese_filename_keeps_extension():
+    tmp = tempfile.mkdtemp(prefix="tb-art-")
+    tmp_path = Path(tmp)
+    local = "/Users/wink/.tokenbank/contribute-workspaces/app_claude-code/u1/骑自行车的人.svg"
+    stored = publish_agent_artifacts(
+        "task_cn",
+        [{
+            "name": "骑自行车的人.svg",
+            "mime": "image/svg+xml",
+            "dataUrl": "data:image/svg+xml;base64," + base64.b64encode(b"<svg xmlns='http://www.w3.org/2000/svg'/>").decode(),
+            "localPath": local,
+        }],
+        media_dir=tmp_path,
+        origin="https://tokenbank.wink.run",
+    )
+    assert len(stored) == 1
+    url = stored[0]["url"]
+    assert url.endswith("/file.svg")
+    assert not url.endswith("/svg")
+    assert (tmp_path / "task_cn" / "file.svg").is_file()
+    text = rewrite_artifact_paths("图：`" + local + "`", stored)
+    assert url in text
+    assert "/Users/wink" not in text
+    assert stored[0]["name"] == "骑自行车的人.svg"
+
+
 def test_publish_rejects_outside_bytes():
     tmp = tempfile.mkdtemp(prefix="tb-art-")
     tmp_path = Path(tmp)

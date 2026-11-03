@@ -688,7 +688,12 @@ function stepsRichnessScore(steps = []) {
 
 function pickRicherResult(a, b) {
   const len = (r) => String(r?.summary || r?.output || '').length;
-  return len(b) > len(a) ? b : a;
+  const richer = len(b) > len(a) ? b : a;
+  const other = richer === a ? b : a;
+  if (richer && !richer.artifacts?.length && other?.artifacts?.length) {
+    return { ...richer, artifacts: other.artifacts };
+  }
+  return richer;
 }
 
 /** 归档前闭合未完成工具，避免历史里长期显示「未完成」且后半段像被截断 */

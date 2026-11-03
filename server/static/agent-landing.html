@@ -127,7 +127,7 @@
               <span v-else-if="m.pending" class="typing stream-caret"><i></i><i></i><i></i></span>
               <div v-if="m.artifacts && m.artifacts.length" class="afiles">
                 <figure v-for="(f, j) in m.artifacts" :key="j" class="afig">
-                  <img v-if="f.kind === 'image'" :src="f.url || f.dataUrl" :alt="f.name">
+                  <img v-if="f.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name || '')" :src="f.url || f.dataUrl" :alt="f.name">
                   <a v-if="f.url" class="afile" :href="f.url" :download="f.name" target="_blank" rel="noopener">{{ f.name }}</a>
                   <button v-else type="button" class="afile" @click="downloadArtifact(f)">{{ f.name }}</button>
                 </figure>

@@ -38,7 +38,9 @@ export function RemoteArtifacts({ artifacts }) {
     <div className="mt-2 space-y-2">
       {list.map((file, index) => {
         const href = artifactHref(file);
-        const src = file.kind === 'image' ? (href || file.dataUrl) : '';
+        const name = String(file.name || '');
+        const previewable = file.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)$/i.test(name);
+        const src = previewable ? (href || file.dataUrl) : '';
         return (
           <figure key={`${file.name || 'file'}-${index}`} className="space-y-1">
             {src && (

@@ -85,9 +85,43 @@ def _safe_task(task_id: str) -> str:
 
 
 def _safe_name(name: str) -> str:
+    """磁盘文件名只留 ASCII。中文名不能被剥成 svg/png，否则浏览器不按图片打开。"""
     base = str(name or "file").replace("\\", "/").split("/")[-1]
-    base = re.sub(r"[^A-Za-z0-9._-]", "_", base).strip("._")[:120]
-    return base or "file"
+    stem, dot, ext = base.rpartition(".")
+    if not dot:
+        stem, ext = base, ""
+    ext_clean = re.sub(r"[^A-Za-z0-9]", "", ext).lower()[:8]
+    stem_clean = re.sub(r"[^A-Za-z0-9._-]", "_", stem).strip("._")[:80]
+    if not stem_clean:
+        stem_clean = "file"
+    if ext_clean:
+        return f"{stem_clean}.{ext_clean}"[:120]
+    return stem_clean[:120] or "file"
+
+
+def media_type_for_name(name: str) -> str | None:
+    """按扩展名给出类型。没有点号的 svg/png 也认，兼容已经落盘的旧地址。"""
+    base = str(name or "").rsplit("/", 1)[-1].lower()
+    ext = base.rsplit(".", 1)[-1] if "." in base else base
+    return {
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "gif": "image/gif",
+        "webp": "image/webp",
+        "svg": "image/svg+xml",
+        "pdf": "application/pdf",
+        "txt": "text/plain",
+        "md": "text/markdown",
+        "json": "application/json",
+        "csv": "text/csv",
+        "html": "text/html",
+        "zip": "application/zip",
+        "mp3": "audio/mpeg",
+        "wav": "audio/wav",
+        "mp4": "video/mp4",
+        "webm": "video/webm",
+    }.get(ext)
 
 
 def _decode_data_url(url: str) -> bytes | None:
@@ -133,7 +167,8 @@ def publish_agent_artifacts(
         blob = _decode_data_url(data_url)
         if blob is None:
             continue
-        name = _safe_name(item.get("name") or "file")
+        raw_name = str(item.get("name") or "file").replace("\\", "/").split("/")[-1][:120] or "file"
+        name = _safe_name(raw_name)
         stem, dot, ext = name.rpartition(".")
         if not dot:
             stem, ext = name, ""
@@ -156,7 +191,8 @@ def publish_agent_artifacts(
         kind = "image" if mime.startswith("image/") and "svg" not in mime else "file"
         local = str(item.get("localPath") or "").strip()
         out.append({
-            "name": candidate,
+            # 展示和路径匹配用原文件名；地址里用安全名
+            "name": raw_name,
             "mime": mime,
             "kind": kind,
             "url": f"{host}/media/agent/{safe_task}/{candidate}",
