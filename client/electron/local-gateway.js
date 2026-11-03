@@ -3509,6 +3509,14 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
     let steps = await resolveSteps(scene, ruleCtx);
     // 链级流转策略：按 scene.flow 重排步序（步之间怎么走），fallback 保持原序
     steps = orderStepsByFlow(steps, scene.flow, reqPath, skipP2P, ruleCtx);
+    // 刚降级成功的 30 分钟内，直接从成功的那一步开始，不再先打已经失败的模型
+    const stickyKey = scene.id || scene.model_key || scene.scene_name;
+    const routeSticky = cooldown.stickyOf(stickyKey);
+    const stickyBefore = steps[0] && steps[0].model;
+    steps = cooldown.preferSticky(steps, routeSticky);
+    if (routeSticky && steps[0] && steps[0].model !== stickyBefore) {
+      debugLog('降级粘滞：30 分钟内先走上次成功的模型', { scene: stickyKey, model: routeSticky.model });
+    }
     if (!steps.length) {   // 规则全不命中且无默认链
       lastErr = new Error(`no rule matched for ${ruleCtx.modality} request and route has no default chain`);
       fail(scene.scene_name, null, null);
@@ -3591,9 +3599,18 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
         ? { strategy: step.strategy || null, sharer: step.sharer || null } : routeMeta;
       const stepMetaSharer = stepMeta && stepMeta.sharer;   // 有效钉选 worker（与发给服务端的 meta 一致）
       // 未锁具体源时：订阅→免费→按量，同档比速度，冷却/慢源下沉
-      const stepProviders = step.provider
+      let stepProviders = step.provider
         ? stepCandidates
         : orderSameModelProviders(stepCandidates, stepModel, stepMetaSharer);
+      // 同一模型有多个源时，先走上次降级成功的那个源
+      if (routeSticky && routeSticky.model === stepModel && routeSticky.providerId && stepProviders.length > 1) {
+        const prefer = stepProviders.findIndex(p => p.id === routeSticky.providerId);
+        if (prefer > 0) {
+          const copy = stepProviders.slice();
+          const [hit] = copy.splice(prefer, 1);
+          stepProviders = [hit, ...copy];
+        }
+      }
       let   stepSucceeded = false;
 
       // 识图增强：本步只预处理一次；failover 共用替换后的 body
@@ -3639,6 +3656,8 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
           recordProviderSpeed(stepModel, provider, result, streaming);
           learnSlowPeers(stepModel, provider, result, stepProviders, stepMetaSharer);
           cooldown.clear(coolKey(provider, stepModel, stepMetaSharer));   // 成功 → 清除冷却
+          // 前面有步失败才记粘滞；30 分钟内下次请求直接从这一步开始
+          if (failedModels.length) cooldown.noteSticky(stickyKey, stepModel, provider.id);
           stepSucceeded = true;
           return;
         } catch (err) {

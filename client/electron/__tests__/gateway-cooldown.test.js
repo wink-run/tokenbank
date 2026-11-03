@@ -168,6 +168,19 @@ test('clear：成功后清除，候选回到原序', () => {
   assert.ok(!cd.isCooling('y', NOW + 1000));
 });
 
+test('降级粘滞：30 分钟内把成功的模型挪到链头，过期后恢复原序', () => {
+  const steps = [{ model: 'deepseek-v4-flash' }, { model: 'deepseek-flash' }];
+  const key = 'sticky-scene';
+  assert.equal(cd.STICKY_MS, 30 * 60_000);
+  cd.noteSticky(key, 'deepseek-flash', 'deepseek', NOW);
+  const hit = cd.stickyOf(key, NOW + 1000);
+  assert.equal(hit.model, 'deepseek-flash');
+  assert.equal(hit.providerId, 'deepseek');
+  assert.deepEqual(cd.preferSticky(steps, hit).map(s => s.model), ['deepseek-flash', 'deepseek-v4-flash']);
+  assert.equal(cd.stickyOf(key, NOW + cd.STICKY_MS), null);
+  assert.deepEqual(cd.preferSticky(steps, null).map(s => s.model), ['deepseek-v4-flash', 'deepseek-flash']);
+});
+
 test('sink：全部冷却也不返回空（保证永远有可试的兜底）', () => {
   const items = [{ id: 'p' }, { id: 'q' }];
   cd.noteFailure('p', { status: 429, message: 'HTTP_429' }, NOW);

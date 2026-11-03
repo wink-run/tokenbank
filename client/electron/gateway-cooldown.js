@@ -25,11 +25,13 @@ const QUOTA_DEFAULT_MS = 10 * 60_000;          // 配额耗尽但拿不到精确
 const AUTH_MS          = 30 * 60_000;          // 401/403 鉴权
 const CREDIT_MS        = 30 * 60_000;          // 402 欠费
 const SLOW_MS          = 20 * 60_000;          // 明显慢于同模型其它源：下沉 20min，避免反复走降级链
+const STICKY_MS        = 30 * 60_000;          // 降级成功后 30 分钟内直接走成功的那一步
 const RESET_BUFFER_MS  = 30_000;               // reset 时刻 + 缓冲，避免边界抖动
 const PERSIST_MIN_MS   = 2 * 60_000;           // reset 距今 > 2min 才算配额级并落盘；短 Retry-After 视为瞬时
 const MAX_MS           = 35 * 24 * 60 * 60_000; // 冷却上限 35 天，覆盖月度配额 reset，同时防解析出离谱时间把源永久拉黑
 
 const _map = new Map();      // key -> { until, status, reason, persist }
+const _sticky = new Map();   // 路由 id -> { model, providerId, until }
 
 // 从上游错误消息解析配额重置时刻 → epoch ms。识别形如 "reset at 2026-07-15 23:59:59 +0800 CST"。
 function parseResetMs(message, now = Date.now()) {
@@ -181,6 +183,37 @@ function clear(key) {
   if (e.persist) _save();
 }
 
+// 记下这次降级成功的模型。30 分钟内同一条路由先走它，避免每次都先空跑失败的那一步。
+function noteSticky(key, model, providerId, now = Date.now()) {
+  if (!key || !model) return null;
+  const entry = {
+    model: String(model),
+    providerId: providerId ? String(providerId) : null,
+    until: now + STICKY_MS,
+  };
+  _sticky.set(key, entry);
+  return entry;
+}
+
+function stickyOf(key, now = Date.now()) {
+  if (!key) return null;
+  const e = _sticky.get(key);
+  if (!e) return null;
+  if (e.until <= now) { _sticky.delete(key); return null; }
+  return e;
+}
+
+// 把上次降级成功的那一步挪到链头。对不上就保持原序。
+function preferSticky(steps, sticky) {
+  const arr = Array.isArray(steps) ? steps.slice() : [];
+  if (!sticky || arr.length < 2) return arr;
+  const idx = arr.findIndex(s => s && s.model === sticky.model);
+  if (idx <= 0) return arr;
+  const [hit] = arr.splice(idx, 1);
+  arr.unshift(hit);
+  return arr;
+}
+
 // 把冷却中的候选下沉到末尾：返回 [...fresh(保序), ...cooled(保序)]，不删除任何项（保证永远有可试）。
 function sink(items, keyFn, now = Date.now()) {
   const arr = Array.isArray(items) ? items : [];
@@ -218,4 +251,4 @@ function _save() {
 }
 _load();
 
-module.exports = { noteFailure, noteTransient, noteSlow, isCooling, entryOf, clear, sink, list, parseResetMs, parseResetFromHeaders, classify, FILE, SLOW_MS };
+module.exports = { noteFailure, noteTransient, noteSlow, isCooling, entryOf, clear, sink, list, parseResetMs, parseResetFromHeaders, classify, FILE, SLOW_MS, STICKY_MS, noteSticky, stickyOf, preferSticky };
