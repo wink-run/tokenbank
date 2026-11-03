@@ -51,6 +51,10 @@ def test_publish_rewrites_local_path():
     bare = dict(stored[0])
     bare["local"] = ""
     assert LOCAL not in rewrite_artifact_paths(text, [bare])
+    # 已经换成中转地址后再跑一遍，不能把 https:// 拼成 httphttps://
+    twice = rewrite_artifact_paths(rewritten, stored)
+    assert twice == rewritten
+    assert "httphttps://" not in twice
     public = public_artifacts(stored)
     assert "local" not in public[0]
     assert "dataUrl" not in public[0]

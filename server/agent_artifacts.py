@@ -16,7 +16,8 @@ _ARTIFACT_MAX_CHARS = 8_000_000
 _ARTIFACT_MAX_BYTES = 4 * 1024 * 1024
 
 # 绝对路径，结尾必须是成品文件名。不改正文里单独出现的文件名。
-_PATH_PREFIX = r"(?:~/|/(?:Users|home|tmp|var|opt|private|Volumes)|[A-Za-z]:[\\/])"
+# 盘符前不能再是字母，否则 https:// 里的 s:/ 会被当成路径再拼一次。
+_PATH_PREFIX = r"(?:~/|/(?:Users|home|tmp|var|opt|private|Volumes)|(?<![A-Za-z])[A-Za-z]:[\\/])"
 
 
 def agent_media_ttl_sec() -> float:

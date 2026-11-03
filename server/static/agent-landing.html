@@ -419,7 +419,7 @@ createApp({
       for (const f of arts || []) {
         if (!f || !f.url || !f.name) continue
         const name = String(f.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        const re = new RegExp('(?:~/|/(?:Users|home|tmp|var|opt|private|Volumes)|[A-Za-z]:[\\\\/])[^\\s`\'"<>|]*?' + name, 'g')
+        const re = new RegExp('(?:~/|/(?:Users|home|tmp|var|opt|private|Volumes)|(?<![A-Za-z])[A-Za-z]:[\\\\/])[^\\s`\'"<>|]*?' + name, 'g')
         s = s.replace(re, f.url)
       }
       return s
