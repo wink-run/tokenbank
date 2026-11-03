@@ -162,7 +162,7 @@ button{font-family:inherit}
 .afiles{display:flex;flex-direction:column;gap:12px;margin-top:12px}
 .afig{margin:0}
 .afig img{display:block;max-width:100%;border-radius:12px;border:1px solid var(--border);background:var(--bg)}
-.afile{display:inline-flex;margin-top:6px;max-width:100%;padding:6px 10px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text-2);font-size:12.5px;cursor:pointer;font-family:inherit}
+.afile{display:inline-flex;margin-top:6px;max-width:100%;padding:6px 10px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text-2);font-size:12.5px;cursor:pointer;font-family:inherit;text-decoration:none}
 .afile:hover{border-color:var(--text-muted);color:var(--text)}
 .foot-hint{margin-top:8px;text-align:center;font-size:12px;color:var(--text-faint)}
 .foot-hint a,.foot-hint button{color:var(--text-muted);text-decoration:underline;background:none;border:none;cursor:pointer;font-size:12px;padding:0}

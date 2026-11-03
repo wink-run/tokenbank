@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import AsyncIterator, Optional
 
 import database as db
+from agent_artifacts import public_artifacts, publish_agent_artifacts, rewrite_artifact_paths
 from worker_pool import pool
 
 logger = logging.getLogger("server")
@@ -60,35 +61,12 @@ def _public_progress_parts(raw) -> list:
     return out
 
 
-_ARTIFACT_MAX = 4
-_ARTIFACT_MAX_CHARS = 8_000_000
-
-
-def _public_artifacts(raw) -> list:
-    """出租方回传的成品。只保留 data URL，图片可内嵌，其他文件供下载。"""
-    out = []
-    if not isinstance(raw, list):
-        return out
-    total = 0
-    for item in raw:
-        if len(out) >= _ARTIFACT_MAX:
-            break
-        if not isinstance(item, dict):
-            continue
-        url = str(item.get("dataUrl") or "").strip()
-        header, sep, _body = url.partition(",")
-        if not sep or not header.startswith("data:") or not header.endswith(";base64"):
-            continue
-        if len(url) > _ARTIFACT_MAX_CHARS or total + len(url) > _ARTIFACT_MAX_CHARS:
-            continue
-        name = str(item.get("name") or "file").replace("\\", "/").split("/")[-1][:120] or "file"
-        mime = str(item.get("mime") or "application/octet-stream").split(";")[0].strip()[:80]
-        if "/" not in mime:
-            mime = "application/octet-stream"
-        kind = "image" if mime.startswith("image/") and "svg" not in mime else "file"
-        out.append({"name": name, "mime": mime, "kind": kind, "dataUrl": url})
-        total += len(url)
-    return out
+def _apply_artifacts(task_id: str, output: str, raw) -> tuple[str, list]:
+    """成品存到本服务，正文里的本机路径换成 /media/agent 中转地址。"""
+    stored = publish_agent_artifacts(task_id, raw)
+    if not stored:
+        return output, []
+    return rewrite_artifact_paths(output, stored), public_artifacts(stored)
 
 
 # 正文先到、文件后到。这段时间内断线仍保留正文，不改写成 worker disconnected
@@ -193,7 +171,8 @@ async def _finalize_agent_result(
             "output": (result or {}).get("output") or "",
             "credits_refunded": 0 if guest else AGENT_TASK_CREDITS,
         }
-        arts = _public_artifacts((result or {}).get("artifacts"))
+        text, arts = _apply_artifacts(task_id, failed["output"], (result or {}).get("artifacts"))
+        failed["output"] = text
         if arts:
             failed["artifacts"] = arts
         return failed
@@ -240,7 +219,8 @@ async def _finalize_agent_result(
         "usage": usage,
         "credits_charged": AGENT_TASK_CREDITS,
     }
-    arts = _public_artifacts((result or {}).get("artifacts"))
+    text, arts = _apply_artifacts(task_id, done["output"], (result or {}).get("artifacts"))
+    done["output"] = text
     if arts:
         done["artifacts"] = arts
     return done

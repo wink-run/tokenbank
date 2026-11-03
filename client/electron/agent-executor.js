@@ -481,7 +481,7 @@ function sleep(ms) {
 }
 
 /**
- * 云端回传的成品。只留 data URL，调用方用它展示和下载，不把出租方磁盘路径当本地文件。
+ * 云端回传的成品。优先用中转地址；旧的 data URL 仍可展示。不把出租方磁盘路径当本地文件。
  */
 function normalizeCommunityArtifacts(raw) {
   if (!Array.isArray(raw)) return [];
@@ -491,17 +491,26 @@ function normalizeCommunityArtifacts(raw) {
     if (out.length >= 4) break;
     if (!item || typeof item !== 'object') continue;
     const dataUrl = String(item.dataUrl || '').trim();
+    const url = String(item.url || '').trim();
+    const urlOk = /^https?:\/\/\S+\/media\/agent\/[A-Za-z0-9_-]+\/[^/?#\s]+$/i.test(url)
+      || /^\/media\/agent\/[A-Za-z0-9_-]+\/[^/?#\s]+$/.test(url);
     const comma = dataUrl.indexOf(',');
-    if (comma < 0 || !dataUrl.startsWith('data:')) continue;
-    const header = dataUrl.slice(0, comma);
-    if (!header.endsWith(';base64')) continue;
-    if (dataUrl.length > 8_000_000 || total + dataUrl.length > 8_000_000) continue;
+    const dataOk = comma >= 0 && dataUrl.startsWith('data:') && dataUrl.slice(0, comma).endsWith(';base64');
+    if (!urlOk && !dataOk) continue;
+    if (dataOk && (dataUrl.length > 8_000_000 || total + dataUrl.length > 8_000_000)) {
+      if (!urlOk) continue;
+    }
     const name = String(item.name || 'file').replace(/\\/g, '/').split('/').pop().slice(0, 120) || 'file';
     let mime = String(item.mime || 'application/octet-stream').split(';')[0].trim().slice(0, 80);
     if (!mime.includes('/')) mime = 'application/octet-stream';
     const kind = mime.startsWith('image/') && !mime.includes('svg') ? 'image' : 'file';
-    out.push({ name, mime, kind, dataUrl });
-    total += dataUrl.length;
+    const file = { name, mime, kind };
+    if (urlOk) file.url = url;
+    if (dataOk && dataUrl.length <= 8_000_000 && total + dataUrl.length <= 8_000_000) {
+      file.dataUrl = dataUrl;
+      total += dataUrl.length;
+    }
+    out.push(file);
   }
   return out;
 }

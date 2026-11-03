@@ -3,6 +3,7 @@
 import React from 'react';
 import { useLang } from '../store/lang';
 import { PathLink } from './RichMediaContent';
+import { resolveMediaUrl } from '../lib/mediaUrl';
 
 /** 把 data URL 存成文件。坏数据只是下不下来，不打断结果卡。 */
 function downloadDataUrl(file) {
@@ -23,30 +24,52 @@ function downloadDataUrl(file) {
   } catch { /* ignore */ }
 }
 
-/** 远程成品：图片直接看，其余提供下载。不走本机路径预览。 */
+function artifactHref(file) {
+  const url = String(file?.url || '');
+  if (/^https?:\/\//i.test(url) || url.startsWith('/media/agent/')) return resolveMediaUrl(url);
+  return '';
+}
+
+/** 远程成品：图片直接看，其余提供下载。地址是中转链接，不走本机路径预览。 */
 export function RemoteArtifacts({ artifacts }) {
-  const list = (Array.isArray(artifacts) ? artifacts : []).filter((item) => item && item.dataUrl);
+  const list = (Array.isArray(artifacts) ? artifacts : []).filter((item) => item && (item.dataUrl || artifactHref(item)));
   if (!list.length) return null;
   return (
     <div className="mt-2 space-y-2">
-      {list.map((file, index) => (
-        <figure key={`${file.name || 'file'}-${index}`} className="space-y-1">
-          {file.kind === 'image' && (
-            <img
-              src={file.dataUrl}
-              alt={file.name || ''}
-              className="max-h-64 max-w-full rounded-lg border border-black/10 dark:border-white/10"
-            />
-          )}
-          <button
-            type="button"
-            onClick={() => downloadDataUrl(file)}
-            className="text-xs font-mono text-zinc-700 dark:text-zinc-300 underline-offset-2 hover:underline"
-          >
-            {file.name || 'file'}
-          </button>
-        </figure>
-      ))}
+      {list.map((file, index) => {
+        const href = artifactHref(file);
+        const src = file.kind === 'image' ? (href || file.dataUrl) : '';
+        return (
+          <figure key={`${file.name || 'file'}-${index}`} className="space-y-1">
+            {src && (
+              <img
+                src={src}
+                alt={file.name || ''}
+                className="max-h-64 max-w-full rounded-lg border border-black/10 dark:border-white/10"
+              />
+            )}
+            {href ? (
+              <a
+                href={href}
+                download={file.name || 'file'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-mono text-zinc-700 dark:text-zinc-300 underline-offset-2 hover:underline"
+              >
+                {file.name || 'file'}
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() => downloadDataUrl(file)}
+                className="text-xs font-mono text-zinc-700 dark:text-zinc-300 underline-offset-2 hover:underline"
+              >
+                {file.name || 'file'}
+              </button>
+            )}
+          </figure>
+        );
+      })}
     </div>
   );
 }

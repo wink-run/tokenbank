@@ -127,8 +127,9 @@
               <span v-else-if="m.pending" class="typing stream-caret"><i></i><i></i><i></i></span>
               <div v-if="m.artifacts && m.artifacts.length" class="afiles">
                 <figure v-for="(f, j) in m.artifacts" :key="j" class="afig">
-                  <img v-if="f.kind === 'image'" :src="f.dataUrl" :alt="f.name">
-                  <button type="button" class="afile" @click="downloadArtifact(f)">{{ f.name }}</button>
+                  <img v-if="f.kind === 'image'" :src="f.url || f.dataUrl" :alt="f.name">
+                  <a v-if="f.url" class="afile" :href="f.url" :download="f.name" target="_blank" rel="noopener">{{ f.name }}</a>
+                  <button v-else type="button" class="afile" @click="downloadArtifact(f)">{{ f.name }}</button>
                 </figure>
               </div>
               <div v-if="!m.pending && answerOf(m)" class="msg-tools">
@@ -389,20 +390,39 @@ createApp({
       }
       return String((m && m.content) || '').trim()
     }
+    function artifactUrl(item) {
+      const url = String((item && item.url) || '')
+      if (/^https?:\/\/[^\s]+\/media\/agent\/[A-Za-z0-9_-]+\/[^/?#\s]+$/i.test(url)) return url
+      if (/^\/media\/agent\/[A-Za-z0-9_-]+\/[^/?#\s]+$/.test(url)) return url
+      return ''
+    }
     function cleanArtifacts(raw) {
       if (!Array.isArray(raw)) return []
       const out = []
       for (const item of raw) {
         if (!item || typeof item !== 'object') continue
         const dataUrl = String(item.dataUrl || '')
-        if (!dataUrl.startsWith('data:') || dataUrl.indexOf(';base64,') < 0) continue
+        const url = artifactUrl(item)
+        const dataOk = dataUrl.startsWith('data:') && dataUrl.indexOf(';base64,') >= 0
+        if (!url && !dataOk) continue
         const name = String(item.name || 'file').split(/[/\\]/).pop().slice(0, 120) || 'file'
         const mime = String(item.mime || '')
         const kind = mime.startsWith('image/') && mime.indexOf('svg') < 0 ? 'image' : 'file'
-        out.push({ name, mime, kind, dataUrl })
+        out.push({ name, mime, kind, url: url || undefined, dataUrl: dataOk ? dataUrl : undefined })
         if (out.length >= 4) break
       }
       return out
+    }
+    /** 流式正文里已经出现的本机路径，收尾时换成中转地址。 */
+    function swapArtifactPaths(text, arts) {
+      let s = String(text || '')
+      for (const f of arts || []) {
+        if (!f || !f.url || !f.name) continue
+        const name = String(f.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const re = new RegExp('(?:~/|/(?:Users|home|tmp|var|opt|private|Volumes)|[A-Za-z]:[\\\\/])[^\\s`\'"<>|]*?' + name, 'g')
+        s = s.replace(re, f.url)
+      }
+      return s
     }
     function downloadArtifact(f) {
       const url = String((f && f.dataUrl) || '')
@@ -971,8 +991,20 @@ createApp({
             if (ev.event === 'done') {
               finalOk = !!ev.ok
               finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
-              const out = String(ev.output || ev.result || ev.text || ev.message || '')
+              const arts = cleanArtifacts(ev.artifacts)
               const row = messages.value[asstIdx]
+              if (row && arts.length) {
+                row.artifacts = arts
+                if (row.parts && row.parts.length) {
+                  row.parts = row.parts.map((p) => (
+                    p && (p.type === 'text' || p.type === 'thinking')
+                      ? { ...p, text: swapArtifactPaths(p.text, arts) }
+                      : p
+                  ))
+                }
+                if (row.content) row.content = swapArtifactPaths(row.content, arts)
+              }
+              const out = swapArtifactPaths(String(ev.output || ev.result || ev.text || ev.message || ''), arts)
               if (row) {
                 row.pending = false
                 // 已有分段时只补最终正文里多出来的部分，不把思考和工具盖掉
@@ -988,7 +1020,6 @@ createApp({
                 } else {
                   setAssistant(out || row.content || '(empty)', { pending: false })
                 }
-                const arts = cleanArtifacts(ev.artifacts)
                 if (arts.length) row.artifacts = arts
               }
               continue
@@ -1009,7 +1040,17 @@ createApp({
                 }
                 err.value = String(msg)
                 const arts = cleanArtifacts(ev.artifacts)
-                if (arts.length) row.artifacts = arts
+                if (arts.length && row) {
+                  row.artifacts = arts
+                  if (row.parts && row.parts.length) {
+                    row.parts = row.parts.map((p) => (
+                      p && (p.type === 'text' || p.type === 'thinking')
+                        ? { ...p, text: swapArtifactPaths(p.text, arts) }
+                        : p
+                    ))
+                  }
+                  if (row.content) row.content = swapArtifactPaths(row.content, arts)
+                }
               } else {
                 err.value = String(msg)
                 dropTurn()

@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -68,6 +69,7 @@ logger = logging.getLogger("server")
 BASE_DIR = Path(__file__).resolve().parent
 DOWNLOADS_DIR = BASE_DIR / "static" / "downloads"
 CIRCLE_MEDIA_DIR = BASE_DIR / "data" / "circle_media"
+AGENT_MEDIA_DIR = BASE_DIR / "data" / "agent_media"
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -91,6 +93,8 @@ async def lifespan(app: FastAPI):
     await _sync_virtual_pool()
     logger.info("Virtual agents synced")
     _cleanup_img_cache()
+    from agent_artifacts import cleanup_agent_media
+    cleanup_agent_media()
     task = asyncio.create_task(run_settler())
     yield
     task.cancel()
@@ -1086,6 +1090,26 @@ async def serve_circle_media(circle_id: int, filename: str):
     path = CIRCLE_MEDIA_DIR / str(circle_id) / safe
     root = (CIRCLE_MEDIA_DIR / str(circle_id)).resolve()
     if not path.is_file() or path.resolve().parent != root:
+        raise HTTPException(404, "Not found")
+    return FileResponse(path)
+
+
+@app.get("/media/agent/{task_id}/{filename}")
+async def serve_agent_media(task_id: str, filename: str):
+    """远程智能体成品。调用方拿到的是中转地址，不是出租方磁盘路径。"""
+    safe_task = Path(task_id).name
+    safe_name = Path(filename).name
+    if not safe_task or safe_task != task_id or not safe_name or safe_name != filename:
+        raise HTTPException(400, "Invalid path")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", safe_task):
+        raise HTTPException(400, "Invalid path")
+    root = (AGENT_MEDIA_DIR / safe_task).resolve()
+    path = (root / safe_name).resolve()
+    if not path.is_file() or path.parent != root:
+        raise HTTPException(404, "Not found")
+    from agent_artifacts import drop_if_expired
+    # 超过默认 3 天的成品不再提供
+    if drop_if_expired(path):
         raise HTTPException(404, "Not found")
     return FileResponse(path)
 

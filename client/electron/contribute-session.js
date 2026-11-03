@@ -176,6 +176,8 @@ function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
       mime,
       kind,
       dataUrl,
+      // 服务端用它把正文里的本机路径换成中转地址，不会原样发给调用方
+      localPath: info.real,
     });
   };
 
