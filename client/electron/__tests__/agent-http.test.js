@@ -2,7 +2,7 @@
 
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseAgentRoute, inputText, harnessIdFromBody, taskToResponse } = require('../agent-http');
+const { parseAgentRoute, inputText, harnessIdFromBody, taskToResponse, outputStreamEvent } = require('../agent-http');
 
 describe('agent-http', () => {
   test('路径和模型补全分开', () => {
@@ -32,5 +32,18 @@ describe('agent-http', () => {
     assert.equal(body.metadata.harness_id, 'pi');
     assert.equal(body.output[0].content[0].text, '好了');
     assert.equal(body.usage.duration_ms, 3000);
+  });
+
+  test('stream 开关：快照只推新增片段', () => {
+    const first = outputStreamEvent('', { stepType: 'output', content: '你好' });
+    assert.equal(first.event, 'response.output_text.delta');
+    assert.equal(first.data.delta, '你好');
+    const more = outputStreamEvent(first.prev, { stepType: 'output', content: '你好，世界' });
+    assert.equal(more.data.delta, '，世界');
+    const same = outputStreamEvent(more.prev, { stepType: 'output', content: '你好，世界' });
+    assert.equal(same.event, null);
+    const replaced = outputStreamEvent(more.prev, { stepType: 'output', content: '另一段' });
+    assert.equal(replaced.event, 'response.output_text.snapshot');
+    assert.equal(replaced.data.text, '另一段');
   });
 });

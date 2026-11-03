@@ -61,6 +61,27 @@ function harnessIdFromBody(body) {
   return String(meta.harness_id || body?.harness_id || '').trim();
 }
 
+/**
+ * 把一步输出收成 SSE 事件。快照只发新增片段；整段被替换时发 snapshot。
+ * @returns {{ prev: string, event: string|null, data: object|null }}
+ */
+function outputStreamEvent(prev, step) {
+  const prior = String(prev || '');
+  if (!step || step.stepType !== 'output') return { prev: prior, event: null, data: null };
+  const text = String(step.content || '');
+  if (step.is_delta) {
+    if (!text) return { prev: prior, event: null, data: null };
+    return { prev: prior + text, event: 'response.output_text.delta', data: { delta: text } };
+  }
+  if (!text || text === prior) return { prev: prior, event: null, data: null };
+  if (text.startsWith(prior)) {
+    const delta = text.slice(prior.length);
+    if (!delta) return { prev: text, event: null, data: null };
+    return { prev: text, event: 'response.output_text.delta', data: { delta } };
+  }
+  return { prev: text, event: 'response.output_text.snapshot', data: { text } };
+}
+
 function taskToResponse(task) {
   const statusMap = {
     pending: 'in_progress',
@@ -185,23 +206,34 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
       continueSession,
       cliSessionId: cliSessionId || undefined,
       workingDir: typeof body.metadata?.working_dir === 'string' ? body.metadata.working_dir : undefined,
+      // 只有请求显式打开 stream 才边收边推
+      stream: !!body.stream,
     });
 
+    let detachStream = () => {};
     if (body.stream && !res.headersSent) {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
       });
-      res.write(`event: response.created\ndata: ${JSON.stringify({ id: taskId, status: 'in_progress', metadata: { harness_id: harnessId } })}\n\n`);
+      writeEvent(res, 'response.created', { id: taskId, status: 'in_progress', metadata: { harness_id: harnessId } });
+      // 社区任务的正文是整段快照，这里拆成 delta，调用方可以边收边显示
+      detachStream = pipeTaskStream(executor, taskId, res);
     }
 
-    const task = await waitTask(executor, taskId);
+    let task;
+    try {
+      task = await waitTask(executor, taskId);
+    } finally {
+      detachStream();
+    }
     const response = taskToResponse(task);
     rememberIdempotency(idem, raw, response);
     if (body.stream) {
       if (!res.writableEnded) {
-        res.write(`event: response.completed\ndata: ${JSON.stringify(response)}\n\n`);
+        writeEvent(res, 'response.completed', response);
         res.end();
       }
       return true;
@@ -223,9 +255,35 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
   }
 }
 
+function writeEvent(res, event, data) {
+  if (!res || res.writableEnded) return;
+  try {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  } catch { /* 调用方已断开 */ }
+}
+
+/** 把执行器的步骤转成 SSE。返回取消订阅。 */
+function pipeTaskStream(executor, taskId, res) {
+  let prev = '';
+  const onStep = (step) => {
+    if (!step || step.taskId !== taskId) return;
+    if (step.stepType === 'tool_call' && step.tool_name) {
+      writeEvent(res, 'response.tool', { tool: step.tool_name });
+      return;
+    }
+    const next = outputStreamEvent(prev, step);
+    prev = next.prev;
+    if (next.event) writeEvent(res, next.event, next.data);
+  };
+  executor.on('task:step', onStep);
+  return () => {
+    try { executor.off('task:step', onStep); } catch { /* ignore */ }
+  };
+}
+
 function writeSse(res, response) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
-  res.write(`event: response.completed\ndata: ${JSON.stringify(response)}\n\n`);
+  writeEvent(res, 'response.completed', response);
   res.end();
 }
 
@@ -234,5 +292,6 @@ module.exports = {
   inputText,
   harnessIdFromBody,
   taskToResponse,
+  outputStreamEvent,
   handle,
 };

@@ -136,7 +136,10 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
   const pageActive = location.pathname === '/contribute';
   const [selectedNames,   setSelectedNames]   = useState(new Set()); // Set<string>
   const [availableModels, setAvailableModels] = useState([]);        // {name, type}[]
-  const [availableAssistants, setAvailableAssistants] = useState([]); // resource rows
+  const [availableAssistants, setAvailableAssistants] = useState([]);
+  // 已安装、可按智能体同样上架的本机应用（Claude Code、Pi 等）
+  const [availableApps, setAvailableApps] = useState([]);
+  const [appsLoaded, setAppsLoaded] = useState(false);
   const [selectedAssistantIds, setSelectedAssistantIds] = useState(new Set());
   const [nodeName,        setNodeName]        = useState('');
   const [autoStart,       setAutoStart]       = useState(false);
@@ -177,7 +180,8 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
         let changed = false;
         const next = new Set();
         for (const id of prev) {
-          if (allowedIds.has(id)) next.add(id);
+          // app: 是本机应用，不在智能体资源库里
+          if (allowedIds.has(id) || String(id).startsWith('app:')) next.add(id);
           else changed = true;
         }
         return changed ? next : prev;
@@ -242,11 +246,27 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
       const prevAsst = new Set(
         (cfg.contribute_assistants || [])
           .map((x) => (typeof x === 'string' ? x : x?.id))
-          .filter((id) => id && allowedIds.has(id)),
+          .filter((id) => id && (allowedIds.has(id) || String(id).startsWith('app:'))),
       );
       setSelectedAssistantIds(prevAsst);
       assistantsHydratedRef.current = true;
     });
+  }, []);
+
+  /** 已安装的本机应用，名片 id 用 app:<cli>，和智能体走同一份上架名单 */
+  const refreshApps = useCallback(async () => {
+    if (typeof window === 'undefined' || !window.electronAPI?.agent?.listAgents) return [];
+    try {
+      const res = await window.electronAPI.agent.listAgents();
+      const list = Array.isArray(res?.agents) ? res.agents : [];
+      const rentable = new Set(['claude-code', 'codex', 'cursor', 'kimi-code', 'pi']);
+      const apps = list.filter((a) => a && a.type === 'cli' && a.installed && rentable.has(a.id));
+      setAvailableApps(apps);
+      setAppsLoaded(true);
+      return apps;
+    } catch {
+      return [];
+    }
   }, []);
 
   // 打开「上架智能体」选择器时重新拉取，避免资源页刚投射后此处仍是旧列表
@@ -254,18 +274,19 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
     if (!showAssistantPicker) return undefined;
     let cancelled = false;
     setAssistantPickerBusy(true);
-    refreshAssistants()
+    Promise.all([refreshAssistants(), refreshApps()])
       .finally(() => {
         if (!cancelled) setAssistantPickerBusy(false);
       });
     return () => { cancelled = true; };
-  }, [showAssistantPicker, refreshAssistants]);
+  }, [showAssistantPicker, refreshAssistants, refreshApps]);
 
-  // KeepAlive：从资源页切回交易页时刷新投射状态
+  // KeepAlive：从资源页切回交易页时刷新投射状态和已安装应用
   useEffect(() => {
     if (!pageActive) return;
     refreshAssistants();
-  }, [pageActive, refreshAssistants]);
+    refreshApps();
+  }, [pageActive, refreshAssistants, refreshApps]);
 
   function toggleModel(name) {
     setSelectedNames(prev => {
@@ -293,6 +314,11 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
       setCopiedAssistantId(id);
       setTimeout(() => setCopiedAssistantId((cur) => (cur === id ? '' : cur)), 1500);
     }
+  }
+
+  function listedAppRuntime(id) {
+    const raw = String(id || '');
+    return raw.startsWith('app:') ? raw.slice(4) : '';
   }
 
   function assistantDisabledReason(r) {
@@ -329,6 +355,12 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
       const visibility = circleScope === 'circle' ? 'circle' : 'public';
       const contribute_assistants = [...selectedAssistantIds]
         .filter((id) => {
+          if (String(id).startsWith('app:')) {
+            // 安装列表还没回来时保留已选项，避免保存把应用抹掉
+            if (!appsLoaded) return true;
+            const runtime = id.slice(4);
+            return availableApps.some((a) => a.id === runtime);
+          }
           const row = availableAssistants.find((a) => a.id === id);
           return row && !assistantDisabledReason(row);
         })
@@ -535,15 +567,20 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
             </span>
           )}
         </div>
-        {availableAssistants.length === 0 ? (
+        {availableAssistants.length === 0 && availableApps.length === 0 && selectedAssistantIds.size === 0 ? (
           <p className="text-xs text-zinc-400 dark:text-zinc-500">{t('contribute.noAssistantsHint')}</p>
-        ) : (
+        ) : null}
+        {(availableAssistants.length > 0 || availableApps.length > 0 || selectedAssistantIds.size > 0) && (
           <div className="space-y-2">
             <div className="flex flex-wrap gap-1.5 items-center">
               {[...selectedAssistantIds].map((id) => {
-                const a = availableAssistants.find((x) => x.id === id);
-                const label = a ? (a.display_name || a.name) : id;
-                const reason = a ? assistantDisabledReason(a) : '';
+                const runtime = listedAppRuntime(id);
+                const a = runtime ? null : availableAssistants.find((x) => x.id === id);
+                const app = runtime ? availableApps.find((x) => x.id === runtime) : null;
+                const label = app?.name || a?.display_name || a?.name || runtime || id;
+                const reason = runtime
+                  ? (app ? '' : t('contribute.appMissing'))
+                  : (a ? assistantDisabledReason(a) : '');
                 return (
                   // 仅操作按钮可点；避免点 chip 本体误删
                   <span
@@ -591,7 +628,7 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
               <p className="text-[11px] text-zinc-400">{t('contribute.addAssistantHint')}</p>
             )}
             {showAssistantPicker && (
-              <div className="tb-soft-card rounded-xl p-3 space-y-2 max-h-56 overflow-y-auto">
+              <div className="tb-soft-card rounded-xl p-3 space-y-2 max-h-72 overflow-y-auto">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-[11px] text-zinc-500">
                     {assistantPickerBusy
@@ -604,7 +641,7 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
                       disabled={assistantPickerBusy}
                       onClick={() => {
                         setAssistantPickerBusy(true);
-                        refreshAssistants().finally(() => setAssistantPickerBusy(false));
+                        Promise.all([refreshAssistants(), refreshApps()]).finally(() => setAssistantPickerBusy(false));
                       }}
                       className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 disabled:opacity-40"
                     >
@@ -652,6 +689,27 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
                   {availableAssistants.filter((a) => !selectedAssistantIds.has(a.id) && !assistantDisabledReason(a)).length === 0 && (
                     <p className="text-[11px] text-zinc-400 w-full">{t('contribute.noAddableAssistants')}</p>
                   )}
+                </div>
+                <div className="pt-2 border-t border-zinc-100 dark:border-white/[0.06] space-y-1.5">
+                  <p className="text-[11px] text-zinc-500">{t('contribute.localAppsHint')}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {availableApps
+                      .filter((a) => !selectedAssistantIds.has(`app:${a.id}`))
+                      .map((a) => (
+                        <button
+                          key={a.id}
+                          type="button"
+                          title={a.name}
+                          onClick={() => toggleAssistant(`app:${a.id}`)}
+                          className="tb-tag tb-tag-muted px-2.5 py-1 text-xs cursor-pointer"
+                        >
+                          {a.name}
+                        </button>
+                      ))}
+                    {availableApps.filter((a) => !selectedAssistantIds.has(`app:${a.id}`)).length === 0 && (
+                      <p className="text-[11px] text-zinc-400 w-full">{t('contribute.noLocalApps')}</p>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -1507,6 +1565,7 @@ function CommunityApiExample({ assistantId, owner, hired, t }) {
   const origin = resolveLocalGatewayBase().replace(/\/v1\/?$/, '');
   const body = JSON.stringify({
     input: '请按你的职责完成这个任务',
+    stream: true,
     metadata: { harness_id: harnessId },
   });
   const bearer = apiKey || '<API Key>';

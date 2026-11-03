@@ -15,8 +15,11 @@ const { normalizeAgentForwardCfg } = require('../shared/agent-forward-url');
 const {
   normalizeContributeAssistants,
   buildAgentCards,
+  buildAppCards,
   assertAssistantContributed,
   validateAssistantEligible,
+  isContributedAppId,
+  contributedAppRuntime,
 } = require('./contribute-assistants');
 const {
   resolveConsumerKey,
@@ -628,6 +631,7 @@ async function collectAgentCardsForRegister(cfg) {
     resourceManager.init();
     const resources = resourceManager.listResources({ type: 'assistant' }) || [];
     let availableIds = null; // null=探测失败，跳过 runtime 可用性硬过滤
+    let installedAppIds = new Set();
     try {
       const executor = require('./agent-executor');
       const agents = await executor.listAvailableAgents();
@@ -636,6 +640,12 @@ async function collectAgentCardsForRegister(cfg) {
           .map((a) => a.id)
           .filter((id) => id && !String(id).startsWith('assistant:')),
       );
+      // 应用只上报已安装的 CLI，未安装的不上架
+      installedAppIds = new Set(
+        (agents || [])
+          .filter((a) => a && a.type === 'cli' && a.installed && a.id)
+          .map((a) => a.id),
+      );
     } catch { /* 探测失败时仍按投射资格上报，接单时再拒 */ }
 
     // 空 Set 仍为 truthy，不能当成「探测失败」；无 CLI 时保留投射校验、放宽 runtime 探测
@@ -643,11 +653,16 @@ async function collectAgentCardsForRegister(cfg) {
       ? (id) => availableIds.has(id)
       : undefined;
 
-    const cards = buildAgentCards(entries, resources, {
-      isRuntimeAvailable: runtimeCheck,
-    });
+    const cards = [
+      ...buildAgentCards(entries, resources, { isRuntimeAvailable: runtimeCheck }),
+      ...buildAppCards(entries, { isRuntimeAvailable: (id) => installedAppIds.has(id) }),
+    ];
     if (entries.length && !cards.length) {
       const reasons = entries.map((e) => {
+        if (isContributedAppId(e.id)) {
+          const rt = contributedAppRuntime(e.id);
+          return `${e.id}:${installedAppIds.has(rt) ? 'filtered' : 'runtime_unavailable'}`;
+        }
         const r = resources.find((x) => x.id === e.id);
         const v = r
           ? validateAssistantEligible(r, { isRuntimeAvailable: runtimeCheck || (() => true) })
@@ -680,6 +695,10 @@ async function handleAgentTask(msg, cfg) {
   const liveCfg = loadConfig() || cfg;
   try {
     assertAssistantContributed(liveCfg, assistantId);
+    // app: 前缀只接受可出租的本机应用，避免落到不存在的资源
+    if (String(assistantId).startsWith('app:') && !contributedAppRuntime(assistantId)) {
+      throw new Error(`app not rentable: ${assistantId}`);
+    }
   } catch (e) {
     send({ type: 'agent_task_result', task_id: taskId, status: 'rejected', error: e.message });
     return;
@@ -746,7 +765,10 @@ async function handleAgentTask(msg, cfg) {
     // 社区任务本轮附图 / 文件（data URL）→ executor 落盘
     const attachImages = Array.isArray(msg.images) ? msg.images : [];
     const attachFiles = Array.isArray(msg.files) ? msg.files : [];
-    const { taskId: localId } = await executor.execute(`assistant:${assistantId}`, prompt, {
+    // 本机应用 app:<cli> 直接跑该 CLI；智能体仍走 assistant:<资源id>
+    const appRuntime = contributedAppRuntime(assistantId);
+    const execTarget = appRuntime || `assistant:${assistantId}`;
+    const { taskId: localId } = await executor.execute(execTarget, prompt, {
       mode: 'worker',
       clientId: 'contribute',
       sessionKey,

@@ -2470,6 +2470,8 @@ export default function Debug() {
           model: !communityAgent && (activeAgent.runtimeAgentId || activeAgent.id) === 'cursor'
             ? (cursorModelId || undefined)
             : undefined,
+          // 游乐场要边执行边显示过程，等价于接口里的 stream: true
+          stream: communityAgent ? true : undefined,
         },
       });
 

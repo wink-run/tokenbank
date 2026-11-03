@@ -5,6 +5,7 @@ const {
   normalizeContributeAssistants,
   validateAssistantEligible,
   buildAgentCards,
+  buildAppCards,
   assertAssistantContributed,
 } = require('../contribute-assistants');
 
@@ -94,6 +95,34 @@ test('buildAgentCards：无 description 时从 soul 摘简介', () => {
   assert.equal(cards.length, 1);
   assert.match(cards[0].description, /专精格律/);
   assert.ok(!cards[0].description.includes('SECRET'));
+});
+
+test('buildAppCards：只上报已安装应用，名片不含本机配置', () => {
+  const entries = [
+    { id: 'app:claude-code', visibility: 'public' },
+    { id: 'app:pi', visibility: 'circle' },
+    { id: 'app:not-an-app', visibility: 'public' },
+  ];
+  const cards = buildAppCards(entries, {
+    isRuntimeAvailable: (id) => id === 'pi',
+  });
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].id, 'app:pi');
+  assert.equal(cards[0].display_name, 'Pi');
+  assert.equal(cards[0].runtime, 'pi');
+  assert.equal(cards[0].visibility, 'circle');
+  assert.ok(!('content' in cards[0]));
+  assert.equal(buildAppCards(entries).length, 0);
+});
+
+test('buildAgentCards 跳过本机应用 id', () => {
+  const cards = buildAgentCards(
+    [{ id: 'app:pi', visibility: 'public' }, { id: poem.id, visibility: 'public' }],
+    [poem],
+    { isRuntimeAvailable: () => true },
+  );
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].id, poem.id);
 });
 
 test('assertAssistantContributed', () => {

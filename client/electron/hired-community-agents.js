@@ -111,6 +111,24 @@ function unhire(agentIdOrAssistantId) {
   return true;
 }
 
+/** 旧雇佣记录没有用户名时补上，之后游乐场和接口都用 community:<id>@<用户名>。 */
+function rememberOwner(assistantId, owner) {
+  const aid = String(assistantId || '').trim();
+  const who = communityOwnerToken(owner);
+  if (!aid || !who || DEVICE_ID_RE.test(who)) return null;
+  const store = readStore();
+  let changed = false;
+  for (const h of store.hired) {
+    if (!h || h.assistant_id !== aid) continue;
+    if (communityOwnerToken(h.owner || h.owner_nickname)) continue;
+    h.owner = who;
+    h.id = makeCommunityAgentId(aid, who);
+    changed = true;
+  }
+  if (changed) writeStore(store);
+  return who;
+}
+
 function getHired(agentId) {
   const parsed = parseCommunityAgentId(agentId);
   const list = listHired();
@@ -151,6 +169,8 @@ module.exports = {
   STORE_PATH,
   makeCommunityAgentId,
   parseCommunityAgentId,
+  communityOwnerToken,
+  rememberOwner,
   isCommunityAgentId,
   listHired,
   hire,

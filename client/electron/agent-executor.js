@@ -999,11 +999,18 @@ class AgentExecutor extends EventEmitter {
     }
 
     try {
+      const progress = { text: '', tool: '' };
       const result = await runCommunityAgentTask({
         assistantId,
         prompt,
         owner,
         timeoutMs: options.timeoutMs,
+        images: options.images,
+        files: options.files,
+        stream: !!options.stream,
+        onProgress: options.stream
+          ? (ev) => this._noteCommunityProgress(parentTaskId || taskId, ev, progress)
+          : undefined,
       });
       const ok = !!result?.ok;
       const status = {
@@ -1048,27 +1055,62 @@ class AgentExecutor extends EventEmitter {
     }
   }
 
+  /** 把云端进度收成和本地智能体一样的 output / tool_call 步骤。 */
+  _noteCommunityProgress(taskId, ev, state) {
+    if (!taskId || !ev || this._isTaskCancelled(taskId)) return;
+    const text = String(ev.text || '');
+    if (text && text !== state.text) {
+      state.text = text;
+      this.emit('task:step', {
+        taskId,
+        stepType: 'output',
+        content: text,
+        is_snapshot: true,
+        timestamp: Date.now(),
+        ...this._taskEventMeta(taskId),
+      });
+    }
+    const tool = String(ev.tool || '').trim();
+    if (tool && tool !== state.tool) {
+      state.tool = tool;
+      this.emit('task:step', {
+        taskId,
+        stepType: 'tool_call',
+        tool_name: tool,
+        content: tool,
+        timestamp: Date.now(),
+        ...this._taskEventMeta(taskId),
+      });
+    }
+  }
+
   /**
    * 游乐场 execute：社区雇佣智能体走云端派发（对方设备执行）
    */
   async _runCommunityTaskForExecute(taskId, agentId, prompt, options = {}) {
     const db = this._getDb();
-    const { getHired, parseCommunityAgentId } = require('./hired-community-agents');
-    const { runCommunityAgentTask } = require('./community-agent-client');
+    const { getHired, parseCommunityAgentId, makeCommunityAgentId } = require('./hired-community-agents');
+    const { runCommunityAgentTask, resolveCommunityOwner } = require('./community-agent-client');
     const hired = getHired(agentId);
     const parsed = parseCommunityAgentId(agentId) || {};
     const assistantId = hired?.assistant_id || parsed.assistant_id;
-    // @用户名交给云端，在该出租者当前在线的设备里自动选，不钉设备
-    const owner = parsed.owner || hired?.owner || hired?.owner_nickname || null;
     if (!assistantId) throw new Error(`无效社区智能体 id: ${agentId}`);
+    // 和接口同一套标识：community:<id>@<用户名>，云端自动选设备
+    const owner = await resolveCommunityOwner(
+      assistantId,
+      parsed.owner || hired?.owner || hired?.owner_nickname,
+    );
+    const harnessId = makeCommunityAgentId(assistantId, owner);
+    const progress = { text: '', tool: '' };
 
     this.emit('task:step', {
       taskId,
-      stepType: 'community',
-      phase: 'start',
-      agentId,
-      content: `远程执行 · ${hired?.display_name || assistantId}`,
+      stepType: 'system_event',
+      system_subtype: 'process_started',
+      content: harnessId,
+      message: harnessId,
       timestamp: Date.now(),
+      ...this._taskEventMeta(taskId),
     });
 
     const result = await runCommunityAgentTask({
@@ -1079,6 +1121,10 @@ class AgentExecutor extends EventEmitter {
       // 对方设备执行：附图 / 文件随任务下发，由对方落盘
       images: options.images,
       files: options.files,
+      stream: !!options.stream,
+      onProgress: options.stream
+        ? (ev) => this._noteCommunityProgress(taskId, ev, progress)
+        : undefined,
     });
 
     if (this._isTaskCancelled(taskId)) {

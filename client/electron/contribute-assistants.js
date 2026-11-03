@@ -12,6 +12,30 @@ const {
 
 const VISIBILITIES = new Set(['public', 'circle']);
 
+/** 本机应用对外名片 id：app:<cli>，和资源 id 分开，雇佣后仍是 community:app:<cli>@用户名 */
+const APP_ID_PREFIX = 'app:';
+
+/** 可直接出租的本机应用。名字与游乐场里的 CLI 一致。 */
+const RENTABLE_APPS = {
+  'claude-code': 'Claude Code',
+  codex: 'Codex',
+  cursor: 'Cursor',
+  'kimi-code': 'Kimi Code',
+  pi: 'Pi',
+};
+
+/** app:claude-code → claude-code；不是可出租应用则返回空串 */
+function contributedAppRuntime(id) {
+  const raw = String(id || '').trim();
+  if (!raw.startsWith(APP_ID_PREFIX)) return '';
+  const runtime = raw.slice(APP_ID_PREFIX.length);
+  return Object.prototype.hasOwnProperty.call(RENTABLE_APPS, runtime) ? runtime : '';
+}
+
+function isContributedAppId(id) {
+  return !!contributedAppRuntime(id);
+}
+
 /** Token Bank 内置智能体：不可对外贡献，也不应出现在贡献列表 */
 function isBuiltinAssistantResource(resource) {
   if (!resource || resource.type !== 'assistant') return false;
@@ -120,6 +144,8 @@ function buildAgentCards(entries, resources, opts = {}) {
   }
   const cards = [];
   for (const e of normalizeContributeAssistants({ contribute_assistants: entries })) {
+    // 本机应用走 buildAppCards，不拿资源库校验
+    if (isContributedAppId(e.id)) continue;
     const resource = byId.get(e.id);
     if (!resource) continue;
     const v = validateAssistantEligible(resource, opts);
@@ -132,6 +158,30 @@ function buildAgentCards(entries, resources, opts = {}) {
       name: resource.name,
       display_name: resource.display_name || resource.name,
       description: buildAgentCardDescription(resource, config, runtime),
+      visibility: e.visibility,
+      runtime,
+    });
+  }
+  return cards;
+}
+
+/**
+ * 本机应用名片。形式与智能体相同（id / 简介 / runtime / visibility），不含任何本机配置。
+ * 必须传入 isRuntimeAvailable，未安装的不上报。
+ */
+function buildAppCards(entries, opts = {}) {
+  const check = opts.isRuntimeAvailable;
+  if (typeof check !== 'function') return [];
+  const cards = [];
+  for (const e of normalizeContributeAssistants({ contribute_assistants: entries })) {
+    const runtime = contributedAppRuntime(e.id);
+    if (!runtime || !check(runtime)) continue;
+    const name = RENTABLE_APPS[runtime];
+    cards.push({
+      id: `${APP_ID_PREFIX}${runtime}`,
+      name: runtime,
+      display_name: name,
+      description: `${name}：在出租者本机的该应用里执行，调用方只拿结果，不接触配置与密钥`,
       visibility: e.visibility,
       runtime,
     });
@@ -152,5 +202,10 @@ module.exports = {
   validateAssistantEligible,
   buildAgentCardDescription,
   buildAgentCards,
+  buildAppCards,
+  APP_ID_PREFIX,
+  RENTABLE_APPS,
+  contributedAppRuntime,
+  isContributedAppId,
   assertAssistantContributed,
 };
