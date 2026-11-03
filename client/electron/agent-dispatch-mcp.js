@@ -44,7 +44,7 @@ const TOOLS = [
       properties: {
         agent_id: {
           type: 'string',
-          description: '已雇佣目标 ID：community:<assistantId>@<workerId>（以 tb_list_agents 为准）',
+          description: '已雇佣目标 ID：community:<assistantId>@<用户名>（以 tb_list_agents 为准，不带设备 id）',
         },
         prompt: {
           type: 'string',
@@ -66,7 +66,7 @@ const TOOLS = [
       type: 'object',
       properties: {
         assistant_id: { type: 'string', description: '社区智能体 id（来自「交易」页社区列表）' },
-        worker_id: { type: 'string', description: '可选：钉选在线节点 worker_id' },
+        owner: { type: 'string', description: '出租者用户名。云端在该用户的在线设备里自动分发' },
         display_name: { type: 'string' },
         runtime: { type: 'string' },
         description: { type: 'string' },
@@ -158,7 +158,7 @@ async function handleToolCall(name, args = {}) {
       const hiredMod = require('./hired-community-agents');
       const entry = hiredMod.hire({
         assistant_id: assistantId,
-        worker_id: args.worker_id,
+        owner: args.owner || args.owner_nickname,
         display_name: args.display_name,
         runtime: args.runtime,
         description: args.description,

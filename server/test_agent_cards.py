@@ -125,6 +125,33 @@ def test_pick_agent_workers_falls_back_when_pinned_offline():
         pool._workers = old
 
 
+def test_pick_agent_workers_by_owner_skips_device_pin():
+    """@用户名只在该出租者的在线设备里按负载自动选，不看设备 id。"""
+    from worker_pool import pool
+
+    class _W:
+        def __init__(self, wid, owner, load):
+            self.worker_id = wid
+            self.owner_nickname = owner
+            self.agents = [{"id": "a1", "visibility": "public"}]
+            self.active_requests = load
+            self.circle_ids = []
+            self.circle_id = None
+
+    old = list(pool._workers)
+    try:
+        pool._workers = [
+            _W("dev-busy", "adam", load=3),
+            _W("dev-idle", "adam", load=0),
+            _W("other", "bob", load=0),
+        ]
+        hit = pool.pick_agent_workers("a1", owner="Adam", worker_id="other")
+        assert [w.worker_id for w in hit] == ["dev-idle", "dev-busy"]
+        assert pool.pick_agent_workers("a1", owner="nobody") == []
+    finally:
+        pool._workers = old
+
+
 def test_list_agents_exposes_only_shared_circle_ids():
     from worker_pool import pool
 

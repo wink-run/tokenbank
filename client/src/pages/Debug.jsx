@@ -822,9 +822,16 @@ function labelsFromApp(app, routes) {
   return out;
 }
 
+/** 社区智能体的模型由出租者配置，游乐场不提供选择。 */
+function isCommunityPlaygroundAgent(agent) {
+  if (!agent) return false;
+  return agent.type === 'community' || agent.community === true
+    || String(agent.id || '').startsWith('community:');
+}
+
 /** 可在游乐场改路由的应用。Cursor 直连用 CLI 模型，不走网关路由。 */
 function routeAppForAgent(agent, apps) {
-  if (!agent) return null;
+  if (!agent || isCommunityPlaygroundAgent(agent)) return null;
   const runtime = agent.runtimeAgentId || agent.id;
   if (runtime === 'cursor' || agent.id === 'cursor') return null;
   const ids = new Set([agent.id, agent.runtimeAgentId].filter(Boolean));
@@ -1006,7 +1013,8 @@ export default function Debug() {
     () => routeAppForAgent(activeAgent, agentHostedApps),
     [activeAgent, agentHostedApps],
   );
-  const usesCursorModel = !!activeAgent && (
+  const communityAgent = isCommunityPlaygroundAgent(activeAgent);
+  const usesCursorModel = !communityAgent && !!activeAgent && (
     activeAgent.id === 'cursor' || activeAgent.runtimeAgentId === 'cursor'
   );
 
@@ -2457,8 +2465,9 @@ export default function Debug() {
           cliSessionId: resumeCliSessionId,
           images: attachPayload.length ? attachPayload : undefined,
           files: filePayload.length ? filePayload : undefined,
-          // Cursor 把选中的模型传给 CLI；网关 Agent 的模型在路由里，不从这里传
-          model: (activeAgent.runtimeAgentId || activeAgent.id) === 'cursor'
+          // Cursor 把选中的模型传给 CLI；网关 Agent 的模型在路由里，不从这里传。
+          // 社区智能体用出租者的模型，不把本机选择传过去。
+          model: !communityAgent && (activeAgent.runtimeAgentId || activeAgent.id) === 'cursor'
             ? (cursorModelId || undefined)
             : undefined,
         },
@@ -3651,7 +3660,7 @@ export default function Debug() {
                   {t('debug.agent.noWorkingDir')}
                 </span>
               )}
-              {agentRouteApp ? (
+              {!communityAgent && agentRouteApp ? (
                 <div className="shrink-0 w-[200px] min-w-0" title={t('debug.agent.modelPick')}>
                   <RouteSelect
                     compact
@@ -3681,7 +3690,7 @@ export default function Debug() {
                     <option key={m.id} value={m.id}>{m.name}</option>
                   ))}
                 </select>
-              ) : activeAgentModelLabel ? (
+              ) : !communityAgent && activeAgentModelLabel ? (
                 <span
                   title={t('debug.agent.usingModel', { model: activeAgentModelLabel })}
                   className="shrink-0 max-w-[220px] truncate text-[11px] font-medium text-zinc-600 dark:text-zinc-300 px-1.5 py-0.5 rounded-md bg-zinc-100/80 dark:bg-zinc-800/80"

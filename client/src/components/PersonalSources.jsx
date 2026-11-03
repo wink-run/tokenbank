@@ -147,6 +147,24 @@ export function modelTypeBtnClass(type) {
   return 'bg-blue-50 dark:bg-blue-900/20 text-blue-500 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40';
 }
 
+/** 模型名旁的来源标记：同步 = 服务端目录；手工 = 本地添加或改过 */
+function ModelOriginBadge({ origin, t }) {
+  if (origin !== 'manual' && origin !== 'synced') return null;
+  const manual = origin === 'manual';
+  return (
+    <span
+      title={t(manual ? 'providers.billing.originManualTip' : 'providers.billing.originSyncedTip')}
+      className={`ml-1.5 inline-block align-middle whitespace-nowrap font-sans text-[10px] leading-none px-1 py-0.5 rounded ${
+        manual
+          ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+          : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
+      }`}
+    >
+      {t(manual ? 'providers.billing.originManual' : 'providers.billing.originSynced')}
+    </span>
+  );
+}
+
 /** 计费表格（模型 → 模态相关刊例价字段）。图像：image（$/张）；对话：in/out/cacheRead；嵌入：in/out。 */
 export const PricingTable = memo(function PricingTable({
   rows, onCell, onAddModel, onRemoveModel, t,
@@ -189,6 +207,7 @@ export const PricingTable = memo(function PricingTable({
               <div key={r.model} className={`flex gap-1.5 items-start ${r._override ? 'bg-amber-50/50 dark:bg-amber-900/10 rounded px-0.5 py-0.5' : ''}`}>
                 <span className="flex-1 min-w-0 text-xs font-mono text-zinc-700 dark:text-zinc-300 break-all leading-snug px-0.5 py-0.5" title={r.model}>
                   {r.model}
+                  <ModelOriginBadge origin={r._origin} t={t} />
                 </span>
                 {onToggleType && (
                   <button
@@ -272,6 +291,7 @@ export const PricingTable = memo(function PricingTable({
               title={r.model}
             >
               {r.model}
+              <ModelOriginBadge origin={r._origin} t={t} />
             </span>
             {withModality && onToggleType && (
               <button
@@ -853,6 +873,29 @@ function buildChainItems(srcs, route, head, latencyOf) {
   return items;
 }
 
+/** 这一步最近一次转发是否成功。模型步看该模型任一供给源。 */
+function chainItemOk(item, head, latencyMap) {
+  if (item.kind === 'model') {
+    const pmap = providerLatencyMap(latencyMap, item.name);
+    if (!pmap) return false;
+    return Object.values(pmap).some((row) => {
+      const code = row?.last_status_code;
+      return code >= 200 && code < 300;
+    });
+  }
+  const row = resolveAccountLatencyRow(latencyMap, head, item.inst);
+  const code = row?.statusCode;
+  return code >= 200 && code < 300;
+}
+
+/** 链头没成功，但后面某一步成功了：卡片用黄点，表示正在降级。 */
+function chainServingLater(head, srcs, route, latencyMap) {
+  const chain = buildChainItems(srcs, route, head, () => null);
+  if (chain.length < 2) return false;
+  const firstOk = chain.findIndex((item) => chainItemOk(item, head, latencyMap));
+  return firstOk > 0;
+}
+
 export function PersonalSourceModelView({
   instances, t, trailing = null, onEmptyAdd = null, onEmptySync = null, syncing = false,
   syncSecrets = false,
@@ -896,6 +939,7 @@ export function PersonalSourceModelView({
   const prefixRoutes = useMemo(() => prefixModelRoutes(Object.keys(modelSources)), [modelSources]);
   const hiddenChainModels = useMemo(() => {
     const hidden = new Set();
+    const folded = prefixRoutes.folded || new Set();
     for (const [head, route] of routeByModel) {
       for (const step of route.steps || []) {
         const name = String(step?.model || '').trim();
@@ -903,8 +947,11 @@ export function PersonalSourceModelView({
       }
     }
     for (const [head, extras] of prefixRoutes.extras) {
-      if (routeByModel.has(head)) continue;
-      for (const name of extras) hidden.add(name);
+      for (const name of extras) {
+        // 已保存的链仍尊重用户移出的普通变体；v4.1 / v4-1 这种写法始终收进链头
+        if (routeByModel.has(head) && !folded.has(name)) continue;
+        hidden.add(name);
+      }
     }
     return hidden;
   }, [prefixRoutes, routeByModel]);
@@ -927,11 +974,18 @@ export function PersonalSourceModelView({
   );
 
   function routeForModel(name) {
-    const saved = routeByModel.get(name) || null;
-    if (saved) return saved;
     const extras = prefixRoutes.extras.get(name) || [];
-    if (!extras.length) return null;
-    return { steps: [{ model: name }, ...extras.map(model => ({ model }))], flow: 'fallback', list_route: true };
+    const folded = prefixRoutes.folded || new Set();
+    const saved = routeByModel.get(name) || null;
+    if (!saved) {
+      if (!extras.length) return null;
+      return { steps: [{ model: name }, ...extras.map(model => ({ model }))], flow: 'fallback', list_route: true };
+    }
+    // 保存过的链没有「恢复默认」时，也要把 v4.1 / v4-1 补进当前这条链
+    const have = new Set((saved.steps || []).map(s => String(s?.model || '').trim()));
+    const missing = extras.filter(n => folded.has(n) && !have.has(n));
+    if (!missing.length) return saved;
+    return { ...saved, steps: [...(saved.steps || []), ...missing.map(model => ({ model }))] };
   }
 
   // 探针队列跟网格展示一致：按卡片从左到右、从上到下逐个测
@@ -1108,7 +1162,10 @@ export function PersonalSourceModelView({
             const code = rowOf.get(s)?.statusCode;
             return code != null && (code < 200 || code >= 300);
           });
-          const cardBucket = skipSpeed ? 'unknown' : (probingThis ? 'fast' : statusDotBucket({ ms: fastMs, failed: anyFail, ok: !!fastMs }));
+          // 降级成功不是失败：链头红了、后面接上了，圆点用黄。
+          const route = routeForModel(model);
+          const degraded = !skipSpeed && !!route && chainServingLater(model, srcs, route, latencyMap);
+          const cardBucket = skipSpeed ? 'unknown' : (probingThis ? 'fast' : degraded ? 'slow' : statusDotBucket({ ms: fastMs, failed: anyFail, ok: !!fastMs }));
           return (
           <div key={model} className="min-w-0">
             <button
@@ -1123,11 +1180,11 @@ export function PersonalSourceModelView({
               <div className="flex items-center gap-1.5 min-w-0">
                 <span
                   className={`inline-flex w-2 h-2 rounded-full shrink-0 ${probingThis ? 'bg-green-400 tb-probe-pulse' : speedDotClass(cardBucket)}`}
-                  title={probingThis ? '测速中' : (skipSpeed ? t('providers.probe.skipImage') : (fastMs ? `最快 ${(fastMs / 1000).toFixed(1)}s` : (anyFail ? '最近请求失败' : '暂无速度')))}
+                  title={probingThis ? '测速中' : (skipSpeed ? t('providers.probe.skipImage') : (degraded ? '已降级' : (fastMs ? `最快 ${(fastMs / 1000).toFixed(1)}s` : (anyFail ? '最近请求失败' : '暂无速度'))))}
                 />
                 <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200 truncate" title={model}>{model}</span>
                 {isModelRoute(model) && (
-                  <span className="shrink-0 text-[9px] leading-none px-1 py-px rounded bg-zinc-200/80 dark:bg-zinc-700 text-zinc-500">{t('psrc.route.custom')}</span>
+                  <span className={`shrink-0 text-[9px] leading-none px-1 py-px rounded ${degraded ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' : 'bg-zinc-200/80 dark:bg-zinc-700 text-zinc-500'}`}>{t('psrc.route.custom')}</span>
                 )}
                 {mType && mType !== 'chat' && (
                   <span
@@ -1162,7 +1219,7 @@ export function PersonalSourceModelView({
           latencyMap={latencyMap}
           skipSpeed={modelTypeMap[chainModel] === 'image'}
           cooldownFor={cooldownFor}
-          modelChoices={byModel.map(([name]) => name)}
+          modelChoices={byModel.map(([name]) => name).filter((name) => !hiddenChainModels.has(name))}
           sourcesByModel={Object.fromEntries(byModel)}
           modelTypeMap={modelTypeMap}
           t={t}

@@ -2181,6 +2181,24 @@ function writeLocalConfig(cfg) {
   fs.writeFileSync(localConfigPath(), JSON.stringify(cfg, null, 2), 'utf8');
 }
 
+/** 智能体 HTTP 的本机钥匙。与网关应用无关，缺了就生成一次并落盘。 */
+function ensureAgentApiKey(cfg) {
+  const existing = String(cfg?.agent_api_key || '').trim();
+  if (existing) return existing;
+  const key = 'sk-local-' + require('crypto').randomBytes(16).toString('hex');
+  if (cfg && typeof cfg === 'object') cfg.agent_api_key = key;
+  // 只补这一个字段，避免把读配置时的内存过滤写回磁盘
+  try {
+    const p = localConfigPath();
+    const raw = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : {};
+    if (!String(raw.agent_api_key || '').trim()) {
+      raw.agent_api_key = key;
+      fs.writeFileSync(p, JSON.stringify(raw, null, 2), 'utf8');
+    }
+  } catch {}
+  return key;
+}
+
 // ── API Key 应用（只能 config-file / API Key 托管，无法透明托管）──────────────────
 // 定义来自 yaml 的 api_key_apps 段（config-loader）；{BASE}/{KEY} 由前端按应用解析。
 // Appx 包检测 + 对应配置文件注入信息。未配置该段则返回 []（无 API Key 应用检测）。
@@ -3634,6 +3652,18 @@ function registerIPC() {
     return { ok: true };
   });
 
+  // 雇佣智能体不在网关应用里，调用示例用这把本机钥匙
+  ipcMain.handle('agent:httpKey', () => {
+    try {
+      const cfg = readLocalConfig();
+      const api_key = ensureAgentApiKey(cfg);
+      gateway.setAgentApiKey(api_key);
+      return { success: true, api_key };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
   // ── Local Config (scene routes + local keys, stored in userData) ─────────────
 
   function rndHex(bytes) {
@@ -3663,6 +3693,7 @@ function registerIPC() {
       if (r.model_key && (r.steps?.length || r.rules?.length)) {
         // 带 steps/rules 的路由也要带上路由级 scope/tier/flow，否则"路由级过滤 + 模型链"会丢过滤
         const entry = { steps: r.steps || [], scene_name: r.scene_name, rules: r.rules || null, classifier: r.classifier || null,
+          ...(r.list_route ? { list_route: true, model_key: r.model_key } : {}),
           ...(r.flow ? { flow: r.flow } : {}), ...(r.scope ? { scope: r.scope } : {}), ...(r.tier ? { tier: r.tier } : {}) };
         routerMap[r.model_key] = entry;
         if (r.id && r.id !== r.model_key) routerMap[r.id] = entry;
@@ -3790,6 +3821,7 @@ function registerIPC() {
       }
     }
     gateway.setAppControls(appControls);
+    gateway.setAgentApiKey(ensureAgentApiKey(cfg));
     gateway.setKeySceneMap(keyScene);
     gateway.setClaudeShimScene(claudeShimScene);
     gateway.setCodexGptFallback(codexGptFallback);

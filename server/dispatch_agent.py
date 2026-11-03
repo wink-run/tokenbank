@@ -62,7 +62,6 @@ async def _finalize_agent_result(
             "error": (result or {}).get("error") or status,
             "output": (result or {}).get("output") or "",
             "credits_refunded": 0 if guest else AGENT_TASK_CREDITS,
-            "worker_id": worker.worker_id,
         }
 
     if worker.user_id:
@@ -106,7 +105,6 @@ async def _finalize_agent_result(
         "output": str((result or {}).get("output") or "")[:200_000],
         "usage": usage,
         "credits_charged": AGENT_TASK_CREDITS,
-        "worker_id": worker.worker_id,
     }
 
 
@@ -130,6 +128,7 @@ async def _prepare_agent_task(
     prompt: str,
     consumer_user_id: Optional[int],
     worker_id: Optional[str] = None,
+    owner: Optional[str] = None,
     timeout_ms: Optional[int] = None,
     guest_ip: Optional[str] = None,
     images: Optional[list] = None,
@@ -163,7 +162,9 @@ async def _prepare_agent_task(
     else:
         circles = set()
 
-    workers = pool.pick_agent_workers(aid, user_circle_ids=circles, worker_id=worker_id)
+    workers = pool.pick_agent_workers(
+        aid, user_circle_ids=circles, worker_id=worker_id, owner=owner,
+    )
     if not workers:
         return None, {
             "ok": False,
@@ -285,6 +286,7 @@ async def handle_agent_task(
     prompt: str,
     consumer_user_id: Optional[int],
     worker_id: Optional[str] = None,
+    owner: Optional[str] = None,
     timeout_ms: Optional[int] = None,
     guest_ip: Optional[str] = None,
     images: Optional[list] = None,
@@ -295,6 +297,7 @@ async def handle_agent_task(
         prompt=prompt,
         consumer_user_id=consumer_user_id,
         worker_id=worker_id,
+        owner=owner,
         timeout_ms=timeout_ms,
         guest_ip=guest_ip,
         images=images,
@@ -349,6 +352,7 @@ async def iter_agent_task_sse(
     prompt: str,
     consumer_user_id: Optional[int],
     worker_id: Optional[str] = None,
+    owner: Optional[str] = None,
     timeout_ms: Optional[int] = None,
     guest: bool = False,
     guest_ip: Optional[str] = None,
@@ -360,6 +364,7 @@ async def iter_agent_task_sse(
         prompt=prompt,
         consumer_user_id=consumer_user_id,
         worker_id=worker_id,
+        owner=owner,
         timeout_ms=timeout_ms,
         guest_ip=guest_ip,
         images=images,

@@ -409,6 +409,15 @@ assert.ok(oauthFail.includes('claude /login') || oauthFail.includes('绑路由')
 const oauthExit = formatAgentExitError('', oauthStdout, 1, 'claude-code');
 assert.ok(oauthExit.includes('登录已过期'), oauthExit);
 
+// result 无文案、但 stream 里有 429 重试：不要收成「Agent 执行失败」
+const rateLimitStdout = [
+  JSON.stringify({ type: 'system', subtype: 'api_retry', attempt: 10, max_retries: 10, error_status: 429, message: 'rate_limit' }),
+  JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true }),
+].join('\n');
+const rateLimitFail = detectAgentExecutionFailure(rateLimitStdout);
+assert.ok(rateLimitFail.includes('429'), rateLimitFail);
+assert.ok(rateLimitFail.includes('rate_limit'), rateLimitFail);
+
 const nullExitMsg = formatAgentExitError('', '', null, 'claude-code', 'SIGTERM');
 assert.ok(nullExitMsg.includes('SIGTERM'));
 

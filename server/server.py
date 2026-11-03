@@ -945,6 +945,8 @@ class AgentTaskBody(BaseModel):
     assistant_id: str
     prompt: str = ""
     worker_id: Optional[str] = None
+    # 出租者用户名。给出后云端在该用户的在线设备里自动选，忽略设备 id。
+    owner: Optional[str] = None
     timeout_ms: Optional[int] = None
     stream: Optional[bool] = False
     # 本轮附图：[{dataUrl, name?}]，仅 data:image/…
@@ -999,6 +1001,7 @@ async def create_agent_task(
             prompt=body.prompt,
             consumer_user_id=uid,
             worker_id=body.worker_id,
+            owner=body.owner,
             timeout_ms=body.timeout_ms,
             guest=guest,
             guest_ip=guest_ip,
@@ -1019,6 +1022,7 @@ async def create_agent_task(
         prompt=body.prompt,
         consumer_user_id=uid,
         worker_id=body.worker_id,
+        owner=body.owner,
         timeout_ms=body.timeout_ms,
         guest_ip=guest_ip,
         images=task_images or None,

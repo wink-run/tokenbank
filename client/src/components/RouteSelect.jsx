@@ -35,6 +35,13 @@ function modelTierKey(m) {
   return encodeTierModelRoute(m.tier, m.id);
 }
 
+/** 已保存降级链的链头：选项值就是链 id，绑定后走链，而不是 paid:模型名。社区源不套本地链。 */
+function routeOptionValue(m, routes) {
+  if (m?.tier === 'p2p') return modelTierKey(m);
+  const chain = (routes || []).find(r => r?.list_route && String(r.model_key || '') === m?.id);
+  return chain ? (chain.model_key || chain.id) : modelTierKey(m);
+}
+
 function sceneRouteAllSteps(route) {
   return [...(route?.steps || []), ...(route?.rules || []).flatMap(r => r.steps || [])];
 }
@@ -111,11 +118,17 @@ function chainListState(routes, availableModels) {
   const localIds = (availableModels || [])
     .filter(m => m.tier === 'free' || m.tier === 'paid')
     .map(m => m.id);
-  const { extras } = prefixModelRoutes(localIds);
+  const { extras, folded } = prefixModelRoutes(localIds);
   for (const [head, extra] of extras) {
     if (extra?.length) heads.add(head);
-    // 链头已经有用户保存的步骤时，以保存结果为准，被移出的模型重新出现
-    if (savedHeads.has(head)) continue;
+    // 链头已经有用户保存的步骤时，以保存结果为准，被移出的模型重新出现。
+    // v4.1 / v4-1 不是用户移出的，始终跟链头走。
+    if (savedHeads.has(head)) {
+      for (const name of extra) {
+        if (folded?.has(name)) hidden.add(name);
+      }
+      continue;
+    }
     for (const name of extra) hidden.add(name);
   }
   return { heads, hidden };
@@ -140,14 +153,21 @@ function buildRouteMenuItems({ routes, availableModels, t, showGatewayRoutes, is
   const listed = (m) => !hiddenModels?.has(m.id);
   const local = (availableModels || []).filter(m => (m.tier === 'free' || m.tier === 'paid') && listed(m));
   const remote = (availableModels || []).filter(m => m.tier === 'p2p' && listed(m));
+  // 同一个模型会挂在多个供给源上。收成降级链后选项值都是链头，只留一行。
+  const seenValues = new Set(items.filter(it => it.kind === 'option').map(it => it.value));
+  const pushModel = (m, value, extra) => {
+    if (seenValues.has(value)) return;
+    seenValues.add(value);
+    items.push({ kind: 'option', value, label: m.id, type: m.type, modelId: m.id, ...extra });
+  };
   if (local.length) {
     items.push({ kind: 'group', label: t('gateway.app.tier.local') });
-    for (const m of local) items.push({ kind: 'option', value: modelTierKey(m), label: m.id, type: m.type, modelId: m.id, chain: chainHeads?.has(m.id) });
+    for (const m of local) pushModel(m, routeOptionValue(m, routes), { chain: chainHeads?.has(m.id) });
   }
   if (remote.length) {
     items.push({ kind: 'group', label: t('gateway.app.tier.remote') });
     // 社区源没有本地降级链，同名也不打标
-    for (const m of remote) items.push({ kind: 'option', value: modelTierKey(m), label: m.id, type: m.type, modelId: m.id, tier: 'p2p' });
+    for (const m of remote) pushModel(m, modelTierKey(m), { tier: 'p2p' });
   }
   return items;
 }

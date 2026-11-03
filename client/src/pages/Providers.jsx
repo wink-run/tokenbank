@@ -2259,6 +2259,27 @@ function pricingRowsForProvider(providerId, models, merged, overrides, excludedM
   }));
 }
 
+function localModelTypes(models) {
+  const out = {};
+  for (const m of models || []) {
+    const n = normModel(m);
+    if (n.name && n.type) out[n.name] = n.type;
+  }
+  return out;
+}
+
+/** 服务端目录里、且没改过价/模态的是同步；其余是手工添加或修改 */
+function withModelOrigin(rows, serverNames, catalogTypes, localTypes) {
+  return rows.map(r => {
+    const inCatalog = serverNames.has(r.model);
+    const localType = localTypes[r.model];
+    const catalogType = catalogTypes?.[r.model];
+    const typeChanged = !!(inCatalog && localType && catalogType && localType !== catalogType);
+    const manual = !inCatalog || r._override || typeChanged;
+    return { ...r, _origin: manual ? 'manual' : 'synced' };
+  });
+}
+
 /**
  * 供给源卡片计费区：按账户类型区分展示
  * - api_sub / sub_to_api：订阅月费 + 可手工添加模型及按模型估价
@@ -2349,16 +2370,19 @@ function ProviderCardBillingSection({
 
   const rows = useMemo(() => {
     const raw = pricingRowsForProvider(pricingPid, modelNames, providerPricing, pricingOverrides, instanceExcluded);
-    if (!standalone) return raw;
+    const serverNames = serverCatalogModelNames(pricingPid, providerPricing, paygCatalog);
+    const cat = (paygCatalog || []).find(p => (p.provider_id || p.id) === pricingPid);
+    const marked = withModelOrigin(raw, serverNames, cat?.model_types || {}, localModelTypes(provider?.models));
+    if (!standalone) return marked;
     // 独立源未写覆盖时展示 0，便于与账户卡片 UI 一致
-    return raw.map(r => ({
+    return marked.map(r => ({
       ...r,
       in: r.in ?? STANDALONE_MODEL_PRICING.in,
       out: r.out ?? STANDALONE_MODEL_PRICING.out,
       cacheRead: r.cacheRead ?? STANDALONE_MODEL_PRICING.cacheRead,
       image: r.image ?? 0,
     }));
-  }, [standalone, pricingPid, modelNames, providerPricing, pricingOverrides, instanceExcluded]);
+  }, [standalone, pricingPid, modelNames, providerPricing, pricingOverrides, instanceExcluded, paygCatalog, provider?.models]);
 
   /** 供给源 gateway + 服务端目录里的模型模态 */
   const modelTypeMap = useMemo(() => {

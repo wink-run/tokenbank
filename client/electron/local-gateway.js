@@ -11,8 +11,8 @@ const reqRouter = require('./request-router');
 const routingStrategies = require('./routing-strategies');
 const cooldown = require('./gateway-cooldown');
 const upstreamHints = require('./gateway-upstream-hints');
-const { TIER_ROUTE_RE, parseRoute, STRATEGY_NAMES, SCOPE_NAMES, TIER_NAMES, SHARER_RE } = require('../shared/route-binding');
-const { prefixExtensions } = require('../shared/model-prefix-routes');
+const { TIER_ROUTE_RE, parseRoute, STRATEGY_NAMES, SCOPE_NAMES, TIER_NAMES, SHARER_RE, findListRoute, applyTierToSteps } = require('../shared/route-binding');
+const { prefixExtensions, appendFoldedSteps } = require('../shared/model-prefix-routes');
 const _STRAT_SET = new Set(STRATEGY_NAMES || []);
 const _SCOPE_SET = new Set(SCOPE_NAMES || []);
 const _TIER_SET  = new Set(TIER_NAMES || []);
@@ -3212,6 +3212,28 @@ function resolveBoundScene({
   return shimClaudeScene || exactKeyScene || claudeKeyScene || codexGptScene || null;
 }
 
+/** 绑定时收成的单步（paid:模型名）。同名有降级链就按链走，并保留这一步的层级。 */
+function expandBoundListRoute(scene) {
+  if (!scene) return scene;
+  const steps = Array.isArray(scene.steps) ? scene.steps : [];
+  if (steps.length !== 1) return scene;
+  const step = steps[0] || {};
+  if (!step.model || step.strategy) return scene;
+  // 步上已经钉了供给源：这是单模型选择，不换成整条链
+  if (step.provider) return scene;
+  const ref = parseRoute(step.model);
+  const tier = ref.tier || step.tier || null;
+  const provider = ref.provider || null;
+  const model = ref.model || step.model;
+  // p2p 是社区层，不并进个人源降级链
+  if (tier === 'p2p') return scene;
+  const chain = findListRoute(model, Object.entries(_routerModelMap).map(([key, route]) => ({ ...(route || {}), model_key: route?.model_key || key })));
+  if (!chain?.list_route || !Array.isArray(chain.steps) || !chain.steps.length) return scene;
+  if (chain.steps.length === 1 && !chain.steps[0]?.provider && chain.steps[0]?.model === model && !tier && !provider) return scene;
+  const expanded = appendFoldedSteps(chain, explicitProviderModelNames(enabledProviders()));
+  return { ...expanded, steps: applyTierToSteps(expanded.steps, { tier, provider, model }) };
+}
+
 async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
   const t0          = Date.now();
   let lastErr       = null;
@@ -3241,7 +3263,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
   const isApiKeyCaller = !!(callerKey && _appKeys.has(callerKey));
   const shimClaudeScene = (!isApiKeyCaller && isClaudeClientName) ? _claudeShimScene : null;
   // 先解析绑定，再决定是否标记 Claude 透明改写（见下 claudeFrom）
-  const boundScene = resolveBoundScene({
+  const boundScene = expandBoundListRoute(resolveBoundScene({
     origModel,
     callerKey,
     isApiKeyCaller,
@@ -3250,7 +3272,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
     shimClaudeScene,
     keyScene: _keyScene,
     codexGptFallback: _codexGptFallback,
-  });
+  }));
   // claudeFrom 仅表示「Claude 客户端名被透明改写到其它模型」。
   // Codex 等多选若把 claude-opus-4-8 当真实模型绑进 keyScene，会自指命中；
   // 若仍标 claudeFrom，路由详情会误显示「Claude 透明映射」且请求名=实际名。
@@ -3354,10 +3376,14 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
   const isLlmRouter = origModel.startsWith('llm-router-');
   // 降级链按裸模型名登记。测速和分层选择会带 paid:/free: 前缀，剥掉后再对上同一条链。
   // 用户没写过这条链时，把「短名-更长变体」自动接上，请求失败后再试变体。
-  let interceptScene = !boundScene
+  // p2p: 是社区层上的这一个模型，不改走个人源降级链。paid:/free: 仍对上同名链，层级写到没钉源的步上。
+  let interceptScene = (!boundScene && requestTier !== 'p2p')
     ? (_routerModelMap[origModel] || (model && model !== origModel ? _routerModelMap[model] : null) || null)
     : null;
-  if (!interceptScene && model) {
+  if (interceptScene?.list_route) {
+    interceptScene = appendFoldedSteps(interceptScene, explicitProviderModelNames(enabledProviders()));
+  }
+  if (!interceptScene && model && requestTier !== 'p2p') {
     const extras = prefixExtensions(model, explicitProviderModelNames(enabledProviders()));
     if (extras.length) {
       interceptScene = {
@@ -3368,6 +3394,12 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
         steps: [{ model }, ...extras.map(name => ({ model: name }))],
       };
     }
+  }
+  if (interceptScene && (requestTier || requestProvider)) {
+    interceptScene = {
+      ...interceptScene,
+      steps: applyTierToSteps(interceptScene.steps, { tier: requestTier, provider: requestProvider, model }),
+    };
   }
   debugLog(`route() 路由判定`, {
     requested_model: origModel,
@@ -4145,6 +4177,23 @@ function handleRequest(req, res) {
     return;
   }
 
+  // 智能体任务。必须写在模型补全之前，避免 /v1/agent 落到 404。
+  if (cleanPath.startsWith('/v1/agent')) {
+    const agentHttp = require('./agent-http');
+    agentHttp.handle(req, res, {
+      method,
+      cleanPath,
+      knownKey: (key) => _appKeys.has(key) || (!!_agentApiKey && key === _agentApiKey),
+    }).catch((e) => {
+      console.error('[agent-http]', e.message);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'agent_error', type: 'api_error' } }));
+      }
+    });
+    return;
+  }
+
   // Chat completions (OpenAI + Anthropic) + Codex Responses
   const isChatPath   = cleanPath === '/v1/chat/completions' || cleanPath === '/v1/messages'
                     || cleanPath === '/v1/responses' || cleanPath === '/responses';
@@ -4310,10 +4359,16 @@ function setClaudeModels(list) { _claudeModels = Array.isArray(list) ? list.filt
 let _appControls = [];
 // api-key 应用的 caller key 集合（用于区分「api-key 应用」与「shim/OAuth 调用方」）。
 let _appKeys = new Set();
+// 智能体 HTTP 的本机钥匙。雇佣的智能体不是网关应用，不进这张表。
+let _agentApiKey = '';
 
 function setAppControls(list) {
   _appControls = Array.isArray(list) ? list : [];
   _appKeys = new Set(_appControls.filter((c) => c && c.match && c.match.key).map((c) => c.match.key));
+}
+
+function setAgentApiKey(key) {
+  _agentApiKey = String(key || '').trim();
 }
 
 function resolveAppControl(callerKey, reqPath) {
@@ -4369,9 +4424,9 @@ function setLocalConfigReader(fn) {
 module.exports = {
   start, stop, restart, setStrategy, getStatus, getLog,
   setKeySceneMap, setClaudeShimScene, setCodexGptFallback, setRouterModelMap, setPeerModels, setBackendConfig, setUserAuth,
-  setStatsRecorder, setLocalStats, setLocalConfigReader, setAppControls,
+  setStatsRecorder, setLocalStats, setLocalConfigReader, setAppControls, setAgentApiKey,
   setClaudeModels,
-  resolveBoundScene,
+  resolveBoundScene, expandBoundListRoute,
   // 条件路由规则引擎（供单测/复用）
   pickSteps, evalWhen, modalityOf, estimateInputTokens, extractText, _providerTier,
   stratStepOf, encodeRouteHeader, orderStepsByFlow, buildStrategyCandidates, parsePureCodec, unifySteps,

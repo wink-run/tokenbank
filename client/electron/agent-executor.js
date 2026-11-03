@@ -388,6 +388,24 @@ const AGENT_CLI = {
     buildArgs: (prompt, opts = {}) => buildKimiCodeArgs(prompt, opts),
     capabilities: ['code', 'chat', 'edit', 'terminal'],
   },
+  // Pi：--print 跑完即退出。模型仍走纳管后的 tokenbank 提供商。
+  pi: {
+    name: 'Pi',
+    detectCommand: 'pi',
+    buildArgs: (prompt, { continueSession, cliSessionId, model } = {}) => {
+      const args = ['--print', '--mode', 'text'];
+      const mdl = String(model || '').trim();
+      if (mdl) args.push('--model', mdl);
+      if (continueSession) {
+        const sid = String(cliSessionId || '').trim();
+        if (sid) args.push('--session', sid);
+        else args.push('--continue');
+      }
+      args.push('--', withDeliveryPolicyPrompt(prompt));
+      return args;
+    },
+    capabilities: ['code', 'chat', 'edit', 'terminal'],
+  },
 };
 
 /**
@@ -530,13 +548,13 @@ class AgentExecutor extends EventEmitter {
       parseCommunityAgentId,
     } = require('./hired-community-agents');
 
-    // 社区雇佣武将：community:<assistant_id>[@worker_id]
+    // 社区雇佣武将：community:<assistant_id>[@用户名]，不带设备 id
     if (isCommunityAgentId(raw)) {
       const hired = getHired(raw);
-      if (hired?.id) return hired.id;
+      if (hired?.id) return makeCommunityAgentId(hired.assistant_id, hired.owner || hired.owner_nickname);
       const parsed = parseCommunityAgentId(raw);
       if (parsed?.assistant_id) {
-        return makeCommunityAgentId(parsed.assistant_id, parsed.worker_id);
+        return makeCommunityAgentId(parsed.assistant_id, parsed.owner);
       }
     }
 
@@ -948,7 +966,8 @@ class AgentExecutor extends EventEmitter {
     const hired = getHired(canonicalId);
     const parsed = parseCommunityAgentId(canonicalId) || {};
     const assistantId = hired?.assistant_id || parsed.assistant_id;
-    const workerId = hired?.worker_id || parsed.worker_id || null;
+    // @用户名交给云端，在该出租者当前在线的设备里自动选，不钉设备
+    const owner = parsed.owner || hired?.owner || hired?.owner_nickname || null;
     if (!assistantId) throw new Error(`无效社区智能体 id: ${canonicalId}`);
 
     const parentTaskId = options.parentTaskId;
@@ -983,7 +1002,7 @@ class AgentExecutor extends EventEmitter {
       const result = await runCommunityAgentTask({
         assistantId,
         prompt,
-        workerId,
+        owner,
         timeoutMs: options.timeoutMs,
       });
       const ok = !!result?.ok;
@@ -1039,7 +1058,8 @@ class AgentExecutor extends EventEmitter {
     const hired = getHired(agentId);
     const parsed = parseCommunityAgentId(agentId) || {};
     const assistantId = hired?.assistant_id || parsed.assistant_id;
-    const workerId = hired?.worker_id || parsed.worker_id || null;
+    // @用户名交给云端，在该出租者当前在线的设备里自动选，不钉设备
+    const owner = parsed.owner || hired?.owner || hired?.owner_nickname || null;
     if (!assistantId) throw new Error(`无效社区智能体 id: ${agentId}`);
 
     this.emit('task:step', {
@@ -1054,7 +1074,7 @@ class AgentExecutor extends EventEmitter {
     const result = await runCommunityAgentTask({
       assistantId,
       prompt,
-      workerId,
+      owner,
       timeoutMs: options.timeoutMs,
       // 对方设备执行：附图 / 文件随任务下发，由对方落盘
       images: options.images,
@@ -1946,6 +1966,31 @@ class AgentExecutor extends EventEmitter {
   /**
    * 获取任务状态
    */
+  /** 今日智能体任务（0 点起）。和模型补全的请求数分开计。 */
+  todayTaskStats() {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const empty = { tasks: 0, running: 0, failed: 0, avg_duration_ms: null };
+    let rows = [];
+    try {
+      rows = this._getDb().prepare(
+        'SELECT status, created_at, completed_at FROM agent_tasks WHERE created_at >= ?',
+      ).all(start.getTime());
+    } catch {
+      return empty;
+    }
+    const done = rows.filter(r => r.status === 'completed' && r.completed_at && r.created_at);
+    const avg = done.length
+      ? Math.round(done.reduce((sum, r) => sum + (r.completed_at - r.created_at), 0) / done.length)
+      : null;
+    return {
+      tasks: rows.length,
+      running: rows.filter(r => r.status === 'pending' || r.status === 'running').length,
+      failed: rows.filter(r => r.status === 'failed' || r.status === 'cancelled').length,
+      avg_duration_ms: avg,
+    };
+  }
+
   async getTaskStatus(taskId) {
     const db = this._getDb();
     const task = db.prepare('SELECT * FROM agent_tasks WHERE id = ?').get(taskId);

@@ -1385,11 +1385,10 @@ function parseClaudeSyncStdout(rawStdout) {
   const sessionId = normalizeCliSessionId(obj.session_id || obj.sessionId);
 
   if (obj.is_error || obj.subtype === 'error_during_execution') {
-    const err = Array.isArray(obj.errors) && obj.errors.length
-      ? obj.errors.join('\n')
-      : (typeof obj.error === 'string' && obj.error.trim()
-        ? obj.error.trim()
-        : (extractAuthFailureFromStdout(rawStdout) || 'Agent 执行失败'));
+    const err = resultFailureText(obj)
+      || extractAuthFailureFromStdout(rawStdout)
+      || summarizeApiRetries(rawStdout)
+      || 'Agent 执行失败';
     return {
       steps: [{ stepType: 'terminal', content: err, is_snapshot: true }],
       sessionId,
@@ -1470,6 +1469,39 @@ function extractAuthFailureFromStdout(rawStdout) {
   return null;
 }
 
+/** result 失败对象里的可读原因。Claude 常把正文放在 result，errors 为空。 */
+function resultFailureText(obj) {
+  if (Array.isArray(obj.errors) && obj.errors.length) {
+    return obj.errors.map((item) => String(item)).join('\n');
+  }
+  if (typeof obj.error === 'string' && obj.error.trim()) return obj.error.trim();
+  if (typeof obj.result === 'string' && obj.result.trim()) return obj.result.trim().slice(0, 500);
+  return '';
+}
+
+/** result 没写原因时，从 api_retry 事件归纳最后一次上游错误。 */
+function summarizeApiRetries(rawStdout) {
+  let last = null;
+  let count = 0;
+  for (const line of String(rawStdout || '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('{')) continue;
+    let obj;
+    try { obj = JSON.parse(trimmed); } catch { continue; }
+    if (obj.type !== 'system' || obj.subtype !== 'api_retry') continue;
+    count += 1;
+    last = obj;
+  }
+  if (!last) return null;
+  const status = last.error_status;
+  const msg = String(last.message || last.error || '').trim();
+  if (status === 429 || /rate_limit/i.test(msg)) {
+    return `模型接口返回 429${msg ? `（${msg}）` : ''}，重试 ${count} 次后放弃`;
+  }
+  if (status) return `模型接口返回 ${status}${msg ? `（${msg}）` : ''}，重试 ${count} 次后放弃`;
+  return null;
+}
+
 /** stream-json 中 result 标记失败（exit 0 但执行出错，如 --resume 无效） */
 function detectAgentExecutionFailure(rawStdout) {
   let sawErrorResult = false;
@@ -1480,14 +1512,14 @@ function detectAgentExecutionFailure(rawStdout) {
       const obj = JSON.parse(trimmed);
       if (obj.type !== 'result') continue;
       if (!obj.is_error && obj.subtype !== 'error_during_execution') continue;
-      if (Array.isArray(obj.errors) && obj.errors.length) return obj.errors.join('\n');
-      if (typeof obj.error === 'string' && obj.error.trim()) return obj.error.trim();
-      // result 仅标失败、无文案：先记下来，再从 stdout 抽认证错误
+      const text = resultFailureText(obj);
+      if (text) return text;
+      // result 仅标失败、无文案：先记下来，再从 stdout 抽认证错误或重试
       sawErrorResult = true;
     } catch { /* ignore */ }
   }
   if (sawErrorResult) {
-    return extractAuthFailureFromStdout(rawStdout) || 'Agent 执行失败';
+    return extractAuthFailureFromStdout(rawStdout) || summarizeApiRetries(rawStdout) || 'Agent 执行失败';
   }
   return null;
 }

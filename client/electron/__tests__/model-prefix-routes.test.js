@@ -12,6 +12,9 @@ test('只认最后一个横线，多一段就是另一代', () => {
   assert.strictEqual(modelExtends('glm-5', 'glm-5-2-260617'), false);
   assert.strictEqual(modelExtends('glm-5-2', 'glm-5-2-260617'), true);
   assert.strictEqual(modelExtends('deepseek-v4', 'deepseek-v4.1-flash'), false);
+  assert.strictEqual(modelExtends('deepseek-v4', 'deepseek-v4.1'), false);
+  assert.strictEqual(modelExtends('deepseek-v4.1-flash', 'deepseek-v4-1-flash-261017'), true);
+  assert.strictEqual(modelExtends('deepseek-v4.1-flash-economy', 'deepseek-v4-1-flash-economy-261017'), true);
   assert.strictEqual(modelExtends('glm-5', 'glm-5.1'), false);
   assert.strictEqual(modelExtends('glm-5.3', 'glm-5.3-flash'), true);
   assert.strictEqual(modelExtends('gpt-4', 'gpt-4o'), false);
@@ -58,5 +61,54 @@ test('变体收进最短前缀，近的排前面', () => {
   assert.deepStrictEqual(
     prefixExtensions('deepseek-v4-flash', ['deepseek-v4-flash-ga-260731', 'deepseek-v4-flash-ga', 'other']),
     ['deepseek-v4-flash-ga'],
+  );
+});
+
+test('v4.1 与 v4-1 收成同一条链，日期快照跟着链头', () => {
+  const { extras, hidden, folded } = prefixModelRoutes([
+    'deepseek-flash',
+    'deepseek-v4.1-flash',
+    'deepseek-v4.1-flash-economy',
+    'deepseek-v4-1-flash-261017',
+    'deepseek-v4-1-flash-economy-261017',
+  ]);
+  assert.deepStrictEqual(extras.get('deepseek-v4.1-flash'), [
+    'deepseek-v4-1-flash-261017',
+    'deepseek-v4.1-flash-economy',
+    'deepseek-v4-1-flash-economy-261017',
+  ]);
+  assert.strictEqual(hidden.has('deepseek-v4.1-flash'), false);
+  assert.strictEqual(hidden.has('deepseek-flash'), false);
+  assert.strictEqual(hidden.has('deepseek-v4-1-flash-261017'), true);
+  assert.strictEqual(hidden.has('deepseek-v4-1-flash-economy-261017'), true);
+  assert.strictEqual(hidden.has('deepseek-v4.1-flash-economy'), true);
+  assert.strictEqual(folded.has('deepseek-v4-1-flash-261017'), true);
+  assert.strictEqual(folded.has('deepseek-v4-1-flash-economy-261017'), true);
+  assert.strictEqual(folded.has('deepseek-v4.1-flash-economy'), false);
+  assert.strictEqual(extras.has('deepseek-flash'), false);
+
+  const alias = prefixModelRoutes(['deepseek-v4.1-flash', 'deepseek-v4-1-flash']);
+  assert.deepStrictEqual(alias.extras.get('deepseek-v4-1-flash'), ['deepseek-v4.1-flash']);
+  assert.strictEqual(alias.hidden.has('deepseek-v4.1-flash'), true);
+
+  const family = [
+    'deepseek-v4.1-flash',
+    'deepseek-v4.1-flash-economy',
+    'deepseek-v4-1-flash-261017',
+    'deepseek-v4-1-flash-economy-261017',
+  ];
+  assert.deepStrictEqual(prefixExtensions('deepseek-v4.1-flash', family), [
+    'deepseek-v4-1-flash-261017',
+    'deepseek-v4.1-flash-economy',
+    'deepseek-v4-1-flash-economy-261017',
+  ]);
+  assert.deepStrictEqual(prefixExtensions('deepseek-v4-1-flash-261017', family), [
+    'deepseek-v4.1-flash',
+    'deepseek-v4.1-flash-economy',
+    'deepseek-v4-1-flash-economy-261017',
+  ]);
+  assert.deepStrictEqual(
+    prefixExtensions('deepseek-v4-flash-ga', ['deepseek-v4-flash', 'deepseek-v4-flash-ga', 'deepseek-v4-flash-ga-260731']),
+    ['deepseek-v4-flash-ga-260731'],
   );
 });

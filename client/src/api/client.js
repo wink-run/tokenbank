@@ -168,12 +168,12 @@ export function reportCommunityAgentHire({ assistantId, workerId } = {}) {
 }
 
 /** 发起远程武将任务（对方本机执行，调用方只拿结果） */
-export function createCommunityAgentTask({ assistantId, prompt, workerId, timeoutMs }) {
-  // 武将任务可能长达数分钟，单独放宽超时
+export function createCommunityAgentTask({ assistantId, prompt, owner, timeoutMs }) {
+  // 武将任务可能长达数分钟，单独放宽超时。不钉设备，云端按用户名自动分发。
   return http.post('/api/agent-tasks', {
     assistant_id: assistantId,
     prompt,
-    worker_id: workerId || undefined,
+    owner: owner || undefined,
     timeout_ms: timeoutMs || undefined,
   }, { timeout: 620_000 });
 }

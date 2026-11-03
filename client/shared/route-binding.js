@@ -123,7 +123,7 @@ function parseRouteBinding(routeId, routes = []) {
 function modelIdFromRoute(routeId, routes = []) {
   const p = parseRouteBinding(routeId, routes);
   if (p.isScene) return '';
-  return p.modelId || routeId || '';
+  return bareModelId(p.modelId || routeId);
 }
 
 /** 下拉框 value：场景路由用 model_key；单层模型用 tier:id；legacy 纯 id 尽量还原 */
@@ -131,6 +131,9 @@ function routeSelectValue(routeId, availableModels = [], routes = []) {
   if (!routeId) return '';
   const scene = routes.find(r => r.model_key === routeId || r.id === routeId);
   if (scene) return scene.model_key || routeId;
+  // 旧数据存的是 paid:链头。下拉框里这条已经是降级链，选中值用链 id。
+  const chain = findListRoute(routeId, routes);
+  if (chain && !/^p2p:/.test(routeId)) return chain.model_key;
   if (TIER_ROUTE_RE.test(routeId)) return routeId;
   const matches = availableModels.filter(m => m.id === routeId);
   if (matches.length >= 1) {
@@ -208,13 +211,67 @@ function bindRouteToKeyScene(keyScene, callerKey, routeId, routes = []) {
     };
     return;
   }
-  const modelId = parsed.modelId || routeId;
-  keyScene[callerKey] = {
-    steps: [{ model: modelId, ...(parsed.tier ? { tier: parsed.tier } : {}) }],
-    scene_name: modelId,
+  // paid:/free: 与有没有降级链无关：同名走链并保留层级，没有链就收成单步。
+  keyScene[callerKey] = materializeTierModel(routeId, routes);
+}
+
+/**
+ * paid:模型 / paid:供给源:模型 / free: / p2p:。
+ * 层级是供给层过滤，钉选的供给源比层级更具体。
+ * 降级链里已经钉了源的步只补层级，不改源；前缀里的供给源只补在还没钉源的链头。
+ * p2p 是社区层，不并进个人源降级链。
+ */
+function materializeTierModel(routeId, routes) {
+  const ref = parseRoute(routeId);
+  const model = ref.model || String(routeId || '').trim();
+  const tier = ref.tier || null;
+  const provider = ref.provider || null;
+  const chain = tier === 'p2p' ? null : findListRoute(model, routes);
+  if (chain && Array.isArray(chain.steps) && chain.steps.length) {
+    return {
+      steps: applyTierToSteps(chain.steps, { tier, provider, model }),
+      scene_name: chain.scene_name || model,
+      rules: chain.rules || null,
+      classifier: chain.classifier || null,
+      flow: chain.flow || null,
+      ...(chain.scope ? { scope: chain.scope } : {}),
+      // 前缀层级已经写到每一步上；链自己的层级只在前缀没指定时保留
+      ...(chain.tier && !tier ? { tier: chain.tier } : {}),
+    };
+  }
+  return {
+    steps: applyTierToSteps([{ model }], { tier, provider, model }),
+    scene_name: model,
     rules: null,
     classifier: null,
+    flow: null,
   };
+}
+
+/** 给还没写 tier 的模型步补上层级。已钉供给源的步不改源。 */
+function applyTierToSteps(steps, ref) {
+  const tier = ref && ref.tier;
+  const provider = ref && ref.provider;
+  const head = ref && ref.model;
+  return (steps || []).map((step, i) => {
+    if (!step || step.strategy || !step.model) return step ? { ...step } : step;
+    const next = { ...step };
+    if (!next.tier && tier) next.tier = tier;
+    if (!next.provider && provider && i === 0 && (!head || next.model === head)) next.provider = provider;
+    return next;
+  });
+}
+
+/** paid:模型名 / paid:供给源:模型名 → 裸模型名。与 parseRoute 同一套切分。 */
+function bareModelId(modelId) {
+  return parseRoute(modelId).model || '';
+}
+
+/** 已保存的降级链。model_key 就是链头模型名。 */
+function findListRoute(modelId, routes) {
+  const id = bareModelId(modelId);
+  if (!id) return null;
+  return (routes || []).find((route) => route && route.list_route && String(route.model_key || '') === id) || null;
 }
 
 module.exports = {
@@ -234,4 +291,6 @@ module.exports = {
   bindClaudeRoutesToKeyScene,
   bindClaudeCliRouteToKeyScene,
   bindRouteToKeyScene,
+  findListRoute,
+  applyTierToSteps,
 };

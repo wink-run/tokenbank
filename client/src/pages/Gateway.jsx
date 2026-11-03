@@ -29,6 +29,56 @@ function modelTierKey(m) {
   return encodeTierModelRoute(m.tier, m.id);
 }
 
+/** 执行器能拉起的应用。配置页只给这些展示调用示例。 */
+const RUNNABLE_HARNESS_IDS = new Set(['claude-code', 'codex', 'cursor', 'kimi-code', 'pi']);
+
+function runnableHarnessId(app) {
+  const candidates = [app?.activity_agent_id, app?.trace_agent_id, app?.agent_id, app?.preset_id, app?.id];
+  for (const raw of candidates) {
+    const id = String(raw || '').trim();
+    if (!id) continue;
+    if (RUNNABLE_HARNESS_IDS.has(id)) return id;
+    // 多账号实例 id 可能带 : 或 @ 后缀
+    const head = id.split(/[:@]/)[0];
+    if (RUNNABLE_HARNESS_IDS.has(head)) return head;
+  }
+  return '';
+}
+
+/** 智能体任务接口示例。harnessId 为空时不生成。 */
+function agentDebugCurl(origin, apiKey, harnessId) {
+  if (!harnessId) return '';
+  const body = JSON.stringify({
+    input: '看一下当前仓库',
+    metadata: { harness_id: harnessId },
+  });
+  // 单引号包住 JSON，名称里的单引号按 shell 规则转义
+  const quoted = `'${body.replace(/'/g, `'\\''`)}'`;
+  return `curl ${origin}/v1/agent/responses \\\n  -H "Authorization: Bearer ${apiKey}" \\\n  -H "content-type: application/json" \\\n  -d ${quoted}`;
+}
+
+/** 配置页里的一条可复制调用示例 */
+function CallMethodBlock({ title, path, curl, t }) {
+  return (
+    <div>
+      <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">{title}</div>
+      <div className="border border-zinc-200 dark:border-zinc-700 rounded-xl overflow-hidden">
+        <div className="flex items-center bg-zinc-50 dark:bg-zinc-800/60 border-b border-zinc-200 dark:border-zinc-700 px-3 py-2">
+          <span className="text-xs font-medium text-zinc-500">{path}</span>
+          <div className="flex-1" />
+          <CopyButton text={curl} label={t('gateway.common.copy')} className="py-1 text-xs" />
+        </div>
+        <pre className="px-4 py-3 text-xs font-mono leading-relaxed text-zinc-700 dark:text-zinc-300 overflow-x-auto bg-zinc-50/30 dark:bg-zinc-900/30 whitespace-pre-wrap break-words">{curl}</pre>
+      </div>
+    </div>
+  );
+}
+
+function agentDurationLabel(ms, fmtMs) {
+  if (ms == null || ms <= 0) return '—';
+  return fmtMs(ms) || '—';
+}
+
 /** 网关测试 / 接入示例：场景路由用 model_key；单层路由保留 tier 前缀 */
 function exampleModelFromRoute(routeVal, routes, availableModels) {
   if (!routeVal) {
@@ -646,9 +696,12 @@ function AppTestResultHint({ ts, t }) {
   }
   const multi = (ts.total || 1) > 1;
   if (ts.ok) {
+    const label = ts.mode === 'agent'
+      ? t('gateway.test.agentOk')
+      : t('gateway.common.testFirstToken', { ms: ts.latency });
     return (
       <div className="mt-0.5 text-right text-[10px] leading-tight font-mono text-green-500 dark:text-green-400">
-        ✓ {multi ? `${ts.passedCount}/${ts.total} · ` : ''}{t('gateway.common.testFirstToken', { ms: ts.latency })}
+        ✓ {multi && ts.mode !== 'agent' ? `${ts.passedCount}/${ts.total} · ` : ''}{label}
       </div>
     );
   }
@@ -760,7 +813,7 @@ function prepareMcpNav(agentId) {
 }
 
 /** 编辑页：只读展示当前智能体已投射的资源与已绑定的 MCP */
-function AppBoundAssetsSection({ app, onClose }) {
+function AppBoundAssetsSection({ app, onClose, debugOrigin = '', debugKey = '', defaultHarnessId = '' }) {
   const { t, lang } = useLang();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -816,22 +869,15 @@ function AppBoundAssetsSection({ app, onClose }) {
     return () => { cancelled = true; };
   }, [app?.agent_id, app?.preset_id, app?.activity_agent_id, app?.id]);
 
-  // 列表变化时：选中项失效则回落到第一项
+  // 不默认选中。选中项从列表消失时清空，调试示例回到当前应用。
   useEffect(() => {
+    if (!selectedKey) return;
     const keys = [
       ...resources.map((r) => `res:${r.id || `${r.type}-${r.name}`}`),
       ...mcps.map((s) => `mcp:${s.id || s.name}`),
     ];
-    if (!keys.length) {
-      if (selectedKey) setSelectedKey('');
-      return;
-    }
-    if (!keys.includes(selectedKey)) setSelectedKey(keys[0]);
+    if (!keys.includes(selectedKey)) setSelectedKey('');
   }, [resources, mcps, selectedKey]);
-
-  // 智能体应用始终展示；纯 API 应用仅在有绑定时展示
-  if (matchIds.size === 0) return null;
-  if (!loading && !isAgentApp && resources.length === 0 && mcps.length === 0) return null;
 
   function typeLabel(type) {
     const key = `resources.type.${type}`;
@@ -892,6 +938,21 @@ function AppBoundAssetsSection({ app, onClose }) {
     resourcesByType.push({ type: 'other', items: otherResources });
   }
 
+  // 选中投射智能体时，调试示例用唯一 id（assistant:<资源id>），不用中文显示名。不选则用当前应用。
+  const selectedAssistant = selectedRes?.type === 'assistant' ? selectedRes : null;
+  const debugHarnessId = selectedAssistant?.id
+    ? `assistant:${selectedAssistant.id}`
+    : defaultHarnessId;
+  const agentCurl = agentDebugCurl(debugOrigin, debugKey, debugHarnessId);
+  const agentCurlBlock = agentCurl
+    ? <CallMethodBlock title={t('gateway.app.callAgent')} path="POST /v1/agent/responses" curl={agentCurl} t={t} />
+    : null;
+  const hasAssistant = resourcesByType.some((g) => g.type === 'assistant');
+
+  // 没有可展示的绑定时，仍保留默认调试示例
+  if (matchIds.size === 0) return agentCurlBlock;
+  if (!loading && !isAgentApp && resources.length === 0 && mcps.length === 0) return agentCurlBlock;
+
   function renderResourceChips(items) {
     return (
       <BoundChipFold t={t} itemCount={items.length}>
@@ -902,7 +963,7 @@ function AppBoundAssetsSection({ app, onClose }) {
             <button
               key={key}
               type="button"
-              onClick={() => setSelectedKey(key)}
+              onClick={() => setSelectedKey(active ? '' : key)}
               className={`${chipBase} ${active ? chipActive : chipIdle}`}
               title={r.display_name || r.name}
             >
@@ -936,6 +997,7 @@ function AppBoundAssetsSection({ app, onClose }) {
             <button type="button" onClick={goResources} className={linkCls}>{t('gateway.app.boundGoResources')} →</button>
             <button type="button" onClick={goMcp} className={linkCls}>{t('gateway.app.boundGoMcp')} →</button>
           </div>
+          {agentCurlBlock}
         </div>
       ) : (
         <div className="space-y-2.5">
@@ -953,14 +1015,19 @@ function AppBoundAssetsSection({ app, onClose }) {
                         {g.type === 'other' ? t('gateway.app.boundResourcesOther') : typeLabel(g.type)}
                       </div>
                       {renderResourceChips(g.items)}
+                      {g.type === 'assistant' && agentCurlBlock ? (
+                        <div className="mt-2">{agentCurlBlock}</div>
+                      ) : null}
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="text-xs text-zinc-400">{t('gateway.app.boundEmpty')}</div>
               )}
+              {!hasAssistant && agentCurlBlock}
             </div>
           )}
+          {!(resources.length > 0 || isAgentApp) && agentCurlBlock}
           <div>
             <div className="flex items-center justify-between gap-2 mb-1.5">
               <div className="text-xs text-zinc-400">{t('gateway.app.boundMcp')}</div>
@@ -976,7 +1043,7 @@ function AppBoundAssetsSection({ app, onClose }) {
                     <button
                       key={key}
                       type="button"
-                      onClick={() => setSelectedKey(key)}
+                      onClick={() => setSelectedKey(active ? '' : key)}
                       className={`${chipBase} ${active ? chipActive : chipIdle}`}
                       title={s.display_name || s.name}
                     >
@@ -1217,10 +1284,10 @@ function AppSettingsPanel({ app, routes, availableModels = [], localBase = '', i
       </div>
     </div>
   );
-  // Trae：展示当前所选路由对应的模型 ID（供用户在 Trae 内填写）
-  const traeRouteVal = app.route_multi_select ? routeIds[0] : routeId;
-  const traeModelId = traeRouteVal
-    ? exampleModelFromRoute(traeRouteVal, routes, availableModels).model
+  // 多选应用（Claude Desktop）下拉写的是 routeIds；单选写 routeId。示例跟当前下拉走。
+  const selectedRouteVal = app.route_multi_select ? (routeIds[0] || '') : (routeId || '');
+  const traeModelId = selectedRouteVal
+    ? exampleModelFromRoute(selectedRouteVal, routes, availableModels).model
     : null;
   const traeModelSection = isTraeManual && traeModelId && (
     <div>
@@ -1376,13 +1443,36 @@ function AppSettingsPanel({ app, routes, availableModels = [], localBase = '', i
     <div>
       <div className="text-sm font-medium text-zinc-600 dark:text-zinc-300 mb-2">{t('gateway.app.accessConfig')}</div>
       <KeyConfigPanel apiKey={app.api_key} localBase={localBase || resolveLocalGatewayBase()}
-        {...(routeId ? exampleModelFromRoute(routeId, routes, availableModels) : {})}
+        {...(selectedRouteVal ? exampleModelFromRoute(selectedRouteVal, routes, availableModels) : {})}
         hideAuto />
     </div>
   );
 
   // 当前智能体已投射资源 / 已绑定 MCP（只读）
-  const boundAssetsSection = <AppBoundAssetsSection app={app} onClose={dismiss} />;
+  const harnessId = runnableHarnessId(app);
+  const keyPh = app.api_key || '$TOKENBANK_KEY';
+  const modelExample = exampleModelFromRoute(selectedRouteVal, routes, availableModels).model || 'gpt-4o';
+  const modelCurl = `curl ${gwOrigin}/v1/chat/completions \\\n  -H "Authorization: Bearer ${keyPh}" \\\n  -H "content-type: application/json" \\\n  -d '{"model":"${modelExample}","messages":[{"role":"user","content":"Hello!"}]}'`;
+  // 智能体示例跟下方芯片走，不选时用当前应用。
+  const boundAssetsSection = (
+    <AppBoundAssetsSection
+      app={app}
+      onClose={dismiss}
+      debugOrigin={gwOrigin}
+      debugKey={keyPh}
+      defaultHarnessId={harnessId}
+    />
+  );
+  const callMethodsSection = (
+    <div>
+      <div className="text-sm font-medium text-zinc-600 dark:text-zinc-300 mb-1">{t('gateway.app.callMethodsTitle')}</div>
+      <p className="text-xs text-zinc-400 leading-relaxed mb-2">{t('gateway.app.callMethodsHint')}</p>
+      <CallMethodBlock title={t('gateway.app.callModel')} path="POST /v1/chat/completions" curl={modelCurl} t={t} />
+      {!harnessId && (
+        <p className="text-xs text-zinc-400 mt-2">{t('gateway.app.callAgentUnavailable')}</p>
+      )}
+    </div>
+  );
 
   const btnSave = (
     <button onClick={save} disabled={busy}
@@ -1415,7 +1505,7 @@ function AppSettingsPanel({ app, routes, availableModels = [], localBase = '', i
           /* 纳管应用（config-file / 透明托管）：基础信息 + Key + 路由规则 */
           <>
             <div className="p-5 space-y-4">
-              {baseInfoSection}{apiKeyRow}{routeSection}{boundAssetsSection}
+              {baseInfoSection}{apiKeyRow}{routeSection}{callMethodsSection}{boundAssetsSection}
             </div>
             <div className="flex gap-2 px-5 py-4 border-t border-zinc-200 dark:border-zinc-800">
               {btnSave}{btnCancel}
@@ -1425,7 +1515,7 @@ function AppSettingsPanel({ app, routes, availableModels = [], localBase = '', i
           /* Trae Work：手工在 IDE 配置自定义模型 + 路由仅作参考 */
           <>
             <div className="p-5 space-y-4">
-              {baseInfoSection}{apiKeyRow}{routeSection}{boundAssetsSection}{directGuideSection}{directGatewaySection}{traeModelSection}
+              {baseInfoSection}{apiKeyRow}{routeSection}{callMethodsSection}{boundAssetsSection}{directGuideSection}{directGatewaySection}{traeModelSection}
             </div>
             <div className="flex gap-2 px-5 py-4 border-t border-zinc-200 dark:border-zinc-800">
               {btnSave}{btnCancel}
@@ -1435,7 +1525,7 @@ function AppSettingsPanel({ app, routes, availableModels = [], localBase = '', i
           /* 官方订阅 + 会话导入：基础信息 + Key + 手工说明 */
           <>
             <div className="p-5 space-y-4">
-              {baseInfoSection}{apiKeyRow}{boundAssetsSection}{directGuideSection}{directGatewaySection}
+              {baseInfoSection}{apiKeyRow}{callMethodsSection}{boundAssetsSection}{directGuideSection}{directGatewaySection}
             </div>
             <div className="flex gap-2 px-5 py-4 border-t border-zinc-200 dark:border-zinc-800">
               {btnSave}{btnCancel}
@@ -1444,7 +1534,7 @@ function AppSettingsPanel({ app, routes, availableModels = [], localBase = '', i
         ) : (
           <>
             <div className="p-5 space-y-4">
-              {baseInfoSection}{apiKeyRow}{envSection}{routeSection}{boundAssetsSection}{accessSection}
+              {baseInfoSection}{apiKeyRow}{envSection}{routeSection}{callMethodsSection}{boundAssetsSection}{accessSection}
             </div>
             <div className="flex gap-2 px-5 py-4 border-t border-zinc-200 dark:border-zinc-800">
               {onDelete && isKeyApp(app.link_method) && (
@@ -3129,7 +3219,9 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
   }
 
   // 转发测试：用该应用的 api_key 向网关发一个最小请求，验证转发是否成功
-  const [testState, setTestState] = useState({});   // appId -> {busy|ok|error|latency}
+  const [testState, setTestState] = useState({});   // appId -> {busy|ok|error|latency|mode}
+  const [testMenuId, setTestMenuId] = useState(null);
+  const [testMenuBox, setTestMenuBox] = useState(null);
   const testHideTimers = useRef({});
   function scheduleTestHide(appId, ms = 3000) {
     if (testHideTimers.current[appId]) clearTimeout(testHideTimers.current[appId]);
@@ -3171,6 +3263,60 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
     } }));
     scheduleTestHide(app.id, allOk ? 3000 : 8000);
     setTimeout(() => { load(); refresh(); }, 600);
+  }
+
+  // 智能体测试：发出任务后收到回执即算通过，不等整段跑完。
+  async function runAgentTest(app) {
+    const key = app.api_key;
+    const harnessId = runnableHarnessId(app);
+    if (!key || !harnessId) return;
+    setTestState(s => ({ ...s, [app.id]: { busy: true, mode: 'agent' } }));
+    const base = (localBase || resolveLocalGatewayBase()).replace(/\/$/, '');
+    const started = Date.now();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    try {
+      const r = await fetch(`${base}/agent/responses`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          input: '回复一个字：好',
+          metadata: { harness_id: harnessId },
+          stream: true,
+        }),
+        signal: ctrl.signal,
+      });
+      const ctype = r.headers.get('content-type') || '';
+      if (!r.ok || !ctype.includes('text/event-stream')) {
+        const text = await r.text();
+        let message = text;
+        try { message = JSON.parse(text)?.error?.message || text; } catch { /* 保持原文 */ }
+        throw new Error(String(message || `HTTP ${r.status}`).slice(0, 240));
+      }
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      let created = false;
+      while (!created) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        if (buf.includes('response.created')) created = true;
+        if (buf.includes('event: error')) throw new Error(buf.slice(0, 240));
+      }
+      try { await reader.cancel(); } catch { /* 任务已在网关侧继续 */ }
+      if (!created) throw new Error(t('gateway.test.agentNoAck'));
+      setTestState(s => ({ ...s, [app.id]: { ok: true, mode: 'agent', latency: Date.now() - started } }));
+      scheduleTestHide(app.id, 3000);
+    } catch (e) {
+      const message = e?.name === 'AbortError'
+        ? t('gateway.common.timeout30s')
+        : (e?.message || t('gateway.common.connectFailed'));
+      setTestState(s => ({ ...s, [app.id]: { ok: false, mode: 'agent', error: message } }));
+      scheduleTestHide(app.id, 8000);
+    } finally {
+      clearTimeout(timer);
+    }
   }
   // 写入某 api-key 应用的配置文件指向网关（解析 {BASE}/{KEY}，patch_route 在 main 进程按 handler 策略改写）。
   // 返回 true=成功。onAbort：冲突取消/写入失败时的回滚回调（新建时删条目；重新纳管不删）。
@@ -3616,13 +3762,38 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                         <div className="flex items-center justify-end gap-1.5 min-w-0 max-w-full overflow-hidden">
                       {(app.api_key || isDirectOnly) && (() => {
                         const ts = testState[app.id];
+                        const harnessForTest = runnableHarnessId(app);
+                        const menuOpen = testMenuId === app.id;
                         return (
-                          <button onClick={() => runAppTest(app)} disabled={ts?.busy || !isGatewayRouted}
-                            className={`text-[11px] px-1.5 py-1 rounded-lg border transition-colors shrink-0 ${ts?.busy
-                              ? 'border-zinc-300 dark:border-zinc-600 text-zinc-400 opacity-60 cursor-wait'
-                              : 'border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:border-blue-400 hover:text-blue-500'} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-zinc-200 disabled:hover:text-zinc-500`}>
-                            {ts?.busy ? t('gateway.common.testing') : t('gateway.common.test')}
-                          </button>
+                          <div className="relative shrink-0">
+                            <button onClick={(e) => {
+                              if (menuOpen) { setTestMenuId(null); setTestMenuBox(null); return; }
+                              const r = e.currentTarget.getBoundingClientRect();
+                              setTestMenuId(app.id);
+                              setTestMenuBox({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
+                            }} disabled={ts?.busy}
+                              className={`text-[11px] px-1.5 py-1 rounded-lg border transition-colors shrink-0 ${ts?.busy
+                                ? 'border-zinc-300 dark:border-zinc-600 text-zinc-400 opacity-60 cursor-wait'
+                                : 'border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:border-blue-400 hover:text-blue-500'} disabled:opacity-40 disabled:cursor-not-allowed`}>
+                              {ts?.busy ? t('gateway.common.testing') : t('gateway.common.test')}
+                            </button>
+                            {menuOpen && !ts?.busy && testMenuBox && createPortal(
+                              <div className="fixed z-[90] min-w-[6.5rem] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg py-1"
+                                style={{ top: testMenuBox.top, right: testMenuBox.right }}>
+                                <button type="button" disabled={!isGatewayRouted}
+                                  onClick={() => { setTestMenuId(null); setTestMenuBox(null); runAppTest(app); }}
+                                  className="block w-full text-left px-2.5 py-1 text-[11px] text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 disabled:opacity-40 disabled:hover:bg-transparent">
+                                  {t('gateway.test.model')}
+                                </button>
+                                <button type="button" disabled={!harnessForTest || !app.api_key}
+                                  onClick={() => { setTestMenuId(null); setTestMenuBox(null); runAgentTest(app); }}
+                                  className="block w-full text-left px-2.5 py-1 text-[11px] text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 disabled:opacity-40 disabled:hover:bg-transparent">
+                                  {t('gateway.test.agent')}
+                                </button>
+                              </div>,
+                              document.body,
+                            )}
+                          </div>
                         );
                       })()}
                       {!app._virtual_apikey ? (
@@ -4917,6 +5088,7 @@ export default function Gateway() {
   const { t } = useLang();
   const { user } = useAuth();
   const [status, setStatus]     = useState(null);
+  const [agentStats, setAgentStats] = useState(null);
   const [stats, setStats]       = useState(null);
   const [logEntries, setLog]    = useState([]);
   const [network, setNetwork]   = useState(null);   // /public/network 快照：路由日志把 worker_id join 成分享者
@@ -4982,6 +5154,10 @@ export default function Gateway() {
     setStatus(s);
     setStats(st);
     setLog(lg.slice(0, 50));
+    try {
+      const agent = await window.electronAPI?.agent?.taskStats?.();
+      if (agent?.success) setAgentStats(agent.stats);
+    } catch { /* 桌面端未挂上时保持空 */ }
     loadAvailableModels();
   }, [loadAvailableModels]);
 
@@ -5176,19 +5352,34 @@ export default function Gateway() {
         </button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-2.5">
-        {[
-          { label: t('gateway.stat.todayCalls'), hint: t('gateway.stat.todayCallsHint'), value: stats ? headerCalls.toLocaleString() : '—', color: 'text-zinc-900 dark:text-zinc-100' },
-          { label: t('gateway.stat.todayTokens'), value: stats ? fmtTokens(headerTokens) : '—', color: 'text-blue-600 dark:text-blue-400' },
-          { label: t('gateway.stat.gatewayRatio'), hint: t('gateway.stat.gatewayRatioHint'), value: gatewayRatio !== null ? `${gatewayRatio}%` : '—', color: 'text-violet-600 dark:text-violet-400' },
-          { label: t('gateway.stat.avgLatency'), hint: t('gateway.stat.avgLatencyHint'), value: avgLatency > 0 ? `${avgLatency}ms` : '—', color: 'text-zinc-500 dark:text-zinc-400' },
-        ].map(({ label, hint, value, color }) => (
-          <div key={label} title={hint} className="tb-soft-card rounded-xl px-4 py-3.5">
-            <div className="text-xs font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1.5">{label}</div>
-            <div className={`text-[22px] font-bold leading-none tabular-nums tracking-tight ${color}`}>{value}</div>
+      {/* 网关地址和智能体地址并排。指标单位不同：左边是补全，右边是任务。 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+        <div className="tb-soft-card rounded-xl px-3 py-2.5 min-w-0">
+          <div className="flex items-start gap-2 min-w-0">
+            <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 shrink-0 pt-0.5">{t('gateway.surface.gateway')}</span>
+            <code className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 break-all min-w-0">{localBase}</code>
+            <CopyButton text={localBase} label={t('gateway.common.copy')} className="ml-auto py-0.5 text-xs shrink-0" />
           </div>
-        ))}
+          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+            <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{stats ? headerCalls.toLocaleString() : '—'}</b> {t('gateway.stat.requests')}</span>
+            <span><b className="text-blue-600 dark:text-blue-400 tabular-nums">{stats ? fmtTokens(headerTokens) : '—'}</b> Token</span>
+            <span><b className="text-violet-600 dark:text-violet-400 tabular-nums">{gatewayRatio !== null ? `${gatewayRatio}%` : '—'}</b> {t('gateway.stat.forward')}</span>
+            <span title={t('gateway.stat.avgLatencyHint')}><b className="text-zinc-700 dark:text-zinc-200 tabular-nums">{avgLatency > 0 ? `${avgLatency}ms` : '—'}</b> {t('gateway.stat.firstToken')}</span>
+          </div>
+        </div>
+        <div className="tb-soft-card rounded-xl px-3 py-2.5 min-w-0">
+          <div className="flex items-start gap-2 min-w-0">
+            <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 shrink-0 pt-0.5">{t('gateway.surface.agent')}</span>
+            <code className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 break-all min-w-0">{`${localBase.replace(/\/$/, '')}/agent`}</code>
+            <CopyButton text={`${localBase.replace(/\/$/, '')}/agent`} label={t('gateway.common.copy')} className="ml-auto py-0.5 text-xs shrink-0" />
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+            <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentStats ? agentStats.tasks : '—'}</b> {t('gateway.stat.agentTasks')}</span>
+            <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentStats ? agentStats.running : '—'}</b> {t('gateway.stat.agentRunning')}</span>
+            <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentStats ? agentStats.failed : '—'}</b> {t('gateway.stat.agentFailed')}</span>
+            <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentDurationLabel(agentStats?.avg_duration_ms, fmtMs)}</b> {t('gateway.stat.agentDuration')}</span>
+          </div>
+        </div>
       </div>
 
       {/* 应用列表 / 场景路由 Tab — 大面板用更透的 soft-panel */}
@@ -5224,10 +5415,6 @@ export default function Gateway() {
               {label}
             </button>
           ))}
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs text-zinc-400 dark:text-zinc-500 font-mono">{localBase}</span>
-            <CopyButton text={localBase} label={t('gateway.common.copy')} />
           </div>
         </div>
 

@@ -110,7 +110,7 @@ export function parseRouteBinding(routeId, routes = []) {
 export function modelIdFromRoute(routeId, routes = []) {
   const p = parseRouteBinding(routeId, routes);
   if (p.isScene) return '';
-  return p.modelId || routeId || '';
+  return parseRoute(p.modelId || routeId).model || '';
 }
 
 /** 下拉框 value：场景路由用 model_key；单层模型用 tier:id；legacy 纯 id 尽量还原 */
@@ -118,6 +118,12 @@ export function routeSelectValue(routeId, availableModels = [], routes = []) {
   if (!routeId) return '';
   const scene = routes.find(r => r.model_key === routeId || r.id === routeId);
   if (scene) return scene.model_key || routeId;
+  // 旧数据存的是 paid:链头 或 paid:供给源:链头。下拉框里这条已经是降级链，选中值用链 id。
+  // p2p 是社区层，不收成个人源降级链。
+  const parsed = parseRoute(routeId);
+  const bare = parsed.model || '';
+  const chain = bare && (routes || []).find(r => r?.list_route && String(r.model_key || '') === bare);
+  if (chain && parsed.tier !== 'p2p') return chain.model_key;
   if (TIER_ROUTE_RE.test(routeId)) return routeId;
   const matches = availableModels.filter(m => m.id === routeId);
   if (matches.length >= 1) {

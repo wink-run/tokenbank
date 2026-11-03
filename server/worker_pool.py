@@ -749,22 +749,29 @@ class WorkerPool:
 
     def pick_agent_workers(self, assistant_id: str,
                            user_circle_ids: Optional[set] = None,
-                           worker_id: Optional[str] = None) -> list:
+                           worker_id: Optional[str] = None,
+                           owner: Optional[str] = None) -> list:
         """可服务该智能体的真实 worker，按负载升序。
 
-        worker_id 为偏好钉选：命中则优先；节点重连后 id 会变，钉选落空时回退到任意在线可服务节点。
+        owner 指定时只在该出租者当前在线的设备里自动选，不钉设备 id。
+        未给 owner 时，worker_id 仍是旧客户端的偏好钉选；落空则回退任意在线节点。
         """
         aid = (assistant_id or "").strip()
         if not aid:
             return []
         circles = user_circle_ids or set()
         pinned = (worker_id or "").strip() or None
+        owner_q = (owner or "").strip().casefold()
 
         def collect(require_wid: Optional[str]) -> list:
             out = []
             for w in self._workers:
                 if require_wid and w.worker_id != require_wid:
                     continue
+                if owner_q:
+                    nick = (getattr(w, "owner_nickname", None) or "").strip().casefold()
+                    if nick != owner_q:
+                        continue
                 card = next(
                     (c for c in (getattr(w, "agents", None) or [])
                      if isinstance(c, dict) and c.get("id") == aid),
@@ -777,6 +784,9 @@ class WorkerPool:
                 out.append(w)
             return sorted(out, key=lambda x: x.active_requests)
 
+        # 按用户名分发：该用户可能有多台设备，选负载最低的一台
+        if owner_q:
+            return collect(None)
         if pinned:
             hit = collect(pinned)
             if hit:

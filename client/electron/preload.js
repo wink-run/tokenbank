@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getTaskStatus: (taskId) => ipcRenderer.invoke('agent:getStatus', taskId),
     listActiveTasks: () => ipcRenderer.invoke('agent:listActiveTasks'),
     listRecentTasks: (opts) => ipcRenderer.invoke('agent:listRecentTasks', opts),
+    taskStats: () => ipcRenderer.invoke('agent:taskStats'),
     pickWorkingDir: (opts) => ipcRenderer.invoke('agent:pickWorkingDir', opts),
     pickFiles: (opts) => ipcRenderer.invoke('agent:pickFiles', opts),
     // 兼容旧调用
@@ -57,6 +58,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 社区武将雇佣
     listHiredCommunity: () => ipcRenderer.invoke('community:listHired'),
     hireCommunity: (card) => ipcRenderer.invoke('community:hire', card),
+    httpKey: () => ipcRenderer.invoke('agent:httpKey'),
     unhireCommunity: (id) => ipcRenderer.invoke('community:unhire', id),
     onStep: (cb) => {
       const handler = (_e, data) => cb(data);

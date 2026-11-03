@@ -207,6 +207,15 @@ function registerAgentHandlers() {
     }
   });
 
+  ipcMain.handle('agent:taskStats', async () => {
+    try {
+      return { success: true, stats: agentExecutor.todayTaskStats() };
+    } catch (error) {
+      console.error('[IPC] agent:taskStats error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('agent:listRecentTasks', async (_event, { agentId, limit } = {}) => {
     try {
       const tasks = await agentExecutor.listRecentTasksForAgent(agentId, limit || 3);

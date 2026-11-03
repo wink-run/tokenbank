@@ -131,7 +131,9 @@ function httpJson(method, url, { token, body, timeoutMs } = {}) {
         try { data = text ? JSON.parse(text) : null; } catch { data = { detail: text }; }
         if (res.statusCode >= 400) {
           const detail = data?.detail ?? data?.error ?? text ?? `HTTP ${res.statusCode}`;
-          const msg = typeof detail === 'string' ? detail : JSON.stringify(detail);
+          const msg = (detail && typeof detail === 'object' && typeof detail.error === 'string')
+            ? detail.error
+            : (typeof detail === 'string' ? detail : JSON.stringify(detail));
           const err = new Error(msg);
           err.status = res.statusCode;
           err.data = data;
@@ -174,7 +176,7 @@ async function listOnlineCommunityAgents() {
  * 远程雇佣执行（对方本机跑，只回结果）
  * @returns {Promise<object>}
  */
-async function runCommunityAgentTask({ assistantId, prompt, workerId, timeoutMs, images, files } = {}) {
+async function runCommunityAgentTask({ assistantId, prompt, owner, timeoutMs, images, files } = {}) {
   const { base, token } = resolveCloudAuth();
   if (!base) throw new Error('未配置 Token Bank 服务地址');
   if (!token) throw new Error('请先登录并启用转发 Key（与模型社区源同一套 cloud_config.token）');
@@ -188,7 +190,8 @@ async function runCommunityAgentTask({ assistantId, prompt, workerId, timeoutMs,
     body: {
       assistant_id: aid,
       prompt: text,
-      worker_id: workerId || undefined,
+      // 只带出租者用户名，云端在他的在线设备里自动选
+      owner: String(owner || '').trim() || undefined,
       timeout_ms: timeoutMs || undefined,
       images: Array.isArray(images) && images.length ? images : undefined,
       files: Array.isArray(files) && files.length ? files : undefined,

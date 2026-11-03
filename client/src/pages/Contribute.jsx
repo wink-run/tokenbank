@@ -1099,7 +1099,7 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
       }
       const r = await window.electronAPI.agent.hireCommunity({
         assistant_id: selected.id,
-        worker_id: selected.worker_id,
+        owner_nickname: selected.owner_nickname,
         display_name: selected.display_name,
         runtime: selected.runtime,
         description: selected.description,
@@ -1472,6 +1472,12 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
                 ))}
               </ol>
             </InspectorSection>
+            <CommunityApiExample
+              assistantId={selected.id}
+              owner={selected.owner_nickname}
+              hired={!!selectedHired}
+              t={t}
+            />
             <InspectorSection title={t('contribute.safetyTitle')}>
               <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">🔒 {t('contribute.hireHint')}</p>
             </InspectorSection>
@@ -1479,6 +1485,52 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
         )}
       </div>
     </div>
+  );
+}
+
+/** 已雇佣社区智能体的调用示例。harness 用 community:<id>@<用户名>，云端自动选设备。 */
+function CommunityApiExample({ assistantId, owner, hired, t }) {
+  const [copied, setCopied] = useState(false);
+  // 本机网关的调用钥匙，不是网关应用的 Key
+  const [apiKey, setApiKey] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    window.electronAPI?.agent?.httpKey?.()
+      .then((r) => { if (!cancelled && r?.api_key) setApiKey(r.api_key); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  const aid = String(assistantId || '').trim();
+  if (!aid) return null;
+  const who = String(owner || '').trim().replace(/@/g, '');
+  const harnessId = who ? `community:${aid}@${who}` : `community:${aid}`;
+  const origin = resolveLocalGatewayBase().replace(/\/v1\/?$/, '');
+  const body = JSON.stringify({
+    input: '请按你的职责完成这个任务',
+    metadata: { harness_id: harnessId },
+  });
+  const bearer = apiKey || '<API Key>';
+  const curl = `curl ${origin}/v1/agent/responses \\\n  -H "Authorization: Bearer ${bearer}" \\\n  -H "content-type: application/json" \\\n  -d '${body.replace(/'/g, `'\\''`)}'`;
+  return (
+    <InspectorSection title={t('contribute.apiExampleTitle')}>
+      <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400 mb-2">
+        {hired ? t('contribute.apiExampleHint') : t('contribute.apiExampleNeedHire')}
+      </p>
+      <div className="border border-zinc-200 dark:border-zinc-700 rounded-lg overflow-hidden">
+        <div className="flex items-center bg-zinc-50 dark:bg-zinc-800/60 border-b border-zinc-200 dark:border-zinc-700 px-2.5 py-1.5">
+          <span className="text-[10px] font-medium text-zinc-500 truncate">POST /v1/agent/responses</span>
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={() => { copyText(curl); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+            className="text-[10px] px-2 py-0.5 rounded border border-zinc-200 dark:border-zinc-600 text-zinc-500 shrink-0"
+          >
+            {copied ? t('gateway.common.copied') : t('gateway.common.copy')}
+          </button>
+        </div>
+        <pre className="px-2.5 py-2 text-[10px] font-mono leading-relaxed text-zinc-700 dark:text-zinc-300 overflow-x-auto whitespace-pre-wrap break-all">{curl}</pre>
+      </div>
+    </InspectorSection>
   );
 }
 

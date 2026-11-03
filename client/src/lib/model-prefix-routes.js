@@ -1,14 +1,39 @@
 // 前端 ESM。算法与 shared/model-prefix-routes.js 保持一致（Vite 不能直接用具名方式引入那个 CommonJS 文件）。
 // 只认最后一个横线：去掉最后一段后正好等于短名，才收成一条链。
+// v4.1 与 v4-1 是同一写法；glm-5 / glm-5.1 这种点号换代仍然分开。
 
-/** longer 去掉最后一个「-段」后是否正好是 base。 */
+/** v 后面的点号版本改成横线：v4.1 → v4-1。不动 glm-5.1 这种换代。 */
+function canonicalVersionName(name) {
+  return String(name || '').trim().replace(
+    /(^|-)(v)(\d+(?:\.\d+)+)/gi,
+    (_, sep, v, ver) => `${sep}${v}${ver.replace(/\./g, '-')}`,
+  );
+}
+
+function cutLastSegment(name) {
+  const text = String(name || '');
+  const cut = text.lastIndexOf('-');
+  if (cut <= 0) return '';
+  return text.slice(0, cut);
+}
+
+/** longer 去掉最后一个「-段」后是否正好是 base。比较前先把 v4.1 / v4-1 归一。 */
 export function modelExtends(base, longer) {
+  const head = canonicalVersionName(base);
+  const name = String(longer || '').trim();
+  const baseRaw = String(base || '').trim();
+  if (!head || !name || name.length <= baseRaw.length) return false;
+  const stem = cutLastSegment(name);
+  if (!stem) return false;
+  return canonicalVersionName(stem) === head;
+}
+
+/** 原始字符串就能对上的上一级。用来区分「本来就是下一级」和「只是写法不同」。 */
+function rawExtends(base, longer) {
   const head = String(base || '').trim();
   const name = String(longer || '').trim();
   if (!head || !name || name.length <= head.length) return false;
-  const cut = name.lastIndexOf('-');
-  if (cut <= 0) return false;
-  return name.slice(0, cut) === head;
+  return cutLastSegment(name) === head;
 }
 
 function uniqueNames(names) {
@@ -27,41 +52,85 @@ function byLengthThenName(a, b) {
   return (a.length - b.length) || a.localeCompare(b);
 }
 
-function stemBeforeLastHyphen(name) {
-  const cut = String(name || '').lastIndexOf('-');
-  if (cut <= 0) return '';
-  return name.slice(0, cut);
+function rootHead(name, parentOf) {
+  let cur = name;
+  const seen = new Set();
+  while (parentOf.has(cur) && !seen.has(cur)) {
+    seen.add(cur);
+    cur = parentOf.get(cur);
+  }
+  return cur;
 }
 
 /**
  * 列表上的合并结果。
- * extras: 某个模型 → 只比它多最后一段的变体
+ * extras: 某个模型 → 收进来的变体
  * hidden: 被收进上一级、不必再单独占一张卡的名字
+ * folded: 只因为 v4.1 / v4-1 才收进来的名字。已保存的链也要带上，不用先恢复默认。
  * 上一级自己也被收走时，这一级留在列表里，避免整张卡消失。
+ * 例外：只因为 v4.1 / v4-1 才对上的快照，跟着可见的链头走。
  */
 export function prefixModelRoutes(names) {
   const list = uniqueNames(names);
-  const parentOf = new Map();
+  // 完全同一写法（v4.1 与 v4-1）先收成一个代表名，链上仍保留原来的名字。
+  const byCanon = new Map();
   for (const name of list) {
-    for (const other of list) {
-      if (modelExtends(other, name)) parentOf.set(name, other);
+    const key = canonicalVersionName(name);
+    const group = byCanon.get(key) || [];
+    group.push(name);
+    byCanon.set(key, group);
+  }
+  const aliasOf = new Map();
+  for (const group of byCanon.values()) {
+    if (group.length < 2) continue;
+    group.sort(byLengthThenName);
+    const rep = group[0];
+    for (const name of group) {
+      if (name !== rep) aliasOf.set(name, rep);
     }
   }
+  const reps = list.filter((name) => !aliasOf.has(name));
+
+  const parentOf = new Map();
+  for (const name of reps) {
+    let parent = '';
+    for (const other of reps) {
+      if (other === name || !modelExtends(other, name)) continue;
+      if (!parent || other.length > parent.length) parent = other;
+    }
+    if (parent) parentOf.set(name, parent);
+  }
+
   const extras = new Map();
   const hidden = new Set();
-  for (const [name, head] of parentOf) {
-    if (parentOf.has(head)) continue;
-    hidden.add(name);
+  const folded = new Set();
+  const addExtra = (head, name) => {
+    if (!head || head === name) return;
     const group = extras.get(head) || [];
-    group.push(name);
+    if (!group.includes(name)) group.push(name);
     extras.set(head, group);
+  };
+
+  for (const [name, head] of parentOf) {
+    if (parentOf.has(head)) {
+      if (!rawExtends(head, name)) {
+        hidden.add(name);
+        folded.add(name);
+        addExtra(rootHead(head, parentOf), name);
+      }
+      continue;
+    }
+    hidden.add(name);
+    if (!rawExtends(head, name)) folded.add(name);
+    addExtra(head, name);
   }
+
   // 同一代的并列名字：最后一段不同，但前缀里已经带了版本号。
   // doubao-seed-2.0-code / mini 收成一条；glm-5 和 glm-4.6v 的前缀 glm 没有版本，不并。
   const pools = new Map();
-  for (const name of list) {
+  for (const name of reps) {
     if (parentOf.has(name) || extras.has(name)) continue;
-    const stem = stemBeforeLastHyphen(name);
+    const stem = cutLastSegment(canonicalVersionName(name));
     if (!stem || !/\d/.test(stem)) continue;
     const pool = pools.get(stem) || [];
     pool.push(name);
@@ -71,11 +140,28 @@ export function prefixModelRoutes(names) {
     if (pool.length < 2) continue;
     pool.sort(byLengthThenName);
     const [head, ...rest] = pool;
-    const group = extras.get(head) || [];
-    group.push(...rest);
-    extras.set(head, group);
-    for (const name of rest) hidden.add(name);
+    for (const name of rest) {
+      hidden.add(name);
+      addExtra(head, name);
+    }
   }
+
+  for (const [name, rep] of aliasOf) {
+    hidden.add(name);
+    folded.add(name);
+    const root = rootHead(rep, parentOf);
+    let head = extras.has(root) ? root : rep;
+    if (!extras.has(root)) {
+      for (const [owner, group] of extras) {
+        if (group.includes(rep)) {
+          head = owner;
+          break;
+        }
+      }
+    }
+    addExtra(head, name);
+  }
+
   for (const group of extras.values()) group.sort(byLengthThenName);
-  return { extras, hidden };
+  return { extras, hidden, folded };
 }

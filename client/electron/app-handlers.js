@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
-const { parseRouteBinding, claudeNameAtIndex } = require('../shared/route-binding');
+const { parseRouteBinding, claudeNameAtIndex, modelIdFromRoute } = require('../shared/route-binding');
 
 const HANDLERS_YAML = path.join(__dirname, 'config', 'app-handlers.yaml');
 const SCANS_YAML = path.join(__dirname, 'config', 'session-scans.yaml');
@@ -205,7 +205,7 @@ function routeLabelFor(routeId, routes = []) {
     const icon = r.icon && !String(r.icon).startsWith('icon:') ? `${r.icon} ` : '';
     return `${icon}${r.scene_name || r.model_key || routeId}`.trim();
   }
-  return String(parsed.modelId || routeId).trim();
+  return modelIdFromRoute(routeId, routes) || String(parsed.modelId || routeId).trim();
 }
 
 /** 绑定路由 → WorkBuddy models.json 的 id（场景名或模型 id，不含 marker 前缀） */
@@ -218,7 +218,8 @@ function routeModelId(routeId, routes = []) {
     // scene_name（"综合最优"）只是显示名，直接当 model 发会 model_not_found（Codex 表现为无返回）。
     return String(r.model_key || r.scene_name || routeId).trim();
   }
-  return String(parsed.modelId || routeId).trim();
+  // paid:供给源:模型名 只留模型名，和单模型 paid:模型名 同一套切分
+  return modelIdFromRoute(routeId, routes) || String(parsed.modelId || routeId).trim();
 }
 
 /** 应用绑定的路由 → 模型名数组（去重、保序）。供 Codex model catalog 等消费。 */
