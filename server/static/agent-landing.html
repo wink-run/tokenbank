@@ -126,10 +126,10 @@
                     <div class="apart-name">{{ p.name }}<span v-if="toolElapsed(p, m)" class="apart-time">{{ toolElapsed(p, m) }}</span></div>
                     <pre v-if="p.detail">{{ p.detail }}</pre>
                   </template>
-                  <div v-else class="md-body" v-html="renderRich(p.text)"></div>
+                  <div v-else class="md-body" v-html="renderRich(p.text, m.artifacts)"></div>
                 </div>
               </template>
-              <div v-else-if="m.content && m.content !== T.thinking" class="md-body" v-html="renderRich(m.content)"></div>
+              <div v-else-if="m.content && m.content !== T.thinking" class="md-body" v-html="renderRich(m.content, m.artifacts)"></div>
               <span v-if="m.pending && !(m.parts && m.parts.length) && (!m.content || m.content === T.thinking)" class="typing"><i></i><i></i><i></i></span>
               <span v-else-if="m.pending" class="typing stream-caret"><i></i><i></i><i></i></span>
               <div v-if="runLabel(m)" class="run-time">{{ runLabel(m) }}</div>
@@ -509,7 +509,55 @@ createApp({
         const mime = String(item.mime || '')
         const kind = mime.startsWith('image/') && mime.indexOf('svg') < 0 ? 'image' : 'file'
         out.push({ name, mime, kind, url: url || undefined, dataUrl: dataOk ? dataUrl : undefined })
-        if (out.length >= 4) break
+        if (out.length >= 8) break
+      }
+      return out
+    }
+    /** 正文里的中转地址补回成品，刷新后视频播放器还能挂上。 */
+    function artifactsFromText(text) {
+      const re = /https?:\/\/[^\s<>"'`]+?\/media\/agent\/[A-Za-z0-9_-]+\/[^\s<>"'`]+/gi
+      const found = []
+      const seen = new Set()
+      let m
+      const raw = String(text || '')
+      while ((m = re.exec(raw))) {
+        const url = m[0].replace(/[),.;，。；]+$/, '')
+        if (!artifactUrl({ url }) || seen.has(url)) continue
+        seen.add(url)
+        const name = decodeURIComponent((url.split('/').pop() || 'file').split('?')[0])
+        const image = /\.(png|jpe?g|gif|webp|svg)$/i.test(name)
+        const video = /\.(mp4|m4v|webm|mov|mkv)$/i.test(name)
+        found.push({
+          name,
+          url,
+          kind: image ? 'image' : 'file',
+          mime: video ? (/\.webm$/i.test(name) ? 'video/webm' : 'video/mp4') : '',
+        })
+        if (found.length >= 8) break
+      }
+      return found
+    }
+    function mergeArtifacts(existing, texts) {
+      const base = cleanArtifacts(existing)
+      const have = new Set(base.map(a => a.url).filter(Boolean))
+      const blob = (texts || []).filter(Boolean).join('\n')
+      for (const extra of artifactsFromText(blob)) {
+        if (have.has(extra.url) || base.length >= 8) continue
+        base.push(extra)
+        have.add(extra.url)
+      }
+      return base
+    }
+    /** 封面只写了文件名时，挂上对应成品地址，悬停才能出图。 */
+    function decorateRich(html, arts) {
+      let out = String(html || '')
+      for (const f of cleanArtifacts(arts)) {
+        if (!f.url || !f.name) continue
+        const image = f.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name)
+        if (!image) continue
+        const esc = String(f.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const src = String(f.url).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        out = out.replace(new RegExp('<code>' + esc + '</code>', 'g'), '<code data-src="' + src + '">' + f.name + '</code>')
       }
       return out
     }
@@ -664,7 +712,7 @@ createApp({
             content: String(m.content || ''),
             pending: false,
             parts: cleanParts(m.parts),
-            artifacts: cleanArtifacts(m.artifacts),
+            artifacts: mergeArtifacts(m.artifacts, [m.content].concat(Array.isArray(m.parts) ? m.parts.map(p => p && p.text) : [])),
             files: Array.isArray(m.files) ? m.files.map(f => ({ name: String((f && f.name) || 'file').slice(0, 120) })).slice(0, 4) : undefined,
             startedAt: Number(m.startedAt) || undefined,
             finishedAt: Number(m.finishedAt) || undefined,
@@ -760,7 +808,7 @@ createApp({
           content: String(m.content || ''),
           pending: false,
           parts: cleanParts(m.parts),
-          artifacts: cleanArtifacts(m.artifacts),
+          artifacts: mergeArtifacts(m.artifacts, [m.content].concat(Array.isArray(m.parts) ? m.parts.map(p => p && p.text) : [])),
           files: Array.isArray(m.files) ? m.files.map(f => ({ name: String((f && f.name) || 'file').slice(0, 120) })).slice(0, 4) : undefined,
           startedAt: Number(m.startedAt) || undefined,
           finishedAt: Number(m.finishedAt) || undefined,
@@ -1433,7 +1481,7 @@ createApp({
     const autoGrow = (el) => ChatUI.autoGrow(el)
     const avatarColor = (n) => ChatUI.avatarColor(n)
     const appIcon = computed(() => (window.TBAppIcon ? window.TBAppIcon.url(agent.value) : ''))
-    const renderRich = (raw) => ChatUI.wrapCode(renderMarkdown(raw), T.value.copy)
+    const renderRich = (raw, arts) => decorateRich(ChatUI.wrapCode(renderMarkdown(raw), T.value.copy), arts)
     const onChatClick = (e) => ChatUI.onCopyClick(e, T.value.copied, T.value.copy)
     const onImgOver = (e) => ChatUI.showImagePreview(e)
     const onImgOut = (e) => ChatUI.hideImagePreview(e)

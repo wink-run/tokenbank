@@ -52,7 +52,18 @@ window.ChatUI = (function () {
     if (!node || !node.closest) return ''
     const el = node.closest('a, code')
     if (!el || el.closest('pre') || !el.closest('.md-body, .afiles')) return ''
-    let raw = el.tagName === 'A' ? (el.getAttribute('href') || '') : (el.textContent || '')
+    // 渲染时打在文件名上的地址优先，这样封面只写了文件名也能预览
+    const marked = el.getAttribute('data-src')
+      || (el.closest('a') && el.closest('a').getAttribute('data-src'))
+      || ''
+    if (IMG_URL.test(marked) || IMG_PATH.test(marked)) return marked
+    let raw = ''
+    if (el.tagName === 'A') raw = el.getAttribute('href') || ''
+    else {
+      const parent = el.parentElement && el.parentElement.tagName === 'A' ? el.parentElement : null
+      const href = parent ? (parent.getAttribute('href') || '') : ''
+      raw = (IMG_URL.test(href) || IMG_PATH.test(href)) ? href : (el.textContent || '')
+    }
     raw = String(raw).trim().replace(/[),.;，。；]+$/, '')
     if (IMG_URL.test(raw) || IMG_PATH.test(raw)) return raw
     return ''

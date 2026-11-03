@@ -61,7 +61,7 @@ function ensureContributeWorkspace(assistantId, consumerKey) {
 
 // 回传给调用方的成品：图片和视频可直接看，字幕等其它文件可下载。
 // 短视频常见 5–20MB，旧的 4MB 上限会把成片留在出租方磁盘上。
-const ARTIFACT_MAX = 4;
+const ARTIFACT_MAX = 8;
 const ARTIFACT_MAX_BYTES = 32 * 1024 * 1024;
 const ARTIFACT_TOTAL_CHARS = 64_000_000;
 const ARTIFACT_MIME = {
