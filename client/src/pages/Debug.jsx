@@ -71,6 +71,7 @@ import {
   B64_OMITTED, persistImageList, resolveImageList, serializeImageSrc, isImageRef,
   collectImageRefIds, deleteUnreferencedImageIds, fileMarker,
 } from '../lib/debug-image-store';
+import { presentRemoteAgentResult, presentRemoteAgentSteps } from '../../shared/remote-artifact-paths.cjs';
 import { useResolvedImageSrc } from '../components/ResolvedDebugImage';
 
 /** 下拉 value：同 id 跨层时用 tier:id，避免 HTML option 重复 value 选中错位 */
@@ -1498,7 +1499,14 @@ export default function Debug() {
     });
     const terminal = patch.currentTask?.status;
     if (resolvedKey && terminal && ['completed', 'failed', 'cancelled'].includes(terminal)) {
-      const rawSteps = preferRicherSteps(patch.taskSteps || [], sess.taskSteps || []);
+      let rawSteps = preferRicherSteps(patch.taskSteps || [], sess.taskSteps || []);
+      // 社区雇佣：流式步骤里仍是出租方路径，收尾时换成中转地址
+      if (String(resolvedKey).startsWith('community:')) {
+        const remoteResult = patch.taskResult || sess.taskResult || null;
+        const arts = remoteResult?.artifacts;
+        rawSteps = presentRemoteAgentSteps(rawSteps, arts);
+        if (patch.taskResult) patch.taskResult = presentRemoteAgentResult(patch.taskResult, arts);
+      }
       const archiveSteps = closePendingToolSteps(
         rawSteps,
         terminal === 'cancelled' ? t('debug.agent.aborted') : t('debug.agent.noResult'),

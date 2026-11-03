@@ -185,6 +185,19 @@ def rewrite_artifact_paths(text: str, artifacts: list) -> str:
     return out
 
 
+_LOCAL_PATH_RE = re.compile(_PATH_PREFIX + r"[^\s`'\"<>|]+")
+
+
+def redact_remaining_local_paths(text: str) -> str:
+    """没能换成中转地址的绝对路径只留文件名。"""
+    def _base(match: re.Match) -> str:
+        raw = match.group(0).replace("\\", "/").rstrip("/")
+        name = raw.split("/")[-1]
+        return name or match.group(0)
+
+    return _LOCAL_PATH_RE.sub(_base, str(text or ""))
+
+
 def public_artifacts(artifacts: list) -> list:
     """去掉本机路径后再发给调用方。"""
     view = []

@@ -13,7 +13,12 @@ from datetime import datetime
 from typing import AsyncIterator, Optional
 
 import database as db
-from agent_artifacts import public_artifacts, publish_agent_artifacts, rewrite_artifact_paths
+from agent_artifacts import (
+    public_artifacts,
+    publish_agent_artifacts,
+    redact_remaining_local_paths,
+    rewrite_artifact_paths,
+)
 from worker_pool import pool
 
 logger = logging.getLogger("server")
@@ -64,9 +69,9 @@ def _public_progress_parts(raw) -> list:
 def _apply_artifacts(task_id: str, output: str, raw) -> tuple[str, list]:
     """成品存到本服务，正文里的本机路径换成 /media/agent 中转地址。"""
     stored = publish_agent_artifacts(task_id, raw)
-    if not stored:
-        return output, []
-    return rewrite_artifact_paths(output, stored), public_artifacts(stored)
+    text = rewrite_artifact_paths(output, stored) if stored else output
+    # 换不掉的出租方路径不再原样返回
+    return redact_remaining_local_paths(text), public_artifacts(stored)
 
 
 # 正文先到、文件后到。这段时间内断线仍保留正文，不改写成 worker disconnected

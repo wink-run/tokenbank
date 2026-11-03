@@ -11,6 +11,7 @@ from agent_artifacts import (
     cleanup_agent_media,
     public_artifacts,
     publish_agent_artifacts,
+    redact_remaining_local_paths,
     rewrite_artifact_paths,
 )
 
@@ -55,6 +56,12 @@ def test_publish_rewrites_local_path():
     twice = rewrite_artifact_paths(rewritten, stored)
     assert twice == rewritten
     assert "httphttps://" not in twice
+    leftover = redact_remaining_local_paths(
+        "还有 " + LOCAL.replace("pelican_bicycle.png", "notes.txt") + " 和 " + url
+    )
+    assert "/Users/wink" not in leftover
+    assert "notes.txt" in leftover
+    assert url in leftover
     public = public_artifacts(stored)
     assert "local" not in public[0]
     assert "dataUrl" not in public[0]
