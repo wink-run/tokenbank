@@ -1050,6 +1050,19 @@ async def create_agent_task(
     return result
 
 
+@app.post("/api/agent-tasks/{task_id}/cancel")
+async def cancel_agent_task_route(
+    task_id: str,
+    uid: Optional[int] = Depends(optional_auth_api_key_or_jwt),
+):
+    """中途暂停远程智能体。只停调用方自己的任务，并退回这一轮积分。"""
+    from dispatch_agent import cancel_agent_task
+    ok = await cancel_agent_task(task_id, uid)
+    if not ok:
+        raise HTTPException(404, "task not found")
+    return {"ok": True, "task_id": task_id}
+
+
 @app.get("/api/agent-downloads")
 async def agent_downloads():
     items: list[dict] = []

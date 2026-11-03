@@ -28,6 +28,10 @@ const {
   collectWorkspaceArtifacts,
 } = require('./contribute-session');
 
+// 云端任务号 → 本机执行器任务，供中途暂停时杀掉 CLI
+const liveAgentTasks = new Map();
+const cancelledCloudTasks = new Set();
+
 // 贡献者 worker 回传上游错误时，把上游的限流/配额重置时刻从响应头(Retry-After / *-ratelimit-*-reset)
 // 解析出来、规范成 " (reset at <ISO+00:00>)" 追加到错误文本——这些头在 p2p 多跳中会丢，但错误文本
 // 会原样透传回消费端（dispatch.py last_error=str(data)），消费端 gateway-cooldown.parseResetMs 即可捡到，
@@ -867,6 +871,10 @@ async function handleAgentTask(msg, cfg) {
       files: attachFiles.length ? attachFiles : undefined,
     });
     trackedTaskId = localId;
+    liveAgentTasks.set(taskId, localId);
+    if (cancelledCloudTasks.has(taskId)) {
+      try { await executor.cancel(localId); } catch { /* 轮询会看到 cancelled */ }
+    }
 
     const timeoutMs = Math.max(30_000, Number(msg.timeout_ms) || 10 * 60 * 1000);
     const deadline = Date.now() + timeoutMs;
@@ -953,6 +961,8 @@ async function handleAgentTask(msg, cfg) {
     });
   } finally {
     executor.off('task:step', onStep);
+    liveAgentTasks.delete(taskId);
+    cancelledCloudTasks.delete(taskId);
   }
 }
 
@@ -1062,6 +1072,19 @@ function connect(cfg) {
         send({ type: 'error', req_id, error: e.message });
       } finally {
         activeRequests = Math.max(0, activeRequests - 1);
+      }
+    }
+
+    if (msg.type === 'agent_task_cancel') {
+      const executor = require('./agent-executor');
+      const cloudId = String(msg.task_id || '').trim();
+      const localId = liveAgentTasks.get(cloudId);
+      cancelledCloudTasks.add(cloudId);
+      log(`[agent] cancel ${cloudId} local=${localId || '-'}`);
+      if (localId) {
+        try { await executor.cancel(localId); } catch (e) {
+          log(`[agent] cancel failed: ${e.message}`);
+        }
       }
     }
 

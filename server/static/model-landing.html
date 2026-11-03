@@ -181,7 +181,7 @@
             :placeholder="isImage ? T.imagePh : (isVision ? T.promptPhVision : T.promptPh)"
             :disabled="running"
             @input="autoGrow($event.target)"
-            @keydown.enter.exact.prevent="isImage ? genImage() : sendMessage()"
+            @keydown.enter.shift.exact.prevent="isImage ? genImage() : sendMessage()"
             @paste="onComposerPaste"
           ></textarea>
           <div class="box-row">
@@ -262,8 +262,8 @@ createApp({
         pickModel: '当前模型', groupChat: '文本对话', groupVision: '图文对话', groupImage: '图像生成', groupEmbed: '嵌入',
         typeChat: '文本', typeVision: '图文', typeImage: '生图', typeEmbedding: '嵌入',
         publicTry: '网页试用', pinned: '钉选', viewSharer: '贡献者主页 →',
-        promptPh: '输入消息，Enter 发送…',
-        promptPhVision: '输入消息或粘贴图片，Enter 发送…',
+        promptPh: '输入消息，Shift+Enter 发送…',
+        promptPhVision: '输入消息或粘贴图片，Shift+Enter 发送…',
         imagePh: '描述你想生成的画面…',
         send: '发送', gen: '生成', running: '生成中…', streaming: '生成中…',
         needLogin: '文生图需要登录 Token Bank 账号。',
@@ -288,7 +288,7 @@ createApp({
         circleDescAuthed: '只在圈子内共享，加入对应圈子后即可使用。', circleTag: '仅圈子',
         browseCircles: '浏览圈子', allModels: '全部可用模型', tryThese: '或试试这些在线模型', unavailableTag: '不可用',
         online: '在线', newChat: '新对话', copy: '复制', copied: '已复制', attach: '添加图片',
-        enterHint: 'Enter 发送 · Shift+Enter 换行', trialDone: '免费试用已用完', gateSub: '登录后继续对话，按正常积分扣费。',
+        enterHint: 'Enter 换行 · Shift+Enter 发送', trialDone: '免费试用已用完', gateSub: '登录后继续对话，按正常积分扣费。',
         needLoginShort: '需要登录', aiDisclaimer: '内容由 AI 生成，请注意甄别',
         authTitleLogin: '登录 Token Bank', authTitleRegister: '注册 Token Bank',
         authSub: '登录后可多轮对话、切换模型，按积分计费。',
@@ -320,8 +320,8 @@ createApp({
         pickModel: 'Model', groupChat: 'Text chat', groupVision: 'Vision chat', groupImage: 'Image generation', groupEmbed: 'Embedding',
         typeChat: 'Text', typeVision: 'Vision', typeImage: 'Image', typeEmbedding: 'Embedding',
         publicTry: 'Web trial', pinned: 'Pinned', viewSharer: 'Contributor →',
-        promptPh: 'Message, Enter to send…',
-        promptPhVision: 'Message or paste image, Enter to send…',
+        promptPh: 'Message, Shift+Enter to send…',
+        promptPhVision: 'Message or paste image, Shift+Enter to send…',
         imagePh: 'Describe the image…',
         send: 'Send', gen: 'Generate', running: 'Running…', streaming: 'Generating…',
         needLogin: 'Sign in to generate images.',
@@ -346,7 +346,7 @@ createApp({
         circleDescAuthed: 'is shared inside a circle — join it to use.', circleTag: 'Circle only',
         browseCircles: 'Browse circles', allModels: 'All available models', tryThese: 'Or try one of these online models', unavailableTag: 'unavailable',
         online: 'Online', newChat: 'New chat', copy: 'Copy', copied: 'Copied', attach: 'Add image',
-        enterHint: 'Enter to send · Shift+Enter for newline', trialDone: 'Free trial used', gateSub: 'Sign in to keep chatting, billed in credits.',
+        enterHint: 'Enter for newline · Shift+Enter to send', trialDone: 'Free trial used', gateSub: 'Sign in to keep chatting, billed in credits.',
         needLoginShort: 'Sign-in required', aiDisclaimer: 'AI-generated content may be inaccurate',
         authTitleLogin: 'Sign in to Token Bank', authTitleRegister: 'Create your account',
         authSub: 'Sign in for multi-turn chat and model switching, billed in credits.',

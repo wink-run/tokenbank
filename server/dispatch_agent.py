@@ -157,7 +157,9 @@ async def _finalize_agent_result(
     worker.record_agent_complete(aid, success, duration_ms if isinstance(duration_ms, (int, float)) else None)
 
     if not success:
-        if not guest:
+        # 调用方已在取消接口里退过积分
+        already_refunded = bool((result or {}).get("cancel_settled"))
+        if not guest and not already_refunded:
             await db.award_credits(
                 user_id=consumer_user_id,
                 delta=AGENT_TASK_CREDITS,
@@ -383,6 +385,55 @@ async def _prepare_agent_task(
     }, None
 
 
+async def cancel_agent_task(task_id: str, consumer_user_id: Optional[int]) -> bool:
+    """调用方中途暂停：停掉出租方进程，并退回这一轮积分。"""
+    task_id = str(task_id or "").strip()
+    if not task_id:
+        return False
+    for worker in pool.all_workers():
+        pending = getattr(worker, "pending_agents", None) or {}
+        entry = pending.get(task_id)
+        if not entry:
+            continue
+        # 登录用户只能停自己的；访客任务没有 user id，凭任务号停止
+        if entry.get("consumer_user_id") != consumer_user_id:
+            return False
+        if entry.get("cancel_settled"):
+            return True
+        entry["cancel_settled"] = True
+        owner = entry.get("consumer_user_id")
+        if owner is not None:
+            await db.award_credits(
+                user_id=owner,
+                delta=AGENT_TASK_CREDITS,
+                type_="refund",
+                model_name=f"agent:{entry.get('assistant_id') or ''}",
+                tokens=0,
+                base_credits=AGENT_TASK_CREDITS,
+                multiplier=1.0,
+                note=f"agent_task cancelled refund task_id={task_id}",
+            )
+        try:
+            await worker.send({"type": "agent_task_cancel", "task_id": task_id})
+        except Exception:
+            logger.exception("[agent_task] cancel send failed task_id=%s", task_id)
+        q = entry.get("queue")
+        pending.pop(task_id, None)
+        worker.active_requests = max(0, getattr(worker, "active_requests", 1) - 1)
+        if q is not None:
+            await q.put({
+                "type": "agent_task_result",
+                "task_id": task_id,
+                "status": "cancelled",
+                "error": "cancelled",
+                "output": "",
+                "cancel_settled": True,
+            })
+        logger.info("[agent_task] cancelled task_id=%s user=%s", task_id, consumer_user_id)
+        return True
+    return False
+
+
 async def _refund_timeout(ctx: dict) -> dict:
     task_id = ctx["task_id"]
     aid = ctx["aid"]
@@ -510,6 +561,8 @@ async def iter_agent_task_sse(
         return
 
     assert ctx is not None
+    # 先把任务号交给页面，用户才能在首段进度之前暂停
+    yield _sse({"event": "started", "task_id": ctx["task_id"]})
     try:
         async for msg in _iter_agent_messages(ctx):
             if msg is None:

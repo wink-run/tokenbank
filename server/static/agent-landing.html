@@ -160,11 +160,11 @@
             <template v-for="(p, i) in pendingImages" :key="p.id">
               <div v-if="p.kind === 'file'" class="filechip">
                 <span>{{ p.name }}</span>
-                <button type="button" :disabled="running" @click="removePendingImage(i)" title="×">×</button>
+                <button type="button" @click="removePendingImage(i)" title="×">×</button>
               </div>
               <div v-else class="thumb">
                 <img :src="p.dataUrl" alt="">
-                <button type="button" :disabled="running" @click="removePendingImage(i)" title="×">×</button>
+                <button type="button" @click="removePendingImage(i)" title="×">×</button>
               </div>
             </template>
           </div>
@@ -173,20 +173,21 @@
             v-model="prompt"
             rows="1"
             :placeholder="T.promptPh"
-            :disabled="running"
             @input="autoGrow($event.target)"
-            @keydown.enter.exact.prevent="sendMessage"
+            @keydown.enter.shift.exact.prevent="sendMessage"
             @paste="onComposerPaste"
           ></textarea>
           <div class="box-row">
             <input ref="fileEl" type="file" multiple hidden @change="onPickFiles">
-            <button type="button" class="icon-btn" :disabled="running" :title="T.attach" @click="fileEl && fileEl.click()">
+            <button type="button" class="icon-btn" :title="T.attach" @click="fileEl && fileEl.click()">
               <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14.5 9.5 9.6 14.4a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3l-5.5 5.5a1 1 0 0 1-1.5-1.5L11.6 6.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
             <span class="box-meta">{{ T.enterHint }}</span>
-            <button type="button" class="send" :disabled="running || (!prompt.trim() && !pendingImages.length)" :title="T.send" @click="sendMessage">
-              <svg v-if="!running" width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 16V4M5 9l5-5 5 5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              <span v-else class="typing" style="height:auto"><i style="background:#fff"></i><i style="background:#fff"></i><i style="background:#fff"></i></span>
+            <button v-if="running && !hasDraft" type="button" class="send stop" :title="T.pause" @click="pauseRun">
+              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1.5" fill="currentColor"/></svg>
+            </button>
+            <button v-else type="button" class="send" :disabled="!hasDraft" :title="T.send" @click="sendMessage">
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 16V4M5 9l5-5 5 5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>
         </div>
@@ -246,7 +247,7 @@ createApp({
         loading: '加载中…', unavailable: '无法访问此智能体', backHome: '返回首页',
         backNetwork: '← 社区网络',
         noDesc: '暂无简介', online: '在线', publicShare: '全球分享', circleShare: '圈子分享',
-        creditsPerTask: '每次 {n} 积分', promptPh: '输入消息，或添加图片和文件，Enter 发送…',
+        creditsPerTask: '每次 {n} 积分', promptPh: '输入消息，或添加图片和文件，Shift+Enter 发送…',
         send: '发送', running: '思考中…', needLogin: '圈子分享仅成员可见；全球分享未登录可试一轮。',
         loginToContinue: '试用一轮已结束，登录后可继续对话（按正常积分扣费）。',
         login: '登录', register: '注册', loggingIn: '登录中…', registering: '注册中…',
@@ -260,9 +261,10 @@ createApp({
         attachSize: '附件过大',
         chatHint: '未登录可试一轮', chatEmpty: '发送一条消息试用；可粘贴图片；登录后可多轮追问。',
         clear: '清空对话', thinking: '…', thinkingLabel: '思考', toolLabel: '工具', streaming: '生成中…', toolRunning: '调用工具：{name}',
+        pause: '暂停', paused: '已暂停',
         newChat: '新对话', copy: '复制', copied: '已复制', attach: '添加附件', hires: '{n} 次雇佣',
         imageOnly: '请根据附图完成任务', fileOnly: '请根据附件完成任务',
-        enterHint: 'Enter 发送 · Shift+Enter 换行', trialDone: '本次已用完', gateSub: '再看一次广告，或登录后按积分继续。', watchAdAgain: '再看广告',
+        enterHint: 'Enter 换行 · Shift+Enter 发送', trialDone: '本次已用完', gateSub: '再看一次广告，或登录后按积分继续。', watchAdAgain: '再看广告',
         runsRemote: '任务在分享者设备上执行', authTitleLogin: '登录 Token Bank', authTitleRegister: '注册 Token Bank',
         authSub: '登录后可多轮对话，按次扣积分。',
         sugs: [
@@ -276,7 +278,7 @@ createApp({
         loading: 'Loading…', unavailable: 'Agent unavailable', backHome: 'Home',
         backNetwork: '← Network',
         noDesc: 'No description', online: 'Online', publicShare: 'Global', circleShare: 'Circle',
-        creditsPerTask: '{n} credits / turn', promptPh: 'Message, or add an image or file. Enter to send…',
+        creditsPerTask: '{n} credits / turn', promptPh: 'Message, or add an image or file. Shift+Enter to send…',
         send: 'Send', running: 'Thinking…', needLogin: 'Circle agents are members-only. Public agents: one free guest turn.',
         loginToContinue: 'Guest trial used. Sign in to continue (normal credits).',
         login: 'Sign in', register: 'Sign up', loggingIn: 'Signing in…', registering: 'Signing up…',
@@ -290,9 +292,10 @@ createApp({
         attachSize: 'Attachment too large',
         chatHint: 'One free guest turn', chatEmpty: 'Try one message (paste images OK); sign in for multi-turn chat.',
         clear: 'Clear', thinking: '…', thinkingLabel: 'Thinking', toolLabel: 'Tool', streaming: 'Generating…', toolRunning: 'Tool: {name}',
+        pause: 'Pause', paused: 'Paused',
         newChat: 'New chat', copy: 'Copy', copied: 'Copied', attach: 'Add attachment', hires: '{n} hires',
         imageOnly: 'Please use the attached images.', fileOnly: 'Please use the attached files.',
-        enterHint: 'Enter to send · Shift+Enter for newline', trialDone: 'Turn used up', gateSub: 'Watch another ad, or sign in to continue (credits).', watchAdAgain: 'Watch ad',
+        enterHint: 'Enter for newline · Shift+Enter to send', trialDone: 'Turn used up', gateSub: 'Watch another ad, or sign in to continue (credits).', watchAdAgain: 'Watch ad',
         runsRemote: "Runs on the sharer's device", authTitleLogin: 'Sign in to Token Bank', authTitleRegister: 'Create your account',
         authSub: 'Sign in for multi-turn chat, billed per turn.',
         sugs: [
@@ -338,6 +341,11 @@ createApp({
     const FILE_MAX_BYTES = 8 * 1024 * 1024
     const chatEl = ref(null)
     const running = ref(false)
+    const activeTaskId = ref('')
+    const hasDraft = computed(() => !!String(prompt.value || '').trim() || pendingImages.value.length > 0)
+    let runAbort = null
+    let runSettle = null
+    let stopRequested = false
     const err = ref('')
     // 未登录已用完一轮试用
     const guestUsed = ref(false)
@@ -667,9 +675,13 @@ createApp({
       if (!prior.length) return nextUser
       const lines = prior.map(m => {
         const who = m.role === 'user' ? 'User' : 'Assistant'
-        return `${who}: ${m.content}`
+        const note = m.paused ? '\n(paused so the user can add information)' : ''
+        return `${who}: ${m.content}${note}`
       })
-      return `Conversation so far:\n${lines.join('\n\n')}\n\nUser: ${nextUser}\n\nAssistant:`
+      const lead = prior.some(m => m.paused)
+        ? 'The previous turn was paused. Keep the work already done and apply the new user message.\n\n'
+        : ''
+      return `${lead}Conversation so far:\n${lines.join('\n\n')}\n\nUser: ${nextUser}\n\nAssistant:`
     }
 
     async function loadAgent() {
@@ -825,7 +837,42 @@ createApp({
       }
     }
 
+    function freezePartial(idx) {
+      const row = messages.value[idx]
+      if (!row || row.role !== 'assistant') return
+      row.pending = false
+      row.paused = true
+      const text = answerOf(row)
+      row.content = text || T.value.paused
+    }
+
+    async function cancelRemote(taskId) {
+      const id = String(taskId || '').trim()
+      if (!id) return
+      try {
+        const headers = {}
+        const tok = getToken()
+        if (tok) headers.Authorization = `Bearer ${tok}`
+        await fetch(`/api/agent-tasks/${encodeURIComponent(id)}/cancel`, { method: 'POST', headers })
+      } catch { /* 页面先停；远端没停时任务会自己超时 */ }
+    }
+
+    async function pauseRun() {
+      if (!running.value) return
+      stopRequested = true
+      const id = activeTaskId.value
+      try { runAbort?.abort() } catch { /* 已经结束 */ }
+      const wait = runSettle
+      await cancelRemote(id)
+      if (wait) await wait
+    }
+
     async function sendMessage() {
+      if (running.value) {
+        const followUp = hasDraft.value
+        await pauseRun()
+        if (!followUp) return
+      }
       err.value = ''
       const text = prompt.value.trim()
       const pending = pendingImages.value.slice()
@@ -859,6 +906,11 @@ createApp({
       prompt.value = ''
       pendingImages.value = []
       running.value = true
+      stopRequested = false
+      activeTaskId.value = ''
+      runAbort = new AbortController()
+      let resolveSettle = () => {}
+      runSettle = new Promise((resolve) => { resolveSettle = resolve })
       await scrollChat()
 
       const setAssistant = (content, { pending = true } = {}) => {
@@ -898,6 +950,7 @@ createApp({
           method: 'POST',
           headers,
           body: JSON.stringify(body),
+          signal: runAbort.signal,
         })
 
         // 非 SSE（鉴权失败等）：按 JSON 错误处理
@@ -964,6 +1017,8 @@ createApp({
           for (const block of blocks) {
             const ev = parseSseBlock(block)
             if (!ev || typeof ev !== 'object') continue
+            if (ev.task_id) activeTaskId.value = String(ev.task_id)
+            if (ev.event === 'started') continue
             if (ev.event === 'progress') {
               const row = messages.value[asstIdx]
               const parts = cleanParts(ev.parts)
@@ -1025,6 +1080,10 @@ createApp({
               continue
             }
             if (ev.event === 'error') {
+              if (ev.status === 'cancelled' || ev.error === 'cancelled' || stopRequested) {
+                freezePartial(asstIdx)
+                return
+              }
               finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
               const msg = ev.error || ev.detail || ev.status || 'failed'
               // 已有流式正文时保留并标注失败；否则回退整轮
@@ -1079,10 +1138,17 @@ createApp({
         if (!isGuest) await fetchProfile()
         await scrollChat()
       } catch (e) {
+        if (stopRequested || e?.name === 'AbortError') {
+          freezePartial(asstIdx)
+          return
+        }
         dropTurn()
         err.value = e?.message || 'Network error'
       } finally {
         running.value = false
+        runAbort = null
+        resolveSettle()
+        runSettle = null
       }
     }
 
@@ -1139,7 +1205,7 @@ createApp({
       lang, T, toggleLang, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,
-      sendMessage, clearChat, renderMarkdown, onComposerPaste, removePendingImage,
+      sendMessage, pauseRun, hasDraft, clearChat, renderMarkdown, onComposerPaste, removePendingImage,
     }
   },
 }).mount('#app')
