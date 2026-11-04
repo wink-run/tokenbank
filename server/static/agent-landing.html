@@ -89,6 +89,9 @@
           </div>
         </div>
         <div class="head-actions">
+          <button type="button" class="nbtn" :class="{ dark: historyOpen }" @click="toggleHistory" :title="T.history">
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5h12M4 10h12M4 14.5h8" stroke-linecap="round"/></svg><span>{{ T.history }}</span>
+          </button>
           <button v-if="messages.length" type="button" class="nbtn" :disabled="running || shareBusy" @click="shareChat" :title="T.share">
             <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 5H5.5A1.5 1.5 0 0 0 4 6.5v8A1.5 1.5 0 0 0 5.5 16h8a1.5 1.5 0 0 0 1.5-1.5V12" stroke-linecap="round"/><path d="M11 4h5v5M16 4 9.5 10.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>{{ shareCopied ? T.shared : T.share }}</span>
           </button>
@@ -100,7 +103,55 @@
       </div>
     </header>
 
-    <div class="cscroll" ref="chatEl" @click="onChatClick" @mouseover="onImgOver" @mouseout="onImgOut" @scroll="onChatScroll" @load.capture="onChatMedia" @loadedmetadata.capture="onChatMedia">
+    <div v-if="historyOpen" class="hist">
+      <div class="hist-bar">
+        <b>{{ T.historyTitle }}</b>
+        <button type="button" class="nbtn plain" @click="historyOpen=false">{{ T.historyClose }}</button>
+      </div>
+      <div class="hist-body">
+        <div class="hist-list">
+          <div v-if="!loggedIn" class="hist-empty">
+            <p>{{ T.historyLogin }}</p>
+            <button type="button" class="nbtn" style="margin-top:10px" @click="openAuth('login')">{{ T.login }}</button>
+          </div>
+          <p v-else-if="historyLoading" class="hist-empty">{{ T.loading }}</p>
+          <p v-else-if="!historyItems.length" class="hist-empty">{{ T.historyEmpty }}</p>
+          <button v-for="h in historyItems" :key="h.id" type="button" class="hist-item" :class="{ on: historyCurrent && historyCurrent.id === h.id }" @click="selectHistory(h)">
+            <span class="tag">{{ h.role === 'owner' ? T.historyMine : T.historyJoined }}</span>
+            <span class="hist-preview">{{ h.preview || T.emptyThread }}</span>
+            <span class="hist-meta">{{ historyBy(h) }} · {{ historyWhen(h) }}</span>
+          </button>
+        </div>
+        <div class="hist-read" @click="onChatClick">
+          <p v-if="!historyCurrent" class="hist-empty">{{ loggedIn ? T.historyEmpty : T.historyLogin }}</p>
+          <p v-else-if="historyCurrent.loading" class="hist-empty">{{ T.loading }}</p>
+          <div v-else class="hist-msgs">
+            <article v-for="(m, i) in historyCurrent.messages" :key="i" class="hist-msg" :class="m.role">
+              <div class="hist-who">{{ m.role === 'user' ? (m.author || T.someone) : agentName }}</div>
+              <template v-if="m.role === 'assistant' && m.parts && m.parts.length">
+                <div v-for="(p, pi) in m.parts" :key="pi">
+                  <div v-if="p.type === 'thinking'" class="hist-note">{{ p.text }}</div>
+                  <div v-else-if="p.type === 'tool'" class="hist-note">{{ p.name }}</div>
+                  <div v-else class="md-body" v-html="renderRich(p.text, m.artifacts)"></div>
+                </div>
+              </template>
+              <div v-else-if="m.role === 'assistant'" class="md-body" v-html="renderRich(m.content, m.artifacts)"></div>
+              <div v-else class="hist-text">{{ m.content }}</div>
+              <div v-if="m.files && m.files.length" class="hist-note">{{ m.files.map(f => f.name).join(' · ') }}</div>
+              <div v-if="m.artifacts && m.artifacts.length" class="afiles">
+                <figure v-for="(f, j) in m.artifacts" :key="j" class="afig">
+                  <img v-if="f.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name || '')" :src="f.url" :alt="f.name">
+                  <video v-else-if="isVideoFile(f) && f.url" class="avid" controls preload="metadata" :src="f.url"></video>
+                  <a v-if="f.url" class="afile" :href="f.url" :download="f.name" target="_blank" rel="noopener">{{ f.name }}</a>
+                </figure>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-show="!historyOpen" class="cscroll" ref="chatEl" @click="onChatClick" @mouseover="onImgOver" @mouseout="onImgOut" @scroll="onChatScroll" @load.capture="onChatMedia" @loadedmetadata.capture="onChatMedia">
       <div class="cinner">
         <div v-if="!messages.length" class="empty">
           <div v-if="appIcon" class="av lg brand"><img :src="appIcon" alt=""></div>
@@ -157,7 +208,7 @@
       </div>
     </div>
 
-    <footer class="cfoot">
+    <footer v-show="!historyOpen" class="cfoot">
       <div class="cinner">
         <p v-if="err" class="err">{{ err }}</p>
         <p v-if="fromShare && !guestLocked && !shareReadOnly && !shareTurnLocked" class="share-note">{{ T.sharedContinue }}</p>
@@ -295,6 +346,10 @@ createApp({
         disconnectedRetry: '上一次执行中途断了，请从中断处继续，不要重头开始。',
         disconnectedKept: '（连接中断，还没有正文）',
         newChat: '新对话', share: '分享', shared: '链接已复制', shareFail: '分享失败',
+        history: '历史', historyTitle: '最近 5 次对话', historyClose: '关闭',
+        historyLogin: '登录后可以查看你发起或参与的最近 5 次完整对话。',
+        historyEmpty: '还没有对话记录', historyMine: '我发起', historyJoined: '我参与',
+        historyBy: '{name} 发起',
         sharedContinue: '大家的发言按时间接在同一条对话里，直接发消息就能接着聊。', shareMissing: '分享不存在或已失效',
         turnWait: '{name} 正在让智能体回复，这轮结束后才能接着说。谁先发出去，谁算下一轮。', someone: '有人',
         myChat: '我的对话', sharedChat: '分享的对话', sharedBy: '{name}的对话', emptyThread: '暂无内容',
@@ -337,6 +392,10 @@ createApp({
         disconnectedRetry: 'The previous run stopped on its own. Continue from where it stopped. Do not start over.',
         disconnectedKept: '(Disconnected before a reply.)',
         newChat: 'New chat', share: 'Share', shared: 'Link copied', shareFail: 'Could not share',
+        history: 'History', historyTitle: 'Last 5 chats', historyClose: 'Close',
+        historyLogin: 'Sign in to read the last 5 full chats you started or joined.',
+        historyEmpty: 'No chats yet', historyMine: 'Started', historyJoined: 'Joined',
+        historyBy: 'Started by {name}',
         sharedContinue: 'Everyone’s messages stay in one timeline. Send a message to continue.', shareMissing: 'This share is missing',
         turnWait: '{name} is waiting on the agent. You can send after this turn. First send wins the next turn.', someone: 'Someone',
         myChat: 'My chat', sharedChat: 'Shared chat', sharedBy: "{name}'s chat", emptyThread: 'Empty',
@@ -398,6 +457,10 @@ createApp({
     const shareBusy = ref(false)
     const shareCopied = ref(false)
     const shareHint = ref('')
+    const historyOpen = ref(false)
+    const historyLoading = ref(false)
+    const historyItems = ref([])
+    const historyCurrent = ref(null)
     // 点了新对话之后，不要被自动刷新把刚才那条记录又填回来
     const detachedChat = ref(false)
     // 待发送附图（仅本轮；不写入本地历史以免撑爆 quota）
@@ -936,6 +999,49 @@ createApp({
       try { data = await r.json() } catch { data = null }
       return { r, data }
     }
+    function historyWhen(h) {
+      const t = Date.parse((h && (h.updated_at || h.created_at)) || '')
+      if (!Number.isFinite(t)) return ''
+      return new Date(t).toLocaleString(lang.value === 'zh' ? 'zh-CN' : 'en', {
+        month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      })
+    }
+    function historyBy(h) {
+      return T.value.historyBy.replace('{name}', (h && h.author) || T.value.someone)
+    }
+    // 最近 5 条：发起人和登录后接过话的人都能看到完整记录
+    async function loadHistory() {
+      if (!loggedIn.value || !getToken()) {
+        historyItems.value = []
+        historyCurrent.value = null
+        return
+      }
+      const aid = agent.value?.id || assistantIdFromPath()
+      if (!aid) return
+      historyLoading.value = true
+      try {
+        const { r, data } = await fetchJson('/api/agent-chats/history?assistant_id=' + encodeURIComponent(aid), { auth: true })
+        if (!r.ok || !Array.isArray(data?.chats)) {
+          historyItems.value = []
+          historyCurrent.value = null
+          return
+        }
+        historyItems.value = data.chats.slice(0, 5)
+        const keep = historyCurrent.value && historyItems.value.find(item => item.id === historyCurrent.value.id)
+        historyCurrent.value = keep || historyItems.value[0] || null
+      } catch {
+        historyItems.value = []
+      } finally {
+        historyLoading.value = false
+      }
+    }
+    async function toggleHistory() {
+      historyOpen.value = !historyOpen.value
+      if (historyOpen.value) await loadHistory()
+    }
+    function selectHistory(item) {
+      historyCurrent.value = item
+    }
 
     // 打开时贴在最新一条；用户往上翻之后就不再拽回去
     let stickToBottom = true
@@ -1182,6 +1288,7 @@ createApp({
       const token = myTurnToken(sid)
       const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '/turn', {
         method: 'POST',
+        auth: !!getToken(),
         body: JSON.stringify({
           token,
           author: currentUserLabel.value || '',
@@ -1222,6 +1329,7 @@ createApp({
       try {
         await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '/turn/finish', {
           method: 'POST',
+          auth: !!getToken(),
           body: JSON.stringify({ token, messages: tail }),
         })
       } catch { /* 锁过期后别人也能重新抢 */ }
@@ -1254,16 +1362,19 @@ createApp({
       return { missing: true }
     }
     let presenceTimer = null
+    // 忽略过期的探测结果，避免「刚判离线」又被更早发出的请求改回 Online
+    let presenceGen = 0
     function stopPresenceWatch() {
       if (presenceTimer) clearInterval(presenceTimer)
       presenceTimer = null
     }
     async function refreshAgentPresence() {
-      if (!fromShare.value) return
       const id = agent.value?.id || assistantIdFromPath()
-      if (!id) return
+      if (!id || !agent.value) return
+      const gen = ++presenceGen
       try {
         const found = await probeAgent(id)
+        if (gen !== presenceGen) return
         if (found.auth) return
         if (found.agent) {
           agent.value = found.agent
@@ -1272,12 +1383,21 @@ createApp({
           applyMeta()
           return
         }
+        // 名片没了：节点已离线。名字和对话留着，只把状态改成离线
         agentOffline.value = true
       } catch { /* 网络抖动时保持当前状态 */ }
     }
     function startPresenceWatch() {
-      if (presenceTimer || !fromShare.value) return
+      if (presenceTimer) return
       presenceTimer = setInterval(() => { refreshAgentPresence() }, 20000)
+    }
+    /** 派发明确说没有在线节点时，抬头不能继续显示 Online。 */
+    function noteNoOnlineNode(msg) {
+      const s = String(msg || '')
+      if (!/无在线节点|no online node/i.test(s)) return
+      agentOffline.value = true
+      presenceGen += 1
+      refreshAgentPresence()
     }
     function loadChatHistoryFrom(list) {
       const raw = Array.isArray(list) ? list : []
@@ -1339,20 +1459,37 @@ createApp({
         shareBusy.value = false
       }
     }
-    function clearChat() {
-      if (running.value) return
-      stopShareWatch()
-      detachedChat.value = true
-      relayShareId.value = ''
-      fromShare.value = false
-      foreignTurn.value = null
-      holdingTurn.value = false
-      shareHint.value = ''
-      messages.value = []
-      pendingImages.value = []
-      err.value = ''
-      const id = agent.value?.id || assistantIdFromPath()
-      saveChatHistory(id, [])
+    let clearingChat = false
+    async function clearChat() {
+      if (running.value || clearingChat) return
+      clearingChat = true
+      try {
+        const id = agent.value?.id || assistantIdFromPath()
+        // 还没分享过的这一场，留给发起人进最近 5 条。已经在分享里的不用再存一份
+        const snapshot = serializeChat(messages.value)
+        if (getToken() && id && snapshot.length && !relayShareId.value) {
+          try {
+            await fetchJson('/api/agent-chats/shares', {
+              method: 'POST',
+              auth: true,
+              body: JSON.stringify({ assistant_id: id, messages: snapshot }),
+            })
+          } catch { /* 存不下也不要卡住新对话 */ }
+        }
+        stopShareWatch()
+        detachedChat.value = true
+        relayShareId.value = ''
+        fromShare.value = false
+        foreignTurn.value = null
+        holdingTurn.value = false
+        shareHint.value = ''
+        messages.value = []
+        pendingImages.value = []
+        err.value = ''
+        saveChatHistory(id, [])
+      } finally {
+        clearingChat = false
+      }
     }
 
     function fileToDataUrl(file) {
@@ -1774,6 +1911,7 @@ createApp({
             }
             finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
             const msg = ev.error || ev.detail || ev.status || 'failed'
+            noteNoOnlineNode(msg)
             const row = messages.value[asstIdx]
             // 出租方自己掉线，不是用户按的暂停：留下本轮和已生成的内容，并接着跑
             if (/worker disconnected/i.test(String(msg))) {
@@ -1889,6 +2027,8 @@ createApp({
         persistNow()
         return
       }
+      // 回到页面时立刻对一下节点，避免抬头还停在打开时的 Online
+      refreshAgentPresence()
       const last = messages.value[messages.value.length - 1]
       if (last && last.pending && last.taskId && !running.value) resumeTask(last.taskId)
       else pollShareTurn()
@@ -2030,6 +2170,7 @@ createApp({
           const msg = typeof detail === 'string'
             ? detail
             : (detail?.error || detail?.message || data?.error || `HTTP ${r.status}`)
+          noteNoOnlineNode(msg)
           err.value = String(msg)
           dropTurn()
           return
@@ -2148,7 +2289,11 @@ createApp({
     const composerEl = ref(null)
     const fileEl = ref(null)
     function openAuth(tab) { authTab.value = tab || 'login'; authErr.value = ''; authOpen.value = true }
-    watch(loggedIn, (v) => { if (v) authOpen.value = false })
+    watch(loggedIn, (v) => {
+      if (!v) return
+      authOpen.value = false
+      if (historyOpen.value) loadHistory()
+    })
     watch(prompt, (v) => { if (!v) nextTick(() => ChatUI.autoGrow(composerEl.value)) })
     const agentName = computed(() => String(agent.value?.display_name || agent.value?.name || agent.value?.id || '?'))
     const suggestions = computed(() => {
@@ -2191,6 +2336,7 @@ createApp({
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,
       sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, shareHint, fromShare, shareReadOnly, shareTurnLocked, turnLockText, agentOffline, renderMarkdown, onComposerPaste, removePendingImage,
+      historyOpen, historyLoading, historyItems, historyCurrent, toggleHistory, selectHistory, historyWhen, historyBy,
     }
   },
 }).mount('#app')

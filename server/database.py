@@ -403,21 +403,54 @@ async def _migrate_agent_chat_shares() -> None:
             ("turn_at", "BIGINT"),
             ("turn_task_id", "TEXT"),
             ("turn_started_at", "TIMESTAMPTZ"),
+            ("updated_at", "TIMESTAMPTZ"),
         ):
             try:
                 await db.execute(f"ALTER TABLE agent_chat_shares ADD COLUMN {col} {decl}")
                 await db.commit()
             except Exception:
                 pass
+        try:
+            await db.execute(
+                "UPDATE agent_chat_shares SET updated_at=created_at WHERE updated_at IS NULL"
+            )
+            await db.commit()
+        except Exception:
+            pass
+        # 谁发起、谁接过话。发起人和参与人之后都能打开这条完整记录
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS agent_chat_share_members (
+                share_id   TEXT NOT NULL,
+                user_id    INTEGER NOT NULL,
+                role       TEXT NOT NULL DEFAULT 'member',
+                joined_at  TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (share_id, user_id)
+            )
+        """)
+        await db.execute("""
+            INSERT INTO agent_chat_share_members(share_id, user_id, role)
+            SELECT id, user_id, 'owner' FROM agent_chat_shares
+            WHERE user_id IS NOT NULL
+            ON CONFLICT(share_id, user_id) DO NOTHING
+        """)
+        await db.commit()
 
 
 async def create_agent_chat_share(assistant_id: str, messages_json: str, user_id: Optional[int] = None) -> str:
     share_id = secrets.token_urlsafe(9)
     async with connect() as db:
         await db.execute(
-            "INSERT INTO agent_chat_shares(id, assistant_id, user_id, messages) VALUES(?,?,?,?)",
+            """INSERT INTO agent_chat_shares(id, assistant_id, user_id, messages, updated_at)
+               VALUES(?,?,?,?,NOW())""",
             (share_id, assistant_id, user_id, messages_json),
         )
+        if user_id:
+            await db.execute(
+                """INSERT INTO agent_chat_share_members(share_id, user_id, role)
+                   VALUES(?,?,'owner')
+                   ON CONFLICT(share_id, user_id) DO NOTHING""",
+                (share_id, user_id),
+            )
         await db.commit()
     return share_id
 
@@ -457,10 +490,51 @@ async def list_agent_chat_shares(assistant_id: str, viewer_id: int, include_all:
     return [dict(row) for row in rows]
 
 
+async def ensure_share_member(share_id: str, user_id: int, role: str = "member") -> None:
+    """记下参与人。已经是发起人的不再降成参与人。"""
+    safe_role = "owner" if role == "owner" else "member"
+    async with connect() as db:
+        await db.execute(
+            """INSERT INTO agent_chat_share_members(share_id, user_id, role)
+               VALUES(?,?,?)
+               ON CONFLICT(share_id, user_id) DO UPDATE SET
+                 role=CASE
+                   WHEN agent_chat_share_members.role='owner' OR EXCLUDED.role='owner' THEN 'owner'
+                   ELSE agent_chat_share_members.role
+                 END""",
+            (share_id, int(user_id), safe_role),
+        )
+        await db.commit()
+
+
+async def list_agent_chat_history(assistant_id: str, viewer_id: int, limit: int = 5) -> list[dict]:
+    """最近几条对话。只有发起人或参与过的人能看到完整记录。"""
+    lim = 5 if not isinstance(limit, int) else max(1, min(limit, 5))
+    sql = """SELECT s.id, s.user_id, s.messages, s.created_at,
+                    COALESCE(s.updated_at, s.created_at) AS updated_at,
+                    u.nickname AS author_nickname, u.email AS author_email
+             FROM agent_chat_shares s
+             LEFT JOIN users u ON u.id = s.user_id
+             WHERE s.assistant_id=?
+               AND (
+                 s.user_id=?
+                 OR EXISTS (
+                   SELECT 1 FROM agent_chat_share_members m
+                   WHERE m.share_id=s.id AND m.user_id=?
+                 )
+               )
+             ORDER BY COALESCE(s.updated_at, s.created_at) DESC
+             LIMIT ?"""
+    async with connect() as db:
+        async with db.execute(sql, (assistant_id, viewer_id, viewer_id, lim)) as cur:
+            rows = await cur.fetchall()
+    return [dict(row) for row in rows]
+
+
 async def replace_agent_chat_share_messages(share_id: str, messages_json: str) -> None:
     async with connect() as db:
         await db.execute(
-            "UPDATE agent_chat_shares SET messages=? WHERE id=?",
+            "UPDATE agent_chat_shares SET messages=?, updated_at=NOW() WHERE id=?",
             (messages_json, share_id),
         )
         await db.commit()
@@ -494,6 +568,7 @@ async def claim_share_turn(share_id: str, token: str, author: str, text: str, sp
                    turn_author=?,
                    turn_text=?,
                    turn_at=?,
+                   updated_at=NOW(),
                    turn_task_id=CASE WHEN turn_token=? THEN turn_task_id ELSE NULL END,
                    turn_started_at=CASE WHEN turn_token=? THEN COALESCE(turn_started_at, NOW()) ELSE NOW() END
                WHERE id=? AND (turn_token IS NULL OR turn_token='' OR turn_token=?)""",
@@ -518,12 +593,12 @@ async def finish_share_turn(share_id: str, token: str, messages_json: Optional[s
     async with connect() as db:
         if messages_json is not None:
             cur = await db.execute(
-                f"UPDATE agent_chat_shares SET messages=?, {_clear_turn_sql()} WHERE id=? AND turn_token=?",
+                f"UPDATE agent_chat_shares SET messages=?, updated_at=NOW(), {_clear_turn_sql()} WHERE id=? AND turn_token=?",
                 (messages_json, share_id, token),
             )
         else:
             cur = await db.execute(
-                f"UPDATE agent_chat_shares SET {_clear_turn_sql()} WHERE id=? AND turn_token=?",
+                f"UPDATE agent_chat_shares SET updated_at=NOW(), {_clear_turn_sql()} WHERE id=? AND turn_token=?",
                 (share_id, token),
             )
         await db.commit()

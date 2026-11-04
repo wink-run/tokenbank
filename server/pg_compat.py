@@ -25,6 +25,7 @@ _TABLES_WITHOUT_ID = frozenset({
     "circle_members",
     "circle_announcement_likes",
     "studio_circle_mods",
+    "agent_chat_share_members",
 })
 
 

@@ -223,6 +223,26 @@ button{font-family:inherit}
 .skel{background:linear-gradient(90deg,#efece8 25%,#f6f4f1 50%,#efece8 75%);background-size:200% 100%;animation:sk 1.2s infinite;border-radius:8px}
 @keyframes sk{from{background-position:200% 0}to{background-position:-200% 0}}
 
+/* 最近 5 次对话：发起人和参与人看完整记录 */
+.hist{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--bg)}
+.hist-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border-light)}
+.hist-bar b{font-size:14px;font-weight:650}
+.hist-body{flex:1;min-height:0;display:flex}
+.hist-list{width:260px;flex-shrink:0;overflow:auto;border-right:1px solid var(--border-light);padding:8px;display:flex;flex-direction:column;gap:6px}
+.hist-item{display:flex;flex-direction:column;align-items:flex-start;gap:4px;width:100%;text-align:left;padding:10px;border-radius:10px;border:1px solid transparent;background:transparent;cursor:pointer;font-family:inherit;color:inherit}
+.hist-item:hover{background:var(--bg-muted)}
+.hist-item.on{background:var(--bg-soft);border-color:var(--border)}
+.hist-preview{font-size:13px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.hist-meta,.hist-note{font-size:12px;color:var(--text-muted);line-height:1.4}
+.hist-empty{padding:18px 12px;color:var(--text-muted);font-size:13px;line-height:1.5}
+.hist-empty p{margin:0}
+.hist-read{flex:1;min-width:0;overflow:auto;padding:20px 8px 32px}
+.hist-msgs{max-width:800px;margin:0 auto;padding:0 20px;display:flex;flex-direction:column;gap:18px}
+.hist-msg{display:flex;flex-direction:column;gap:6px}
+.hist-msg.user{align-items:flex-end}
+.hist-msg.user .hist-text{max-width:88%;padding:10px 14px;border-radius:16px;background:var(--bg-muted);white-space:pre-wrap;line-height:1.55}
+.hist-who{font-size:12px;color:var(--text-muted)}
+
 @media (max-width:640px){
   .cnav-in{padding:0 12px;gap:8px}
   .brand span,.nav-back,.who{display:none}
@@ -232,4 +252,7 @@ button{font-family:inherit}
   .msg.user .uside{max-width:88%}
   .msg-tools{opacity:1}
   .head-actions .nbtn span{display:none}
+  .hist-body{flex-direction:column}
+  .hist-list{width:auto;max-height:168px;border-right:none;border-bottom:1px solid var(--border-light)}
+  .hist-msgs{padding:0 14px}
 }
