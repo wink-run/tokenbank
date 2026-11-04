@@ -12,6 +12,43 @@ const DELIVERY_POLICY = [
   '4. 对话中只给简短说明与最终文件路径，不要贴完整生成脚本正文。',
 ].join('\n');
 
+/**
+ * 只有出租接单时追加。雇佣方不在这台电脑前，不能把本机路径当交付。
+ * 放在产物规则后面，避免「回复绝对路径」盖过这件事。
+ */
+const RENTAL_CONTEXT = [
+  '【Token Bank 出租】',
+  '你是上架出租的智能体，当前任务来自雇佣方，不是这台电脑的主人。',
+  '雇佣方看不到这台电脑，打不开 Finder、桌面或任何本机路径。',
+  '上面关于回复绝对路径、写到桌面或用户指定本机位置的要求，在这次出租里不适用。',
+  '文件写到当前工作目录。回复里只用文件名指代成品，不要给绝对路径、用户目录或文件夹路径，也不要说已经在 Finder 里打开。',
+  '平台会把工作目录里的成品交给雇佣方。',
+].join('\n');
+
+/** 出租接单时写进系统提示。已有则不重复加。 */
+function applyRentalDefinition(args = []) {
+  const out = [...args];
+  const idx = out.indexOf('--append-system-prompt');
+  if (idx >= 0 && typeof out[idx + 1] === 'string') {
+    if (!out[idx + 1].includes('【Token Bank 出租】')) {
+      out[idx + 1] = `${out[idx + 1]}\n\n${RENTAL_CONTEXT}`;
+    }
+    return out;
+  }
+  for (let i = out.length - 1; i >= 0; i -= 1) {
+    const text = out[i];
+    if (typeof text !== 'string' || !text.trim() || text.startsWith('-')) continue;
+    if (text.includes('【Token Bank 出租】')) return out;
+    if (text.includes(DELIVERY_POLICY)) {
+      out[i] = text.replace(DELIVERY_POLICY, `${DELIVERY_POLICY}\n\n${RENTAL_CONTEXT}`);
+    } else {
+      out[i] = `${RENTAL_CONTEXT}\n\n${text}`;
+    }
+    return out;
+  }
+  return out;
+}
+
 /** Codex：前缀拼到用户 prompt */
 function withDeliveryPolicyPrompt(prompt) {
   const body = String(prompt || '');
@@ -37,6 +74,8 @@ function withClaudeDeliverySystemArgs(extraArgs = []) {
 
 module.exports = {
   DELIVERY_POLICY,
+  RENTAL_CONTEXT,
   withDeliveryPolicyPrompt,
   withClaudeDeliverySystemArgs,
+  applyRentalDefinition,
 };

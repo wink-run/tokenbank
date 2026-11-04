@@ -11,7 +11,8 @@ from pathlib import Path
 AGENT_MEDIA_DIR = Path(__file__).resolve().parent / "data" / "agent_media"
 # 中转成品默认留 3 天，可用 AGENT_MEDIA_TTL_DAYS 覆盖
 _DEFAULT_TTL_DAYS = 3
-_ARTIFACT_MAX = 8
+# 一批图常见十几张。上限太小会把后面的文件留在出租方磁盘上，正文里就只剩本机文件名。
+_ARTIFACT_MAX = 16
 _ARTIFACT_MAX_CHARS = 64_000_000
 # 短视频常见几 MB 到二十多 MB；太小的上限会把成片留在出租方本机
 _ARTIFACT_MAX_BYTES = 32 * 1024 * 1024
@@ -210,9 +211,64 @@ def publish_agent_artifacts(
     return out
 
 
+# 文件名两侧。斜杠也算，避免把已经写进中转地址里的文件名再换一次。
+_NAME_EDGE = r"[0-9A-Za-z\u4e00-\u9fff._/\-]"
+
+
+def _dir_tokens(local: str) -> tuple[set, set]:
+    """成品所在目录。带斜杠的可整段替换；只有文件夹名的只拿掉代码块里的那一处。"""
+    raw = str(local or "").replace("\\", "/").rstrip("/")
+    parts = [p for p in raw.split("/") if p and p not in (".", "..")]
+    paths: set[str] = set()
+    names: set[str] = set()
+    if len(parts) < 2:
+        return paths, names
+    parent = raw.rsplit("/", 1)[0]
+    if parent:
+        paths.add(parent)
+    for i in range(len(parts) - 1):
+        rel = "/".join(parts[i:-1])
+        if "/" in rel:
+            paths.add(rel)
+    names.add(parts[-2])
+    return paths, names
+
+
+def _replace_filename_token(text: str, name: str, url: str) -> str:
+    """单独出现的成品文件名也换成中转地址。雇佣方打不开出租方磁盘上的文件名。"""
+    pat = re.compile(r"(?<!" + _NAME_EDGE + r")" + re.escape(name) + r"(?!" + _NAME_EDGE + r")")
+    return pat.sub(url, text)
+
+
+def _strip_local_dirs(text: str, paths: set, names: set) -> str:
+    """目录不是可打开的地址。绝对路径和代码块里的文件夹名都去掉。"""
+    out = text
+    for path in sorted(paths, key=len, reverse=True):
+        if path:
+            out = out.replace(path, "")
+
+    def _is_dir(body: str) -> bool:
+        token = body.strip().strip("`").replace("\\", "/").rstrip("/")
+        return bool(token) and (token in names or token in paths)
+
+    def _fence(match: re.Match) -> str:
+        return "" if _is_dir(match.group(1)) else match.group(0)
+
+    def _inline(match: re.Match) -> str:
+        return "" if _is_dir(match.group(1)) else match.group(0)
+
+    out = re.sub(r"```[^\n]*\n(.*?)```", _fence, out, flags=re.S)
+    out = re.sub(r"`([^`\n]+)`", _inline, out)
+    out = re.sub(r"```[^\n]*\n\s*```", "", out)
+    return out
+
+
 def rewrite_artifact_paths(text: str, artifacts: list) -> str:
-    """把正文中的出租方绝对路径换成已发布的中转地址。"""
+    """把正文中的出租方路径换成已发布的中转地址。远程雇佣不能留下本机路径。"""
     out = str(text or "")
+    dir_paths: set[str] = set()
+    dir_names: set[str] = set()
+    named = []
     for art in artifacts or []:
         if not isinstance(art, dict):
             continue
@@ -223,15 +279,18 @@ def rewrite_artifact_paths(text: str, artifacts: list) -> str:
         local = str(art.get("local") or "")
         if local:
             out = out.replace(local, url)
-            # 正文里常写工作目录下的相对路径，如 outputs/成片.mp4，不单留文件名
+            # 正文里常写工作目录下的相对路径，如 outputs/成片.mp4
             parts = [p for p in local.replace("\\", "/").split("/") if p]
             for i in range(1, len(parts) - 1):
                 rel = "/".join(parts[i:])
                 if rel:
                     out = out.replace(rel, url)
+            paths, names = _dir_tokens(local)
+            dir_paths.update(paths)
+            dir_names.update(names)
         pat = re.compile(_PATH_PREFIX + r"[^\s`'\"<>|]*?" + re.escape(name))
         out = pat.sub(url, out)
-        # 至少带一层目录，避免把单独出现的文件名换成地址。已换成的中转地址不再改。
+        # 至少带一层目录。已经换成的中转地址不再改。
         rel_pat = re.compile(
             r"(?<![:/\w])(?:\.{1,2}[\\/])?(?:[^\s`'\"<>|\\/]+[\\/])+" + re.escape(name)
         )
@@ -243,6 +302,11 @@ def rewrite_artifact_paths(text: str, artifacts: list) -> str:
             return repl
 
         out = rel_pat.sub(_keep_url, out)
+        named.append((name, url))
+    for name, url in named:
+        out = _replace_filename_token(out, name, url)
+    if dir_paths or dir_names:
+        out = _strip_local_dirs(out, dir_paths, dir_names)
     return out
 
 

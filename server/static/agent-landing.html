@@ -623,7 +623,7 @@ createApp({
         const mime = String(item.mime || '')
         const kind = mime.startsWith('image/') && mime.indexOf('svg') < 0 ? 'image' : 'file'
         out.push({ name, mime, kind, url: url || undefined, dataUrl: dataOk ? dataUrl : undefined })
-        if (out.length >= 8) break
+        if (out.length >= 16) break
       }
       return out
     }
@@ -647,7 +647,7 @@ createApp({
           kind: image ? 'image' : 'file',
           mime: video ? (/\.webm$/i.test(name) ? 'video/webm' : 'video/mp4') : '',
         })
-        if (found.length >= 8) break
+        if (found.length >= 16) break
       }
       return found
     }
@@ -656,7 +656,7 @@ createApp({
       const have = new Set(base.map(a => a.url).filter(Boolean))
       const blob = (texts || []).filter(Boolean).join('\n')
       for (const extra of artifactsFromText(blob)) {
-        if (have.has(extra.url) || base.length >= 8) continue
+        if (have.has(extra.url) || base.length >= 16) continue
         base.push(extra)
         have.add(extra.url)
       }
@@ -703,7 +703,7 @@ createApp({
       return cleanArtifacts(raw)
         .map(f => ({ name: f.name, mime: f.mime, kind: f.kind, url: f.url }))
         .filter(f => f.url)
-        .slice(0, 8)
+        .slice(0, 16)
     }
     /** 流式正文里已经出现的本机路径，收尾时换成中转地址。 */
     function swapArtifactPaths(text, arts) {
@@ -716,6 +716,10 @@ createApp({
         // 相对路径如 outputs/成片.mp4。已经换成的中转地址不再改。
         const rel = new RegExp('(?<![:/\\w])(?:\\.{1,2}[\\\\/])?(?:[^\\s`\'"<>|\\\\/]+[\\\\/])+' + name, 'g')
         s = s.replace(rel, (raw) => (raw.includes('://') || raw.includes('/media/agent/') ? raw : f.url))
+        // 只写了文件名时也换成中转地址。斜杠后面的不再换，避免改到地址本身。
+        const edge = '[0-9A-Za-z\\u4e00-\\u9fff._/\\\\-]'
+        const token = new RegExp('(?<!' + edge + ')' + name + '(?!' + edge + ')', 'g')
+        s = s.replace(token, f.url)
       }
       return s
     }
