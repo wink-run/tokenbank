@@ -70,7 +70,9 @@ export function parseV1ModelsResponse(json, provById = {}) {
     if (!id) continue;
     const tier = tierFromOwnedBy(m.owned_by, provById);
     if (!tier) continue;
-    const k = `${tier}:${id}`;
+    const owner = String(m.owned_by || '').trim();
+    // 同一模型挂在多家供给源上时各留一条，下拉才能写成 providerId:模型名
+    const k = `${tier}:${owner}:${id}`;
     if (seen.has(k)) continue;
     seen.add(k);
     const mtype = m?.model_type;
@@ -174,11 +176,12 @@ async function fetchCloudV1Models(provById) {
   return json ? parseV1ModelsResponse(json, provById) : [];
 }
 
-/** 按 tier:id 合并条目，同名模型在不同层可并存；保留已有 type */
+/** 按 tier + 供给源 + id 合并。同名模型可以挂在多家供给源上。 */
 function mergeModelEntriesByTier(existing, additions) {
-  const byKey = new Map(existing.map(m => [`${m.tier}:${m.id}`, m]));
+  const entryKey = (m) => `${m.tier}:${m.owner || ''}:${m.id}`;
+  const byKey = new Map(existing.map(m => [entryKey(m), m]));
   for (const m of additions) {
-    const key = `${m.tier}:${m.id}`;
+    const key = entryKey(m);
     const prev = byKey.get(key);
     byKey.set(key, prev ? { ...prev, ...m, type: m.type || prev.type } : m);
   }
@@ -260,7 +263,7 @@ export async function loadGatewayAvailableModels(opts = {}) {
   return attachProviderNames(enrichModelsWithType(models, cfg, acc), provById);
 }
 
-/** 下拉用的供给源显示名。社区层没有单一供给源，不加。 */
+/** 记下供给源显示名。下拉文案用 owner（provider id），不用这个显示名。 */
 function attachProviderNames(models, provById = {}) {
   const skip = new Set(['p2p', 'tokenbank-p2p', 'local', 'anthropic', 'tokenbank']);
   return (models || []).map(m => {

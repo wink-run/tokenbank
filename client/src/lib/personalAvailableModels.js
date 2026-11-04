@@ -236,14 +236,14 @@ export function collectPersonalAvailableModels(cfg = {}, accounts = {}) {
       },
     );
     const tier = tierForInstance(inst, providers);
+    // owner 是 provider id，下拉写成 providerId:模型名
+    const owner = gwId || inst.source_id || '';
     for (const id of models) {
       if (!isValidModelName(id)) continue;
-      const k = `${tier}:${id}`;
+      const k = `${tier}:${owner}:${id}`;
       if (seen.has(k)) continue;
       seen.add(k);
       // personal 标识：用户显式注册的个人源模型，用于豁免 Claude 透明名 mask（只 mask 内部校验的透明名）
-      // owner 供下拉写成「供给源：模型名」
-      const owner = gwId || inst.source_id || '';
       out.push({ id, tier, personal: true, ...(owner ? { owner } : {}) });
     }
   }

@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { modelIdFromRoute } from '../lib/route-binding';
+import { encodeRoute, modelIdFromRoute, parseRoute } from '../lib/route-binding';
 import { prefixModelRoutes } from '../lib/model-prefix-routes';
 import { modelTypeLabel, modelTypeBtnClass } from './PersonalSources';
+import ServiceIcon from './ServiceIcon';
 import { speedDotClass, speedTitle, useSpeedMap, speedFor, bucketFromMs, normModelKey } from '../lib/speed';
 import { getNetwork } from '../api/client';
 import { buildNetworkModelStatsMap, normalizeNetworkPayload } from '../lib/networkModelStats';
@@ -35,11 +36,21 @@ function modelTierKey(m) {
   return encodeTierModelRoute(m.tier, m.id);
 }
 
-/** 已保存降级链的链头：选项值就是链 id，绑定后走链，而不是 paid:模型名。社区源不套本地链。 */
-function routeOptionValue(m, routes) {
+const BARE_PROVIDER_IDS = new Set(['p2p', 'tokenbank-p2p', 'local', 'anthropic', 'tokenbank']);
+
+/** 下拉里要画图标的供给源 id。社区源和降级链不画。 */
+function dropdownProviderId(m) {
+  const provider = String(m?.owner || '').trim();
+  if (!provider || BARE_PROVIDER_IDS.has(provider)) return '';
+  return provider;
+}
+
+/** 普通模型钉到具体供给源。降级链另有一行，值是链 id。 */
+function routeOptionValue(m) {
   if (m?.tier === 'p2p') return modelTierKey(m);
-  const chain = (routes || []).find(r => r?.list_route && String(r.model_key || '') === m?.id);
-  return chain ? (chain.model_key || chain.id) : modelTierKey(m);
+  const owner = String(m?.owner || '').trim();
+  if (!owner || BARE_PROVIDER_IDS.has(owner)) return modelTierKey(m);
+  return encodeRoute({ tier: m.tier || 'paid', provider: owner, model: m.id });
 }
 
 function sceneRouteAllSteps(route) {
@@ -159,11 +170,12 @@ function buildRouteMenuItems({ routes, availableModels, t, showGatewayRoutes, is
     if (seenValues.has(value)) return;
     seenValues.add(value);
     const chain = !!extra?.chain;
-    // 降级链只写模型名；普通模型写成「供给源：模型名」，避免不同源的同名模型分不清
+    // 降级链只写模型名。普通模型用供给源图标区分，不再写 providerId:。
     items.push({
       kind: 'option',
       value,
-      label: formatModelDropdownLabel(m, { chain }),
+      label: String(m?.id || '').trim(),
+      owner: chain ? '' : dropdownProviderId(m),
       type: m.type,
       modelId: m.id,
       ...extra,
@@ -171,7 +183,15 @@ function buildRouteMenuItems({ routes, availableModels, t, showGatewayRoutes, is
   };
   if (local.length) {
     items.push({ kind: 'group', label: t('gateway.app.tier.local') });
-    for (const m of local) pushModel(m, routeOptionValue(m, routes), { chain: chainHeads?.has(m.id) });
+    const chainShown = new Set();
+    for (const m of local) {
+      // 降级链单独一行，只写模型名。各供给源再各写一行，前面放该源的图标。
+      if (chainHeads?.has(m.id) && !chainShown.has(m.id)) {
+        chainShown.add(m.id);
+        pushModel(m, m.id, { chain: true });
+      }
+      pushModel(m, routeOptionValue(m));
+    }
   }
   if (remote.length) {
     items.push({ kind: 'group', label: t('gateway.app.tier.remote') });
@@ -318,13 +338,13 @@ function ModelTypeBadge({ type, t, active, compact }) {
   );
 }
 
-/** 下拉文案。降级链只留模型名；其余有供给源时写成「供给源：模型名」。 */
+/** 下拉文案。降级链只留模型名；其余写成 providerId:模型名。 */
 export function formatModelDropdownLabel(m, { chain = false } = {}) {
   const id = String(m?.id || m?.name || '').trim();
   if (!id || chain) return id;
-  const provider = String(m?.providerName || '').trim();
-  if (!provider) return id;
-  return `${provider}：${id}`;
+  const provider = String(m?.owner || '').trim();
+  if (!provider || BARE_PROVIDER_IDS.has(provider)) return id;
+  return `${provider}:${id}`;
 }
 
 function modelOptionLabel(m, t) {
@@ -350,9 +370,26 @@ function routeOptionDisplayLabel(routeId, routes, availableModels) {
   const bare = modelIdFromRoute(routeId, routes) || routeId || '';
   // 降级链的选中值就是链头模型名，不加供给源
   if (isChainRouteValue(routeId, routes)) return bare;
+  const owners = (availableModels || []).map(m => m.owner).filter(Boolean);
+  const parsed = parseRoute(String(routeId || ''), owners);
+  if (parsed.provider && parsed.model && !BARE_PROVIDER_IDS.has(parsed.provider)) {
+    return parsed.model;
+  }
   const m = (availableModels || []).find(x => modelTierKey(x) === routeId)
     || (availableModels || []).find(x => x.id === bare);
-  return m ? formatModelDropdownLabel(m) : bare;
+  return m?.id || bare;
+}
+
+/** 选中值对应的供给源 id，用来在触发器上画图标。降级链没有。 */
+function routeOptionProvider(routeId, routes, availableModels) {
+  if (!routeId || isChainRouteValue(routeId, routes)) return '';
+  const owners = (availableModels || []).map(m => m.owner).filter(Boolean);
+  const parsed = parseRoute(String(routeId || ''), owners);
+  if (parsed.provider && !BARE_PROVIDER_IDS.has(parsed.provider)) return parsed.provider;
+  const bare = modelIdFromRoute(routeId, routes) || routeId || '';
+  const m = (availableModels || []).find(x => modelTierKey(x) === routeId)
+    || (availableModels || []).find(x => x.id === bare);
+  return dropdownProviderId(m);
 }
 
 function resolveTriggerLabel({ multi, value, values, routes, availableModels, t, isManual, displayText }) {
@@ -434,7 +471,26 @@ function RouteCheckboxIcon({ marked, active, compact }) {
   );
 }
 
-function RouteMenuRow({ mark, label, modelType, chain, active, theme, compact, multi, t, onEnter, onClick, isModel, speed }) {
+/** 供给源小图标，悬停仍能看到 provider id。 */
+function ProviderGlyph({ id, compact }) {
+  if (!id) return null;
+  const box = compact ? 'w-3.5 h-3.5' : 'w-4 h-4';
+  const img = compact ? 'w-3 h-3' : 'w-3.5 h-3.5';
+  return (
+    <span className="inline-flex shrink-0 mr-1">
+      <ServiceIcon
+        id={id}
+        name={id}
+        title={id}
+        boxClass={`${box} !rounded-sm !bg-transparent`}
+        imgClass={img}
+        className="!bg-transparent"
+      />
+    </span>
+  );
+}
+
+function RouteMenuRow({ mark, label, owner, modelType, chain, active, theme, compact, multi, t, onEnter, onClick, isModel, speed }) {
   return (
     <div
       role={multi ? 'menuitemcheckbox' : 'option'}
@@ -453,6 +509,7 @@ function RouteMenuRow({ mark, label, modelType, chain, active, theme, compact, m
       {isModel && (
         <span title={speed?.title || speedTitle(speed)} className={`w-1.5 h-1.5 rounded-full shrink-0 mr-1.5 ${speedDotClass(speed?.bucket)}`} />
       )}
+      {owner ? <ProviderGlyph id={owner} compact={compact} /> : null}
       <span className="truncate flex-1 min-w-0">{label}</span>
       {(chain || (modelType && modelType !== 'chat')) && (
         <span className="flex items-center gap-1 shrink-0 ml-1.5">
@@ -538,9 +595,13 @@ export default function RouteSelect({
   const triggerLabel = resolveTriggerLabel({
     multi, value: singleValue, values, routes, availableModels, t, isManual, displayText,
   });
+  const triggerRouteId = multi ? (selected.length === 1 ? selected[0] : '') : (singleValue || '');
+  const triggerProvider = triggerRouteId
+    ? routeOptionProvider(triggerRouteId, routes, availableModels)
+    : '';
   const triggerTitle = multi && selected.length > 1
     ? selected.map(v => routeOptionDisplayLabel(v, routes, availableModels)).join(', ')
-    : undefined;
+    : (triggerProvider ? `${triggerProvider} · ${triggerLabel}` : undefined);
 
   const updatePanelPos = useCallback(() => {
     const el = triggerRef.current;
@@ -635,6 +696,7 @@ export default function RouteSelect({
             t={t}
             mark={isMarked(item.value)}
             label={item.label}
+            owner={item.owner}
             modelType={item.type}
             chain={!!item.chain}
             isModel={!!item.modelId}
@@ -683,7 +745,10 @@ export default function RouteSelect({
           setOpen(v => !v);
         }}
       >
-        <span className="truncate flex-1 min-w-0">{triggerLabel}</span>
+        <span className="truncate flex-1 min-w-0 flex items-center">
+          {triggerProvider ? <ProviderGlyph id={triggerProvider} compact={compact} /> : null}
+          <span className="truncate">{triggerLabel}</span>
+        </span>
         <RouteChevron className={theme.chevron} open={open} />
       </button>
       {popupPanel}

@@ -115,7 +115,15 @@ function serveStatic(res, relPath) {
   } catch {
     return false; // file not found or unreadable
   }
-  res.writeHead(200, { 'Content-Type': ct, 'Content-Length': data.length });
+  // 入口页和脚本不缓存，否则改完前端刷新仍是旧包
+  const cacheControl = ext === '.html' || ext === '.js' || ext === '.mjs' || ext === '.css'
+    ? 'no-store'
+    : 'public, max-age=86400';
+  res.writeHead(200, {
+    'Content-Type': ct,
+    'Content-Length': data.length,
+    'Cache-Control': cacheControl,
+  });
   res.end(data);
   return true;
 }

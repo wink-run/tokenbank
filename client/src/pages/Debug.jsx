@@ -2722,6 +2722,7 @@ export default function Debug() {
             id: m.id,
             tier: m.tier,
             providerName: m.providerName,
+            owner: m.owner,
             type: resolveGatewayModelType(m.id, c),
             ...(needsClientAuth(m) ? { needsClientAuth: true } : {}),
           }));

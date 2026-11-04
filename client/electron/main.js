@@ -640,7 +640,18 @@ function createWindow() {
 
   if (isDev) {
     let devLoadRetries = 0;
-    const loadDevUrl = () => mainWindow.loadURL(VITE_URL);
+    // 开发态不缓存页面和脚本。否则改完下拉，刷新仍是旧包。
+    const devSession = mainWindow.webContents.session;
+    devSession.webRequest.onHeadersReceived((details, callback) => {
+      const headers = { ...(details.responseHeaders || {}) };
+      headers['cache-control'] = ['no-store'];
+      callback({ responseHeaders: headers });
+    });
+    const loadDevUrl = () => {
+      devSession.clearCache().catch(() => {}).finally(() => {
+        try { mainWindow.loadURL(VITE_URL); } catch {}
+      });
+    };
     // Vite 尚未就绪或端口冲突时 loadURL 会失败 → 白屏；自动重试并打日志
     mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
       if (!isDev || code === -3) return; // ERR_ABORTED
