@@ -92,9 +92,10 @@
           <button v-if="messages.length" type="button" class="nbtn" :disabled="running || shareBusy" @click="shareChat" :title="T.share">
             <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 5H5.5A1.5 1.5 0 0 0 4 6.5v8A1.5 1.5 0 0 0 5.5 16h8a1.5 1.5 0 0 0 1.5-1.5V12" stroke-linecap="round"/><path d="M11 4h5v5M16 4 9.5 10.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>{{ shareCopied ? T.shared : T.share }}</span>
           </button>
-          <button v-if="messages.length" type="button" class="nbtn" :disabled="running" @click="clearChat" :title="T.clear">
+          <button v-if="messages.length" type="button" class="nbtn" :disabled="running" @click="clearChat" :title="T.newChat">
             <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 4v12M4 10h12" stroke-linecap="round"/></svg><span>{{ T.newChat }}</span>
           </button>
+          <span v-if="shareHint" class="share-hint" :title="shareHint">{{ shareHint }}</span>
         </div>
       </div>
     </header>
@@ -290,6 +291,9 @@ createApp({
         pause: '暂停', paused: '已暂停',
         autoContinue: '上一次执行超时了，请从中断处继续，不要重头开始。',
         timeoutStopped: '已自动续跑两次，仍超时。再发一条消息可以继续。',
+        disconnectedContinue: '连接断了，已经生成的内容还在。再发一条消息就能接着做。',
+        disconnectedRetry: '上一次执行中途断了，请从中断处继续，不要重头开始。',
+        disconnectedKept: '（连接中断，还没有正文）',
         newChat: '新对话', share: '分享', shared: '链接已复制', shareFail: '分享失败',
         sharedContinue: '大家的发言按时间接在同一条对话里，直接发消息就能接着聊。', shareMissing: '分享不存在或已失效',
         turnWait: '{name} 正在让智能体回复，这轮结束后才能接着说。谁先发出去，谁算下一轮。', someone: '有人',
@@ -329,6 +333,9 @@ createApp({
         pause: 'Pause', paused: 'Paused',
         autoContinue: 'The previous run timed out. Continue from where it stopped. Do not start over.',
         timeoutStopped: 'Auto-continue stopped after two timeouts. Send another message to go on.',
+        disconnectedContinue: 'The worker disconnected. What’s already written is still here. Send a message to continue.',
+        disconnectedRetry: 'The previous run stopped on its own. Continue from where it stopped. Do not start over.',
+        disconnectedKept: '(Disconnected before a reply.)',
         newChat: 'New chat', share: 'Share', shared: 'Link copied', shareFail: 'Could not share',
         sharedContinue: 'Everyone’s messages stay in one timeline. Send a message to continue.', shareMissing: 'This share is missing',
         turnWait: '{name} is waiting on the agent. You can send after this turn. First send wins the next turn.', someone: 'Someone',
@@ -390,6 +397,9 @@ createApp({
     const shareReadOnly = computed(() => (fromShare.value && agentOffline.value) || !!agent.value?.offline)
     const shareBusy = ref(false)
     const shareCopied = ref(false)
+    const shareHint = ref('')
+    // 点了新对话之后，不要被自动刷新把刚才那条记录又填回来
+    const detachedChat = ref(false)
     // 待发送附图（仅本轮；不写入本地历史以免撑爆 quota）
     const pendingImages = ref([])
     const ATTACH_MAX = 3
@@ -794,6 +804,7 @@ createApp({
             at: Number(m.at) || undefined,
             author: m.role === 'user' && m.author ? String(m.author).slice(0, 40) : undefined,
             shared: m.shared ? true : undefined,
+            interrupted: m.interrupted ? true : undefined,
             pending: m.role === 'assistant' && m.pending && m.taskId ? true : undefined,
             taskId: m.role === 'assistant' && m.taskId ? String(m.taskId).slice(0, 40) : undefined,
           }
@@ -810,6 +821,7 @@ createApp({
           at: m.at || undefined,
           author: m.author || undefined,
           shared: m.shared || undefined,
+          interrupted: m.interrupted || undefined,
           pending: m.pending || undefined,
           taskId: m.taskId || undefined,
         }))
@@ -834,6 +846,7 @@ createApp({
           updatedAt: Date.now(),
           shared: serialized.some(m => m.shared) || undefined,
           relay: relayShareId.value || undefined,
+          detached: detachedChat.value || undefined,
           messages: serialized,
         }))
         storageRemove(threadStoreKey(id))
@@ -862,6 +875,7 @@ createApp({
             at: Number(m.at) || undefined,
             author: m.role === 'user' && m.author ? String(m.author).slice(0, 40) : undefined,
             shared: !!m.shared,
+            interrupted: !!m.interrupted,
           }))
       } catch {
         return []
@@ -950,7 +964,8 @@ createApp({
         const raw = storageGet(chatStorageKey(aid))
         if (!raw) return []
         const data = JSON.parse(raw)
-        if (data && data.relay) relayShareId.value = String(data.relay).slice(0, 40)
+        if (data && data.detached) detachedChat.value = true
+        if (data && data.relay && !data.detached) relayShareId.value = String(data.relay).slice(0, 40)
         const list = Array.isArray(data?.messages) ? data.messages : []
         const end = Number(data?.updatedAt) || 0
         return list.map((m, i) => {
@@ -966,6 +981,7 @@ createApp({
         const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid))
         const same = r.ok && data && String(data.assistant_id) === String(aid)
         if (same && Array.isArray(data.messages) && data.messages.length) {
+          detachedChat.value = false
           relayShareId.value = sid
           absorbShare(merged, data)
           const url = new URL(location.href)
@@ -975,7 +991,7 @@ createApp({
           err.value = T.value.shareMissing
         }
       }
-      await mergeRemoteShares(aid, merged)
+      if (!detachedChat.value) await mergeRemoteShares(aid, merged)
       messages.value = sortMessages(loadChatHistoryFrom(merged))
       fromShare.value = !!relayShareId.value || messages.value.some(m => m.shared)
       saveChatHistory(aid, messages.value)
@@ -1105,12 +1121,12 @@ createApp({
       if (running.value || pollBusy) return
       const sid = relayShareId.value
       const aid = agent.value?.id || assistantIdFromPath()
-      if (!sid && !fromShare.value) return
+      if (!sid && (!fromShare.value || detachedChat.value)) return
       pollBusy = true
       try {
         const kept = messages.value.filter(m => !m.liveTurn)
         const before = transcriptKey(kept)
-        if (aid && getToken()) await mergeRemoteShares(aid, kept)
+        if (aid && getToken() && !detachedChat.value) await mergeRemoteShares(aid, kept)
         let turn = null
         if (sid) {
           const hold = myTurnToken(sid)
@@ -1276,6 +1292,7 @@ createApp({
           at: Number(m.at) || undefined,
           author: m.role === 'user' && m.author ? String(m.author).slice(0, 40) : undefined,
           shared: !!m.shared,
+          interrupted: !!m.interrupted,
         }))
     }
     async function shareChat() {
@@ -1284,6 +1301,7 @@ createApp({
       if (!aid) return
       shareBusy.value = true
       shareCopied.value = false
+      shareHint.value = ''
       const name = currentUserLabel.value
       if (name) {
         messages.value.forEach(m => {
@@ -1297,32 +1315,40 @@ createApp({
           body: JSON.stringify({ assistant_id: aid, messages: serializeChat(messages.value) }),
         })
         if (!r.ok || !data || !data.url) {
-          err.value = T.value.shareFail
+          shareHint.value = T.value.shareFail
+          err.value = ''
           return
         }
         err.value = ''
-        await ChatUI.copyText(data.url)
         shareCopied.value = true
         setTimeout(() => { shareCopied.value = false }, 1600)
+        shareHint.value = data.url
+        try { await ChatUI.copyText(data.url) } catch { /* 复制失败时链接仍留在按钮旁 */ }
         if (data.id) relayShareId.value = data.id
+        detachedChat.value = false
         fromShare.value = true
         saveChatHistory(aid, messages.value)
         startShareWatch()
       } catch {
-        err.value = T.value.shareFail
+        shareHint.value = T.value.shareFail
       } finally {
         shareBusy.value = false
       }
     }
     function clearChat() {
       if (running.value) return
-      // 新对话清掉自己写的，别人已经接上的发言还留在这条历史里
-      messages.value = messages.value.filter(m => m && m.shared)
-      fromShare.value = messages.value.length > 0
+      stopShareWatch()
+      detachedChat.value = true
+      relayShareId.value = ''
+      fromShare.value = false
+      foreignTurn.value = null
+      holdingTurn.value = false
+      shareHint.value = ''
+      messages.value = []
       pendingImages.value = []
       err.value = ''
       const id = agent.value?.id || assistantIdFromPath()
-      saveChatHistory(id, messages.value)
+      saveChatHistory(id, [])
     }
 
     function fileToDataUrl(file) {
@@ -1412,13 +1438,13 @@ createApp({
         const who = m.role === 'user' ? (m.author || 'User') : 'Assistant'
         const note = m.paused
           ? '\n(paused so the user can add information)'
-          : (m.timedOut ? '\n(timed out; continue this work, do not restart)' : '')
+          : (m.timedOut || m.interrupted ? '\n(interrupted; continue this work, do not restart)' : '')
         return `${who}: ${m.content}${note}`
       })
       const lead = prior.some(m => m.paused)
         ? 'The previous turn was paused. Keep the work already done and apply the new user message.\n\n'
-        : prior.some(m => m.timedOut)
-          ? 'The previous turn timed out. Continue the unfinished work from the partial answer. Do not restart.\n\n'
+        : prior.some(m => m.timedOut || m.interrupted)
+          ? 'The previous turn was interrupted. Continue the unfinished work from the partial answer. Do not restart.\n\n'
           : ''
       return `${lead}Conversation so far:\n${lines.join('\n\n')}\n\nUser: ${nextUser}\n\nAssistant:`
     }
@@ -1745,6 +1771,39 @@ createApp({
             finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
             const msg = ev.error || ev.detail || ev.status || 'failed'
             const row = messages.value[asstIdx]
+            // 出租方自己掉线，不是用户按的暂停：留下本轮和已生成的内容，并接着跑
+            if (/worker disconnected/i.test(String(msg))) {
+              const arts = cleanArtifacts(ev.artifacts)
+              const remote = rewriteShown(String(ev.output || ''), arts).trim()
+              const local = answerOf(row).trim()
+              const best = remote.length > local.length ? remote : local
+              if (row) {
+                row.pending = false
+                row.taskId = undefined
+                row.interrupted = true
+                if (arts.length) row.artifacts = arts
+                if (best && remote.length > local.length) {
+                  row.content = best
+                  row.parts = [{ type: 'text', text: best }]
+                } else if (!local) {
+                  row.content = T.value.disconnectedKept
+                } else {
+                  row.content = local
+                }
+                if (arts.length && row.parts?.length) row.parts = rewriteParts(row.parts, arts)
+                row.content = rewriteShown(row.content, arts) || row.content
+              }
+              finalGuest = false
+              if (!isGuest && autoContinues < 2) {
+                autoContinues += 1
+                nextAuto = T.value.disconnectedRetry
+                err.value = ''
+              } else {
+                err.value = T.value.disconnectedContinue
+              }
+              persistNow()
+              return finish(true)
+            }
             const cur = answerOf(row).trim()
             if (cur && cur !== '…') {
               if (row?.parts?.length) {
@@ -1799,7 +1858,9 @@ createApp({
           messages.value[idx].pending = false
           messages.value[idx].taskId = undefined
         }
-        if (outcome.finalOk && !outcome.nextAuto) await endRelayTurn(true)
+        if ((outcome.finalOk && !outcome.nextAuto) || (messages.value[idx]?.interrupted && !outcome.nextAuto)) {
+          await endRelayTurn(true)
+        }
         if (!getToken() && outcome.finalGuest) guestUsed.value = true
         if (outcome.nextAuto && getToken()) {
           prompt.value = outcome.nextAuto
@@ -1976,13 +2037,15 @@ createApp({
         nextAuto = outcome.nextAuto || ''
         if (outcome.stopped) return
 
-        if (!finalOk && !(messages.value[asstIdx]?.content || '').trim()) {
+        if (!finalOk && !messages.value[asstIdx]?.interrupted && !(messages.value[asstIdx]?.content || '').trim()) {
           err.value = 'empty response'
           dropTurn()
           return
         }
         if (messages.value[asstIdx]) messages.value[asstIdx].pending = false
-        if (finalOk && !nextAuto) await endRelayTurn(true)
+        if ((finalOk && !nextAuto) || (messages.value[asstIdx]?.interrupted && !nextAuto)) {
+          await endRelayTurn(true)
+        }
         if (ticketForTurn) {
           // 广告票一次性；用完后清掉，再聊需重新看广告或登录
           gateTicket.value = ''
@@ -2010,6 +2073,23 @@ createApp({
           }
           err.value = ''
           persistNow()
+          return
+        }
+        // 流自己断了且已经有正文：留下这轮，不要把对话删掉
+        const row = messages.value[asstIdx]
+        const partial = answerOf(row).trim()
+        if (partial && partial !== '…') {
+          row.pending = false
+          row.taskId = undefined
+          row.interrupted = true
+          persistNow()
+          if (!isGuest && autoContinues < 2) {
+            autoContinues += 1
+            nextAuto = T.value.disconnectedRetry
+            err.value = ''
+          } else {
+            err.value = T.value.disconnectedContinue
+          }
           return
         }
         dropTurn()
@@ -2105,7 +2185,7 @@ createApp({
       lang, T, toggleLang, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,
-      sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, fromShare, shareReadOnly, shareTurnLocked, turnLockText, agentOffline, renderMarkdown, onComposerPaste, removePendingImage,
+      sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, shareHint, fromShare, shareReadOnly, shareTurnLocked, turnLockText, agentOffline, renderMarkdown, onComposerPaste, removePendingImage,
     }
   },
 }).mount('#app')

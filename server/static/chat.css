@@ -39,7 +39,7 @@ button{font-family:inherit}
 .cinner{max-width:800px;margin:0 auto;padding:0 20px;width:100%}
 
 /* 身份头：模型 / 智能体 */
-.chead{flex-shrink:0;border-bottom:1px solid var(--border-light);background:var(--bg-subtle)}
+.chead{position:relative;z-index:5;flex-shrink:0;border-bottom:1px solid var(--border-light);background:var(--bg-subtle)}
 .chead .cinner{display:flex;align-items:center;gap:12px;padding-top:14px;padding-bottom:14px}
 .av{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:17px;flex-shrink:0}
 .av.lg{width:64px;height:64px;border-radius:18px;font-size:26px}
@@ -62,7 +62,9 @@ button{font-family:inherit}
 .tag.img{color:#7c3aed;border-color:#ddd6fe;background:#f5f3ff}
 .tag.embed{color:#64748b;border-color:#e2e8f0;background:#f8fafc}
 .tag.circle{color:#6d28d9;border-color:#e9d5ff;background:#faf5ff}
-.head-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.head-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;position:relative;z-index:6}
+.share-hint{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text-muted)}
+.nbtn:disabled{opacity:.45;cursor:not-allowed}
 
 /* 模型切换：药丸下拉 */
 .picker{position:relative;display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:3px 8px;margin-left:-8px;border:1px solid transparent;border-radius:9px;cursor:pointer}

@@ -78,6 +78,20 @@ def _apply_artifacts(task_id: str, output: str, raw) -> tuple[str, list]:
 _ARTIFACT_FOLLOW_SEC = 20
 
 
+def _keep_partial_on_disconnect(msg: dict, ctx: dict) -> dict:
+    """出租方中途掉线时，失败帧往往没有 output。把已经收到的正文补回去。"""
+    if str(msg.get("error") or "") != "worker disconnected":
+        return msg
+    if str(msg.get("output") or "").strip():
+        return msg
+    partial = str(ctx.get("partial_output") or "")
+    if not partial:
+        return msg
+    merged = dict(msg)
+    merged["output"] = partial
+    return merged
+
+
 async def _iter_agent_messages(ctx: dict):
     """读队列：进度原样吐出；终态若声明还有文件，就再等一帧再结束。
 
@@ -127,7 +141,8 @@ async def _iter_agent_messages(ctx: dict):
                 held = msg
                 file_deadline = min(deadline, time.time() + _ARTIFACT_FOLLOW_SEC)
                 continue
-            yield _release(msg)
+            # 连接断了也要把已经流过的正文交回去，调用方才能接着聊
+            yield _release(_keep_partial_on_disconnect(msg, ctx))
             return
         if held is not None and msg.get("error") == "worker disconnected":
             yield _release(held)
@@ -136,7 +151,7 @@ async def _iter_agent_messages(ctx: dict):
             if held is not None:
                 yield _release(held)
                 return
-            yield _release(msg)
+            yield _release(_keep_partial_on_disconnect(msg, ctx))
             return
     if held is not None:
         yield _release(held)
