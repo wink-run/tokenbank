@@ -4,8 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { getConfig, getLocalConfig, getGateway, getApps } from '../api/adapter';
 import { loadGatewayAvailableModels, resolveGatewayModelType, resolveLocalGatewayBase } from '../api/gatewayModels';
 import { encodeTierModelRoute, parseRouteBinding, routeSelectValue } from '../lib/route-binding';
-import RouteSelect from '../components/RouteSelect';
-import { usableSceneRoutes } from '../components/RouteSelect';
+import RouteSelect, { usableSceneRoutes, formatModelDropdownLabel } from '../components/RouteSelect';
 import {
   agentSessionKey,
   getStoreSession,
@@ -2720,7 +2719,9 @@ export default function Debug() {
           };
           const mapped = list.map((m) => ({
             name: m.id,
+            id: m.id,
             tier: m.tier,
+            providerName: m.providerName,
             type: resolveGatewayModelType(m.id, c),
             ...(needsClientAuth(m) ? { needsClientAuth: true } : {}),
           }));
@@ -3217,11 +3218,11 @@ export default function Debug() {
                       const tms = filteredModels.filter(m => g.tiers.includes(m.tier));
                       return tms.length ? (
                         <optgroup key={g.key} label={t(`debug.tier.${g.key}`)}>
-                          {tms.map(m => <option key={modelSelectValue(m)} value={modelSelectValue(m)}>{m.name}{m.needsClientAuth ? t('debug.needsClientAuthTag') : ''}</option>)}
+                          {tms.map(m => <option key={modelSelectValue(m)} value={modelSelectValue(m)}>{formatModelDropdownLabel(m)}{m.needsClientAuth ? t('debug.needsClientAuthTag') : ''}</option>)}
                         </optgroup>
                       ) : null;
                     })
-                  : filteredModels.map(m => <option key={m.name} value={m.name}>{m.name}</option>)
+                  : filteredModels.map(m => <option key={m.name} value={m.name}>{formatModelDropdownLabel(m)}</option>)
                 }
               </select>
             ) : (

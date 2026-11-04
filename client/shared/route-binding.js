@@ -131,9 +131,7 @@ function routeSelectValue(routeId, availableModels = [], routes = []) {
   if (!routeId) return '';
   const scene = routes.find(r => r.model_key === routeId || r.id === routeId);
   if (scene) return scene.model_key || routeId;
-  // 旧数据存的是 paid:链头。下拉框里这条已经是降级链，选中值用链 id。
-  const chain = findListRoute(routeId, routes);
-  if (chain && !/^p2p:/.test(routeId)) return chain.model_key;
+  // paid:/free: 是纯模型，不收成同名降级链
   if (TIER_ROUTE_RE.test(routeId)) return routeId;
   const matches = availableModels.filter(m => m.id === routeId);
   if (matches.length >= 1) {
@@ -211,34 +209,19 @@ function bindRouteToKeyScene(keyScene, callerKey, routeId, routes = []) {
     };
     return;
   }
-  // paid:/free: 与有没有降级链无关：同名走链并保留层级，没有链就收成单步。
-  keyScene[callerKey] = materializeTierModel(routeId, routes);
+  // paid:/free:/p2p: 是纯模型，只保留这一步。降级链要选链本身。
+  keyScene[callerKey] = materializeTierModel(routeId);
 }
 
 /**
  * paid:模型 / paid:供给源:模型 / free: / p2p:。
- * 层级是供给层过滤，钉选的供给源比层级更具体。
- * 降级链里已经钉了源的步只补层级，不改源；前缀里的供给源只补在还没钉源的链头。
- * p2p 是社区层，不并进个人源降级链。
+ * 只生成这一步，不把同名降级链接进来。
  */
-function materializeTierModel(routeId, routes) {
+function materializeTierModel(routeId) {
   const ref = parseRoute(routeId);
   const model = ref.model || String(routeId || '').trim();
   const tier = ref.tier || null;
   const provider = ref.provider || null;
-  const chain = tier === 'p2p' ? null : findListRoute(model, routes);
-  if (chain && Array.isArray(chain.steps) && chain.steps.length) {
-    return {
-      steps: applyTierToSteps(chain.steps, { tier, provider, model }),
-      scene_name: chain.scene_name || model,
-      rules: chain.rules || null,
-      classifier: chain.classifier || null,
-      flow: chain.flow || null,
-      ...(chain.scope ? { scope: chain.scope } : {}),
-      // 前缀层级已经写到每一步上；链自己的层级只在前缀没指定时保留
-      ...(chain.tier && !tier ? { tier: chain.tier } : {}),
-    };
-  }
   return {
     steps: applyTierToSteps([{ model }], { tier, provider, model }),
     scene_name: model,

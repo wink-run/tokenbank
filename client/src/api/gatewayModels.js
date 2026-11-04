@@ -257,7 +257,20 @@ export async function loadGatewayAvailableModels(opts = {}) {
     models = models.filter(m => m.tier !== 'p2p');
   }
   models = filterClaudeMaskModels(models, maskSet);
-  return enrichModelsWithType(models, cfg, acc);
+  return attachProviderNames(enrichModelsWithType(models, cfg, acc), provById);
+}
+
+/** 下拉用的供给源显示名。社区层没有单一供给源，不加。 */
+function attachProviderNames(models, provById = {}) {
+  const skip = new Set(['p2p', 'tokenbank-p2p', 'local', 'anthropic', 'tokenbank']);
+  return (models || []).map(m => {
+    const owner = String(m?.owner || '').trim();
+    if (!owner || skip.has(owner)) return m;
+    const p = provById[owner];
+    const providerName = String(p?.displayName || p?.label || owner).trim();
+    if (!providerName) return m;
+    return { ...m, providerName };
+  });
 }
 
 /** 模型名启发式推断模态（账户/供给源未标注时兜底） */

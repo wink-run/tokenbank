@@ -51,24 +51,60 @@ function configuredModelsFromOverrides(pricingPid, pricingOverrides) {
   return names;
 }
 
+function catalogEntryName(m) {
+  if (typeof m === 'string') return isValidModelName(m) ? m.trim() : '';
+  const n = String(m?.name || m?.id || m?.model || '').trim();
+  return isValidModelName(n) ? n : '';
+}
+
+/** 账户卡片刊例价用的目录模型：payg 目录 models/pricing + 服务端刊例价键。 */
+function serverCatalogModelNames(catalogId, providerPricing = {}, paygCatalog = []) {
+  const names = new Set();
+  if (!catalogId) return names;
+  const cat = (paygCatalog || []).find(p => (p.provider_id || p.id) === catalogId);
+  for (const m of cat?.models || []) {
+    const n = catalogEntryName(m);
+    if (n) names.add(n);
+  }
+  for (const k of Object.keys(cat?.pricing || {})) {
+    if (isValidModelName(k)) names.add(k);
+  }
+  for (const k of Object.keys(providerPricing?.[catalogId] || {})) {
+    if (isValidModelName(k)) names.add(k);
+  }
+  return names;
+}
+
 /**
- * 模型视图：仅展示用户在账户/供给源卡片上显式添加的模型。
- * 来源 = 账户实例 models + 用户自定义刊例价（provider_pricing_overrides），不含 catalog 全量。
+ * 模型视图与账户刊例价同一批名字。
+ * 账户 models + 手工刊例价，再并上服务端目录。
+ * Docker 往往没有本地 yaml，账户 models 是空的，目录只在 paygCatalog 里。
+ * catalog 可传 { paygCatalog, providerPricing }。
  */
 export function resolveModelsForModelView(
   inst, providers, userPayg, userSubscriptions, pricingOverrides, directByAgent,
+  catalog = {},
 ) {
   const fromArr = (arr) => (arr || []).map(modelEntryName).filter(Boolean);
   const excluded = instanceExcludedSet(inst, userPayg, userSubscriptions);
+  const paygCatalog = catalog.paygCatalog || catalog.payg_provider_catalog || [];
+  const providerPricing = catalog.providerPricing || catalog.provider_pricing || {};
+
+  // 目录里的名字即使被标过隐藏也保留，和账户刊例价表格一致
+  const keepVisible = (names, serverNames) => [...names].filter(n => (
+    isValidModelName(n) && (serverNames.has(n) || !excluded.has(n))
+  ));
 
   if (inst.kind === 'payg') {
     const p = userPayg.find(x => x.id === inst.id);
     const pricingPid = p?.provider_id || inst.source_id;
+    const serverNames = serverCatalogModelNames(pricingPid, providerPricing, paygCatalog);
     const names = new Set([
+      ...serverNames,
       ...fromArr(p?.models),
       ...configuredModelsFromOverrides(pricingPid, pricingOverrides),
     ]);
-    return finalizeModelNames(names, excluded);
+    return keepVisible(names, serverNames);
   }
   if (inst.kind === 'sub') {
     if (inst.tag === 'app_sub') return [];
@@ -77,11 +113,13 @@ export function resolveModelsForModelView(
       || OAUTH_SUB_SOURCE_TO_PID[s?.source_id]
       || s?.source_id
       || inst.source_id;
+    const serverNames = serverCatalogModelNames(pricingPid, providerPricing, paygCatalog);
     const names = new Set([
+      ...serverNames,
       ...fromArr(s?.models),
       ...configuredModelsFromOverrides(pricingPid, pricingOverrides),
     ]);
-    return finalizeModelNames(names, excluded);
+    return keepVisible(names, serverNames);
   }
   if (inst.kind === 'direct') {
     const d = directByAgent[inst.id];
@@ -192,6 +230,10 @@ export function collectPersonalAvailableModels(cfg = {}, accounts = {}) {
     }
     const models = resolveModelsForModelView(
       inst, providers, userPayg, userSubs, pricingOverrides, directBilling,
+      {
+        paygCatalog: accounts?.payg_provider_catalog || [],
+        providerPricing: accounts?.provider_pricing || {},
+      },
     );
     const tier = tierForInstance(inst, providers);
     for (const id of models) {
@@ -200,17 +242,21 @@ export function collectPersonalAvailableModels(cfg = {}, accounts = {}) {
       if (seen.has(k)) continue;
       seen.add(k);
       // personal 标识：用户显式注册的个人源模型，用于豁免 Claude 透明名 mask（只 mask 内部校验的透明名）
-      out.push({ id, tier, personal: true });
+      // owner 供下拉写成「供给源：模型名」
+      const owner = gwId || inst.source_id || '';
+      out.push({ id, tier, personal: true, ...(owner ? { owner } : {}) });
     }
   }
   return out;
 }
 
-/** 合并账户模型到 provider（路由校验用；不含刊例价目录，避免下拉出现未配置模型） */
+/** 合并账户模型到 provider（路由校验）。目录模型一并带上，避免列表里有、请求被拒。 */
 export function enrichProvidersForRouting(providers = [], accounts = {}) {
   const userPayg = accounts.user_payg_providers || [];
   const userSubs = accounts.user_subscriptions || [];
   const pricingOverrides = accounts.provider_pricing_overrides || {};
+  const paygCatalog = accounts.payg_provider_catalog || [];
+  const providerPricing = accounts.provider_pricing || {};
 
   function extraNames(gatewayId) {
     const names = new Set();
@@ -219,6 +265,7 @@ export function enrichProvidersForRouting(providers = [], accounts = {}) {
       if (paygInstGatewayId(p) !== gatewayId) continue;
       for (const m of p.models || []) { const n = modelEntryName(m); if (n) names.add(n); }
       for (const k of configuredModelsFromOverrides(p.provider_id, pricingOverrides)) names.add(k);
+      for (const n of serverCatalogModelNames(p.provider_id, providerPricing, paygCatalog)) names.add(n);
     }
     for (const s of userSubs) {
       if (subInstGatewayId(s) !== gatewayId) continue;
@@ -227,6 +274,7 @@ export function enrichProvidersForRouting(providers = [], accounts = {}) {
       for (const m of s.models || []) { const n = modelEntryName(m); if (n) names.add(n); }
       const pid = s.plan_provider_id || OAUTH_SUB_SOURCE_TO_PID[s.source_id] || s.source_id;
       for (const k of configuredModelsFromOverrides(pid, pricingOverrides)) names.add(k);
+      for (const n of serverCatalogModelNames(pid, providerPricing, paygCatalog)) names.add(n);
     }
     return names;
   }

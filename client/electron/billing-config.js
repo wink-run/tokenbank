@@ -621,6 +621,23 @@ function modelEntryId(m) {
   return '';
 }
 
+/** 服务端目录里的模型名。Docker 账户 models 常为空，列表仍要带上目录。 */
+function catalogModelNames(pricingPid) {
+  const names = new Set();
+  if (!pricingPid) return names;
+  for (const cat of paygProviderCatalog()) {
+    if ((cat.provider_id || cat.id) !== pricingPid) continue;
+    for (const m of cat.models || []) {
+      const n = modelEntryId(m);
+      if (n) names.add(n);
+    }
+    for (const k of Object.keys(cat.pricing || {})) {
+      if (isValidModelName(k)) names.add(k);
+    }
+  }
+  return names;
+}
+
 /** 某网关 provider 在账户/刊例价中登记的全部模型名（与供给源页按模型视图一致） */
 function collectModelsForGatewayProvider(gatewayId, localCfg = {}) {
   const names = new Set();
@@ -641,6 +658,7 @@ function collectModelsForGatewayProvider(gatewayId, localCfg = {}) {
     if (paygGatewayId(p) !== gatewayId) continue;
     for (const m of p.models || []) addName(m);
     for (const k of Object.keys(pricingOvr[p.provider_id] || {})) addName(k);
+    for (const n of catalogModelNames(p.provider_id)) names.add(n);
   }
   for (const s of userSubs) {
     if (subscriptionGatewayId(s, catalogBySource) !== gatewayId) continue;
@@ -649,6 +667,7 @@ function collectModelsForGatewayProvider(gatewayId, localCfg = {}) {
     for (const m of s.models || []) addName(m);
     const pid = s.plan_provider_id || subscriptionGatewayProviderId(s, catalogBySource) || s.source_id;
     for (const k of Object.keys(pricingOvr[pid] || {})) addName(k);
+    for (const n of catalogModelNames(pid)) names.add(n);
   }
   return names;
 }

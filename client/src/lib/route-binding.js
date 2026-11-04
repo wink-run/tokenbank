@@ -118,12 +118,7 @@ export function routeSelectValue(routeId, availableModels = [], routes = []) {
   if (!routeId) return '';
   const scene = routes.find(r => r.model_key === routeId || r.id === routeId);
   if (scene) return scene.model_key || routeId;
-  // 旧数据存的是 paid:链头 或 paid:供给源:链头。下拉框里这条已经是降级链，选中值用链 id。
-  // p2p 是社区层，不收成个人源降级链。
-  const parsed = parseRoute(routeId);
-  const bare = parsed.model || '';
-  const chain = bare && (routes || []).find(r => r?.list_route && String(r.model_key || '') === bare);
-  if (chain && parsed.tier !== 'p2p') return chain.model_key;
+  // paid:/free: 是纯模型，不收成同名降级链
   if (TIER_ROUTE_RE.test(routeId)) return routeId;
   const matches = availableModels.filter(m => m.id === routeId);
   if (matches.length >= 1) {

@@ -11,7 +11,7 @@ import { brandIconFor, resolveBrandIcon } from '../lib/brandIcons';
 import { APP_ICONS, isAppIcon, appIconSvg } from '../lib/appIcons';
 import { useLang } from '../store/lang';
 import { useAuth } from '../store/index';
-import RouteSelect, { tierOptgroups, usableSceneRoutes } from '../components/RouteSelect';
+import RouteSelect, { tierOptgroups, usableSceneRoutes, formatModelDropdownLabel } from '../components/RouteSelect';
 import {
   encodeTierModelRoute,
   parseRouteBinding,
@@ -4073,17 +4073,17 @@ function ModelSelect({ availableModels, value, onChange }) {
       className="w-full bg-zinc-200 dark:bg-zinc-700 border border-zinc-300 dark:border-zinc-600 rounded-lg px-2.5 py-2 text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-blue-500">
       {freeModels.length > 0 && (
         <optgroup label={t('gateway.app.tier.freeLayer')}>
-          {freeModels.map(m => <option key={modelTierKey(m)} value={modelTierKey(m)}>{m.id}</option>)}
+          {freeModels.map(m => <option key={modelTierKey(m)} value={modelTierKey(m)}>{formatModelDropdownLabel(m)}</option>)}
         </optgroup>
       )}
       {p2pModels.length > 0 && (
         <optgroup label={t('gateway.app.tier.p2pLayer')}>
-          {p2pModels.map(m => <option key={modelTierKey(m)} value={modelTierKey(m)}>{m.id}</option>)}
+          {p2pModels.map(m => <option key={modelTierKey(m)} value={modelTierKey(m)}>{formatModelDropdownLabel(m)}</option>)}
         </optgroup>
       )}
       {paidModels.length > 0 && (
         <optgroup label={t('gateway.app.tier.paidLayer')}>
-          {paidModels.map(m => <option key={modelTierKey(m)} value={modelTierKey(m)}>{m.id}</option>)}
+          {paidModels.map(m => <option key={modelTierKey(m)} value={modelTierKey(m)}>{formatModelDropdownLabel(m)}</option>)}
         </optgroup>
       )}
     </select>
@@ -4467,7 +4467,7 @@ function SceneRouteEditor({ route, availableModels, network, sources, onSave, on
             <label className="text-xs text-zinc-500 w-12 shrink-0">{t('gateway.route.clsModel')}</label>
             <select value={clsModel} onChange={e => setClsModel(e.target.value)} className={RULE_SEL + ' flex-1'}>
               <option value="">{t('gateway.route.clsModelPlaceholder')}</option>
-              {availableModels.map(m => <option key={modelTierKey(m)} value={modelTierKey(m)}>{m.id}</option>)}
+              {availableModels.map(m => <option key={modelTierKey(m)} value={modelTierKey(m)}>{formatModelDropdownLabel(m)}</option>)}
             </select>
           </div>
           <div className="flex items-center gap-2">

@@ -1428,16 +1428,14 @@ function P2PNetworkCard({ provider, onUpdate, onPersistEnabled, cooldowns = [], 
     } catch { /* 网关未就绪时忽略 */ }
   };
 
-  const probeAllSpeed = async () => {
-    if (probing) return;
-    const targets = orderedProbeTargets;
-    if (!targets.length) return;
+  // p2p: 前缀强制走社区层；网关按裸名记速
+  const runP2pProbe = async (targets) => {
+    if (probing || !targets.length) return;
     probeAbortRef.current = false;
     setProbing({ done: 0, total: targets.length, current: targets[0] });
     for (let i = 0; i < targets.length; i++) {
       if (probeAbortRef.current) break;
       setProbing({ done: i, total: targets.length, current: targets[i] });
-      // p2p: 前缀强制走社区层；网关按裸名记速
       try { await window.electronAPI?.gateway?.probeModel?.('p2p:' + targets[i]); } catch { /* ignore */ }
       try { await refreshP2pLatency(); } catch { /* ignore */ }
       if (probeAbortRef.current) break;
@@ -1447,6 +1445,8 @@ function P2PNetworkCard({ provider, onUpdate, onPersistEnabled, cooldowns = [], 
     if (!probeAbortRef.current) setProbing(null);
     probeAbortRef.current = false;
   };
+  const probeAllSpeed = () => runP2pProbe(orderedProbeTargets);
+  const probeOneP2p = (name) => runP2pProbe([name].filter(Boolean));
   const cancelProbe = () => {
     probeAbortRef.current = true;
     setProbing(null);
@@ -1657,10 +1657,20 @@ function P2PNetworkCard({ provider, onUpdate, onPersistEnabled, cooldowns = [], 
                         const probingThis = !!(probing?.current && probing.current === m.name);
                         const { ms, failed, ok, skipped } = p2pCardSpeed(m);
                         const bucket = probingThis ? 'fast' : skipped ? 'unknown' : statusDotBucket({ ms, failed, ok: ok && !!ms });
+                        const canProbe = online && !skipped;
+                        const speedTitle = probingThis ? '测速中' : (!online ? t('providers.p2p.unavailable') : (skipped ? t('providers.probe.skipImage') : (failed ? '最近请求失败' : (ms ? `最快 ${(ms / 1000).toFixed(1)}s` : '暂无速度'))));
                         return <span
-                          className={`w-2 h-2 rounded-full shrink-0 ${!online ? 'bg-zinc-300 dark:bg-zinc-600' : probingThis ? 'bg-green-400 tb-probe-pulse' : speedDotClass(bucket)}`}
-                          title={probingThis ? '测速中' : (!online ? t('providers.p2p.unavailable') : (skipped ? t('providers.probe.skipImage') : (failed ? '最近请求失败' : (ms ? `最快 ${(ms / 1000).toFixed(1)}s` : '暂无速度'))))}
-                        />;
+                          role="button"
+                          title={canProbe && !probingThis ? `${speedTitle} · 点击测速` : speedTitle}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            if (canProbe) probeOneP2p(m.name);
+                          }}
+                          className={`inline-flex items-center justify-center w-3.5 h-3.5 -ml-0.5 shrink-0 ${canProbe ? 'cursor-pointer' : ''}`}
+                        >
+                          <span className={`w-2 h-2 rounded-full ${!online ? 'bg-zinc-300 dark:bg-zinc-600' : probingThis ? 'bg-green-400 tb-probe-pulse' : speedDotClass(bucket)}`} />
+                        </span>;
                       })()}
                       <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200 truncate">{m.name}</span>
                       {circleModelMap?.[m.name] && (
@@ -4614,7 +4624,11 @@ export default function Providers() {
     () => Object.fromEntries(directAll.map(d => [d.agent_id, d])),
     [directAll],
   );
-  // 按模型视图：仅已启用供给源；不回退 catalog 刊例价
+  // 按模型视图：与账户刊例价同一批（目录 + 账户登记 + 手工价）
+  const modelViewCatalog = useMemo(() => ({
+    paygCatalog,
+    providerPricing: mergedProviderPricing,
+  }), [paygCatalog, mergedProviderPricing]);
   const modelViewInstances = useMemo(() => {
     const base = accountInstances.flatMap(inst => {
       const gwId = inst.gateway_id;
@@ -4626,6 +4640,7 @@ export default function Providers() {
         test_verified: prov?.test_verified === true,
         models: resolveModelsForModelView(
           inst, providers, userPayg, userSubscriptions, pricingOverrides, directByAgent,
+          modelViewCatalog,
         ),
       }];
     });
@@ -4641,7 +4656,7 @@ export default function Providers() {
       }
     }
     return base;
-  }, [accountInstances, providers, userPayg, userSubscriptions, pricingOverrides, directByAgent]);
+  }, [accountInstances, providers, userPayg, userSubscriptions, pricingOverrides, directByAgent, modelViewCatalog]);
   // 个人源「全部测速」：每个账户×模型钉 provider，避免同模型多账户只打中其中一个（展开会显示「无请求」）
   const personalProbeTargets = useMemo(() => {
     const seen = new Set(); const out = [];
@@ -5128,7 +5143,9 @@ export default function Providers() {
     const gw = inst.gateway_id;
     const prov = gw ? providers.find(p => p.id === gw) : null;
     // 模型数：直接按账户解析（模型视图会跳过已停用源，这里停用也要显示已登记数）
-    const models = resolveModelsForModelView(inst, providers, userPayg, userSubscriptions, pricingOverrides, directByAgent) || [];
+    const models = resolveModelsForModelView(
+      inst, providers, userPayg, userSubscriptions, pricingOverrides, directByAgent, modelViewCatalog,
+    ) || [];
     const direct = row.type === 'direct' ? row.direct : null;
     return {
       key: `i:${inst.id}`, row, name: inst.name || inst.label || gw || inst.id,

@@ -11,8 +11,7 @@ const reqRouter = require('./request-router');
 const routingStrategies = require('./routing-strategies');
 const cooldown = require('./gateway-cooldown');
 const upstreamHints = require('./gateway-upstream-hints');
-const { TIER_ROUTE_RE, parseRoute, STRATEGY_NAMES, SCOPE_NAMES, TIER_NAMES, SHARER_RE, findListRoute, applyTierToSteps } = require('../shared/route-binding');
-const { prefixExtensions, appendFoldedSteps } = require('../shared/model-prefix-routes');
+const { TIER_ROUTE_RE, parseRoute, STRATEGY_NAMES, SCOPE_NAMES, TIER_NAMES, SHARER_RE, applyTierToSteps } = require('../shared/route-binding');
 const _STRAT_SET = new Set(STRATEGY_NAMES || []);
 const _SCOPE_SET = new Set(SCOPE_NAMES || []);
 const _TIER_SET  = new Set(TIER_NAMES || []);
@@ -638,19 +637,6 @@ function collectPersonalModels() {
     if (!lc) return [];
     return require('./billing-config').collectPersonalModelNames(lc);
   } catch { return []; }
-}
-
-/** 供给源上写明的模型名。空列表表示接受任意模型，不拿来做前缀合并。 */
-function explicitProviderModelNames(providers) {
-  const names = [];
-  for (const p of providers || []) {
-    if (!p || p.type === 'p2p' || !Array.isArray(p.models) || !p.models.length) continue;
-    for (const m of p.models) {
-      const name = typeof m === 'string' ? m : (m && m.name);
-      if (name) names.push(name);
-    }
-  }
-  return names;
 }
 
 // Returns true if provider can serve the given model
@@ -3212,26 +3198,9 @@ function resolveBoundScene({
   return shimClaudeScene || exactKeyScene || claudeKeyScene || codexGptScene || null;
 }
 
-/** 绑定时收成的单步（paid:模型名）。同名有降级链就按链走，并保留这一步的层级。 */
+/** 纯模型绑定保持单步。降级链在写入 keyScene 时已经带上步骤和 flow。 */
 function expandBoundListRoute(scene) {
-  if (!scene) return scene;
-  const steps = Array.isArray(scene.steps) ? scene.steps : [];
-  if (steps.length !== 1) return scene;
-  const step = steps[0] || {};
-  if (!step.model || step.strategy) return scene;
-  // 步上已经钉了供给源：这是单模型选择，不换成整条链
-  if (step.provider) return scene;
-  const ref = parseRoute(step.model);
-  const tier = ref.tier || step.tier || null;
-  const provider = ref.provider || null;
-  const model = ref.model || step.model;
-  // p2p 是社区层，不并进个人源降级链
-  if (tier === 'p2p') return scene;
-  const chain = findListRoute(model, Object.entries(_routerModelMap).map(([key, route]) => ({ ...(route || {}), model_key: route?.model_key || key })));
-  if (!chain?.list_route || !Array.isArray(chain.steps) || !chain.steps.length) return scene;
-  if (chain.steps.length === 1 && !chain.steps[0]?.provider && chain.steps[0]?.model === model && !tier && !provider) return scene;
-  const expanded = appendFoldedSteps(chain, explicitProviderModelNames(enabledProviders()));
-  return { ...expanded, steps: applyTierToSteps(expanded.steps, { tier, provider, model }) };
+  return scene;
 }
 
 async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
@@ -3374,25 +3343,16 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
   // Codex：keyScene[模型名] 精确命中已绑定的多选路由；其余未知 gpt-*（内建辅助模型）才兜底到主路由。
   // boundScene 已在上方与 claudeFrom 一并解析。
   const isLlmRouter = origModel.startsWith('llm-router-');
-  // 降级链按裸模型名登记。测速和分层选择会带 paid:/free: 前缀，剥掉后再对上同一条链。
-  // 用户没写过这条链时，把「短名-更长变体」自动接上，请求失败后再试变体。
-  // p2p: 是社区层上的这一个模型，不改走个人源降级链。paid:/free: 仍对上同名链，层级写到没钉源的步上。
-  let interceptScene = (!boundScene && requestTier !== 'p2p')
-    ? (_routerModelMap[origModel] || (model && model !== origModel ? _routerModelMap[model] : null) || null)
-    : null;
-  if (interceptScene?.list_route) {
-    interceptScene = appendFoldedSteps(interceptScene, explicitProviderModelNames(enabledProviders()));
-  }
-  if (!interceptScene && model && requestTier !== 'p2p') {
-    const extras = prefixExtensions(model, explicitProviderModelNames(enabledProviders()));
-    if (extras.length) {
-      interceptScene = {
-        id: 'prefix:' + model,
-        scene_name: model,
-        model_key: model,
-        flow: 'fallback',
-        steps: [{ model }, ...extras.map(name => ({ model: name }))],
-      };
+  // 纯模型（paid:/free: 或钉了供给源）只打这一个模型，不借同名降级链，也不自动试更长的名字。
+  // 裸模型名若登记了降级链，按链上的 flow 和步骤执行。
+  let interceptScene = null;
+  if (!boundScene && requestTier !== 'p2p') {
+    const direct = _routerModelMap[origModel] || null;
+    if (requestTier || requestProvider) {
+      interceptScene = (direct && !direct.list_route) ? direct : null;
+    } else {
+      const byBare = (model && model !== origModel) ? (_routerModelMap[model] || null) : null;
+      interceptScene = direct || byBare || null;
     }
   }
   if (interceptScene && (requestTier || requestProvider)) {

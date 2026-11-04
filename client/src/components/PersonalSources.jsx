@@ -847,7 +847,10 @@ function buildChainItems(srcs, route, head, latencyOf) {
     const name = String(step?.model || '').trim();
     if (!name) continue;
     if (name !== head) {
-      if (!items.some(it => it.kind === 'model' && it.name === name)) items.push({ kind: 'model', name });
+      const provider = String(step.provider || '').trim();
+      if (!items.some(it => it.kind === 'model' && it.name === name && (it.provider || '') === provider)) {
+        items.push({ kind: 'model', name, provider });
+      }
       continue;
     }
     if (step.provider) {
@@ -871,6 +874,37 @@ function buildChainItems(srcs, route, head, latencyOf) {
     else items.splice(at, 0, ...rows);
   }
   return items;
+}
+
+/** 列表卡片上的供给源图标：链上每一步都算，不只链头自己的账户。 */
+function chainIconInsts(head, srcs, route, sourcesByModel) {
+  const items = buildChainItems(srcs, route, head, () => null);
+  const out = [];
+  const seen = new Set();
+  const push = (inst) => {
+    if (!inst) return;
+    const key = String(sourceChainId(inst) || inst.id || inst.source_id || inst.agent_id || '');
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(inst);
+  };
+  for (const it of items) {
+    if (it.kind === 'source') {
+      push(it.inst);
+      continue;
+    }
+    const list = sourcesByModel?.[it.name] || [];
+    const provider = String(it.provider || '').trim();
+    for (const inst of list) {
+      if (!provider) {
+        push(inst);
+        continue;
+      }
+      const id = String(sourceChainId(inst) || inst.source_id || inst.provider_id || '').trim();
+      if (id === provider) push(inst);
+    }
+  }
+  return out.length ? out : (srcs || []);
 }
 
 /** 这一步最近一次转发是否成功。模型步看该模型任一供给源。 */
@@ -908,6 +942,8 @@ export function PersonalSourceModelView({
   onDeleteListRoute = null,
 }) {
   const [chainModel, setChainModel] = useState(null);
+  // 点「降级链整理」后，已进链的模型不再单独占卡。添加列表仍用全部模型。
+  const [chainTidied, setChainTidied] = useState(false);
   const [latencyMapLocal, setLatencyMapLocal] = useState({});
   const latencyMap = latencyMapProp ?? latencyMapLocal;
   const [probing, setProbing] = useState(null);     // null | { done, total, current }
@@ -969,8 +1005,8 @@ export function PersonalSourceModelView({
   }, [modelSources, routeByModel, prefixRoutes]);
 
   const displayModels = useMemo(
-    () => byModel.filter(([name]) => !hiddenChainModels.has(name)),
-    [byModel, hiddenChainModels],
+    () => (chainTidied ? byModel.filter(([name]) => !hiddenChainModels.has(name)) : byModel),
+    [byModel, hiddenChainModels, chainTidied],
   );
 
   function routeForModel(name) {
@@ -1017,12 +1053,9 @@ export function PersonalSourceModelView({
     return out;
   }, [probeTargets, displayModels]);
 
-  // 全部测速：对每个个人源模型带 tier 前缀（paid:/free:）逐个发探针，强制路由到个人源。
-  // 注意：消耗你自己供给源的真实计费（非积分）。完后刷新圆点。
-  const probeAllPersonal = async () => {
-    if (probing) return;
-    const targets = orderedProbeTargets;
-    if (!targets.length) return;
+  // 测一批目标。消耗自己供给源的真实计费（非积分），完后刷新圆点。
+  const runProbeTargets = async (targets) => {
+    if (probing || !targets.length) return;
     probeAbortRef.current = false;
     setProbing({ done: 0, total: targets.length, current: targets[0] });
     for (let i = 0; i < targets.length; i++) {
@@ -1033,9 +1066,16 @@ export function PersonalSourceModelView({
       if (probeAbortRef.current) break;
       setProbing({ done: i + 1, total: targets.length, current: targets[i + 1] || null });
     }
-    try { await loadLatency(); } catch { /* ignore */ }   // 探针跑完/取消后刷新已测到的延迟
+    try { await loadLatency(); } catch { /* ignore */ }
     if (!probeAbortRef.current) setProbing(null);
     probeAbortRef.current = false;
+  };
+  const probeAllPersonal = () => runProbeTargets(orderedProbeTargets);
+  // 点卡片上的圆点：只测这一个模型（它的各供给源各测一次）
+  const probeOneModel = (modelName) => {
+    const bare = String(modelName || '').trim().toLowerCase();
+    const targets = orderedProbeTargets.filter(t => probeTargetBare(t) === bare);
+    return runProbeTargets(targets);
   };
   const cancelProbe = () => {
     probeAbortRef.current = true;
@@ -1138,6 +1178,11 @@ export function PersonalSourceModelView({
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <button type="button" onClick={() => setChainTidied(true)} disabled={chainTidied}
+            title={t('psrc.route.tidyHint')}
+            className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 whitespace-nowrap disabled:opacity-40">
+            {t('psrc.route.tidy')}
+          </button>
           {orderedProbeTargets.length > 0 && (
             <button type="button" onClick={probing ? cancelProbe : probeAllPersonal}
               title={probing ? t('providers.probe.cancelHint') : t('providers.probe.titlePersonal')}
@@ -1179,9 +1224,17 @@ export function PersonalSourceModelView({
             >
               <div className="flex items-center gap-1.5 min-w-0">
                 <span
-                  className={`inline-flex w-2 h-2 rounded-full shrink-0 ${probingThis ? 'bg-green-400 tb-probe-pulse' : speedDotClass(cardBucket)}`}
-                  title={probingThis ? '测速中' : (skipSpeed ? t('providers.probe.skipImage') : (degraded ? '已降级' : (fastMs ? `最快 ${(fastMs / 1000).toFixed(1)}s` : (anyFail ? '最近请求失败' : '暂无速度'))))}
-                />
+                  role="button"
+                  title={probingThis ? '测速中' : (skipSpeed ? t('providers.probe.skipImage') : (degraded ? '已降级 · 点击测速' : (fastMs ? `最快 ${(fastMs / 1000).toFixed(1)}s · 点击测速` : (anyFail ? '最近请求失败 · 点击测速' : '暂无速度 · 点击测速'))))}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    if (!skipSpeed) probeOneModel(model);
+                  }}
+                  className={`inline-flex items-center justify-center w-3.5 h-3.5 -ml-0.5 shrink-0 ${skipSpeed ? '' : 'cursor-pointer'}`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${probingThis ? 'bg-green-400 tb-probe-pulse' : speedDotClass(cardBucket)}`} />
+                </span>
                 <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200 truncate" title={model}>{model}</span>
                 {isModelRoute(model) && (
                   <span className={`shrink-0 text-[9px] leading-none px-1 py-px rounded ${degraded ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' : 'bg-zinc-200/80 dark:bg-zinc-700 text-zinc-500'}`}>{t('psrc.route.custom')}</span>
@@ -1196,7 +1249,7 @@ export function PersonalSourceModelView({
                 )}
               </div>
               <div className="flex items-center gap-0.5 shrink-0">
-                {srcs.map((s, i) => (
+                {(route ? chainIconInsts(model, srcs, route, modelSources) : srcs).map((s, i) => (
                   <SourceProviderLogo key={(s.id || s.agent_id || s.source_id) + ':' + i} inst={s} />
                 ))}
                 {fastMs != null && (
@@ -1219,7 +1272,8 @@ export function PersonalSourceModelView({
           latencyMap={latencyMap}
           skipSpeed={modelTypeMap[chainModel] === 'image'}
           cooldownFor={cooldownFor}
-          modelChoices={byModel.map(([name]) => name).filter((name) => !hiddenChainModels.has(name))}
+          // 整理只影响卡片。添加列表始终是全部模型，已在别的链里的也能加进来。
+          modelChoices={byModel.map(([name]) => name)}
           sourcesByModel={Object.fromEntries(byModel)}
           modelTypeMap={modelTypeMap}
           t={t}
@@ -1243,8 +1297,27 @@ function ChainDrawer({
     return row?.ttft > 0 ? row.ttft : null;
   };
   const chain = buildChainItems(sources, route, model, latencyOf);
-  const extraNames = chain.filter(it => it.kind === 'model').map(it => it.name);
-  const choices = modelChoices.filter(name => name !== model && !extraNames.includes(name));
+  // 没钉 provider 的模型步表示这一家都走，整名不再出现。钉过的只去掉这一家。
+  const takenModels = new Set();
+  const takenPairs = new Set();
+  for (const it of chain) {
+    if (it.kind !== 'model') continue;
+    if (it.provider) takenPairs.add(`${it.provider}\0${it.name}`);
+    else takenModels.add(it.name);
+  }
+  // 每条候选只有一个 provider id，按「provider:模型名」字母序排。
+  const choices = [];
+  for (const name of modelChoices) {
+    if (!name || name === model || takenModels.has(name)) continue;
+    const seen = new Set();
+    for (const inst of sourcesByModel[name] || []) {
+      const id = String(sourceChainId(inst) || inst.source_id || inst.provider_id || '').trim();
+      if (!id || seen.has(id) || takenPairs.has(`${id}\0${name}`)) continue;
+      seen.add(id);
+      choices.push({ provider: id, name, label: `${id}:${name}` });
+    }
+  }
+  choices.sort((a, b) => a.label.localeCompare(b.label));
   const autoSources = orderChainSources(sources, null, model, latencyOf);
 
   function persist(items) {
@@ -1252,7 +1325,11 @@ function ChainDrawer({
     for (const it of items) {
       if (it.kind === 'model') {
         const name = String(it.name || '').trim();
-        if (name && name !== model) steps.push({ model: name });
+        if (name && name !== model) {
+          const provider = String(it.provider || '').trim();
+          // 兜底模型钉一家供给源，不再把同名的其他账户一起带上
+          steps.push(provider ? { model: name, provider } : { model: name });
+        }
         continue;
       }
       const id = sourceChainId(it.inst);
@@ -1279,14 +1356,18 @@ function ChainDrawer({
   }
 
   function addModel() {
-    const name = pick.trim();
-    if (!name || name === model || extraNames.includes(name)) return;
+    const cut = pick.indexOf('\0');
+    if (cut < 0) return;
+    const provider = pick.slice(0, cut);
+    const name = pick.slice(cut + 1).trim();
+    if (!name || name === model || takenModels.has(name)) return;
+    if (provider && takenPairs.has(`${provider}\0${name}`)) return;
     setPick('');
-    persist([...chain, { kind: 'model', name }]);
+    persist([...chain, { kind: 'model', name, provider }]);
   }
 
-  function removeModel(name) {
-    persist(chain.filter(it => !(it.kind === 'model' && it.name === name)));
+  function removeModel(name, provider) {
+    persist(chain.filter(it => !(it.kind === 'model' && it.name === name && (it.provider || '') === (provider || ''))));
   }
 
   useEffect(() => {
@@ -1319,13 +1400,17 @@ function ChainDrawer({
         <div className="px-4 py-3 space-y-3">
           <p className="text-[11px] leading-relaxed text-zinc-500">{t('psrc.route.chainHint')}</p>
           <p className="text-[11px] text-zinc-400">{route ? t('psrc.route.custom') : t('psrc.route.auto')}</p>
-          {chain.length < 2 && extraNames.length === 0 && (
+          {chain.length < 2 && takenModels.size === 0 && takenPairs.size === 0 && (
             <p className="text-[11px] text-zinc-400">{t('psrc.route.onlyOne')}</p>
           )}
           <ol className="space-y-1">
             {chain.map((it, i) => {
               if (it.kind === 'model') {
-                const modelSrcs = sourcesByModel[it.name] || [];
+                const modelSrcs = (sourcesByModel[it.name] || []).filter(inst => {
+                  if (!it.provider) return true;
+                  const id = String(sourceChainId(inst) || inst.source_id || inst.provider_id || '').trim();
+                  return id === it.provider;
+                });
                 const modelSkip = modelTypeMap[it.name] === 'image';
                 let shown = null;
                 for (const inst of modelSrcs) {
@@ -1344,7 +1429,7 @@ function ChainDrawer({
                 const providerLabel = [...new Set(modelSrcs.map(accountDisplayName))].join(' · ');
                 return (
                   <li
-                    key={'m:' + it.name}
+                    key={'m:' + (it.provider || '') + ':' + it.name}
                     className="flex items-start gap-2 rounded-lg border border-zinc-200 dark:border-zinc-700 px-2 py-1.5"
                   >
                     <span className="w-4 pt-0.5 text-[11px] text-zinc-400 tabular-nums shrink-0">{i + 1}</span>
@@ -1375,7 +1460,7 @@ function ChainDrawer({
                     <button
                       type="button"
                       className="text-[10px] leading-none px-1 py-0.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 shrink-0"
-                      onClick={() => removeModel(it.name)}
+                      onClick={() => removeModel(it.name, it.provider)}
                     >{t('psrc.route.remove')}</button>
                     </span>
                   </li>
@@ -1425,15 +1510,26 @@ function ChainDrawer({
           <div className="space-y-1.5">
             <p className="text-[11px] text-zinc-500">{t('psrc.route.modelStep')}</p>
             {choices.length > 0 && (
-              <div className="flex gap-2">
-                <select
-                  value={pick}
-                  onChange={e => setPick(e.target.value)}
-                  className="flex-1 min-w-0 text-xs bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1"
-                >
-                  <option value="">{t('psrc.route.addModelPh')}</option>
-                  {choices.map(name => <option key={name} value={name}>{name}</option>)}
-                </select>
+              <div className="flex gap-2 items-start">
+                {/* 列表留在抽屉里滚动，避免原生下拉被窗口底边裁掉后选不到后面的模型 */}
+                <div className="flex-1 min-w-0 max-h-40 overflow-y-auto rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800">
+                  {choices.map(c => {
+                    const value = `${c.provider}\0${c.name}`;
+                    return (
+                    <button
+                      key={value}
+                      type="button"
+                      title={c.label}
+                      onClick={() => setPick(value)}
+                      className={`block w-full text-left text-xs px-2 py-1 truncate ${
+                        pick === value
+                          ? 'bg-blue-500 text-white'
+                          : 'text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-700'
+                      }`}
+                    >{c.label}</button>
+                    );
+                  })}
+                </div>
                 <button
                   type="button"
                   disabled={!pick}

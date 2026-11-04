@@ -1,15 +1,28 @@
 // 模型名前缀合并：只认最后一个横线。去掉最后一段后正好等于短名，才算同一条链。
 // glm-5-turbo 属于 glm-5；glm-5-2-260617 的上一段是 glm-5-2，和 glm-5 不同代。
 // 点号换代（glm-5 / glm-5.1、deepseek-v4 / deepseek-v4.1）也不是同一条链。
-// v4.1 与 v4-1 是同一写法，日期快照跟着这条链走。
+// v4.1 与 v4-1、名字中间的 2.0 与 2-0 是同一写法，日期快照跟着这条链走。
 'use strict';
 
-/** v 后面的点号版本改成横线：v4.1 → v4-1。不动 glm-5.1 这种换代。 */
+/** 同一版本的两种写法收成一个名字。
+ *  v4.1 → v4-1。
+ *  最后一段之前的 2.0 → 2-0，日期快照就能挂上 doubao-seed-2.0-mini。
+ *  最后一段自己的点号不动，glm-5.1 仍是换代。
+ */
 function canonicalVersionName(name) {
-  return String(name || '').trim().replace(
+  const text = String(name || '').trim().replace(
     /(^|-)(v)(\d+(?:\.\d+)+)/gi,
     (_, sep, v, ver) => `${sep}${v}${ver.replace(/\./g, '-')}`,
   );
+  const cut = text.lastIndexOf('-');
+  if (cut <= 0) return text;
+  let head = text.slice(0, cut);
+  let prev = '';
+  while (head !== prev) {
+    prev = head;
+    head = head.replace(/(\d)\.(\d)/g, '$1-$2');
+  }
+  return head + text.slice(cut);
 }
 
 function cutLastSegment(name) {

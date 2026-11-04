@@ -158,7 +158,16 @@ function buildRouteMenuItems({ routes, availableModels, t, showGatewayRoutes, is
   const pushModel = (m, value, extra) => {
     if (seenValues.has(value)) return;
     seenValues.add(value);
-    items.push({ kind: 'option', value, label: m.id, type: m.type, modelId: m.id, ...extra });
+    const chain = !!extra?.chain;
+    // 降级链只写模型名；普通模型写成「供给源：模型名」，避免不同源的同名模型分不清
+    items.push({
+      kind: 'option',
+      value,
+      label: formatModelDropdownLabel(m, { chain }),
+      type: m.type,
+      modelId: m.id,
+      ...extra,
+    });
   };
   if (local.length) {
     items.push({ kind: 'group', label: t('gateway.app.tier.local') });
@@ -309,33 +318,56 @@ function ModelTypeBadge({ type, t, active, compact }) {
   );
 }
 
-function modelOptionLabel(m, t) {
-  if (!m?.type || m.type === 'chat') return m.id;
-  const badge = modelTypeLabel(m.type, t);
-  return `${m.id} · ${badge}`;
+/** 下拉文案。降级链只留模型名；其余有供给源时写成「供给源：模型名」。 */
+export function formatModelDropdownLabel(m, { chain = false } = {}) {
+  const id = String(m?.id || m?.name || '').trim();
+  if (!id || chain) return id;
+  const provider = String(m?.providerName || '').trim();
+  if (!provider) return id;
+  return `${provider}：${id}`;
 }
 
-function routeOptionDisplayLabel(routeId, routes) {
-  const scene = (routes || []).find(r => r.model_key === routeId || r.id === routeId);
+function modelOptionLabel(m, t) {
+  const name = formatModelDropdownLabel(m);
+  if (!m?.type || m.type === 'chat') return name;
+  const badge = modelTypeLabel(m.type, t);
+  return `${name} · ${badge}`;
+}
+
+function isChainRouteValue(routeId, routes) {
+  const bare = modelIdFromRoute(routeId, routes) || String(routeId || '');
+  return (routes || []).some(r => r?.list_route && (
+    r.model_key === routeId || r.model_key === bare || r.id === routeId
+  ));
+}
+
+function routeOptionDisplayLabel(routeId, routes, availableModels) {
+  const scene = (routes || []).find(r => !r.list_route && (r.model_key === routeId || r.id === routeId));
   if (scene) {
     const icon = scene.icon && !String(scene.icon).startsWith('icon:') ? `${scene.icon} ` : '';
     return `${icon}${scene.scene_name}`;
   }
-  return modelIdFromRoute(routeId, routes) || routeId || '';
+  const bare = modelIdFromRoute(routeId, routes) || routeId || '';
+  // 降级链的选中值就是链头模型名，不加供给源
+  if (isChainRouteValue(routeId, routes)) return bare;
+  const m = (availableModels || []).find(x => modelTierKey(x) === routeId)
+    || (availableModels || []).find(x => x.id === bare);
+  return m ? formatModelDropdownLabel(m) : bare;
 }
 
-function resolveTriggerLabel({ multi, value, values, routes, t, isManual, displayText }) {
+function resolveTriggerLabel({ multi, value, values, routes, availableModels, t, isManual, displayText }) {
+  const labelOf = (id) => routeOptionDisplayLabel(id, routes, availableModels);
   if (multi) {
     const selected = (values || []).filter(Boolean);
     if (isManual && selected.length === 0) return '—';
     if (selected.length === 0) return t('gateway.app.routeOfficial');
     if (selected.length > 1 && displayText) return displayText;
-    if (selected.length === 1) return routeOptionDisplayLabel(selected[0], routes);
+    if (selected.length === 1) return labelOf(selected[0]);
     return isManual ? '—' : t('gateway.app.routeOfficial');
   }
   if (isManual && !value) return '—';
   if (!value) return t('gateway.app.routeOfficial');
-  return routeOptionDisplayLabel(value, routes) || (isManual ? '—' : t('gateway.app.routeOfficial'));
+  return labelOf(value) || (isManual ? '—' : t('gateway.app.routeOfficial'));
 }
 
 function RouteChevron({ className, open }) {
@@ -498,14 +530,16 @@ export default function RouteSelect({
 
   const displayText = multi && !officialActive && selected.length > 1
     ? t('gateway.app.routeMultiSummary', {
-      first: routeOptionDisplayLabel(selected[0], routes),
+      first: routeOptionDisplayLabel(selected[0], routes, availableModels),
       n: selected.length - 1,
     })
     : null;
 
-  const triggerLabel = resolveTriggerLabel({ multi, value: singleValue, values, routes, t, isManual, displayText });
+  const triggerLabel = resolveTriggerLabel({
+    multi, value: singleValue, values, routes, availableModels, t, isManual, displayText,
+  });
   const triggerTitle = multi && selected.length > 1
-    ? selected.map(v => routeOptionDisplayLabel(v, routes)).join(', ')
+    ? selected.map(v => routeOptionDisplayLabel(v, routes, availableModels)).join(', ')
     : undefined;
 
   const updatePanelPos = useCallback(() => {

@@ -20,6 +20,8 @@ test('只认最后一个横线，多一段就是另一代', () => {
   assert.strictEqual(modelExtends('gpt-4', 'gpt-4o'), false);
   assert.strictEqual(modelExtends('doubao-seed-2.0-lite', 'doubao-seed-2.0-pro'), false);
   assert.strictEqual(modelExtends('deepseek-flash', 'deepseek-v4-flash'), false);
+  assert.strictEqual(modelExtends('doubao-seed-2.0-mini', 'doubao-seed-2-0-mini-260428'), true);
+  assert.strictEqual(modelExtends('glm-5.1', 'glm-5-1'), false);
 });
 
 test('变体收进最短前缀，近的排前面', () => {
@@ -86,6 +88,11 @@ test('v4.1 与 v4-1 收成同一条链，日期快照跟着链头', () => {
   assert.strictEqual(folded.has('deepseek-v4-1-flash-economy-261017'), true);
   assert.strictEqual(folded.has('deepseek-v4.1-flash-economy'), false);
   assert.strictEqual(extras.has('deepseek-flash'), false);
+
+  const doubaoDot = prefixModelRoutes(['doubao-seed-2-0-mini-260428', 'doubao-seed-2.0-mini']);
+  assert.deepStrictEqual(doubaoDot.extras.get('doubao-seed-2.0-mini'), ['doubao-seed-2-0-mini-260428']);
+  assert.strictEqual(doubaoDot.hidden.has('doubao-seed-2-0-mini-260428'), true);
+  assert.strictEqual(doubaoDot.hidden.has('doubao-seed-2.0-mini'), false);
 
   const alias = prefixModelRoutes(['deepseek-v4.1-flash', 'deepseek-v4-1-flash']);
   assert.deepStrictEqual(alias.extras.get('deepseek-v4-1-flash'), ['deepseek-v4.1-flash']);
