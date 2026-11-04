@@ -308,6 +308,7 @@ const {
 const {
   withDeliveryPolicyPrompt,
   withClaudeDeliverySystemArgs,
+  applyRentalDefinition,
 } = require('./agent-delivery-policy');
 
 /**
@@ -488,7 +489,7 @@ function normalizeCommunityArtifacts(raw) {
   const out = [];
   let total = 0;
   for (const item of raw) {
-    if (out.length >= 8) break;
+    if (out.length >= 16) break;
     if (!item || typeof item !== 'object') continue;
     const dataUrl = String(item.dataUrl || '').trim();
     const url = String(item.url || '').trim();
@@ -1472,6 +1473,12 @@ class AgentExecutor extends EventEmitter {
       const attachDir = fileInfo.uploadDir || imgInfo.uploadDir;
       if (claudeLike && (claudeMultimodal || fileInfo.paths.length) && attachDir && !args.includes(attachDir)) {
         args.push('--add-dir', attachDir);
+      }
+
+      // 出租接单：系统定义里说明自己是在给雇佣方干活，不能报本机路径
+      const { isContributeSessionKey } = require('./contribute-session');
+      if (options.clientId === 'contribute' || isContributeSessionKey(options.sessionKey)) {
+        args = applyRentalDefinition(args);
       }
 
       const result = await this._runAgentProcess(taskId, effectiveAgentId, launch.executable, args, {

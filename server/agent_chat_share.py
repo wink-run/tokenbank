@@ -56,7 +56,7 @@ def normalize_share_messages(raw) -> list:
             if parts:
                 msg["parts"] = parts
             arts = []
-            for file in (item.get("artifacts") or [])[:8]:
+            for file in (item.get("artifacts") or [])[:16]:
                 if not isinstance(file, dict):
                     continue
                 url = str(file.get("url") or "").strip()

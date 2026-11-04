@@ -42,12 +42,13 @@ def test_publish_rewrites_local_path():
     assert (tmp_path / "task_abc" / "pelican_bicycle.png").is_file()
     text = (
         "PNG 图片：`" + LOCAL + "`\n"
-        "文件名 pelican_bicycle.png 仍保留\n"
+        "文件名换成地址后，别的文件 other.png 仍保留\n"
     )
     rewritten = rewrite_artifact_paths(text, stored)
     assert url in rewritten
     assert LOCAL not in rewritten
-    assert "文件名 pelican_bicycle.png 仍保留" in rewritten
+    assert "pelican_bicycle.png" not in rewritten.replace(url, "")
+    assert "other.png" in rewritten
     # 旧客户端不带 localPath 时，仍按文件名收掉绝对路径
     bare = dict(stored[0])
     bare["local"] = ""
@@ -129,6 +130,48 @@ def test_video_and_relative_subtitle_become_proxy_urls():
     assert stored[1]["url"] in rewritten
     assert rewrite_artifact_paths(rewritten, stored) == rewritten
     assert "httphttps://" not in rewritten
+
+
+def test_remote_hire_hides_local_folder_and_filenames():
+    tmp = tempfile.mkdtemp(prefix="tb-art-")
+    tmp_path = Path(tmp)
+    names = ["01-分析有毒关系.png", "preview.png"]
+    raw = []
+    locals_ = []
+    for name in names:
+        local = f"/Users/wink/.tokenbank/contribute-workspaces/app/u1/final/{name}"
+        locals_.append(local)
+        raw.append({
+            "name": name,
+            "mime": "image/png",
+            "dataUrl": DATA,
+            "localPath": local,
+        })
+    stored = publish_agent_artifacts(
+        "task_batch",
+        raw,
+        media_dir=tmp_path,
+        origin="https://tokenbank.wink.run",
+    )
+    assert len(stored) == 2
+    folder = locals_[0].rsplit("/", 1)[0]
+    text = (
+        "这 10 张图都在下面这个文件夹里，已经帮你在 Finder 里打开了：\n\n"
+        "```\nfinal\n```\n\n"
+        "1. `01-分析有毒关系.png`\n"
+        "总览拼版： `preview.png`\n"
+        f"目录：{folder}\n"
+    )
+    rewritten = redact_remaining_local_paths(rewrite_artifact_paths(text, stored))
+    assert "/Users/" not in rewritten
+    assert "final" not in rewritten
+    assert "01-分析有毒关系.png" not in rewritten
+    assert "`preview.png`" not in rewritten
+    assert stored[0]["url"] in rewritten
+    assert stored[1]["url"] in rewritten
+    assert "```" not in rewritten
+    # 再跑一遍不能把地址里的文件名拆坏
+    assert rewrite_artifact_paths(rewritten, stored) == rewritten
 
 
 def test_publish_rejects_outside_bytes():

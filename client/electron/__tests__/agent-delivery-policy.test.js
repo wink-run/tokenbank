@@ -36,6 +36,26 @@ test('buildClaudeCodeArgs injects delivery policy', () => {
   assert.ok(args.includes('--append-system-prompt'));
   const i = args.indexOf('--append-system-prompt');
   assert.ok(String(args[i + 1]).includes('产物交付'));
+  assert.ok(!String(args[i + 1]).includes('【Token Bank 出租】'));
+});
+
+test('rental definition tells the agent it is hired out', () => {
+  const { RENTAL_CONTEXT, applyRentalDefinition } = require('../agent-delivery-policy');
+  assert.ok(RENTAL_CONTEXT.includes('上架出租'));
+  assert.ok(RENTAL_CONTEXT.includes('雇佣方'));
+  assert.ok(RENTAL_CONTEXT.includes('Finder'));
+  assert.ok(RENTAL_CONTEXT.includes('绝对路径'));
+
+  const claude = applyRentalDefinition(['--append-system-prompt', DELIVERY_POLICY, '做封面']);
+  const sys = claude[claude.indexOf('--append-system-prompt') + 1];
+  assert.ok(sys.includes('产物交付'));
+  assert.ok(sys.indexOf('【Token Bank 出租】') > sys.indexOf('【Token Bank 产物交付】'));
+  assert.equal(applyRentalDefinition(claude)[claude.indexOf('--append-system-prompt') + 1], sys);
+
+  const cursor = applyRentalDefinition([withDeliveryPolicyPrompt('做封面')]);
+  assert.ok(cursor[0].includes('【Token Bank 出租】'));
+  assert.ok(cursor[0].indexOf('【Token Bank 出租】') > cursor[0].indexOf('【Token Bank 产物交付】'));
+  assert.equal(applyRentalDefinition(cursor)[0], cursor[0]);
 });
 
 test('buildAssistantLaunch injects policy for claude and codex', () => {
