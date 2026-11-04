@@ -78,6 +78,20 @@ def _apply_artifacts(task_id: str, output: str, raw) -> tuple[str, list]:
 _ARTIFACT_FOLLOW_SEC = 20
 
 
+def _keep_partial_on_disconnect(msg: dict, ctx: dict) -> dict:
+    """出租方中途掉线时，失败帧往往没有 output。把已经收到的正文补回去。"""
+    if str(msg.get("error") or "") != "worker disconnected":
+        return msg
+    if str(msg.get("output") or "").strip():
+        return msg
+    partial = str(ctx.get("partial_output") or "")
+    if not partial:
+        return msg
+    merged = dict(msg)
+    merged["output"] = partial
+    return merged
+
+
 async def _iter_agent_messages(ctx: dict):
     """读队列：进度原样吐出；终态若声明还有文件，就再等一帧再结束。
 
@@ -127,7 +141,8 @@ async def _iter_agent_messages(ctx: dict):
                 held = msg
                 file_deadline = min(deadline, time.time() + _ARTIFACT_FOLLOW_SEC)
                 continue
-            yield _release(msg)
+            # 连接断了也要把已经流过的正文交回去，调用方才能接着聊
+            yield _release(_keep_partial_on_disconnect(msg, ctx))
             return
         if held is not None and msg.get("error") == "worker disconnected":
             yield _release(held)
@@ -136,7 +151,7 @@ async def _iter_agent_messages(ctx: dict):
             if held is not None:
                 yield _release(held)
                 return
-            yield _release(msg)
+            yield _release(_keep_partial_on_disconnect(msg, ctx))
             return
     if held is not None:
         yield _release(held)
@@ -536,76 +551,88 @@ async def handle_agent_task(
         return {"ok": False, "task_id": task_id, "status": "failed", "error": str(e)}
 
 
-async def iter_agent_task_sse(
-    *,
-    assistant_id: str,
-    prompt: str,
-    consumer_user_id: Optional[int],
-    worker_id: Optional[str] = None,
-    owner: Optional[str] = None,
-    timeout_ms: Optional[int] = None,
-    guest: bool = False,
-    guest_ip: Optional[str] = None,
-    images: Optional[list] = None,
-    files: Optional[list] = None,
-) -> AsyncIterator[str]:
-    """SSE：progress 事件推正文，done/error 收尾。"""
-    ctx, err = await _prepare_agent_task(
-        assistant_id=assistant_id,
-        prompt=prompt,
-        consumer_user_id=consumer_user_id,
-        worker_id=worker_id,
-        owner=owner,
-        timeout_ms=timeout_ms,
-        guest_ip=guest_ip,
-        images=images,
-        files=files,
-    )
-    if err:
-        payload = {**err, "event": "error", "guest": guest, "need_login_to_continue": guest}
-        yield _sse(payload)
-        return
+# 网页刷新或切页会断开 SSE，任务本身继续跑。事件留在这里，页面回来后从同一条流接上。
+_AGENT_FEEDS: dict[str, dict] = {}
+_AGENT_FEED_TTL = 30 * 60
 
-    assert ctx is not None
-    # 先把任务号交给页面，用户才能在首段进度之前暂停
-    yield _sse({"event": "started", "task_id": ctx["task_id"]})
+
+def _sweep_agent_feeds(now: float | None = None) -> None:
+    now = time.time() if now is None else now
+    stale = [k for k, feed in _AGENT_FEEDS.items() if now - float(feed.get("created") or now) > _AGENT_FEED_TTL]
+    for key in stale:
+        _AGENT_FEEDS.pop(key, None)
+
+
+def _ensure_agent_feed(task_id: str, user_id) -> dict:
+    _sweep_agent_feeds()
+    feed = _AGENT_FEEDS.get(task_id)
+    if feed is None:
+        feed = {
+            "events": [],
+            "notify": asyncio.Event(),
+            "user_id": user_id,
+            "finished": False,
+            "created": time.time(),
+            "pump": None,
+        }
+        _AGENT_FEEDS[task_id] = feed
+    return feed
+
+
+def _publish_agent_feed(task_id: str, event: dict) -> None:
+    feed = _AGENT_FEEDS.get(task_id)
+    if not feed:
+        return
+    events = feed["events"]
+    # 进度是全文快照，只留最新一帧，重放时不会把同一段正文叠很多遍
+    if event.get("event") == "progress" and events and events[-1].get("event") == "progress":
+        events[-1] = event
+    else:
+        events.append(event)
+    feed["notify"].set()
+
+
+def agent_feed_exists(task_id: str) -> bool:
+    _sweep_agent_feeds()
+    return str(task_id or "").strip() in _AGENT_FEEDS
+
+
+async def _pump_agent_feed(ctx: dict, guest: bool) -> None:
+    """读出租方队列并记成可重放的事件。不跟某一次 HTTP 连接绑在一起。"""
+    task_id = ctx["task_id"]
+    feed = _ensure_agent_feed(task_id, ctx.get("consumer_user_id"))
+    _publish_agent_feed(task_id, {"event": "started", "task_id": task_id})
     try:
         async for msg in _iter_agent_messages(ctx):
             if msg is None:
                 final = await _refund_timeout(ctx)
-                yield _sse({**final, "event": "error", "guest": guest, "need_login_to_continue": guest})
+                _publish_agent_feed(task_id, {**final, "event": "error", "guest": guest, "need_login_to_continue": guest})
                 return
-
             if msg.get("type") == "agent_task_progress":
-                yield _sse({
+                _publish_agent_feed(task_id, {
                     "event": "progress",
-                    "task_id": ctx["task_id"],
+                    "task_id": task_id,
                     "text": str(msg.get("text") or "")[:200_000],
                     "tool": msg.get("tool"),
                     "progress_event": msg.get("event"),
                     "parts": _public_progress_parts(msg.get("parts")),
                 })
                 continue
-
             final = await _finalize_agent_result(
                 result=msg,
-                task_id=ctx["task_id"],
+                task_id=task_id,
                 aid=ctx["aid"],
                 worker=ctx["worker"],
                 guest=ctx["guest"],
                 consumer_user_id=ctx["consumer_user_id"],
             )
             ev = "done" if final.get("ok") else "error"
-            yield _sse({
-                **final,
-                "event": ev,
-                "guest": guest,
-                "need_login_to_continue": guest,
-            })
+            _publish_agent_feed(task_id, {**final, "event": ev, "guest": guest, "need_login_to_continue": guest})
             return
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         worker = ctx["worker"]
-        task_id = ctx["task_id"]
         aid = ctx["aid"]
         guest_flag = ctx["guest"]
         consumer_user_id = ctx["consumer_user_id"]
@@ -624,7 +651,7 @@ async def iter_agent_task_sse(
             )
         worker.record_agent_complete(aid, False)
         logger.error("[agent_task] stream error task_id=%s: %s", task_id, e)
-        yield _sse({
+        _publish_agent_feed(task_id, {
             "event": "error",
             "ok": False,
             "task_id": task_id,
@@ -633,3 +660,75 @@ async def iter_agent_task_sse(
             "guest": guest,
             "need_login_to_continue": guest,
         })
+    finally:
+        feed["finished"] = True
+        feed["notify"].set()
+
+
+def start_agent_feed(ctx: dict, guest: bool) -> None:
+    feed = _ensure_agent_feed(ctx["task_id"], ctx.get("consumer_user_id"))
+    pump = feed.get("pump")
+    if pump is not None and not pump.done():
+        return
+    feed["pump"] = asyncio.create_task(_pump_agent_feed(ctx, guest))
+
+
+async def iter_agent_feed_sse(task_id: str) -> AsyncIterator[str]:
+    """从已有事件接上。连接断开不影响任务，下一次再从这个列表继续读。"""
+    feed = _AGENT_FEEDS.get(str(task_id or "").strip())
+    if not feed:
+        return
+    cursor = 0
+    while True:
+        events = feed["events"]
+        while cursor < len(events):
+            ev = events[cursor]
+            cursor += 1
+            yield _sse(ev)
+            if ev.get("event") in ("done", "error"):
+                return
+        if feed.get("finished") and cursor >= len(feed["events"]):
+            return
+        feed["notify"].clear()
+        if cursor < len(feed["events"]):
+            continue
+        try:
+            await asyncio.wait_for(feed["notify"].wait(), timeout=15)
+        except asyncio.TimeoutError:
+            yield ": keepalive\n\n"
+
+
+async def iter_agent_task_sse(
+    *,
+    assistant_id: str,
+    prompt: str,
+    consumer_user_id: Optional[int],
+    worker_id: Optional[str] = None,
+    owner: Optional[str] = None,
+    timeout_ms: Optional[int] = None,
+    guest: bool = False,
+    guest_ip: Optional[str] = None,
+    images: Optional[list] = None,
+    files: Optional[list] = None,
+) -> AsyncIterator[str]:
+    """SSE：progress 事件推正文，done/error 收尾。页面断开后任务仍继续。"""
+    ctx, err = await _prepare_agent_task(
+        assistant_id=assistant_id,
+        prompt=prompt,
+        consumer_user_id=consumer_user_id,
+        worker_id=worker_id,
+        owner=owner,
+        timeout_ms=timeout_ms,
+        guest_ip=guest_ip,
+        images=images,
+        files=files,
+    )
+    if err:
+        payload = {**err, "event": "error", "guest": guest, "need_login_to_continue": guest}
+        yield _sse(payload)
+        return
+
+    assert ctx is not None
+    start_agent_feed(ctx, guest)
+    async for chunk in iter_agent_feed_sse(ctx["task_id"]):
+        yield chunk

@@ -78,10 +78,10 @@
         <div v-else class="av" :style="{ background: avatarColor(agentName) }">{{ agentName.slice(0, 1).toUpperCase() }}</div>
         <div class="id">
           <div class="id-t"><span class="id-name">{{ agentName }}</span>
-            <span class="tag" :class="{ circle: agent.visibility === 'circle' }">{{ agent.visibility === 'circle' ? T.circleShare : T.publicShare }}</span>
+            <span v-if="agent.visibility" class="tag" :class="{ circle: agent.visibility === 'circle' }">{{ agent.visibility === 'circle' ? T.circleShare : T.publicShare }}</span>
           </div>
           <div class="id-sub">
-            <span><span class="dot"></span>&nbsp; {{ T.online }}</span>
+            <span><span class="dot" :class="{ off: agentOffline }"></span>&nbsp; {{ agentOffline ? T.offline : T.online }}</span>
             <template v-if="agent.owner_nickname"><span class="sep">·</span><a :href="'/u/' + encodeURIComponent(agent.owner_nickname)">@{{ agent.owner_nickname }}</a></template>
             <template v-if="agent.runtime"><span class="sep">·</span><span>{{ agent.runtime }}</span></template>
             <span class="sep">·</span><span>{{ T.creditsPerTask.replace('{n}', String(creditsPerTask)) }}</span>
@@ -89,14 +89,18 @@
           </div>
         </div>
         <div class="head-actions">
-          <button v-if="messages.length" type="button" class="nbtn" :disabled="running" @click="clearChat" :title="T.clear">
+          <button v-if="messages.length" type="button" class="nbtn" :disabled="running || shareBusy" @click="shareChat" :title="T.share">
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 5H5.5A1.5 1.5 0 0 0 4 6.5v8A1.5 1.5 0 0 0 5.5 16h8a1.5 1.5 0 0 0 1.5-1.5V12" stroke-linecap="round"/><path d="M11 4h5v5M16 4 9.5 10.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>{{ shareCopied ? T.shared : T.share }}</span>
+          </button>
+          <button v-if="messages.length" type="button" class="nbtn" :disabled="running" @click="clearChat" :title="T.newChat">
             <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 4v12M4 10h12" stroke-linecap="round"/></svg><span>{{ T.newChat }}</span>
           </button>
+          <span v-if="shareHint" class="share-hint" :title="shareHint">{{ shareHint }}</span>
         </div>
       </div>
     </header>
 
-    <div class="cscroll" ref="chatEl" @click="onChatClick" @mouseover="onImgOver" @mouseout="onImgOut" @scroll="onImgHide">
+    <div class="cscroll" ref="chatEl" @click="onChatClick" @mouseover="onImgOver" @mouseout="onImgOut" @scroll="onChatScroll" @load.capture="onChatMedia" @loadedmetadata.capture="onChatMedia">
       <div class="cinner">
         <div v-if="!messages.length" class="empty">
           <div v-if="appIcon" class="av lg brand"><img :src="appIcon" alt=""></div>
@@ -123,10 +127,10 @@
                     <div class="apart-name">{{ p.name }}<span v-if="toolElapsed(p, m)" class="apart-time">{{ toolElapsed(p, m) }}</span></div>
                     <pre v-if="p.detail">{{ p.detail }}</pre>
                   </template>
-                  <div v-else class="md-body" v-html="renderRich(p.text)"></div>
+                  <div v-else class="md-body" v-html="renderRich(p.text, m.artifacts)"></div>
                 </div>
               </template>
-              <div v-else-if="m.content && m.content !== T.thinking" class="md-body" v-html="renderRich(m.content)"></div>
+              <div v-else-if="m.content && m.content !== T.thinking" class="md-body" v-html="renderRich(m.content, m.artifacts)"></div>
               <span v-if="m.pending && !(m.parts && m.parts.length) && (!m.content || m.content === T.thinking)" class="typing"><i></i><i></i><i></i></span>
               <span v-else-if="m.pending" class="typing stream-caret"><i></i><i></i><i></i></span>
               <div v-if="runLabel(m)" class="run-time">{{ runLabel(m) }}</div>
@@ -144,6 +148,7 @@
             </div>
           </template>
           <div v-else class="uside">
+            <div v-if="m.author || currentUserLabel" class="uwho">{{ m.author || currentUserLabel }}</div>
             <div v-if="m.content" class="ubub">{{ m.content }}</div>
             <div v-if="m.files && m.files.length" class="ufiles"><span v-for="(f, j) in m.files" :key="j" class="ufile">{{ f.name }}</span></div>
             <div v-if="m.images && m.images.length" class="uimgs"><img v-for="(src, j) in m.images" :key="j" :src="src" alt=""></div>
@@ -155,7 +160,22 @@
     <footer class="cfoot">
       <div class="cinner">
         <p v-if="err" class="err">{{ err }}</p>
-        <div v-if="guestLocked" class="gate">
+        <p v-if="fromShare && !guestLocked && !shareReadOnly && !shareTurnLocked" class="share-note">{{ T.sharedContinue }}</p>
+        <div v-if="shareTurnLocked" class="box locked">
+          <div class="box-lock">{{ turnLockText }}</div>
+          <textarea rows="1" disabled :value="prompt" :placeholder="T.promptPh"></textarea>
+          <div class="box-row">
+            <span class="box-meta">{{ T.enterHint }}</span>
+          </div>
+        </div>
+        <div v-else-if="shareReadOnly" class="box locked">
+          <div class="box-lock">{{ T.shareOffline }}</div>
+          <textarea rows="1" disabled :placeholder="T.promptPh"></textarea>
+          <div class="box-row">
+            <span class="box-meta">{{ T.enterHint }}</span>
+          </div>
+        </div>
+        <div v-else-if="guestLocked" class="gate">
           <span class="g-ic">🔒</span>
           <div class="g-t"><b>{{ T.trialDone }}</b>{{ T.gateSub }}</div>
           <a class="btn sm" href="/tools" style="text-decoration:none;display:inline-flex;align-items:center">{{ T.watchAdAgain }}</a>
@@ -252,7 +272,7 @@ createApp({
       zh: {
         loading: '加载中…', unavailable: '无法访问此智能体', backHome: '返回首页',
         backNetwork: '← 社区网络',
-        noDesc: '暂无简介', online: '在线', publicShare: '全球分享', circleShare: '圈子分享',
+        noDesc: '暂无简介', online: '在线', offline: '离线', publicShare: '全球分享', circleShare: '圈子分享',
         creditsPerTask: '每次 {n} 积分', promptPh: '输入消息，或添加图片和文件，Shift+Enter 发送…',
         send: '发送', running: '思考中…', needLogin: '圈子分享仅成员可见；全球分享未登录可试一轮。',
         loginToContinue: '试用一轮已结束，登录后可继续对话（按正常积分扣费）。',
@@ -271,7 +291,15 @@ createApp({
         pause: '暂停', paused: '已暂停',
         autoContinue: '上一次执行超时了，请从中断处继续，不要重头开始。',
         timeoutStopped: '已自动续跑两次，仍超时。再发一条消息可以继续。',
-        newChat: '新对话', copy: '复制', copied: '已复制', attach: '添加附件', hires: '{n} 次雇佣',
+        disconnectedContinue: '连接断了，已经生成的内容还在。再发一条消息就能接着做。',
+        disconnectedRetry: '上一次执行中途断了，请从中断处继续，不要重头开始。',
+        disconnectedKept: '（连接中断，还没有正文）',
+        newChat: '新对话', share: '分享', shared: '链接已复制', shareFail: '分享失败',
+        sharedContinue: '大家的发言按时间接在同一条对话里，直接发消息就能接着聊。', shareMissing: '分享不存在或已失效',
+        turnWait: '{name} 正在让智能体回复，这轮结束后才能接着说。谁先发出去，谁算下一轮。', someone: '有人',
+        myChat: '我的对话', sharedChat: '分享的对话', sharedBy: '{name}的对话', emptyThread: '暂无内容',
+        shareOffline: '这个智能体已下线，分享的对话只能查看，暂时不能继续聊。',
+        copy: '复制', copied: '已复制', attach: '添加附件', hires: '{n} 次雇佣',
         imageOnly: '请根据附图完成任务', fileOnly: '请根据附件完成任务',
         enterHint: 'Enter 换行 · Shift+Enter 发送', trialDone: '本次已用完', gateSub: '再看一次广告，或登录后按积分继续。', watchAdAgain: '再看广告',
         runsRemote: '任务在分享者设备上执行', authTitleLogin: '登录 Token Bank', authTitleRegister: '注册 Token Bank',
@@ -286,7 +314,7 @@ createApp({
       en: {
         loading: 'Loading…', unavailable: 'Agent unavailable', backHome: 'Home',
         backNetwork: '← Network',
-        noDesc: 'No description', online: 'Online', publicShare: 'Global', circleShare: 'Circle',
+        noDesc: 'No description', online: 'Online', offline: 'Offline', publicShare: 'Global', circleShare: 'Circle',
         creditsPerTask: '{n} credits / turn', promptPh: 'Message, or add an image or file. Shift+Enter to send…',
         send: 'Send', running: 'Thinking…', needLogin: 'Circle agents are members-only. Public agents: one free guest turn.',
         loginToContinue: 'Guest trial used. Sign in to continue (normal credits).',
@@ -305,7 +333,15 @@ createApp({
         pause: 'Pause', paused: 'Paused',
         autoContinue: 'The previous run timed out. Continue from where it stopped. Do not start over.',
         timeoutStopped: 'Auto-continue stopped after two timeouts. Send another message to go on.',
-        newChat: 'New chat', copy: 'Copy', copied: 'Copied', attach: 'Add attachment', hires: '{n} hires',
+        disconnectedContinue: 'The worker disconnected. What’s already written is still here. Send a message to continue.',
+        disconnectedRetry: 'The previous run stopped on its own. Continue from where it stopped. Do not start over.',
+        disconnectedKept: '(Disconnected before a reply.)',
+        newChat: 'New chat', share: 'Share', shared: 'Link copied', shareFail: 'Could not share',
+        sharedContinue: 'Everyone’s messages stay in one timeline. Send a message to continue.', shareMissing: 'This share is missing',
+        turnWait: '{name} is waiting on the agent. You can send after this turn. First send wins the next turn.', someone: 'Someone',
+        myChat: 'My chat', sharedChat: 'Shared chat', sharedBy: "{name}'s chat", emptyThread: 'Empty',
+        shareOffline: 'This agent is offline. The shared conversation is read-only for now.',
+        copy: 'Copy', copied: 'Copied', attach: 'Add attachment', hires: '{n} hires',
         imageOnly: 'Please use the attached images.', fileOnly: 'Please use the attached files.',
         enterHint: 'Enter for newline · Shift+Enter to send', trialDone: 'Turn used up', gateSub: 'Watch another ad, or sign in to continue (credits).', watchAdAgain: 'Watch ad',
         runsRemote: "Runs on the sharer's device", authTitleLogin: 'Sign in to Token Bank', authTitleRegister: 'Create your account',
@@ -345,6 +381,25 @@ createApp({
     })
     const prompt = ref('')
     const messages = ref([])
+    const fromShare = ref(false)
+    // 正在接着聊的那条分享。新发言会补回这条记录，别人打开还是同一条历史
+    const relayShareId = ref('')
+    // 别人正在这一轮里说话。自己抢到的那轮不算锁住
+    const foreignTurn = ref(null)
+    const holdingTurn = ref(false)
+    const shareTurnLocked = computed(() => !!foreignTurn.value && !holdingTurn.value && !running.value)
+    const turnLockText = computed(() => {
+      const name = (foreignTurn.value && foreignTurn.value.author) || T.value.someone
+      return String(T.value.turnWait || '').replace('{name}', name)
+    })
+    // 分享来的对话：智能体下线后只能看，不能接着发
+    const agentOffline = ref(false)
+    const shareReadOnly = computed(() => (fromShare.value && agentOffline.value) || !!agent.value?.offline)
+    const shareBusy = ref(false)
+    const shareCopied = ref(false)
+    const shareHint = ref('')
+    // 点了新对话之后，不要被自动刷新把刚才那条记录又填回来
+    const detachedChat = ref(false)
     // 待发送附图（仅本轮；不写入本地历史以免撑爆 quota）
     const pendingImages = ref([])
     const ATTACH_MAX = 3
@@ -380,6 +435,76 @@ createApp({
     const CHAT_MAX_CHARS = 200_000
     function chatStorageKey(aid) {
       return `tb_agent_chat:${String(aid || '').trim()}`
+    }
+    function threadStoreKey(aid) {
+      return `tb_agent_threads:${String(aid || '').trim()}`
+    }
+    function messageAt(m) {
+      return Number(m && (m.at || m.startedAt || m.finishedAt)) || 0
+    }
+    function sameLine(a, b) {
+      if (!a || !b || a.role !== b.role) return false
+      if (String(a.content || '').trim() !== String(b.content || '').trim()) return false
+      if (a.author && b.author && a.author !== b.author) return false
+      const ta = messageAt(a)
+      const tb = messageAt(b)
+      if (ta && tb && Math.abs(ta - tb) > 2000) return false
+      return true
+    }
+    // 待完成的那条留在最底下，其余按发言时间排
+    function sortMessages(list) {
+      const pending = []
+      const rest = []
+      ;(list || []).forEach((m, i) => (m && m.pending ? pending : rest).push({ m, i }))
+      rest.sort((a, b) => (messageAt(a.m) || a.i) - (messageAt(b.m) || b.i) || a.i - b.i)
+      return rest.map(x => x.m).concat(pending.map(x => x.m))
+    }
+    function absorbShare(into, pack) {
+      if (!pack || !Array.isArray(pack.messages)) return
+      const author = String(pack.author || '').slice(0, 40)
+      const base = Date.parse(pack.created_at || pack.createdAt)
+      const start = Number.isFinite(base) ? base : 0
+      pack.messages.forEach((raw, i) => {
+        if (!raw || (raw.role !== 'user' && raw.role !== 'assistant')) return
+        const row = {
+          ...raw,
+          author: raw.role === 'user' ? String(raw.author || author || '').slice(0, 40) : undefined,
+          at: Number(raw.at || raw.startedAt || raw.finishedAt) || (start + i),
+          shared: true,
+        }
+        const hit = into.find(x => sameLine(x, row))
+        if (hit) {
+          if (!hit.author && row.author) hit.author = row.author
+          if (!messageAt(hit)) hit.at = row.at
+          return
+        }
+        into.push(row)
+      })
+    }
+    // 上一版按人拆开的本地记录，摊回同一条历史
+    function flattenThreadStore(aid) {
+      try {
+        const raw = storageGet(threadStoreKey(aid))
+        if (!raw) return null
+        const data = JSON.parse(raw)
+        const list = Array.isArray(data?.threads) ? data.threads : []
+        const all = []
+        for (const t of list) {
+          if (!t || !Array.isArray(t.messages)) continue
+          const end = Number(t.updatedAt) || 0
+          t.messages.forEach((m, i) => {
+            if (!m) return
+            const copy = { ...m }
+            if (t.id && t.id !== 'local') {
+              copy.shared = true
+              if (copy.role === 'user' && !copy.author && t.author) copy.author = t.author
+            }
+            if (!messageAt(copy) && end) copy.at = end - (t.messages.length - i) * 1000
+            all.push(copy)
+          })
+        }
+        return all
+      } catch { return null }
     }
     function guestUsedKey(aid) {
       return `tb_agent_guest_used:${String(aid || '').trim()}`
@@ -498,9 +623,87 @@ createApp({
         const mime = String(item.mime || '')
         const kind = mime.startsWith('image/') && mime.indexOf('svg') < 0 ? 'image' : 'file'
         out.push({ name, mime, kind, url: url || undefined, dataUrl: dataOk ? dataUrl : undefined })
-        if (out.length >= 4) break
+        if (out.length >= 8) break
       }
       return out
+    }
+    /** 正文里的中转地址补回成品，刷新后视频播放器还能挂上。 */
+    function artifactsFromText(text) {
+      const re = /https?:\/\/[^\s<>"'`]+?\/media\/agent\/[A-Za-z0-9_-]+\/[^\s<>"'`]+/gi
+      const found = []
+      const seen = new Set()
+      let m
+      const raw = String(text || '')
+      while ((m = re.exec(raw))) {
+        const url = m[0].replace(/[),.;，。；]+$/, '')
+        if (!artifactUrl({ url }) || seen.has(url)) continue
+        seen.add(url)
+        const name = decodeURIComponent((url.split('/').pop() || 'file').split('?')[0])
+        const image = /\.(png|jpe?g|gif|webp|svg)$/i.test(name)
+        const video = /\.(mp4|m4v|webm|mov|mkv)$/i.test(name)
+        found.push({
+          name,
+          url,
+          kind: image ? 'image' : 'file',
+          mime: video ? (/\.webm$/i.test(name) ? 'video/webm' : 'video/mp4') : '',
+        })
+        if (found.length >= 8) break
+      }
+      return found
+    }
+    function mergeArtifacts(existing, texts) {
+      const base = cleanArtifacts(existing)
+      const have = new Set(base.map(a => a.url).filter(Boolean))
+      const blob = (texts || []).filter(Boolean).join('\n')
+      for (const extra of artifactsFromText(blob)) {
+        if (have.has(extra.url) || base.length >= 8) continue
+        base.push(extra)
+        have.add(extra.url)
+      }
+      return base
+    }
+    /** 和中转文件名同一规则：中文换成下划线，方便文件名对上地址。 */
+    function safeArtifactName(name) {
+      const base = String(name || 'file').replace(/\\/g, '/').split('/').pop()
+      const dot = base.lastIndexOf('.')
+      const stem = dot > 0 ? base.slice(0, dot) : base
+      const ext = dot > 0 ? base.slice(dot + 1) : ''
+      const extClean = ext.replace(/[^A-Za-z0-9]/g, '').toLowerCase().slice(0, 8)
+      let stemClean = stem.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^[._]+|[._]+$/g, '').slice(0, 80)
+      if (!stemClean) stemClean = 'file'
+      const out = extClean ? stemClean + '.' + extClean : stemClean
+      return out.slice(0, 120) || 'file'
+    }
+    /** 封面只写了文件名时，挂上对应成品地址，悬停才能出图。 */
+    function decorateRich(html, arts) {
+      const byKey = new Map()
+      for (const f of cleanArtifacts(arts)) {
+        if (!f.url || !f.name) continue
+        const leaf = decodeURIComponent(String(f.url).split('/').pop() || '').split('?')[0]
+        const image = f.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name) || /\.(png|jpe?g|gif|webp|svg)$/i.test(leaf)
+        if (!image) continue
+        byKey.set(f.name, f.url)
+        byKey.set(safeArtifactName(f.name), f.url)
+        if (leaf) byKey.set(leaf, f.url)
+      }
+      if (!byKey.size || typeof DOMParser === 'undefined') return html
+      const doc = new DOMParser().parseFromString('<div id="tb-rich">' + html + '</div>', 'text/html')
+      const root = doc.getElementById('tb-rich')
+      if (!root) return html
+      root.querySelectorAll('code').forEach((code) => {
+        if (code.closest('pre')) return
+        const text = String(code.textContent || '').trim()
+        const url = byKey.get(text) || byKey.get(safeArtifactName(text))
+        if (url) code.setAttribute('data-src', url)
+      })
+      return root.innerHTML
+    }
+    /** 分享和本地记录只留中转地址，不带 data URL。 */
+    function proxyArtifacts(raw) {
+      return cleanArtifacts(raw)
+        .map(f => ({ name: f.name, mime: f.mime, kind: f.kind, url: f.url }))
+        .filter(f => f.url)
+        .slice(0, 8)
     }
     /** 流式正文里已经出现的本机路径，收尾时换成中转地址。 */
     function swapArtifactPaths(text, arts) {
@@ -581,9 +784,11 @@ createApp({
       // 附图不落盘（data URL 过大）；仅图消息用占位文案保留一轮痕迹
       const cleaned = (msgs || [])
         .filter(m => {
-          if (!m || (m.role !== 'user' && m.role !== 'assistant')) return false
+          if (!m || m.liveTurn) return false
+          if (m.role !== 'user' && m.role !== 'assistant') return false
           if (answerOf(m)) return true
           if (cleanParts(m.parts)) return true
+          if (proxyArtifacts(m.artifacts).length) return true
           return m.role === 'user' && Array.isArray(m.images) && m.images.length
         })
         .map(m => {
@@ -592,17 +797,33 @@ createApp({
             role: m.role,
             content: (answerOf(m) || (m.role === 'user' && m.images?.length ? '[image]' : '')).slice(0, 80_000),
             parts,
+            artifacts: m.role === 'assistant' ? proxyArtifacts(m.artifacts) : undefined,
+            files: m.role === 'user' && Array.isArray(m.files) ? m.files.map(f => ({ name: String((f && f.name) || 'file').slice(0, 120) })).slice(0, 4) : undefined,
             startedAt: Number(m.startedAt) || undefined,
             finishedAt: Number(m.finishedAt) || undefined,
+            at: Number(m.at) || undefined,
+            author: m.role === 'user' && m.author ? String(m.author).slice(0, 40) : undefined,
+            shared: m.shared ? true : undefined,
+            interrupted: m.interrupted ? true : undefined,
+            pending: m.role === 'assistant' && m.pending && m.taskId ? true : undefined,
+            taskId: m.role === 'assistant' && m.taskId ? String(m.taskId).slice(0, 40) : undefined,
           }
         })
-        .filter(m => String(m.content || '').trim() || (m.parts && m.parts.length))
+        .filter(m => String(m.content || '').trim() || (m.parts && m.parts.length) || (m.artifacts && m.artifacts.length) || (m.pending && m.taskId))
         .map(m => ({
           role: m.role,
           content: String(m.content || '').slice(0, 80_000),
           parts: m.parts,
+          artifacts: m.artifacts && m.artifacts.length ? m.artifacts : undefined,
+          files: m.files && m.files.length ? m.files : undefined,
           startedAt: m.startedAt,
           finishedAt: m.finishedAt,
+          at: m.at || undefined,
+          author: m.author || undefined,
+          shared: m.shared || undefined,
+          interrupted: m.interrupted || undefined,
+          pending: m.pending || undefined,
+          taskId: m.taskId || undefined,
         }))
         .slice(-CHAT_MAX_MSGS)
       let total = 0
@@ -618,12 +839,17 @@ createApp({
     function saveChatHistory(aid, msgs) {
       const id = String(aid || '').trim()
       if (!id) return
+      const serialized = serializeChat(sortMessages(msgs))
       try {
         storageSet(chatStorageKey(id), JSON.stringify({
           v: 1,
           updatedAt: Date.now(),
-          messages: serializeChat(msgs),
+          shared: serialized.some(m => m.shared) || undefined,
+          relay: relayShareId.value || undefined,
+          detached: detachedChat.value || undefined,
+          messages: serialized,
         }))
+        storageRemove(threadStoreKey(id))
       } catch { /* quota */ }
     }
     function loadChatHistory(aid) {
@@ -635,14 +861,21 @@ createApp({
         const data = JSON.parse(raw)
         const list = Array.isArray(data?.messages) ? data.messages : (Array.isArray(data) ? data : [])
         return list
-          .filter(m => m && (m.role === 'user' || m.role === 'assistant') && (String(m.content || '').trim() || (Array.isArray(m.parts) && m.parts.length)))
+          .filter(m => m && (m.role === 'user' || m.role === 'assistant') && (String(m.content || '').trim() || (Array.isArray(m.parts) && m.parts.length) || (Array.isArray(m.artifacts) && m.artifacts.length) || (m.pending && m.taskId)))
           .map(m => ({
             role: m.role,
             content: String(m.content || ''),
-            pending: false,
+            pending: !!(m.pending && m.taskId),
+            taskId: m.taskId ? String(m.taskId).slice(0, 40) : undefined,
             parts: cleanParts(m.parts),
+            artifacts: mergeArtifacts(m.artifacts, [m.content].concat(Array.isArray(m.parts) ? m.parts.map(p => p && p.text) : [])),
+            files: Array.isArray(m.files) ? m.files.map(f => ({ name: String((f && f.name) || 'file').slice(0, 120) })).slice(0, 4) : undefined,
             startedAt: Number(m.startedAt) || undefined,
             finishedAt: Number(m.finishedAt) || undefined,
+            at: Number(m.at) || undefined,
+            author: m.role === 'user' && m.author ? String(m.author).slice(0, 40) : undefined,
+            shared: !!m.shared,
+            interrupted: !!m.interrupted,
           }))
       } catch {
         return []
@@ -694,25 +927,428 @@ createApp({
         const tok = getToken()
         if (tok) headers.Authorization = `Bearer ${tok}`
       }
-      const r = await fetch(url, { ...opts, headers })
+      const r = await fetch(url, { cache: 'no-store', ...opts, headers })
       let data = null
       try { data = await r.json() } catch { data = null }
       return { r, data }
     }
 
+    // 打开时贴在最新一条；用户往上翻之后就不再拽回去
+    let stickToBottom = true
+    function pinChatBottom() {
+      const el = chatEl.value
+      if (!el) return
+      const prev = el.style.scrollBehavior
+      el.style.scrollBehavior = 'auto'
+      el.scrollTop = el.scrollHeight
+      el.style.scrollBehavior = prev
+    }
     async function scrollChat() {
       await nextTick()
+      stickToBottom = true
+      pinChatBottom()
+    }
+    function onChatScroll() {
       const el = chatEl.value
-      if (el) el.scrollTop = el.scrollHeight
+      if (el) stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+      onImgHide()
+    }
+    function onChatMedia() {
+      if (stickToBottom) pinChatBottom()
     }
 
+    function readSavedChat(aid) {
+      const flat = flattenThreadStore(aid)
+      if (flat && flat.length) return flat
+      try {
+        const raw = storageGet(chatStorageKey(aid))
+        if (!raw) return []
+        const data = JSON.parse(raw)
+        if (data && data.detached) detachedChat.value = true
+        if (data && data.relay && !data.detached) relayShareId.value = String(data.relay).slice(0, 40)
+        const list = Array.isArray(data?.messages) ? data.messages : []
+        const end = Number(data?.updatedAt) || 0
+        return list.map((m, i) => {
+          if (!m || messageAt(m) || !end) return m
+          return { ...m, at: end - (list.length - i) * 1000 }
+        })
+      } catch { return [] }
+    }
+    async function openChat(aid) {
+      const merged = readSavedChat(aid)
+      const sid = (new URLSearchParams(location.search).get('share') || '').trim()
+      if (sid) {
+        const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid))
+        const same = r.ok && data && String(data.assistant_id) === String(aid)
+        if (same && Array.isArray(data.messages) && data.messages.length) {
+          detachedChat.value = false
+          relayShareId.value = sid
+          absorbShare(merged, data)
+          const url = new URL(location.href)
+          url.searchParams.delete('share')
+          history.replaceState(null, '', url.pathname + url.search + url.hash)
+        } else {
+          err.value = T.value.shareMissing
+        }
+      }
+      if (!detachedChat.value) await mergeRemoteShares(aid, merged)
+      messages.value = sortMessages(loadChatHistoryFrom(merged))
+      fromShare.value = !!relayShareId.value || messages.value.some(m => m.shared)
+      saveChatHistory(aid, messages.value)
+      startShareWatch()
+      await pollShareTurn()
+    }
+    async function mergeRemoteShares(aid, into) {
+      if (!getToken()) return
+      const { r, data } = await fetchJson('/api/agent-chats/shares?assistant_id=' + encodeURIComponent(aid), { auth: true })
+      if (!r.ok || !Array.isArray(data?.shares)) return
+      let newestMine = null
+      for (const s of data.shares) {
+        if (!s || !s.id) continue
+        absorbShare(into, s)
+        if (!s.mine) continue
+        const t = Date.parse(s.created_at) || 0
+        if (!newestMine || t >= newestMine.t) newestMine = { id: s.id, t }
+      }
+      if (!relayShareId.value && newestMine) relayShareId.value = newestMine.id
+    }
+    function turnTokenKey(sid) { return `tb_share_hold:${sid}` }
+    function myTurnToken(sid) {
+      const key = turnTokenKey(sid)
+      let token = ''
+      try { token = sessionStorage.getItem(key) || '' } catch { /* 隐私模式就只放内存 */ }
+      if (!token) {
+        token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`.slice(0, 40)
+        try { sessionStorage.setItem(key, token) } catch { /* 拿不到存储也继续用这份 */ }
+      }
+      return token
+    }
+    function clearTurnToken(sid) {
+      try { sessionStorage.removeItem(turnTokenKey(sid)) } catch { /* 忽略 */ }
+    }
+    function dropLiveTurn() {
+      if (!messages.value.some(m => m && m.liveTurn)) return
+      messages.value = messages.value.filter(m => !m.liveTurn)
+    }
+    function showForeignTurn(turn) {
+      if (!turn) return
+      foreignTurn.value = {
+        author: String(turn.author || '').slice(0, 40),
+        text: String(turn.text || ''),
+        at: Number(turn.at) || Date.now(),
+        taskId: String(turn.task_id || '').slice(0, 40),
+      }
+      const live = foreignTurn.value
+      let user = messages.value.find(m => m && m.liveTurn && m.role === 'user')
+      let asst = messages.value.find(m => m && m.liveTurn && m.role === 'assistant')
+      if (!user) {
+        messages.value.push({ role: 'user', content: live.text, author: live.author, at: live.at, liveTurn: true, shared: true })
+      } else {
+        user.content = live.text
+        user.author = live.author
+        user.at = live.at
+      }
+      if (!asst) {
+        messages.value.push({ role: 'assistant', content: '', pending: true, liveTurn: true, shared: true, startedAt: live.at })
+      }
+      watchForeignStream(live.taskId)
+      if (stickToBottom) scrollChat()
+    }
+    function readSseBlock(block) {
+      const data = String(block || '').split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(line.startsWith('data: ') ? 6 : 5).trim())
+        .join('\n')
+      if (!data || data === '[DONE]') return null
+      try { return JSON.parse(data) } catch { return null }
+    }
+    let publishedTurnTask = ''
+    let sharePollTimer = null
+    let turnWatchAbort = null
+    let watchingTask = ''
+    async function watchForeignStream(taskId) {
+      const id = String(taskId || '').trim()
+      if (!id || id === watchingTask) return
+      watchingTask = id
+      try { turnWatchAbort?.abort() } catch { /* 换一轮 */ }
+      const ac = new AbortController()
+      turnWatchAbort = ac
+      try {
+        const headers = { Accept: 'text/event-stream' }
+        const tok = getToken()
+        if (tok) headers.Authorization = `Bearer ${tok}`
+        const r = await fetch('/api/agent-tasks/' + encodeURIComponent(id) + '/events', { headers, cache: 'no-store', signal: ac.signal })
+        if (!r.ok || !(r.headers.get('content-type') || '').includes('text/event-stream') || !r.body) return
+        const reader = r.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = ''
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += decoder.decode(value, { stream: true })
+          const parts = buf.split('\n\n')
+          buf = parts.pop() || ''
+          for (const block of parts) {
+            const ev = readSseBlock(block)
+            if (!ev) continue
+            const row = messages.value.find(m => m && m.liveTurn && m.role === 'assistant')
+            if (!row) continue
+            if (ev.event === 'progress') {
+              const partsNow = cleanParts(ev.parts)
+              if (partsNow) {
+                row.parts = partsNow
+                row.content = answerOf(row)
+              } else if (ev.text) {
+                row.content = String(ev.text)
+              }
+              row.pending = true
+              if (stickToBottom) scrollChat()
+            } else if (ev.event === 'done' || ev.event === 'error') {
+              const text = String(ev.output || ev.result || ev.text || ev.message || row.content || '')
+              if (text) row.content = text
+              row.pending = false
+            }
+          }
+        }
+      } catch { /* 断流后靠轮询把定稿接回来 */ }
+    }
+    let pollBusy = false
+    function transcriptKey(list) {
+      return (list || []).filter(m => m && !m.liveTurn && !m.pending).map(m => `${m.role}\n${m.content || ''}`).join('\n---\n')
+    }
+    async function pollShareTurn() {
+      // 自己正在说的这轮不用被刷新打断；别人的页面要一直把新内容拉下来
+      if (running.value || pollBusy) return
+      const sid = relayShareId.value
+      const aid = agent.value?.id || assistantIdFromPath()
+      if (!sid && (!fromShare.value || detachedChat.value)) return
+      pollBusy = true
+      try {
+        const kept = messages.value.filter(m => !m.liveTurn)
+        const before = transcriptKey(kept)
+        if (aid && getToken() && !detachedChat.value) await mergeRemoteShares(aid, kept)
+        let turn = null
+        if (sid) {
+          const hold = myTurnToken(sid)
+          const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '?hold=' + encodeURIComponent(hold))
+          if (r.ok && data) {
+            absorbShare(kept, data)
+            turn = data.turn || null
+          }
+        }
+        if (turn && turn.mine) {
+          holdingTurn.value = true
+          foreignTurn.value = null
+          return
+        }
+        const hadLive = messages.value.some(m => m && m.liveTurn) || !!foreignTurn.value
+        if (turn && (turn.text || turn.task_id)) {
+          holdingTurn.value = false
+          if (transcriptKey(kept) !== before) {
+            messages.value = sortMessages(loadChatHistoryFrom(kept))
+            saveChatHistory(aid, messages.value)
+          }
+          showForeignTurn(turn)
+          return
+        }
+        foreignTurn.value = null
+        watchingTask = ''
+        try { turnWatchAbort?.abort() } catch { /* 这轮已经结束 */ }
+        if (!hadLive && transcriptKey(kept) === before) return
+        messages.value = sortMessages(loadChatHistoryFrom(kept))
+        saveChatHistory(aid, messages.value)
+        if (stickToBottom) scrollChat()
+      } finally {
+        pollBusy = false
+      }
+    }
+    function startShareWatch() {
+      if (sharePollTimer || !relayShareId.value) return
+      pollShareTurn()
+      sharePollTimer = setInterval(() => { pollShareTurn() }, 1500)
+    }
+    function stopShareWatch() {
+      if (sharePollTimer) clearInterval(sharePollTimer)
+      sharePollTimer = null
+      try { turnWatchAbort?.abort() } catch { /* 页面关了 */ }
+    }
+    async function claimRelayTurn(text) {
+      const sid = relayShareId.value
+      if (!sid) return true
+      const token = myTurnToken(sid)
+      const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '/turn', {
+        method: 'POST',
+        body: JSON.stringify({
+          token,
+          author: currentUserLabel.value || '',
+          text,
+          at: Date.now(),
+        }),
+      })
+      if (r.ok && data && data.ok) {
+        holdingTurn.value = true
+        foreignTurn.value = null
+        return true
+      }
+      const turn = data && (data.turn || (data.detail && data.detail.turn))
+      if (turn) showForeignTurn(turn)
+      holdingTurn.value = false
+      return false
+    }
+    async function publishTurnTask(taskId) {
+      const sid = relayShareId.value
+      const id = String(taskId || '').trim()
+      if (!sid || !id || !holdingTurn.value || publishedTurnTask === id) return
+      publishedTurnTask = id
+      try {
+        await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '/turn/task', {
+          method: 'POST',
+          body: JSON.stringify({ token: myTurnToken(sid), task_id: id }),
+        })
+      } catch { publishedTurnTask = '' }
+    }
+    async function endRelayTurn(commit) {
+      const sid = relayShareId.value
+      if (!sid || !holdingTurn.value) return
+      holdingTurn.value = false
+      const token = myTurnToken(sid)
+      const tail = commit
+        ? serializeChat(messages.value.filter(m => m && !m.pending && !m.liveTurn).slice(-2))
+        : []
+      try {
+        await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '/turn/finish', {
+          method: 'POST',
+          body: JSON.stringify({ token, messages: tail }),
+        })
+      } catch { /* 锁过期后别人也能重新抢 */ }
+      clearTurnToken(sid)
+      publishedTurnTask = ''
+    }
+    function storedChatShared(aid) {
+      try {
+        const raw = storageGet(threadStoreKey(aid))
+        if (raw) {
+          const data = JSON.parse(raw)
+          return Array.isArray(data?.threads) && data.threads.some(t => t && t.shared && ((t.messages && t.messages.length) || t.preview))
+        }
+        const old = storageGet(chatStorageKey(aid))
+        if (!old) return false
+        const data = JSON.parse(old)
+        if (data && data.shared) return true
+        return Array.isArray(data?.messages) && data.messages.some(m => m && m.shared)
+      } catch { return false }
+    }
+    /** 名片还在，说明分享者设备在线。公开和圈子各查一次。 */
+    async function probeAgent(id) {
+      let { r, data } = await fetchJson(`/public/agents/${encodeURIComponent(id)}`)
+      if (r.ok && data?.agent) return { agent: data.agent, credits: data.credits_per_task }
+      if (getToken()) {
+        ;({ r, data } = await fetchJson(`/api/agents/${encodeURIComponent(id)}`, { auth: true }))
+        if (r.status === 401) return { auth: true }
+        if (r.ok && data?.agent) return { agent: data.agent, credits: data.credits_per_task }
+      }
+      return { missing: true }
+    }
+    let presenceTimer = null
+    function stopPresenceWatch() {
+      if (presenceTimer) clearInterval(presenceTimer)
+      presenceTimer = null
+    }
+    async function refreshAgentPresence() {
+      if (!fromShare.value) return
+      const id = agent.value?.id || assistantIdFromPath()
+      if (!id) return
+      try {
+        const found = await probeAgent(id)
+        if (found.auth) return
+        if (found.agent) {
+          agent.value = found.agent
+          if (found.credits != null) creditsPerTask.value = found.credits
+          agentOffline.value = false
+          applyMeta()
+          return
+        }
+        agentOffline.value = true
+      } catch { /* 网络抖动时保持当前状态 */ }
+    }
+    function startPresenceWatch() {
+      if (presenceTimer || !fromShare.value) return
+      presenceTimer = setInterval(() => { refreshAgentPresence() }, 20000)
+    }
+    function loadChatHistoryFrom(list) {
+      const raw = Array.isArray(list) ? list : []
+      return raw
+        .filter(m => m && (m.role === 'user' || m.role === 'assistant') && (String(m.content || '').trim() || (Array.isArray(m.parts) && m.parts.length) || (Array.isArray(m.artifacts) && m.artifacts.length) || (m.pending && m.taskId)))
+        .map(m => ({
+          role: m.role,
+          content: String(m.content || ''),
+          pending: !!(m.pending && m.taskId),
+          taskId: m.taskId ? String(m.taskId).slice(0, 40) : undefined,
+          parts: cleanParts(m.parts),
+          artifacts: mergeArtifacts(m.artifacts, [m.content].concat(Array.isArray(m.parts) ? m.parts.map(p => p && p.text) : [])),
+          files: Array.isArray(m.files) ? m.files.map(f => ({ name: String((f && f.name) || 'file').slice(0, 120) })).slice(0, 4) : undefined,
+          startedAt: Number(m.startedAt) || undefined,
+          finishedAt: Number(m.finishedAt) || undefined,
+          at: Number(m.at) || undefined,
+          author: m.role === 'user' && m.author ? String(m.author).slice(0, 40) : undefined,
+          shared: !!m.shared,
+          interrupted: !!m.interrupted,
+        }))
+    }
+    async function shareChat() {
+      if (shareBusy.value || running.value || !messages.value.length) return
+      const aid = agent.value?.id || assistantIdFromPath()
+      if (!aid) return
+      shareBusy.value = true
+      shareCopied.value = false
+      shareHint.value = ''
+      const name = currentUserLabel.value
+      if (name) {
+        messages.value.forEach(m => {
+          if (m && m.role === 'user' && !m.author) m.author = name
+        })
+      }
+      try {
+        const { r, data } = await fetchJson('/api/agent-chats/shares', {
+          method: 'POST',
+          auth: !!getToken(),
+          body: JSON.stringify({ assistant_id: aid, messages: serializeChat(messages.value) }),
+        })
+        if (!r.ok || !data || !data.url) {
+          shareHint.value = T.value.shareFail
+          err.value = ''
+          return
+        }
+        err.value = ''
+        shareCopied.value = true
+        setTimeout(() => { shareCopied.value = false }, 1600)
+        shareHint.value = data.url
+        try { await ChatUI.copyText(data.url) } catch { /* 复制失败时链接仍留在按钮旁 */ }
+        if (data.id) relayShareId.value = data.id
+        detachedChat.value = false
+        fromShare.value = true
+        saveChatHistory(aid, messages.value)
+        startShareWatch()
+      } catch {
+        shareHint.value = T.value.shareFail
+      } finally {
+        shareBusy.value = false
+      }
+    }
     function clearChat() {
       if (running.value) return
+      stopShareWatch()
+      detachedChat.value = true
+      relayShareId.value = ''
+      fromShare.value = false
+      foreignTurn.value = null
+      holdingTurn.value = false
+      shareHint.value = ''
       messages.value = []
       pendingImages.value = []
       err.value = ''
       const id = agent.value?.id || assistantIdFromPath()
-      clearChatHistory(id)
+      saveChatHistory(id, [])
     }
 
     function fileToDataUrl(file) {
@@ -799,16 +1435,16 @@ createApp({
       const prior = history.filter(m => !m.pending && m.content)
       if (!prior.length) return nextUser
       const lines = prior.map(m => {
-        const who = m.role === 'user' ? 'User' : 'Assistant'
+        const who = m.role === 'user' ? (m.author || 'User') : 'Assistant'
         const note = m.paused
           ? '\n(paused so the user can add information)'
-          : (m.timedOut ? '\n(timed out; continue this work, do not restart)' : '')
+          : (m.timedOut || m.interrupted ? '\n(interrupted; continue this work, do not restart)' : '')
         return `${who}: ${m.content}${note}`
       })
       const lead = prior.some(m => m.paused)
         ? 'The previous turn was paused. Keep the work already done and apply the new user message.\n\n'
-        : prior.some(m => m.timedOut)
-          ? 'The previous turn timed out. Continue the unfinished work from the partial answer. Do not restart.\n\n'
+        : prior.some(m => m.timedOut || m.interrupted)
+          ? 'The previous turn was interrupted. Continue the unfinished work from the partial answer. Do not restart.\n\n'
           : ''
       return `${lead}Conversation so far:\n${lines.join('\n\n')}\n\nUser: ${nextUser}\n\nAssistant:`
     }
@@ -818,6 +1454,7 @@ createApp({
       fatal.value = ''
       showAuthGate.value = false
       agent.value = null
+      agentOffline.value = false
       const id = assistantIdFromPath()
       if (!id) {
         fatal.value = T.value.notFound
@@ -825,61 +1462,59 @@ createApp({
         return
       }
       try {
-        let { r, data } = await fetchJson(`/public/agents/${encodeURIComponent(id)}`)
-        if (r.ok && data?.agent) {
-          agent.value = data.agent
-          creditsPerTask.value = data.credits_per_task ?? 10
-          // 恢复本智能体历史对话
-          const restored = loadChatHistory(data.agent.id)
-          if (restored.length) messages.value = restored
+        const found = await probeAgent(id)
+        if (found.auth) {
+          logout()
+          fatal.value = T.value.needAuthCircle
+          showAuthGate.value = true
+          return
+        }
+        if (found.agent) {
+          agent.value = found.agent
+          creditsPerTask.value = found.credits ?? 10
+          await openChat(found.agent.id)
           if (gateTicket.value) {
             guestUsed.value = false
-            storageRemove(guestUsedKey(data.agent.id))
+            storageRemove(guestUsedKey(found.agent.id))
           } else {
-            guestUsed.value = storageGet(guestUsedKey(data.agent.id)) === '1'
+            guestUsed.value = storageGet(guestUsedKey(found.agent.id)) === '1'
           }
           applyMeta()
-          loading.value = false
           if (loggedIn.value) await fetchProfile()
-          await scrollChat()
+          startPresenceWatch()
           return
+        }
+        // 名片不在了：分享来的记录仍打开，只是不能接着聊
+        const sid = (new URLSearchParams(location.search).get('share') || '').trim()
+        if (sid || storedChatShared(id)) {
+          agent.value = { id, name: id, offline: true }
+          agentOffline.value = true
+          await openChat(id)
+          if (fromShare.value && messages.value.length) {
+            applyMeta()
+            startPresenceWatch()
+            return
+          }
+          agent.value = null
+          agentOffline.value = false
         }
         if (!getToken()) {
           fatal.value = T.value.needAuthCircle
           showAuthGate.value = true
-          loading.value = false
           return
         }
-        ;({ r, data } = await fetchJson(`/api/agents/${encodeURIComponent(id)}`, { auth: true }))
-        if (r.status === 401) {
-          logout()
-          fatal.value = T.value.needAuthCircle
-          showAuthGate.value = true
-          loading.value = false
-          return
-        }
-        if (!r.ok || !data?.agent) {
-          fatal.value = (typeof data?.detail === 'string' ? data.detail : '') || T.value.notFound
-          loading.value = false
-          return
-        }
-        agent.value = data.agent
-        creditsPerTask.value = data.credits_per_task ?? 10
-        const restored = loadChatHistory(data.agent.id)
-        if (restored.length) messages.value = restored
-        if (gateTicket.value) {
-          guestUsed.value = false
-          storageRemove(guestUsedKey(data.agent.id))
-        } else {
-          guestUsed.value = storageGet(guestUsedKey(data.agent.id)) === '1'
-        }
-        applyMeta()
-        await fetchProfile()
-        await scrollChat()
+        fatal.value = T.value.notFound
       } catch {
         fatal.value = T.value.notFound
       } finally {
         loading.value = false
+        // 加载骨架卸掉后对话区才挂上，这时才能滚到内容底部
+        if (agent.value) await scrollChat()
+        const last = messages.value[messages.value.length - 1]
+        if (last && last.pending && last.taskId) {
+          if (agent.value?.offline) last.pending = false
+          else resumeTask(last.taskId)
+        }
       }
     }
 
@@ -986,6 +1621,274 @@ createApp({
       } catch { /* 页面先停；远端没停时任务会自己超时 */ }
     }
 
+    function isTransportAbort(e) {
+      const msg = String((e && e.message) || '')
+      // Safari 切页/刷新是 “Load failed”，Chrome 是 “Failed to fetch”，都不是任务失败
+      return /load failed|failed to fetch|networkerror|network connection was lost|aborted a request/i.test(msg)
+    }
+    /** 读一条任务流。进度是全文快照，刷新后重放也不会把正文叠两遍。 */
+    async function readAgentSse(r, asstIdx, isGuest) {
+      const setAssistant = (content, { pending = true } = {}) => {
+        const row = messages.value[asstIdx]
+        if (!row || row.role !== 'assistant') return
+        row.content = content
+        row.pending = pending
+      }
+      const dropStreamTurn = () => {
+        if (messages.value[asstIdx]?.role === 'assistant') messages.value.splice(asstIdx, 1)
+        const last = messages.value[messages.value.length - 1]
+        if (last?.role === 'user') messages.value.pop()
+      }
+      const reader = r.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      let finalOk = false
+      let finalGuest = isGuest
+      let nextAuto = ''
+      const parseSseBlock = (block) => {
+        const data = String(block || '').split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(line.startsWith('data: ') ? 6 : 5).trim())
+          .join('\n')
+        if (!data || data === '[DONE]') return null
+        try { return JSON.parse(data) } catch { return null }
+      }
+      const finish = (stopped) => ({ stopped, finalOk, finalGuest, nextAuto })
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) buf += decoder.decode()
+        else buf += decoder.decode(value, { stream: true })
+        const blocks = []
+        if (done) {
+          const pending = buf
+          buf = ''
+          const parts = pending.split('\n\n')
+          for (const block of parts) if (block.trim()) blocks.push(block)
+        } else {
+          const parts = buf.split('\n\n')
+          buf = parts.pop() || ''
+          blocks.push(...parts)
+        }
+        for (const block of blocks) {
+          const ev = parseSseBlock(block)
+          if (!ev || typeof ev !== 'object') continue
+          if (ev.task_id) {
+            activeTaskId.value = String(ev.task_id)
+            const row = messages.value[asstIdx]
+            if (row) row.taskId = activeTaskId.value
+            publishTurnTask(activeTaskId.value)
+          }
+          if (ev.event === 'started') continue
+          if (ev.event === 'progress') {
+            const row = messages.value[asstIdx]
+            const parts = cleanParts(ev.parts)
+            if (row && parts) {
+              row.parts = withToolTimes(row.parts, parts)
+              row.content = answerOf(row)
+              row.pending = true
+            } else {
+              const body = String(ev.text || '')
+              if (body) setAssistant(mergeStreamText(row?.content, body), { pending: true })
+              else if (ev.tool && row) {
+                const name = String(ev.tool)
+                const partsNow = cleanParts(row.parts) || []
+                const last = partsNow[partsNow.length - 1]
+                if (!(last && last.type === 'tool' && last.name === name)) {
+                  partsNow.push({ type: 'tool', name, detail: '', startedAt: Date.now() })
+                } else if (!last.startedAt) {
+                  last.startedAt = Date.now()
+                }
+                row.parts = partsNow
+                row.pending = true
+              }
+            }
+            await scrollChat()
+            continue
+          }
+          if (ev.event === 'done') {
+            finalOk = !!ev.ok
+            finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
+            const arts = cleanArtifacts(ev.artifacts)
+            const row = messages.value[asstIdx]
+            const out = rewriteShown(String(ev.output || ev.result || ev.text || ev.message || ''), arts)
+            if (row) {
+              row.pending = false
+              row.taskId = undefined
+              if (arts.length) row.artifacts = arts
+              if (row.parts && row.parts.length) {
+                row.parts = rewriteParts(row.parts, arts)
+                const shown = answerOf(row)
+                if (out && out !== shown && !shown.includes(out) && !out.includes(shown)) {
+                  row.parts = [...row.parts, { type: 'text', text: out }]
+                } else if (out.startsWith(shown) && out.length > shown.length) {
+                  const extra = out.slice(shown.length).replace(/^\s+/, '')
+                  if (extra) row.parts = [...row.parts, { type: 'text', text: extra }]
+                }
+                row.content = answerOf(row) || out || '(empty)'
+              } else {
+                setAssistant(out || rewriteShown(row.content, arts) || '(empty)', { pending: false })
+              }
+              if (arts.length) row.artifacts = arts
+            }
+            continue
+          }
+          if (ev.event === 'error') {
+            if (ev.status === 'cancelled' || ev.error === 'cancelled' || stopRequested) {
+              freezePartial(asstIdx)
+              return finish(true)
+            }
+            const timeoutEv = /timeout/i.test(`${ev.status || ''} ${ev.error || ''}`)
+            if (timeoutEv) {
+              const row = messages.value[asstIdx]
+              const arts = cleanArtifacts(ev.artifacts)
+              const remote = rewriteShown(String(ev.output || ''), arts)
+              const cur = rewriteShown(answerOf(row), arts)
+              const text = remote.length > cur.length ? remote : cur
+              if (row) {
+                row.pending = false
+                row.taskId = undefined
+                row.timedOut = true
+                if (arts.length) row.artifacts = arts
+                if (text) {
+                  row.content = text
+                  row.parts = [{ type: 'text', text }]
+                } else {
+                  messages.value.splice(asstIdx, 1)
+                }
+              }
+              if (!isGuest && autoContinues < 2) {
+                autoContinues += 1
+                nextAuto = T.value.autoContinue
+                err.value = ''
+              } else if (!isGuest) {
+                err.value = T.value.timeoutStopped
+              } else {
+                err.value = String(ev.error || ev.status || 'timeout')
+              }
+              if (isGuest) guestUsed.value = true
+              return finish(true)
+            }
+            finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
+            const msg = ev.error || ev.detail || ev.status || 'failed'
+            const row = messages.value[asstIdx]
+            // 出租方自己掉线，不是用户按的暂停：留下本轮和已生成的内容，并接着跑
+            if (/worker disconnected/i.test(String(msg))) {
+              const arts = cleanArtifacts(ev.artifacts)
+              const remote = rewriteShown(String(ev.output || ''), arts).trim()
+              const local = answerOf(row).trim()
+              const best = remote.length > local.length ? remote : local
+              if (row) {
+                row.pending = false
+                row.taskId = undefined
+                row.interrupted = true
+                if (arts.length) row.artifacts = arts
+                if (best && remote.length > local.length) {
+                  row.content = best
+                  row.parts = [{ type: 'text', text: best }]
+                } else if (!local) {
+                  row.content = T.value.disconnectedKept
+                } else {
+                  row.content = local
+                }
+                if (arts.length && row.parts?.length) row.parts = rewriteParts(row.parts, arts)
+                row.content = rewriteShown(row.content, arts) || row.content
+              }
+              finalGuest = false
+              if (!isGuest && autoContinues < 2) {
+                autoContinues += 1
+                nextAuto = T.value.disconnectedRetry
+                err.value = ''
+              } else {
+                err.value = T.value.disconnectedContinue
+              }
+              persistNow()
+              return finish(true)
+            }
+            const cur = answerOf(row).trim()
+            if (cur && cur !== '…') {
+              if (row?.parts?.length) {
+                row.parts = [...row.parts, { type: 'text', text: `[${msg}]` }]
+                row.content = answerOf(row)
+                row.pending = false
+              } else {
+                setAssistant(`${cur}\n\n[${msg}]`, { pending: false })
+              }
+              if (row) row.taskId = undefined
+              err.value = String(msg)
+              const arts = cleanArtifacts(ev.artifacts)
+              if (arts.length && row) row.artifacts = arts
+              if (row?.parts?.length) row.parts = rewriteParts(row.parts, arts)
+              if (row?.content) row.content = rewriteShown(row.content, arts)
+            } else {
+              err.value = String(msg)
+              dropStreamTurn()
+            }
+            if (finalGuest) guestUsed.value = true
+            return finish(true)
+          }
+        }
+        if (done) break
+      }
+      return finish(false)
+    }
+    let resumeBusy = false
+    async function resumeTask(taskId) {
+      const id = String(taskId || '').trim()
+      if (!id || running.value || resumeBusy) return
+      const idx = messages.value.findIndex((m) => m && m.role === 'assistant' && m.pending && m.taskId === id)
+      if (idx < 0) return
+      resumeBusy = true
+      running.value = true
+      startTick()
+      activeTaskId.value = id
+      err.value = ''
+      stopRequested = false
+      const row = messages.value[idx]
+      try {
+        const headers = { Accept: 'text/event-stream' }
+        const tok = getToken()
+        if (tok) headers.Authorization = `Bearer ${tok}`
+        const r = await fetch('/api/agent-tasks/' + encodeURIComponent(id) + '/events', { headers, cache: 'no-store' })
+        if (!r.ok || !(r.headers.get('content-type') || '').includes('text/event-stream')) {
+          row.pending = false
+          return
+        }
+        const outcome = await readAgentSse(r, idx, !getToken())
+        if (!outcome.stopped && messages.value[idx]) {
+          messages.value[idx].pending = false
+          messages.value[idx].taskId = undefined
+        }
+        if ((outcome.finalOk && !outcome.nextAuto) || (messages.value[idx]?.interrupted && !outcome.nextAuto)) {
+          await endRelayTurn(true)
+        }
+        if (!getToken() && outcome.finalGuest) guestUsed.value = true
+        if (outcome.nextAuto && getToken()) {
+          prompt.value = outcome.nextAuto
+          resumeBusy = false
+          running.value = false
+          stopTick()
+          await sendMessage(true)
+        }
+      } catch (e) {
+        // 又被切页打断：留下进度，回来再接，不提示 Load failed
+        if (!(e && (e.name === 'AbortError' || isTransportAbort(e)))) row.pending = false
+        persistNow()
+      } finally {
+        resumeBusy = false
+        running.value = false
+        sealTimes(messages.value[idx])
+        stopTick()
+      }
+    }
+    function onPageLife() {
+      if (document.visibilityState === 'hidden') {
+        persistNow()
+        return
+      }
+      const last = messages.value[messages.value.length - 1]
+      if (last && last.pending && last.taskId && !running.value) resumeTask(last.taskId)
+      else pollShareTurn()
+    }
     async function pauseRun() {
       if (!running.value) return
       stopRequested = true
@@ -999,6 +1902,7 @@ createApp({
     async function sendMessage(arg) {
       // 点击事件也会传进来；只有显式 true 才是超时后续跑
       const auto = arg === true
+      if (shareReadOnly.value || shareTurnLocked.value || agent.value?.offline) return
       if (!auto) autoContinues = 0
       if (running.value) {
         const followUp = hasDraft.value
@@ -1023,6 +1927,11 @@ createApp({
       const displayText = text
         || (fileItems.length ? T.value.fileOnly : '')
         || (imageItems.length ? T.value.imageOnly : '')
+      // 分享里先抢轮次。没抢到就留下草稿，等这轮结束再发
+      if (relayShareId.value && !auto) {
+        const won = await claimRelayTurn(displayText)
+        if (!won) return
+      }
       const history = messages.value.slice()
       // 访客单轮不带历史；登录后压缩多轮上下文
       const apiPrompt = isGuest ? text : buildPromptWithHistory(history, text || displayText)
@@ -1030,6 +1939,8 @@ createApp({
       messages.value.push({
         role: 'user',
         content: displayText,
+        author: currentUserLabel.value || undefined,
+        at: Date.now(),
         images: attachUrls.length ? attachUrls.slice() : undefined,
         files: fileItems.length ? fileItems.map(p => ({ name: p.name || 'file' })) : undefined,
       })
@@ -1055,10 +1966,11 @@ createApp({
         row.pending = pending
       }
       const dropTurn = () => {
-        // 去掉本轮 assistant + user
+        // 去掉本轮 assistant + user，并把抢到的轮次让出去
         if (messages.value[asstIdx]?.role === 'assistant') messages.value.splice(asstIdx, 1)
         const last = messages.value[messages.value.length - 1]
         if (last?.role === 'user' && last.content === displayText) messages.value.pop()
+        endRelayTurn(false)
       }
 
       try {
@@ -1119,163 +2031,21 @@ createApp({
           return
         }
 
-        const reader = r.body.getReader()
-        const decoder = new TextDecoder()
-        let buf = ''
-        let finalOk = false
-        let finalGuest = isGuest
-        // 多行 data: 要拼起来。只取第一行时，被拆开的 done（带文件）会解析失败，页面变成 empty response
-        const parseSseBlock = (block) => {
-          const data = String(block || '').split('\n')
-            .filter((line) => line.startsWith('data:'))
-            .map((line) => line.slice(line.startsWith('data: ') ? 6 : 5).trim())
-            .join('\n')
-          if (!data || data === '[DONE]') return null
-          try { return JSON.parse(data) } catch { return null }
-        }
+        const outcome = await readAgentSse(r, asstIdx, isGuest)
+        const finalOk = outcome.finalOk
+        const finalGuest = outcome.finalGuest
+        nextAuto = outcome.nextAuto || ''
+        if (outcome.stopped) return
 
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) buf += decoder.decode()
-          else buf += decoder.decode(value, { stream: true })
-          const blocks = []
-          if (done) {
-            const pending = buf
-            buf = ''
-            const parts = pending.split('\n\n')
-            for (const block of parts) if (block.trim()) blocks.push(block)
-          } else {
-            const parts = buf.split('\n\n')
-            buf = parts.pop() || ''
-            blocks.push(...parts)
-          }
-          for (const block of blocks) {
-            const ev = parseSseBlock(block)
-            if (!ev || typeof ev !== 'object') continue
-            if (ev.task_id) activeTaskId.value = String(ev.task_id)
-            if (ev.event === 'started') continue
-            if (ev.event === 'progress') {
-              const row = messages.value[asstIdx]
-              const parts = cleanParts(ev.parts)
-              if (row && parts) {
-                row.parts = withToolTimes(row.parts, parts)
-                row.content = answerOf(row)
-                row.pending = true
-              } else {
-                const body = String(ev.text || '')
-                if (body) setAssistant(mergeStreamText(row?.content, body), { pending: true })
-                else if (ev.tool && row) {
-                  const name = String(ev.tool)
-                  const partsNow = cleanParts(row.parts) || []
-                  const last = partsNow[partsNow.length - 1]
-                  if (!(last && last.type === 'tool' && last.name === name)) {
-                    partsNow.push({ type: 'tool', name, detail: '', startedAt: Date.now() })
-                  } else if (!last.startedAt) {
-                    last.startedAt = Date.now()
-                  }
-                  row.parts = partsNow
-                  row.pending = true
-                }
-              }
-              await scrollChat()
-              continue
-            }
-            if (ev.event === 'done') {
-              finalOk = !!ev.ok
-              finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
-              const arts = cleanArtifacts(ev.artifacts)
-              const row = messages.value[asstIdx]
-              const out = rewriteShown(String(ev.output || ev.result || ev.text || ev.message || ''), arts)
-              if (row) {
-                row.pending = false
-                if (arts.length) row.artifacts = arts
-                if (row.parts && row.parts.length) {
-                  row.parts = rewriteParts(row.parts, arts)
-                  const shown = answerOf(row)
-                  if (out && out !== shown && !shown.includes(out) && !out.includes(shown)) {
-                    row.parts = [...row.parts, { type: 'text', text: out }]
-                  } else if (out.startsWith(shown) && out.length > shown.length) {
-                    const extra = out.slice(shown.length).replace(/^\s+/, '')
-                    if (extra) row.parts = [...row.parts, { type: 'text', text: extra }]
-                  }
-                  row.content = answerOf(row) || out || '(empty)'
-                } else {
-                  setAssistant(out || rewriteShown(row.content, arts) || '(empty)', { pending: false })
-                }
-                if (arts.length) row.artifacts = arts
-              }
-              continue
-            }
-            if (ev.event === 'error') {
-              if (ev.status === 'cancelled' || ev.error === 'cancelled' || stopRequested) {
-                freezePartial(asstIdx)
-                return
-              }
-              const timeoutEv = /timeout/i.test(`${ev.status || ''} ${ev.error || ''}`)
-              if (timeoutEv) {
-                const row = messages.value[asstIdx]
-                const arts = cleanArtifacts(ev.artifacts)
-                const remote = rewriteShown(String(ev.output || ''), arts)
-                const cur = rewriteShown(answerOf(row), arts)
-                const text = remote.length > cur.length ? remote : cur
-                if (row) {
-                  row.pending = false
-                  row.timedOut = true
-                  if (arts.length) row.artifacts = arts
-                  if (text) {
-                    row.content = text
-                    row.parts = [{ type: 'text', text }]
-                  } else {
-                    messages.value.splice(asstIdx, 1)
-                  }
-                }
-                if (!isGuest && autoContinues < 2) {
-                  autoContinues += 1
-                  nextAuto = T.value.autoContinue
-                  err.value = ''
-                } else if (!isGuest) {
-                  err.value = T.value.timeoutStopped
-                } else {
-                  err.value = String(ev.error || ev.status || 'timeout')
-                }
-                if (isGuest) guestUsed.value = true
-                return
-              }
-              finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
-              const msg = ev.error || ev.detail || ev.status || 'failed'
-              // 已有流式正文时保留并标注失败；否则回退整轮
-              const row = messages.value[asstIdx]
-              const cur = answerOf(row).trim()
-              if (cur && cur !== '…') {
-                if (row?.parts?.length) {
-                  row.parts = [...row.parts, { type: 'text', text: `[${msg}]` }]
-                  row.content = answerOf(row)
-                  row.pending = false
-                } else {
-                  setAssistant(`${cur}\n\n[${msg}]`, { pending: false })
-                }
-                err.value = String(msg)
-                const arts = cleanArtifacts(ev.artifacts)
-                if (arts.length && row) row.artifacts = arts
-                if (row?.parts?.length) row.parts = rewriteParts(row.parts, arts)
-                if (row?.content) row.content = rewriteShown(row.content, arts)
-              } else {
-                err.value = String(msg)
-                dropTurn()
-              }
-              if (finalGuest) guestUsed.value = true
-              return
-            }
-          }
-          if (done) break
-        }
-
-        if (!finalOk && !(messages.value[asstIdx]?.content || '').trim()) {
+        if (!finalOk && !messages.value[asstIdx]?.interrupted && !(messages.value[asstIdx]?.content || '').trim()) {
           err.value = 'empty response'
           dropTurn()
           return
         }
         if (messages.value[asstIdx]) messages.value[asstIdx].pending = false
+        if ((finalOk && !nextAuto) || (messages.value[asstIdx]?.interrupted && !nextAuto)) {
+          await endRelayTurn(true)
+        }
         if (ticketForTurn) {
           // 广告票一次性；用完后清掉，再聊需重新看广告或登录
           gateTicket.value = ''
@@ -1287,21 +2057,58 @@ createApp({
         if (!isGuest) await fetchProfile()
         await scrollChat()
       } catch (e) {
-        if (stopRequested || e?.name === 'AbortError') {
+        if (stopRequested) {
           freezePartial(asstIdx)
+          await endRelayTurn(true)
+          return
+        }
+        // 切页、刷新或浏览器掐断连接：留下已生成的内容，回来再接
+        if (e?.name === 'AbortError' || isTransportAbort(e)) {
+          const row = messages.value[asstIdx]
+          if (row && activeTaskId.value) {
+            row.pending = true
+            row.taskId = activeTaskId.value
+          } else if (row) {
+            row.pending = false
+          }
+          err.value = ''
+          persistNow()
+          return
+        }
+        // 流自己断了且已经有正文：留下这轮，不要把对话删掉
+        const row = messages.value[asstIdx]
+        const partial = answerOf(row).trim()
+        if (partial && partial !== '…') {
+          row.pending = false
+          row.taskId = undefined
+          row.interrupted = true
+          persistNow()
+          if (!isGuest && autoContinues < 2) {
+            autoContinues += 1
+            nextAuto = T.value.disconnectedRetry
+            err.value = ''
+          } else {
+            err.value = T.value.disconnectedContinue
+          }
           return
         }
         dropTurn()
+        endRelayTurn(false)
         err.value = e?.message || 'Network error'
       } finally {
+        const row = messages.value[asstIdx]
+        const resumeId = !stopRequested && row?.pending && row?.taskId && document.visibilityState === 'visible'
+          ? String(row.taskId) : ''
         running.value = false
-        sealTimes(messages.value[asstIdx])
+        sealTimes(row)
         stopTick()
         runAbort = null
         resolveSettle()
         runSettle = null
         // return 会跳过 finally 之后的代码，续跑放在这里才能执行
-        if (nextAuto) {
+        if (resumeId) {
+          await resumeTask(resumeId)
+        } else if (nextAuto) {
           const text = nextAuto
           nextAuto = ''
           prompt.value = text
@@ -1312,9 +2119,17 @@ createApp({
 
     onMounted(() => {
       document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
+      window.addEventListener('pagehide', persistNow)
+      document.addEventListener('visibilitychange', onPageLife)
       loadAgent()
     })
-    onUnmounted(() => stopTick())
+    onUnmounted(() => {
+      stopTick()
+      stopPresenceWatch()
+      stopShareWatch()
+      window.removeEventListener('pagehide', persistNow)
+      document.removeEventListener('visibilitychange', onPageLife)
+    })
 
     // 消息变化时落盘（流式过程中也会节流写入，刷新可尽量保住）
     let _saveTimer = null
@@ -1338,6 +2153,7 @@ createApp({
       return T.value.sugs || []
     })
     function useSuggestion(sg) {
+      if (shareReadOnly.value || shareTurnLocked.value) return
       prompt.value = sg.d
       nextTick(() => { const el = composerEl.value; if (el) { el.focus(); ChatUI.autoGrow(el) } })
     }
@@ -1349,7 +2165,7 @@ createApp({
     const autoGrow = (el) => ChatUI.autoGrow(el)
     const avatarColor = (n) => ChatUI.avatarColor(n)
     const appIcon = computed(() => (window.TBAppIcon ? window.TBAppIcon.url(agent.value) : ''))
-    const renderRich = (raw) => ChatUI.wrapCode(renderMarkdown(raw), T.value.copy)
+    const renderRich = (raw, arts) => decorateRich(ChatUI.wrapCode(renderMarkdown(raw), T.value.copy), arts)
     const onChatClick = (e) => ChatUI.onCopyClick(e, T.value.copied, T.value.copy)
     // 旧缓存的 chat-ui.js 没有这两个方法，缺了就跳过，避免悬停直接报错
     const onImgOver = (e) => { if (typeof ChatUI.showImagePreview === 'function') ChatUI.showImagePreview(e) }
@@ -1370,7 +2186,7 @@ createApp({
       lang, T, toggleLang, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,
-      sendMessage, pauseRun, hasDraft, clearChat, renderMarkdown, onComposerPaste, removePendingImage,
+      sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, shareHint, fromShare, shareReadOnly, shareTurnLocked, turnLockText, agentOffline, renderMarkdown, onComposerPaste, removePendingImage,
     }
   },
 }).mount('#app')

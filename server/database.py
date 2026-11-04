@@ -374,6 +374,160 @@ async def init_db() -> None:
     await _migrate_password_reset_codes()
     await _migrate_community_catalog_installs()
     await _migrate_studio()
+    await _migrate_agent_chat_shares()
+
+
+async def _migrate_agent_chat_shares() -> None:
+    """一场网页对话的分享。链接知道的人都能打开并接着聊，不要求登录。"""
+    async with connect() as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS agent_chat_shares (
+                id            TEXT PRIMARY KEY,
+                assistant_id  TEXT NOT NULL,
+                user_id       INTEGER,
+                messages      TEXT NOT NULL,
+                created_at    TIMESTAMPTZ DEFAULT NOW(),
+                turn_token    TEXT,
+                turn_author   TEXT,
+                turn_text     TEXT,
+                turn_at       BIGINT,
+                turn_task_id  TEXT,
+                turn_started_at TIMESTAMPTZ
+            )
+        """)
+        await db.commit()
+        for col, decl in (
+            ("turn_token", "TEXT"),
+            ("turn_author", "TEXT"),
+            ("turn_text", "TEXT"),
+            ("turn_at", "BIGINT"),
+            ("turn_task_id", "TEXT"),
+            ("turn_started_at", "TIMESTAMPTZ"),
+        ):
+            try:
+                await db.execute(f"ALTER TABLE agent_chat_shares ADD COLUMN {col} {decl}")
+                await db.commit()
+            except Exception:
+                pass
+
+
+async def create_agent_chat_share(assistant_id: str, messages_json: str, user_id: Optional[int] = None) -> str:
+    share_id = secrets.token_urlsafe(9)
+    async with connect() as db:
+        await db.execute(
+            "INSERT INTO agent_chat_shares(id, assistant_id, user_id, messages) VALUES(?,?,?,?)",
+            (share_id, assistant_id, user_id, messages_json),
+        )
+        await db.commit()
+    return share_id
+
+
+async def get_agent_chat_share(share_id: str) -> Optional[dict]:
+    async with connect() as db:
+        async with db.execute(
+            """SELECT s.id, s.assistant_id, s.messages, s.created_at,
+                      s.turn_token, s.turn_author, s.turn_text, s.turn_at, s.turn_task_id, s.turn_started_at,
+                      u.nickname AS author_nickname, u.email AS author_email
+               FROM agent_chat_shares s
+               LEFT JOIN users u ON u.id = s.user_id
+               WHERE s.id=?""",
+            (share_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return None
+    return dict(row)
+
+
+async def list_agent_chat_shares(assistant_id: str, viewer_id: int, include_all: bool = False) -> list[dict]:
+    """当前用户自己分享的对话。智能体主人能看到这个智能体下所有人的分享。"""
+    sql = """SELECT s.id, s.user_id, s.messages, s.created_at,
+                    u.nickname AS author_nickname, u.email AS author_email
+             FROM agent_chat_shares s
+             LEFT JOIN users u ON u.id = s.user_id
+             WHERE s.assistant_id=?"""
+    args: list = [assistant_id]
+    if not include_all:
+        sql += " AND s.user_id=?"
+        args.append(viewer_id)
+    sql += " ORDER BY s.created_at ASC LIMIT 40"
+    async with connect() as db:
+        async with db.execute(sql, tuple(args)) as cur:
+            rows = await cur.fetchall()
+    return [dict(row) for row in rows]
+
+
+async def replace_agent_chat_share_messages(share_id: str, messages_json: str) -> None:
+    async with connect() as db:
+        await db.execute(
+            "UPDATE agent_chat_shares SET messages=? WHERE id=?",
+            (messages_json, share_id),
+        )
+        await db.commit()
+
+
+def _clear_turn_sql() -> str:
+    return "turn_token=NULL, turn_author='', turn_text='', turn_at=NULL, turn_task_id=NULL, turn_started_at=NULL"
+
+
+async def clear_expired_share_turn(share_id: str) -> None:
+    """没开任务的占位很快放开，跑太久的一轮也放开，避免别人一直等。"""
+    async with connect() as db:
+        await db.execute(
+            f"""UPDATE agent_chat_shares SET {_clear_turn_sql()}
+                WHERE id=? AND turn_token IS NOT NULL AND (
+                    turn_started_at IS NULL
+                    OR turn_started_at < NOW() - INTERVAL '20 minutes'
+                    OR (COALESCE(turn_task_id, '') = '' AND turn_started_at < NOW() - INTERVAL '30 seconds')
+                )""",
+            (share_id,),
+        )
+        await db.commit()
+
+
+async def claim_share_turn(share_id: str, token: str, author: str, text: str, spoken_at: int) -> bool:
+    """谁先抢到谁说。同一人刷新后续上自己的这一轮，不把任务号清掉。"""
+    async with connect() as db:
+        cur = await db.execute(
+            """UPDATE agent_chat_shares
+               SET turn_token=?,
+                   turn_author=?,
+                   turn_text=?,
+                   turn_at=?,
+                   turn_task_id=CASE WHEN turn_token=? THEN turn_task_id ELSE NULL END,
+                   turn_started_at=CASE WHEN turn_token=? THEN COALESCE(turn_started_at, NOW()) ELSE NOW() END
+               WHERE id=? AND (turn_token IS NULL OR turn_token='' OR turn_token=?)""",
+            (token, author, text, spoken_at, token, token, share_id, token),
+        )
+        await db.commit()
+    return cur.rowcount > 0
+
+
+async def set_share_turn_task(share_id: str, token: str, task_id: str) -> bool:
+    async with connect() as db:
+        cur = await db.execute(
+            "UPDATE agent_chat_shares SET turn_task_id=? WHERE id=? AND turn_token=?",
+            (task_id, share_id, token),
+        )
+        await db.commit()
+    return cur.rowcount > 0
+
+
+async def finish_share_turn(share_id: str, token: str, messages_json: Optional[str]) -> bool:
+    """这一轮说完才交出发言权。正文和锁在同一次更新里落盘。"""
+    async with connect() as db:
+        if messages_json is not None:
+            cur = await db.execute(
+                f"UPDATE agent_chat_shares SET messages=?, {_clear_turn_sql()} WHERE id=? AND turn_token=?",
+                (messages_json, share_id, token),
+            )
+        else:
+            cur = await db.execute(
+                f"UPDATE agent_chat_shares SET {_clear_turn_sql()} WHERE id=? AND turn_token=?",
+                (share_id, token),
+            )
+        await db.commit()
+    return cur.rowcount > 0
 
 
 async def _migrate_password_reset_codes() -> None:

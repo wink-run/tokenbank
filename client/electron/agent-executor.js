@@ -488,7 +488,7 @@ function normalizeCommunityArtifacts(raw) {
   const out = [];
   let total = 0;
   for (const item of raw) {
-    if (out.length >= 4) break;
+    if (out.length >= 8) break;
     if (!item || typeof item !== 'object') continue;
     const dataUrl = String(item.dataUrl || '').trim();
     const url = String(item.url || '').trim();

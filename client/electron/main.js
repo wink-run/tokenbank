@@ -1506,9 +1506,9 @@ function buildTrayContextMenu() {
 }
 
 
-// ── macOS 菜单栏：离屏 canvas 把「黑底白字 T 徽标 + 两行小字」画成彩色图 ──────────────
-// setTitle 不能调字号，所以自己画成图。徽标固定黑底白 T；两行数字按系统深/浅色切换颜色
-// （深色菜单栏白字、浅色黑字），两种菜单栏下都清楚。用隐藏窗口的 Chromium canvas 渲染，零额外依赖。
+// ── macOS 菜单栏：离屏 canvas 把图标和两行小字画成黑色模板图 ──────────────
+// setTitle 不能调字号，所以自己画成图。像素保持黑色，setTemplateImage 后由系统
+// 按菜单栏着色：深色菜单栏变白，浅色菜单栏变黑，和其他状态图标一致。
 let trayRenderWin = null;
 let trayRenderReady = null;
 function ensureTrayRenderWin() {
@@ -1518,15 +1518,16 @@ function ensureTrayRenderWin() {
   return trayRenderReady;
 }
 
-/** 画出托盘彩色图：黑底白 T 徽标 +（showText 时）↑in / ↓out 两行小字。返回 nativeImage（@2x）。 */
-async function renderTrayImage(line1, line2, showText, dark) {
+/** 画出托盘模板图：黑色几何标 +（showText 时）↑in / ↓out 两行小字。返回 nativeImage（@2x）。 */
+async function renderTrayImage(line1, line2, showText) {
   const win = await ensureTrayRenderWin();
   const js = `(() => {
     const S = 2;
     const H = 22 * S, padX = 1 * S, gap = 4 * S;
     const r = 9 * S, txtFs = 8.5 * S;
     const show = ${showText ? 'true' : 'false'};
-    const fg = ${dark ? "'#fff'" : "'#000'"};
+    // 模板图必须是黑色；系统会按菜单栏把它染成白或黑
+    const fg = '#000';
     const L1 = ${JSON.stringify(line1)}, L2 = ${JSON.stringify(line2)};
     let c = document.createElement('canvas'), x = c.getContext('2d');
     x.font = '600 ' + txtFs + 'px ui-monospace,Menlo,monospace';
@@ -1584,7 +1585,7 @@ async function renderTrayImage(line1, line2, showText, dark) {
   const dataURL = await win.webContents.executeJavaScript(js);
   const buf = Buffer.from(dataURL.split(',')[1], 'base64');
   const img = nativeImage.createFromBuffer(buf, { scaleFactor: 2 });
-  img.setTemplateImage(false);
+  img.setTemplateImage(true);
   return img;
 }
 
@@ -1611,7 +1612,7 @@ function refreshTray() {
     const k = (n) => { n = n || 0; return n >= 1e6 ? `${Math.round(n / 1e6)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}K` : `${n}`; };
     const l1 = `↑${k(inTok)}`, l2 = `↓${k(outTok)}`;
     tray.setToolTip(`Token Bank · 今日 ${l1} ${l2}`);
-    renderTrayImage(l1, l2, showTrayTokens, nativeTheme.shouldUseDarkColors)
+    renderTrayImage(l1, l2, showTrayTokens)
       .then((img) => { if (tray && !tray.isDestroyed?.()) { tray.setImage(img); tray.setTitle(''); } })
       .catch((e) => {
         // 渲染失败兜底：退回系统字号 setTitle

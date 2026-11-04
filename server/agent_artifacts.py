@@ -11,7 +11,7 @@ from pathlib import Path
 AGENT_MEDIA_DIR = Path(__file__).resolve().parent / "data" / "agent_media"
 # 中转成品默认留 3 天，可用 AGENT_MEDIA_TTL_DAYS 覆盖
 _DEFAULT_TTL_DAYS = 3
-_ARTIFACT_MAX = 4
+_ARTIFACT_MAX = 8
 _ARTIFACT_MAX_CHARS = 64_000_000
 # 短视频常见几 MB 到二十多 MB；太小的上限会把成片留在出租方本机
 _ARTIFACT_MAX_BYTES = 32 * 1024 * 1024

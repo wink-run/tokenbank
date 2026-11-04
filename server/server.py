@@ -1079,6 +1079,266 @@ async def cancel_agent_task_route(
     return {"ok": True, "task_id": task_id}
 
 
+@app.get("/api/agent-tasks/{task_id}/events")
+async def resume_agent_task_events(task_id: str):
+    """刷新或切页之后接上还在跑的对话。任务号本身就是凭证。"""
+    from dispatch_agent import agent_feed_exists, iter_agent_feed_sse
+
+    safe = (task_id or "").strip()
+    if not agent_feed_exists(safe):
+        raise HTTPException(404, "task not found")
+    return StreamingResponse(
+        iter_agent_feed_sse(safe),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+class AgentChatShareBody(BaseModel):
+    assistant_id: str
+    messages: list
+
+
+@app.post("/api/agent-chats/shares")
+async def create_agent_chat_share_route(
+    body: AgentChatShareBody,
+    uid: Optional[int] = Depends(optional_auth_api_key_or_jwt),
+):
+    """把当前网页对话存成链接。对方打开后可以直接接着聊。未登录也可以分享。"""
+    import json as _json
+    from urllib.parse import quote
+
+    from agent_artifacts import public_origin
+    from agent_chat_share import SHARE_MAX_CHARS, normalize_share_messages
+
+    assistant_id = (body.assistant_id or "").strip()[:200]
+    if not assistant_id:
+        raise HTTPException(400, "missing assistant")
+    messages = normalize_share_messages(body.messages)
+    if not messages:
+        raise HTTPException(400, "empty chat")
+    blob = _json.dumps(messages, ensure_ascii=False)
+    if len(blob) > SHARE_MAX_CHARS:
+        raise HTTPException(413, "chat too large")
+    share_id = await db.create_agent_chat_share(assistant_id, blob, uid)
+    url = f"{public_origin()}/a/{quote(assistant_id, safe='')}?share={quote(share_id, safe='')}"
+    return {"id": share_id, "url": url}
+
+
+def _online_agent_owner_id(assistant_id: str) -> Optional[int]:
+    """这个智能体当前在线节点的主人。下线时无从判断，就只按分享者本人列。"""
+    from worker_pool import pool, worker_owner_id
+
+    aid = (assistant_id or "").strip()
+    for worker in pool.all_workers():
+        for card in getattr(worker, "agents", None) or []:
+            if isinstance(card, dict) and str(card.get("id") or "") == aid:
+                owner_id = worker_owner_id(worker)
+                if owner_id is not None:
+                    return int(owner_id)
+    return None
+
+
+@app.get("/api/agent-chats/shares")
+async def list_agent_chat_shares_route(
+    assistant_id: str = "",
+    uid: Optional[int] = Depends(optional_auth_api_key_or_jwt),
+):
+    """按时间顺序列出分享过的对话。客人只能看到自己的，主人能看到大家的。"""
+    import json as _json
+
+    from agent_chat_share import share_author_label, share_preview
+
+    aid = (assistant_id or "").strip()[:200]
+    if not uid or not aid:
+        return {"shares": []}
+    owner_id = _online_agent_owner_id(aid)
+    rows = await db.list_agent_chat_shares(aid, uid, include_all=owner_id is not None and owner_id == uid)
+    shares = []
+    for row in rows:
+        try:
+            messages = _json.loads(row.get("messages") or "[]")
+        except Exception:
+            messages = []
+        created = row.get("created_at")
+        shares.append({
+            "id": row.get("id"),
+            "author": share_author_label(row.get("author_nickname"), row.get("author_email")),
+            "mine": int(row.get("user_id") or 0) == int(uid),
+            "preview": share_preview(messages),
+            "created_at": created.isoformat() if hasattr(created, "isoformat") else created,
+            "messages": messages if isinstance(messages, list) else [],
+        })
+    return {"shares": shares}
+
+
+def _public_share_turn(row: dict, hold_token: str = "") -> Optional[dict]:
+    """别人能看到谁在说、说了什么、任务号。认领用的 token 不外传。"""
+    from agent_chat_share import share_turn_expired
+
+    token = str(row.get("turn_token") or "")
+    if not token:
+        return None
+    task_id = str(row.get("turn_task_id") or "")
+    if share_turn_expired(row.get("turn_started_at"), task_id):
+        return None
+    spoken = row.get("turn_at")
+    return {
+        "author": str(row.get("turn_author") or "")[:40],
+        "text": str(row.get("turn_text") or ""),
+        "at": int(spoken) if isinstance(spoken, (int, float)) else 0,
+        "task_id": task_id,
+        "mine": bool(hold_token) and hold_token == token,
+    }
+
+
+class AgentChatShareAppendBody(BaseModel):
+    messages: list = []
+
+
+class AgentChatShareTurnBody(BaseModel):
+    token: str = ""
+    author: str = ""
+    text: str = ""
+    at: int = 0
+    task_id: str = ""
+    messages: list = []
+
+
+@app.post("/api/agent-chats/shares/{share_id}/messages")
+async def append_agent_chat_share_route(share_id: str, body: AgentChatShareAppendBody):
+    """后来的人接着说，补进同一条分享，不覆盖前面的发言。"""
+    import json as _json
+
+    from agent_chat_share import SHARE_MAX_CHARS, append_share_turns
+
+    safe = (share_id or "").strip()
+    if not safe or len(safe) > 40 or not re.fullmatch(r"[A-Za-z0-9_-]+", safe):
+        raise HTTPException(404, "share not found")
+    row = await db.get_agent_chat_share(safe)
+    if not row:
+        raise HTTPException(404, "share not found")
+    try:
+        existing = _json.loads(row.get("messages") or "[]")
+    except Exception:
+        existing = []
+    merged = append_share_turns(existing, body.messages)
+    if not merged:
+        raise HTTPException(400, "empty chat")
+    blob = _json.dumps(merged, ensure_ascii=False)
+    if len(blob) > SHARE_MAX_CHARS:
+        raise HTTPException(413, "chat too large")
+    await db.replace_agent_chat_share_messages(safe, blob)
+    return {"id": safe, "messages": merged}
+
+
+def _share_id_or_404(share_id: str) -> str:
+    safe = (share_id or "").strip()
+    if not safe or len(safe) > 40 or not re.fullmatch(r"[A-Za-z0-9_-]+", safe):
+        raise HTTPException(404, "share not found")
+    return safe
+
+
+@app.post("/api/agent-chats/shares/{share_id}/turn")
+async def claim_agent_chat_share_turn(share_id: str, body: AgentChatShareTurnBody):
+    """先抢到的人进入这一轮。晚一步的人只能看，不能把正在进行的回复顶掉。"""
+    safe = _share_id_or_404(share_id)
+    await db.clear_expired_share_turn(safe)
+    token = (body.token or "").strip()[:40]
+    if not token:
+        raise HTTPException(400, "missing token")
+    author = (body.author or "").strip()[:40]
+    text = (body.text or "").strip()[:80_000]
+    spoken = int(body.at) if isinstance(body.at, (int, float)) and body.at > 0 else 0
+    won = await db.claim_share_turn(safe, token, author, text, spoken)
+    row = await db.get_agent_chat_share(safe)
+    if not row:
+        raise HTTPException(404, "share not found")
+    turn = _public_share_turn(row, token)
+    if won:
+        return {"ok": True, "turn": turn}
+    return JSONResponse(status_code=409, content={"ok": False, "turn": turn})
+
+
+@app.post("/api/agent-chats/shares/{share_id}/turn/task")
+async def publish_agent_chat_share_task(share_id: str, body: AgentChatShareTurnBody):
+    """让旁观者能接上正在跑的任务，看到智能体还在写的内容。"""
+    safe = _share_id_or_404(share_id)
+    token = (body.token or "").strip()[:40]
+    task_id = (body.task_id or "").strip()[:40]
+    if not token or not task_id:
+        raise HTTPException(400, "missing token")
+    if not await db.set_share_turn_task(safe, token, task_id):
+        raise HTTPException(409, "turn lost")
+    return {"ok": True}
+
+
+@app.post("/api/agent-chats/shares/{share_id}/turn/finish")
+async def finish_agent_chat_share_turn(share_id: str, body: AgentChatShareTurnBody):
+    """这轮结束才写入发言并交出发言权。下一个人要重新抢。"""
+    import json as _json
+
+    from agent_chat_share import SHARE_MAX_CHARS, append_share_turns
+
+    safe = _share_id_or_404(share_id)
+    token = (body.token or "").strip()[:40]
+    if not token:
+        raise HTTPException(400, "missing token")
+    row = await db.get_agent_chat_share(safe)
+    if not row:
+        raise HTTPException(404, "share not found")
+    if str(row.get("turn_token") or "") != token:
+        raise HTTPException(409, "turn lost")
+    blob = None
+    if body.messages:
+        try:
+            existing = _json.loads(row.get("messages") or "[]")
+        except Exception:
+            existing = []
+        merged = append_share_turns(existing, body.messages)
+        blob = _json.dumps(merged, ensure_ascii=False)
+        if len(blob) > SHARE_MAX_CHARS:
+            raise HTTPException(413, "chat too large")
+    if not await db.finish_share_turn(safe, token, blob):
+        raise HTTPException(409, "turn lost")
+    return {"ok": True}
+
+
+@app.get("/api/agent-chats/shares/{share_id}")
+async def get_agent_chat_share_route(share_id: str, hold: str = ""):
+    """打开分享。知道链接就能看，也可以在这个智能体上接着聊。"""
+    import json as _json
+
+    safe = _share_id_or_404(share_id)
+    await db.clear_expired_share_turn(safe)
+    row = await db.get_agent_chat_share(safe)
+    if not row:
+        raise HTTPException(404, "share not found")
+    try:
+        messages = _json.loads(row.get("messages") or "[]")
+    except Exception:
+        messages = []
+    if not isinstance(messages, list):
+        messages = []
+    created = row.get("created_at")
+    from agent_chat_share import share_author_label
+    return JSONResponse(
+        content={
+            "id": row.get("id"),
+            "assistant_id": row.get("assistant_id"),
+            "author": share_author_label(row.get("author_nickname"), row.get("author_email")),
+            "created_at": created.isoformat() if hasattr(created, "isoformat") else created,
+            "messages": messages,
+            "turn": _public_share_turn(row, (hold or "").strip()[:40]),
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @app.get("/api/agent-downloads")
 async def agent_downloads():
     items: list[dict] = []
