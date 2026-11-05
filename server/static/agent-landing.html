@@ -20,7 +20,7 @@
   <nav class="cnav">
     <div class="cnav-in">
       <a class="brand" href="/"><img src="/static/logo.svg" alt="Token Bank"><span>Token Bank</span></a>
-      <a class="nav-back" href="/network#agents">{{ T.backNetwork }}</a>
+      <a class="nav-back" href="/tools" @click="backToTools">{{ T.backTools }}</a>
       <div class="nav-right">
         <span v-if="loggedIn && profile" class="credit">💎 {{ Number(profile.credits_balance || 0).toFixed(1) }}</span>
         <span v-if="loggedIn && currentUserLabel" class="who" :title="currentUserLabel">{{ currentUserLabel }}</span>
@@ -41,7 +41,7 @@
     <div class="av lg" style="background:#0a0a0a;margin:0 auto">?</div>
     <h2>{{ T.unavailable }}</h2>
     <p>{{ fatal }}</p>
-    <a class="btn" href="/network#agents">{{ T.backNetwork }}</a>
+    <a class="btn" href="/tools" @click="backToTools">{{ T.backTools }}</a>
   </div>
 
   <div v-else-if="showAuthGate" class="state" style="max-width:400px;width:100%">
@@ -101,7 +101,10 @@
 
     <div class="cstage">
     <aside class="hist">
-      <div class="hist-bar"><b>{{ T.historyTitle }}</b></div>
+      <div class="hist-bar">
+        <b>{{ T.historyTitle }}</b>
+        <span class="hist-sub">{{ T.historySub }}</span>
+      </div>
       <div class="hist-list">
         <div v-if="!loggedIn" class="hist-empty">
           <p>{{ T.historyLogin }}</p>
@@ -111,9 +114,14 @@
         <p v-else-if="!historyItems.length" class="hist-empty">{{ T.historyEmpty }}</p>
         <template v-else>
           <button v-for="h in historyItems" :key="h.id" type="button" class="hist-item" :class="{ on: h.id === relayShareId }" @click="selectHistory(h)">
-            <span class="tag">{{ h.role === 'owner' ? T.historyMine : T.historyJoined }}</span>
-            <span class="hist-preview">{{ h.preview || T.emptyThread }}</span>
-            <span class="hist-meta">{{ historyBy(h) }} · {{ historyWhen(h) }}</span>
+            <span class="hist-top">
+              <span class="hist-preview">{{ h.preview || T.emptyThread }}</span>
+              <span class="hist-time">{{ historyWhen(h) }}</span>
+            </span>
+            <span class="hist-meta">
+              <span class="hist-role" :class="h.role === 'owner' ? 'mine' : 'joined'">{{ h.role === 'owner' ? T.historyMine : T.historyJoined }}</span>
+              <span v-if="h.role !== 'owner' && h.author">{{ historyBy(h) }}</span>
+            </span>
           </button>
         </template>
       </div>
@@ -293,7 +301,7 @@ createApp({
     const i18n = {
       zh: {
         loading: '加载中…', unavailable: '无法访问此智能体', backHome: '返回首页',
-        backNetwork: '← 社区网络',
+        backNetwork: '← 社区网络', backTools: '← 工具',
         noDesc: '暂无简介', online: '在线', offline: '离线', publicShare: '全球分享', circleShare: '圈子分享',
         creditsPerTask: '每次 {n} 积分', promptPh: '输入消息，或添加图片和文件，Shift+Enter 发送…',
         send: '发送', running: '思考中…', needLogin: '圈子分享仅成员可见；全球分享未登录可试一轮。',
@@ -317,9 +325,9 @@ createApp({
         disconnectedRetry: '上一次执行中途断了，请从中断处继续，不要重头开始。',
         disconnectedKept: '（连接中断，还没有正文）',
         newChat: '新对话', share: '分享', shared: '链接已复制', shareFail: '分享失败',
-        history: '历史', historyTitle: '最近 5 次对话', historyClose: '关闭',
-        historyLogin: '登录后可以查看你发起或参与的最近 5 次完整对话。',
-        historyEmpty: '还没有对话记录', historyHint: '',
+        history: '历史', historyTitle: '我的对话', historySub: '我发起或参与的', historyClose: '关闭',
+        historyLogin: '登录后查看你发起或参与的对话。',
+        historyEmpty: '还没有你发起或参与的对话', historyHint: '',
         historyMine: '我发起', historyJoined: '我参与',
         historyBy: '{name} 发起',
         sharedContinue: '大家的发言按时间接在同一条对话里，直接发消息就能接着聊。', shareMissing: '分享不存在或已失效',
@@ -340,7 +348,7 @@ createApp({
       },
       en: {
         loading: 'Loading…', unavailable: 'Agent unavailable', backHome: 'Home',
-        backNetwork: '← Network',
+        backNetwork: '← Network', backTools: '← Tools',
         noDesc: 'No description', online: 'Online', offline: 'Offline', publicShare: 'Global', circleShare: 'Circle',
         creditsPerTask: '{n} credits / turn', promptPh: 'Message, or add an image or file. Shift+Enter to send…',
         send: 'Send', running: 'Thinking…', needLogin: 'Circle agents are members-only. Public agents: one free guest turn.',
@@ -364,9 +372,9 @@ createApp({
         disconnectedRetry: 'The previous run stopped on its own. Continue from where it stopped. Do not start over.',
         disconnectedKept: '(Disconnected before a reply.)',
         newChat: 'New chat', share: 'Share', shared: 'Link copied', shareFail: 'Could not share',
-        history: 'History', historyTitle: 'Last 5 chats', historyClose: 'Close',
-        historyLogin: 'Sign in to read the last 5 full chats you started or joined.',
-        historyEmpty: 'No chats yet', historyHint: '',
+        history: 'History', historyTitle: 'My chats', historySub: 'Started or joined', historyClose: 'Close',
+        historyLogin: 'Sign in to see chats you started or joined.',
+        historyEmpty: 'No chats you started or joined', historyHint: '',
         historyMine: 'Started', historyJoined: 'Joined',
         historyBy: 'Started by {name}',
         sharedContinue: 'Everyone’s messages stay in one timeline. Send a message to continue.', shareMissing: 'This share is missing',
@@ -932,6 +940,8 @@ createApp({
       const id = agent.value?.id || assistantIdFromPath()
       if (!id) return
       saveChatHistory(id, messages.value)
+      // 左侧当前这条跟页面用同一份记录，避免点历史时被旧快照换掉
+      if (relayShareId.value) syncHistoryTranscript(relayShareId.value)
       if (guestUsed.value) storageSet(guestUsedKey(id), '1')
     }
 
@@ -956,6 +966,16 @@ createApp({
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/\n/g, '<br>')
+    }
+    // 从工具页进来就回到刚才那一页，否则去工具列表
+    function backToTools(e) {
+      try {
+        const ref = new URL(document.referrer || '', location.origin)
+        if (ref.origin === location.origin && ref.pathname.startsWith('/tools') && history.length > 1) {
+          e.preventDefault()
+          history.back()
+        }
+      } catch { /* 没有来源就走 href */ }
     }
     function assistantIdFromPath() {
       const m = location.pathname.match(/^\/a\/([^/?#]+)/)
@@ -1003,6 +1023,8 @@ createApp({
         }
         historyItems.value = data.chats.slice(0, 5)
         historyCurrent.value = null
+        // 列表刚拉下来时，正在看的这场以页面上的内容为准
+        if (relayShareId.value) syncHistoryTranscript(relayShareId.value)
       } catch {
         historyItems.value = []
       } finally {
@@ -1061,15 +1083,23 @@ createApp({
       // 这一轮还在往当前对话里写，切走会把回复落到另一场
       if (running.value) return
       const aid = agent.value?.id || assistantIdFromPath()
+      // 先把页面上这场写回列表，点回来还是刚才看到的内容
+      if (relayShareId.value) syncHistoryTranscript(relayShareId.value)
+      const picked = historyItems.value.find(h => h && h.id === item.id) || item
+      // 点的就是正在看的这场：页面内容已经是这份记录，不用旧快照覆盖
+      if (picked.id === relayShareId.value && messages.value.length) {
+        await scrollChat()
+        return
+      }
       viewGen += 1
       stopShareWatch()
       detachedChat.value = false
-      relayShareId.value = item.id
-      screenShareId = item.id
+      relayShareId.value = picked.id
+      screenShareId = picked.id
       fromShare.value = true
       foreignTurn.value = null
       holdingTurn.value = false
-      messages.value = sortMessages(loadChatHistoryFrom(item.messages || []))
+      messages.value = sortMessages(loadChatHistoryFrom(picked.messages || []))
       pendingImages.value = []
       err.value = ''
       historyCurrent.value = null
@@ -2433,7 +2463,7 @@ createApp({
       authOpen, openAuth, composerEl, fileEl, agentName, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor, appIcon,
       runLabel, toolElapsed,
       renderRich, onChatClick, onImgOver, onImgOut, onImgHide, copyMsg, answerOf, downloadArtifact, isVideoFile,
-      lang, T, toggleLang, loading, fatal, showAuthGate, agent, creditsPerTask,
+      lang, T, toggleLang, backToTools, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,
       sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, fromShare, shareReadOnly, shareTurnLocked, turnLockText, agentOffline, renderMarkdown, onComposerPaste, removePendingImage,

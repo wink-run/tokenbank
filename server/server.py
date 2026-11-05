@@ -630,8 +630,33 @@ async def _remember_worker_agents(worker) -> None:
 
 
 async def _list_public_agents() -> list:
+    """公开智能体：在线的在前，最近 7 天离线的补在后面。与工具页同一套名片。"""
     await backfill_worker_owner_labels()
-    return pool.list_agents_for_user(public_only=True)
+    live = pool.list_agents_for_user(public_only=True) or []
+    rows = []
+    seen = set()
+    for card in live:
+        if not isinstance(card, dict):
+            continue
+        aid = str(card.get("id") or "").strip()
+        if not aid or aid in seen:
+            continue
+        seen.add(aid)
+        rows.append({**card, "online": True})
+    try:
+        from tools_router import _snapshot_live_public_agents
+        await _snapshot_live_public_agents()
+        stored = await db.list_stored_public_agents()
+    except Exception as e:
+        logger.warning("list public agents with offline failed: %s", e)
+        stored = []
+    for card in stored:
+        aid = str(card.get("id") or "").strip()
+        if not aid or aid in seen:
+            continue
+        seen.add(aid)
+        rows.append(card)
+    return rows
 
 
 @app.get("/public/agents")
