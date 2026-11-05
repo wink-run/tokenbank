@@ -35,6 +35,26 @@ def worker_sharer(w) -> Optional[str]:
     return sharer_handle(worker_owner_id(w))
 
 
+def _same_user_terminal(old, new) -> bool:
+    """同一账号、同一台设备才算重连。另一台电脑的连接不能被挤掉。"""
+    old_uid = getattr(old, "user_id", None)
+    new_uid = getattr(new, "user_id", None)
+    if old_uid is None or new_uid is None or old_uid != new_uid:
+        return False
+    old_dev = str(getattr(old, "device_id", None) or "").strip()
+    new_dev = str(getattr(new, "device_id", None) or "").strip()
+    if old_dev and new_dev:
+        return old_dev == new_dev
+    # 旧客户端没带设备 id：用注册名（电脑名）区分，同名才替换
+    old_name = str(getattr(old, "name", None) or "").strip()
+    new_name = str(getattr(new, "name", None) or "").strip()
+    if not old_name or not new_name:
+        return False
+    if old_name.startswith("worker-") or new_name.startswith("worker-"):
+        return False
+    return old_name.casefold() == new_name.casefold()
+
+
 @dataclass
 class WorkerConnection:
     ws: object
@@ -49,6 +69,8 @@ class WorkerConnection:
     agents: list = field(default_factory=list)
     # 出租人昵称：用于共享智能体展示名「{nickname}的{原名}」
     owner_nickname: str = ""
+    # 客户端设备 id。同一账号的两台电脑靠它分开，重连只替换自己
+    device_id: str = ""
     caps: list = field(default_factory=list)
     client_ip: Optional[str] = None
     latitude: Optional[float] = None
@@ -354,10 +376,13 @@ class WorkerPool:
         return fresh + cooled if cooled else fresh
 
     def add(self, worker: WorkerConnection) -> None:
-        """接入真实节点；同 user_id 只保留最新连接，避免重连竞态残留旧 agents 名片。"""
+        """接入真实节点。同一台设备重连只替换自己，同一账号的其他设备继续留在线上。"""
         uid = getattr(worker, "user_id", None)
-        if uid is not None:
-            stale = [w for w in self._workers if getattr(w, "user_id", None) == uid]
+        stale = [
+            w for w in self._workers
+            if _same_user_terminal(w, worker)
+        ] if uid is not None else []
+        if stale:
             for w in stale:
                 try:
                     self._workers.remove(w)
@@ -373,9 +398,10 @@ class WorkerPool:
                 except Exception:
                     pass
                 logger.info(
-                    "[worker_pool] evicted stale worker_id=%s user_id=%s (agents replaced)",
+                    "[worker_pool] evicted stale worker_id=%s user_id=%s device_id=%s (same terminal reconnect)",
                     getattr(w, "worker_id", "?"),
                     uid,
+                    getattr(w, "device_id", "") or getattr(w, "name", ""),
                 )
         self._workers.append(worker)
 

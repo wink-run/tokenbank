@@ -9,6 +9,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { ensureDeviceId } = require('../shared/device-id');
 
 const CONFIG_PATH = path.join(os.homedir(), '.llm-agent', 'config.json');
 const { normalizeAgentForwardCfg } = require('../shared/agent-forward-url');
@@ -1012,6 +1013,11 @@ function connect(cfg) {
       name: liveCfg.name || os.hostname(),
       caps: ['agents'],
     };
+    // 同一账号的另一台电脑靠设备 id 留下来，重连只替换本机
+    try {
+      const deviceId = ensureDeviceId('desktop');
+      if (deviceId) regMsg.device_id = deviceId;
+    } catch (_) {}
     if (liveCfg.contribute_circle_ids?.length) {
       regMsg.circle_ids = liveCfg.contribute_circle_ids;
     } else if (liveCfg.contribute_circle_id) {

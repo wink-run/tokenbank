@@ -1611,6 +1611,7 @@ async def worker_ws(ws: WebSocket):
         worker = WorkerConnection(
             ws=ws, models=models, worker_id=worker_id,
             name=worker_name, user_id=user_id,
+            device_id=str(msg.get("device_id") or "").strip()[:64],
             model_types=model_types,
             agents=normalize_agent_cards(msg.get("agents"), owner_nickname=owner_nickname),
             owner_nickname=owner_nickname,
