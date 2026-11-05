@@ -107,11 +107,18 @@ button{font-family:inherit}
 .apart-label{display:block;font-size:11px;font-weight:650;letter-spacing:.04em;color:var(--text-muted);margin-bottom:4px}
 .apart-thinking{display:block;background:var(--bg-muted);border-radius:12px;padding:8px 12px}
 .apart-thinking .apart-body{display:block;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word;color:var(--text-2);font-size:13px;line-height:1.6}
-.apart-tool{display:block;border:1px solid var(--border);border-radius:12px;padding:8px 12px;background:var(--bg)}
-.apart-tool .apart-name{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12.5px;font-weight:650}
-.apart-time{margin-left:auto;font-family:var(--mono);font-size:11px;font-weight:550;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.apart-tool{display:block;border:1px solid var(--border);border-radius:12px;padding:0;background:var(--bg);overflow:hidden}
+.apart-tool .apart-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:12.5px;font-weight:650}
+.apart-time{margin-left:auto;font-family:var(--mono);font-size:11px;font-weight:550;color:var(--text-muted);font-variant-numeric:tabular-nums;flex-shrink:0}
 .run-time{margin-top:6px;font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums}
-.apart-tool pre{margin:6px 0 0;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.55;max-height:160px;overflow:auto;color:var(--text-2)}
+/* 工具卡默认收起，点标题展开参数和输出 */
+.tool-fold summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 12px}
+.tool-fold summary::-webkit-details-marker{display:none}
+.tool-fold summary .apart-label{margin:0;flex-shrink:0}
+.tool-chev{width:10px;flex-shrink:0;color:var(--text-muted);font-size:10px;line-height:1}
+.tool-fold:not([open]) .tool-chev::before{content:'▸'}
+.tool-fold[open] .tool-chev::before{content:'▾'}
+.apart-tool pre{margin:0;padding:0 12px 8px;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.55;max-height:160px;overflow:auto;color:var(--text-2)}
 .apart-text+.apart-text{margin-top:2px}
 .stream-caret{display:flex;margin-top:6px}
 .msg-tools{margin-top:6px;display:flex;gap:4px;opacity:0;transition:opacity .12s}
@@ -228,6 +235,8 @@ button{font-family:inherit}
 /* 对话列表只占输入框上方，底边与输入框上沿对齐 */
 .cmid{flex:1;min-height:0;position:relative;display:flex;flex-direction:column}
 .hist{position:absolute;z-index:4;top:16px;bottom:0;width:248px;left:max(16px,calc(50% - 400px - 264px));display:flex;flex-direction:column;border:1px solid var(--border);border-radius:16px;background:rgba(255,255,255,.96);box-shadow:0 10px 28px rgba(0,0,0,.06);overflow:hidden}
+.hist-panel{flex:1;min-height:0;display:flex;flex-direction:column}
+.hist-fold{display:none}
 .hist-bar{display:flex;flex-direction:column;gap:2px;padding:14px 14px 8px}
 .hist-bar b{font-size:14px;font-weight:650}
 .hist-sub{font-size:12px;color:var(--text-muted)}
@@ -264,4 +273,16 @@ button{font-family:inherit}
 
 @media (max-width:1280px){
   .hist{position:relative;left:auto;top:auto;bottom:auto;width:auto;max-height:148px;margin:10px 14px 0;box-shadow:none}
+}
+
+/* 手机：对话列表默认只留一行标题，展开后才占高度 */
+@media (max-width:640px){
+  .hist-fold{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:10px 14px;border:none;background:transparent;cursor:pointer;color:inherit}
+  .hist-fold-t{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+  .hist-fold-t b{font-size:14px;font-weight:650}
+  .hist-chev{flex-shrink:0;color:var(--text-muted);font-size:12px}
+  .hist .hist-bar{display:none}
+  .hist:not(.open){max-height:none}
+  .hist:not(.open) .hist-panel{display:none}
+  .hist.open{max-height:min(46vh,280px)}
 }

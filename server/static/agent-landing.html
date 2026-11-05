@@ -19,7 +19,7 @@
 <div id="app" class="chat-app" v-cloak>
   <nav class="cnav">
     <div class="cnav-in">
-      <a class="brand" href="/"><img src="/static/logo.svg" alt="Token Bank"><span>Token Bank</span></a>
+      <a class="brand" href="/agents"><img src="/static/logo.svg" alt="Token Bank"><span>Token Bank</span></a>
       <a class="nav-back" href="/agents" @click="backToTools">{{ T.backTools }}</a>
       <div class="nav-right">
         <span v-if="loggedIn && profile" class="credit">💎 {{ Number(profile.credits_balance || 0).toFixed(1) }}</span>
@@ -102,7 +102,16 @@
     <div class="cstage">
     <div class="cchat">
     <div class="cmid">
-    <aside class="hist">
+    <aside class="hist" :class="{ open: histOpen }">
+      <!-- 手机上默认收起，点标题再展开；宽屏这条按钮不显示 -->
+      <button type="button" class="hist-fold" @click="histOpen = !histOpen" :aria-expanded="histOpen ? 'true' : 'false'">
+        <span class="hist-fold-t">
+          <b>{{ T.historyTitle }}</b>
+          <span class="hist-sub">{{ T.historySub }}</span>
+        </span>
+        <span class="hist-chev" aria-hidden="true">{{ histOpen ? '▾' : '▸' }}</span>
+      </button>
+      <div class="hist-panel">
       <div class="hist-bar">
         <b>{{ T.historyTitle }}</b>
         <span class="hist-sub">{{ T.historySub }}</span>
@@ -126,6 +135,7 @@
             </span>
           </button>
         </template>
+      </div>
       </div>
     </aside>
 
@@ -152,9 +162,16 @@
                     <div class="apart-body">{{ p.text }}</div>
                   </template>
                   <template v-else-if="p.type === 'tool'">
-                    <div class="apart-label">{{ T.toolLabel }}</div>
-                    <div class="apart-name">{{ p.name }}<span v-if="toolElapsed(p, m)" class="apart-time">{{ toolElapsed(p, m) }}</span></div>
-                    <pre v-if="p.detail">{{ p.detail }}</pre>
+                    <!-- 工具执行默认收起，只留名称和耗时 -->
+                    <details class="tool-fold">
+                      <summary>
+                        <span class="tool-chev" aria-hidden="true"></span>
+                        <span class="apart-label">{{ T.toolLabel }}</span>
+                        <span class="apart-name">{{ p.name }}</span>
+                        <span v-if="toolElapsed(p, m)" class="apart-time">{{ toolElapsed(p, m) }}</span>
+                      </summary>
+                      <pre v-if="p.detail">{{ p.detail }}</pre>
+                    </details>
                   </template>
                   <div v-else class="md-body" v-html="renderRich(p.text, m.artifacts)"></div>
                 </div>
@@ -428,6 +445,8 @@ createApp({
     // 屏幕上这份记录属于哪一条分享。轮询和发送都对着它，避免串到另一场
     let screenShareId = ''
     let viewGen = 0
+    // 连点两条记录时，丢掉先发出、后回来的那次正文
+    let historyPickGen = 0
     let boundTurnShare = ''
     // 别人正在这一轮里说话。自己抢到的那轮不算锁住
     const foreignTurn = ref(null)
@@ -445,6 +464,8 @@ createApp({
     const historyLoading = ref(false)
     const historyItems = ref([])
     const historyCurrent = ref(null)
+    // 手机上对话列表默认收起，避免挡住消息
+    const histOpen = ref(false)
     // 点了新对话之后，不要被自动刷新把刚才那条记录又填回来
     const detachedChat = ref(false)
     // 待发送附图（仅本轮；不写入本地历史以免撑爆 quota）
@@ -1019,7 +1040,12 @@ createApp({
           historyCurrent.value = null
           return
         }
-        historyItems.value = data.chats.slice(0, 5)
+        // 接口只带标题。已经点开过的正文留在本地，刷新列表不必重下
+        const kept = new Map(historyItems.value.filter(h => h && h.id && Array.isArray(h.messages)).map(h => [h.id, h.messages]))
+        historyItems.value = data.chats.slice(0, 5).map(h => {
+          if (!h || !kept.has(h.id)) return h
+          return { ...h, messages: kept.get(h.id) }
+        })
         historyCurrent.value = null
         // 列表刚拉下来时，正在看的这场以页面上的内容为准
         if (relayShareId.value) syncHistoryTranscript(relayShareId.value)
@@ -1084,10 +1110,24 @@ createApp({
       // 先把页面上这场写回列表，点回来还是刚才看到的内容
       if (relayShareId.value) syncHistoryTranscript(relayShareId.value)
       const picked = historyItems.value.find(h => h && h.id === item.id) || item
+      const pickGen = ++historyPickGen
       // 点的就是正在看的这场：页面内容已经是这份记录，不用旧快照覆盖
       if (picked.id === relayShareId.value && messages.value.length) {
+        if (window.matchMedia('(max-width: 640px)').matches) histOpen.value = false
         await scrollChat()
         return
+      }
+      // 列表没有正文。只在点开时拉这一条，避免一进页就下载全部对话
+      let body = picked.messages
+      if (!Array.isArray(body)) {
+        const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(picked.id))
+        if (pickGen !== historyPickGen) return
+        if (!r.ok || !data || !Array.isArray(data.messages)) {
+          err.value = T.value.shareMissing
+          return
+        }
+        body = data.messages
+        historyItems.value = historyItems.value.map(h => h && h.id === picked.id ? { ...h, messages: body } : h)
       }
       viewGen += 1
       stopShareWatch()
@@ -1097,12 +1137,14 @@ createApp({
       fromShare.value = true
       foreignTurn.value = null
       holdingTurn.value = false
-      messages.value = sortMessages(loadChatHistoryFrom(picked.messages || []))
+      messages.value = sortMessages(loadChatHistoryFrom(body || []))
       pendingImages.value = []
       err.value = ''
       historyCurrent.value = null
       if (aid) saveChatHistory(aid, messages.value)
       startShareWatch()
+      // 手机上选完就收回列表，把画面留给对话
+      if (window.matchMedia('(max-width: 640px)').matches) histOpen.value = false
       await scrollChat()
     }
 
@@ -1301,15 +1343,19 @@ createApp({
     function transcriptKey(list) {
       return (list || []).filter(m => m && !m.liveTurn && !m.pending).map(m => `${m.role}\n${m.content || ''}`).join('\n---\n')
     }
+    // 列表标题固定用第一条用户消息，后面再说什么也不改
+    function firstUserLine(list) {
+      for (const m of list || []) {
+        if (!m || m.role !== 'user') continue
+        const text = String(m.content || '').replace(/\s+/g, ' ').trim().slice(0, 42)
+        if (text) return text
+      }
+      return ''
+    }
     function syncHistoryTranscript(sid) {
       if (!sid) return
       const snapshot = serializeChat(messages.value.filter(m => m && !m.pending && !m.liveTurn))
-      let preview = ''
-      for (let i = snapshot.length - 1; i >= 0; i -= 1) {
-        if (snapshot[i].role !== 'user') continue
-        preview = String(snapshot[i].content || '').replace(/\s+/g, ' ').trim().slice(0, 42)
-        if (preview) break
-      }
+      const preview = firstUserLine(snapshot)
       historyItems.value = historyItems.value.map(h => {
         if (!h || h.id !== sid) return h
         return { ...h, messages: snapshot, preview: preview || h.preview }
@@ -2193,10 +2239,10 @@ createApp({
         images: attachUrls.length ? attachUrls.slice() : undefined,
         files: fileItems.length ? fileItems.map(p => ({ name: p.name || 'file' })) : undefined,
       })
-      // 新对话的第一条，左侧摘要马上换成这句话，不必等回复结束
+      // 新对话的第一条马上写进左侧标题，后面的发言不再改它
       if (relayShareId.value) {
         const sid = relayShareId.value
-        const preview = String(displayText || '').replace(/\s+/g, ' ').trim().slice(0, 42)
+        const preview = firstUserLine(messages.value)
         historyItems.value = historyItems.value.map(h => h && h.id === sid ? { ...h, preview: preview || h.preview } : h)
       }
       messages.value.push({ role: 'assistant', content: '', pending: true, startedAt: Date.now() })
@@ -2438,7 +2484,7 @@ createApp({
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,
       sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, fromShare, shareReadOnly, shareTurnLocked, turnLockText, agentOffline, renderMarkdown, onComposerPaste, removePendingImage,
-      historyLoading, historyItems, historyCurrent, selectHistory, historyWhen, historyBy, relayShareId,
+      historyLoading, historyItems, historyCurrent, histOpen, selectHistory, historyWhen, historyBy, relayShareId,
     }
   },
 }).mount('#app')

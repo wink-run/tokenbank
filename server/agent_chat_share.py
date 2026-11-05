@@ -176,10 +176,10 @@ def append_share_turns(existing, incoming) -> list:
 
 
 def share_preview(messages) -> str:
-    """用最近一句用户话当对话摘要，避免每条历史都显示同一句开场白。"""
+    """对话列表标题用这场对话的第一条用户消息。"""
     if not isinstance(messages, list):
         return ""
-    for item in reversed(messages):
+    for item in messages:
         if not isinstance(item, dict) or item.get("role") != "user":
             continue
         text = " ".join(str(item.get("content") or "").split())

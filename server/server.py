@@ -19,7 +19,7 @@ except ImportError:
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 
@@ -276,8 +276,60 @@ async def privacy_policy():
 
 @app.get("/agents")
 async def agents_hub_page():
-    """公开智能体主页。"""
-    return FileResponse("static/tools.html")
+    """公开智能体主页。底部带上每个介绍页的链接，方便收录。"""
+    from agent_seo import render_agent_index_links
+
+    html = open("static/tools.html", encoding="utf-8").read()
+    try:
+        agents = await _list_public_agents()
+    except Exception as e:
+        logger.warning("agent index links failed: %s", e)
+        agents = []
+    block = render_agent_index_links(agents)
+    if block:
+        html = html.replace("</body>", block + "</body>", 1)
+    return HTMLResponse(html, headers={"Cache-Control": "public, max-age=60"})
+
+
+@app.get("/agents/{assistant_id}")
+async def agent_intro_page(assistant_id: str):
+    """每个上架智能体一页介绍。正文在 HTML 里，不依赖前端脚本。"""
+    from agent_seo import render_agent_intro
+
+    card = await _public_agent_card(assistant_id)
+    if not card:
+        page = (
+            "<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
+            "<title>未找到智能体 · Token Bank</title></head><body>"
+            "<p>这个智能体没有上架，或已经下线超过保留期。</p>"
+            "<p><a href=\"/agents\">返回智能体广场</a></p></body></html>"
+        )
+        return HTMLResponse(page, status_code=404)
+    try:
+        others = await _list_public_agents()
+    except Exception:
+        others = []
+    html = render_agent_intro(card, others)
+    return HTMLResponse(html, headers={"Cache-Control": "public, max-age=120"})
+
+
+@app.get("/robots.txt")
+async def robots_txt():
+    from agent_artifacts import public_origin
+    body = f"User-agent: *\nAllow: /\nSitemap: {public_origin()}/sitemap.xml\n"
+    return Response(body, media_type="text/plain")
+
+
+@app.get("/sitemap.xml")
+async def sitemap_xml():
+    from agent_seo import render_sitemap
+    try:
+        agents = await _list_public_agents()
+    except Exception as e:
+        logger.warning("sitemap agents failed: %s", e)
+        agents = []
+    xml = render_sitemap(agents)
+    return Response(xml, media_type="application/xml")
 
 
 @app.get("/tools")
@@ -311,17 +363,16 @@ def _chat_static_ver() -> str:
         return "0"
 
 
-def _chat_page(path: str) -> HTMLResponse:
-    html = open(path, encoding="utf-8").read().replace("{{JS_VER}}", _chat_static_ver())
-    return HTMLResponse(html, headers={"Cache-Control": "no-cache, max-age=0"})
-
-
 @app.get("/a/{assistant_id}")
 async def agent_landing_page(assistant_id: str):
-    """已分享智能体的网页版落地页（全球 / 圈子共用同一入口）"""
-    # assistant_id 仅用于前端路由解析；静态页本身不依赖路径参数
-    _ = (assistant_id or "").strip()
-    return _chat_page("static/agent-landing.html")
+    """已分享智能体的网页版对话页。规范地址指向介绍页。"""
+    from agent_seo import apply_chat_seo
+
+    html = open("static/agent-landing.html", encoding="utf-8").read().replace("{{JS_VER}}", _chat_static_ver())
+    card = await _public_agent_card(assistant_id)
+    if card:
+        html = apply_chat_seo(html, card)
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache, max-age=0"})
 
 
 @app.get("/api/catalog")
@@ -633,6 +684,18 @@ async def _remember_worker_agents(worker) -> None:
         await db.replace_owner_public_agents(int(uid), getattr(worker, "agents", None) or [])
     except Exception as e:
         logger.warning("remember public agents failed: %s", e)
+
+
+async def _public_agent_card(assistant_id: str):
+    """上架中的公开智能体。圈子里的、或已过保留期的不给介绍页。"""
+    aid = (assistant_id or "").strip()
+    if not aid or len(aid) > 200 or any(ch in aid for ch in "/\\?#"):
+        return None
+    await backfill_worker_owner_labels()
+    card = pool.get_agent_for_user(aid, public_only=True)
+    if card:
+        return {**card, "online": True}
+    return await db.get_stored_public_agent(aid)
 
 
 async def _list_public_agents() -> list:
@@ -1218,36 +1281,27 @@ async def list_agent_chat_history_route(
     assistant_id: str = "",
     uid: Optional[int] = Depends(optional_auth_api_key_or_jwt),
 ):
-    """最近 5 次对话的完整记录。发起人和参与过的登录用户都能看。"""
-    import json as _json
-
-    from agent_chat_share import dedupe_chat_snapshots, share_author_label, share_preview
+    """最近 5 次对话的标题。正文等点开再取，列表本身保持很轻。"""
+    from agent_chat_share import share_author_label
 
     aid = (assistant_id or "").strip()[:200]
     if not uid or not aid:
         raise HTTPException(401, "login required")
-    rows = await db.list_agent_chat_history(aid, int(uid), limit=40)
-    packed = []
+    rows = await db.list_agent_chat_history(aid, int(uid), limit=5)
+    chats = []
     for row in rows:
-        try:
-            messages = _json.loads(row.get("messages") or "[]")
-        except Exception:
-            messages = []
-        if not isinstance(messages, list):
-            messages = []
         created = row.get("created_at")
         updated = row.get("updated_at")
         owner_id = int(row.get("user_id") or 0)
-        packed.append({
+        chats.append({
             "id": row.get("id"),
             "role": "owner" if owner_id == int(uid) else "member",
             "author": share_author_label(row.get("author_nickname"), row.get("author_email")),
-            "preview": share_preview(messages),
+            "preview": str(row.get("preview") or "").strip()[:42],
             "created_at": created.isoformat() if hasattr(created, "isoformat") else created,
             "updated_at": updated.isoformat() if hasattr(updated, "isoformat") else updated,
-            "messages": messages,
         })
-    return {"chats": dedupe_chat_snapshots(packed, limit=5)}
+    return {"chats": chats}
 
 
 def _public_share_turn(row: dict, hold_token: str = "") -> Optional[dict]:

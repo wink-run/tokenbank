@@ -66,6 +66,12 @@ def test_share_labels_people_and_preview():
         {"role": "assistant", "content": "先别算"},
         {"role": "user", "content": "帮我做一张封面"},
     ]) == "帮我做一张封面"
+    # 后面又说了别的，标题仍停在新对话的第一句
+    assert share_preview([
+        {"role": "user", "content": "先做封面"},
+        {"role": "assistant", "content": "好"},
+        {"role": "user", "content": "再改一版"},
+    ]) == "先做封面"
 
 
 def test_history_keeps_one_snapshot_per_chat():

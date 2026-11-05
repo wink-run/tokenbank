@@ -6,6 +6,7 @@ import logging
 import random
 import re
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -436,10 +437,62 @@ async def _migrate_agent_chat_shares() -> None:
             ON CONFLICT(share_id, user_id) DO NOTHING
         """)
         await db.commit()
+        # 列表只读这一列，避免每次把整段对话正文从库里拖出来
+        try:
+            await db.execute("ALTER TABLE agent_chat_shares ADD COLUMN preview TEXT NOT NULL DEFAULT ''")
+            await db.commit()
+        except Exception:
+            pass
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_chat_assistant_updated ON agent_chat_shares(assistant_id, updated_at DESC)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_chat_members_user ON agent_chat_share_members(user_id, share_id)"
+        )
+        await db.commit()
+        await _backfill_chat_previews(db)
+
+
+def _preview_from_messages_json(raw: str) -> str:
+    """从已存的对话 JSON 取出列表标题。写库时算好，列表查询不再解析正文。"""
+    from agent_chat_share import share_preview
+
+    try:
+        data = json.loads(raw or "[]")
+    except Exception:
+        return ""
+    if not isinstance(data, list):
+        return ""
+    return share_preview(data)
+
+
+async def _backfill_chat_previews(db) -> None:
+    """旧记录补上标题。已经有标题的跳过，避免每次启动重读正文。"""
+    async with db.execute(
+        """SELECT id, messages FROM agent_chat_shares
+           WHERE COALESCE(preview, '') = ''
+             AND COALESCE(messages, '') NOT IN ('', '[]')
+           LIMIT 200"""
+    ) as cur:
+        rows = await cur.fetchall()
+    if not rows:
+        return
+    for row in rows:
+        item = dict(row)
+        preview = _preview_from_messages_json(item.get("messages") or "")
+        if not preview:
+            preview = " "
+        await db.execute(
+            "UPDATE agent_chat_shares SET preview=? WHERE id=? AND COALESCE(preview, '') = ''",
+            (preview[:42], item.get("id")),
+        )
+    await db.commit()
 
 
 # 上架名片保留窗口：最近一次在线（updated_at）起 7 天
 _PUBLIC_AGENT_KEEP = "7 days"
+# 清理要改三张表，列表接口很频繁，一分钟做一次就够
+_last_prune_at = 0.0
 
 
 async def _migrate_public_agent_cards() -> None:
@@ -477,6 +530,11 @@ def _stored_agent_card(row) -> dict:
 
 async def prune_public_agent_cards() -> None:
     """超过 7 天没再上线的上架智能体，名片和它的对话一起删掉。"""
+    global _last_prune_at
+    now = time.monotonic()
+    if now - _last_prune_at < 60:
+        return
+    _last_prune_at = now
     cutoff = f"NOW() - INTERVAL '{_PUBLIC_AGENT_KEEP}'"
     expired = f"""SELECT assistant_id FROM public_agent_cards WHERE updated_at < {cutoff}"""
     async with connect() as db:
@@ -582,11 +640,12 @@ async def get_stored_public_agent(assistant_id: str) -> Optional[dict]:
 
 async def create_agent_chat_share(assistant_id: str, messages_json: str, user_id: Optional[int] = None) -> str:
     share_id = secrets.token_urlsafe(9)
+    preview = _preview_from_messages_json(messages_json)
     async with connect() as db:
         await db.execute(
-            """INSERT INTO agent_chat_shares(id, assistant_id, user_id, messages, updated_at)
-               VALUES(?,?,?,?,NOW())""",
-            (share_id, assistant_id, user_id, messages_json),
+            """INSERT INTO agent_chat_shares(id, assistant_id, user_id, messages, updated_at, preview)
+               VALUES(?,?,?,?,NOW(),?)""",
+            (share_id, assistant_id, user_id, messages_json, preview),
         )
         if user_id:
             await db.execute(
@@ -655,10 +714,10 @@ async def ensure_share_member(share_id: str, user_id: int, role: str = "member")
 
 
 async def list_agent_chat_history(assistant_id: str, viewer_id: int, limit: int = 5) -> list[dict]:
-    """最近几条对话。只有发起人或参与过的人能看到完整记录。智能体过期后这里为空。"""
+    """最近几条对话的标题。不读正文，点开某一条再单独取。"""
     await prune_public_agent_cards()
-    lim = 40 if not isinstance(limit, int) else max(1, min(limit, 40))
-    sql = """SELECT s.id, s.user_id, s.messages, s.created_at,
+    lim = 5 if not isinstance(limit, int) else max(1, min(limit, 8))
+    sql = """SELECT s.id, s.user_id, s.preview, s.created_at,
                     COALESCE(s.updated_at, s.created_at) AS updated_at,
                     u.nickname AS author_nickname, u.email AS author_email
              FROM agent_chat_shares s
@@ -680,10 +739,11 @@ async def list_agent_chat_history(assistant_id: str, viewer_id: int, limit: int 
 
 
 async def replace_agent_chat_share_messages(share_id: str, messages_json: str) -> None:
+    preview = _preview_from_messages_json(messages_json)
     async with connect() as db:
         await db.execute(
-            "UPDATE agent_chat_shares SET messages=?, updated_at=NOW() WHERE id=?",
-            (messages_json, share_id),
+            "UPDATE agent_chat_shares SET messages=?, preview=?, updated_at=NOW() WHERE id=?",
+            (messages_json, preview, share_id),
         )
         await db.commit()
 
@@ -740,9 +800,10 @@ async def finish_share_turn(share_id: str, token: str, messages_json: Optional[s
     """这一轮说完才交出发言权。正文和锁在同一次更新里落盘。"""
     async with connect() as db:
         if messages_json is not None:
+            preview = _preview_from_messages_json(messages_json)
             cur = await db.execute(
-                f"UPDATE agent_chat_shares SET messages=?, updated_at=NOW(), {_clear_turn_sql()} WHERE id=? AND turn_token=?",
-                (messages_json, share_id, token),
+                f"UPDATE agent_chat_shares SET messages=?, preview=?, updated_at=NOW(), {_clear_turn_sql()} WHERE id=? AND turn_token=?",
+                (messages_json, preview, share_id, token),
             )
         else:
             cur = await db.execute(
