@@ -1184,13 +1184,13 @@ async def list_agent_chat_history_route(
     """最近 5 次对话的完整记录。发起人和参与过的登录用户都能看。"""
     import json as _json
 
-    from agent_chat_share import share_author_label, share_preview
+    from agent_chat_share import dedupe_chat_snapshots, share_author_label, share_preview
 
     aid = (assistant_id or "").strip()[:200]
     if not uid or not aid:
         raise HTTPException(401, "login required")
-    rows = await db.list_agent_chat_history(aid, int(uid), limit=5)
-    chats = []
+    rows = await db.list_agent_chat_history(aid, int(uid), limit=40)
+    packed = []
     for row in rows:
         try:
             messages = _json.loads(row.get("messages") or "[]")
@@ -1201,7 +1201,7 @@ async def list_agent_chat_history_route(
         created = row.get("created_at")
         updated = row.get("updated_at")
         owner_id = int(row.get("user_id") or 0)
-        chats.append({
+        packed.append({
             "id": row.get("id"),
             "role": "owner" if owner_id == int(uid) else "member",
             "author": share_author_label(row.get("author_nickname"), row.get("author_email")),
@@ -1210,7 +1210,7 @@ async def list_agent_chat_history_route(
             "updated_at": updated.isoformat() if hasattr(updated, "isoformat") else updated,
             "messages": messages,
         })
-    return {"chats": chats}
+    return {"chats": dedupe_chat_snapshots(packed, limit=5)}
 
 
 def _public_share_turn(row: dict, hold_token: str = "") -> Optional[dict]:

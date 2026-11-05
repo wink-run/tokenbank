@@ -176,13 +176,60 @@ def append_share_turns(existing, incoming) -> list:
 
 
 def share_preview(messages) -> str:
-    """用第一句用户话当对话摘要。"""
+    """用最近一句用户话当对话摘要，避免每条历史都显示同一句开场白。"""
     if not isinstance(messages, list):
         return ""
-    for item in messages:
+    for item in reversed(messages):
         if not isinstance(item, dict) or item.get("role") != "user":
             continue
         text = " ".join(str(item.get("content") or "").split())
         if text:
             return text[:42]
     return ""
+
+
+def transcript_key(messages) -> tuple:
+    """用来判断两条记录是不是同一场对话的不同快照。"""
+    out = []
+    if not isinstance(messages, list):
+        return tuple()
+    for item in messages:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        text = " ".join(str(item.get("content") or "").split())
+        if text:
+            out.append((role, text))
+    return tuple(out)
+
+
+def dedupe_chat_snapshots(chats, limit: int = 5) -> list:
+    """同一场对话被反复另存时，只留最新、最完整的一条。调用方需已按时间倒序。"""
+    kept_keys: list[tuple] = []
+    kept: list = []
+    cap = max(1, min(int(limit or 5), 5))
+    for chat in chats or []:
+        if not isinstance(chat, dict):
+            continue
+        key = transcript_key(chat.get("messages"))
+        if not key:
+            continue
+        skip = False
+        for i, prev in enumerate(kept_keys):
+            if key == prev or prev[:len(key)] == key:
+                skip = True
+                break
+            if key[:len(prev)] == prev:
+                kept_keys[i] = key
+                kept[i] = chat
+                skip = True
+                break
+        if skip:
+            continue
+        kept_keys.append(key)
+        kept.append(chat)
+        if len(kept) >= cap:
+            break
+    return kept[:cap]

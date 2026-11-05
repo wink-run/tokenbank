@@ -63,7 +63,6 @@ button{font-family:inherit}
 .tag.embed{color:#64748b;border-color:#e2e8f0;background:#f8fafc}
 .tag.circle{color:#6d28d9;border-color:#e9d5ff;background:#faf5ff}
 .head-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;position:relative;z-index:6}
-.share-hint{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text-muted)}
 .nbtn:disabled{opacity:.45;cursor:not-allowed}
 
 /* 模型切换：药丸下拉 */
@@ -223,12 +222,13 @@ button{font-family:inherit}
 .skel{background:linear-gradient(90deg,#efece8 25%,#f6f4f1 50%,#efece8 75%);background-size:200% 100%;animation:sk 1.2s infinite;border-radius:8px}
 @keyframes sk{from{background-position:200% 0}to{background-position:-200% 0}}
 
-/* 最近 5 次对话：发起人和参与人看完整记录 */
-.hist{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--bg)}
-.hist-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border-light)}
-.hist-bar b{font-size:14px;font-weight:650}
-.hist-body{flex:1;min-height:0;display:flex}
-.hist-list{width:260px;flex-shrink:0;overflow:auto;border-right:1px solid var(--border-light);padding:8px;display:flex;flex-direction:column;gap:6px}
+/* 最近 5 次对话：和当前对话并排，不另开一页 */
+.cstage{flex:1;min-height:0;display:flex}
+.cchat{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+.hist{width:248px;flex-shrink:0;min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--border-light);background:var(--bg)}
+.hist-bar{padding:14px 14px 8px}
+.hist-bar b{font-size:13px;font-weight:650}
+.hist-list{flex:1;min-height:0;overflow:auto;padding:0 8px 12px;display:flex;flex-direction:column;gap:6px}
 .hist-item{display:flex;flex-direction:column;align-items:flex-start;gap:4px;width:100%;text-align:left;padding:10px;border-radius:10px;border:1px solid transparent;background:transparent;cursor:pointer;font-family:inherit;color:inherit}
 .hist-item:hover{background:var(--bg-muted)}
 .hist-item.on{background:var(--bg-soft);border-color:var(--border)}
@@ -252,7 +252,6 @@ button{font-family:inherit}
   .msg.user .uside{max-width:88%}
   .msg-tools{opacity:1}
   .head-actions .nbtn span{display:none}
-  .hist-body{flex-direction:column}
-  .hist-list{width:auto;max-height:168px;border-right:none;border-bottom:1px solid var(--border-light)}
-  .hist-msgs{padding:0 14px}
+  .cstage{flex-direction:column}
+  .hist{width:auto;max-height:168px;border-right:none;border-bottom:1px solid var(--border-light)}
 }

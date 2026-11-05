@@ -68,6 +68,34 @@ def test_share_labels_people_and_preview():
     ]) == "帮我做一张封面"
 
 
+def test_history_keeps_one_snapshot_per_chat():
+    from agent_chat_share import dedupe_chat_snapshots
+    older = {
+        "id": "old",
+        "messages": [
+            {"role": "user", "content": "介绍一下你的能力和适合的任务"},
+            {"role": "assistant", "content": "我可以做图"},
+        ],
+    }
+    newer = {
+        "id": "new",
+        "messages": older["messages"] + [
+            {"role": "user", "content": "再出一张"},
+            {"role": "assistant", "content": "好"},
+        ],
+    }
+    same_again = {"id": "copy", "messages": list(newer["messages"])}
+    other = {
+        "id": "other",
+        "messages": [
+            {"role": "user", "content": "另一场新对话"},
+            {"role": "assistant", "content": "在"},
+        ],
+    }
+    out = dedupe_chat_snapshots([newer, same_again, older, other], limit=5)
+    assert [c["id"] for c in out] == ["new", "other"]
+
+
 def test_share_drops_empty_chat():
     assert normalize_share_messages([]) == []
     assert normalize_share_messages([{"role": "assistant", "content": "  "}]) == []

@@ -509,7 +509,7 @@ async def ensure_share_member(share_id: str, user_id: int, role: str = "member")
 
 async def list_agent_chat_history(assistant_id: str, viewer_id: int, limit: int = 5) -> list[dict]:
     """最近几条对话。只有发起人或参与过的人能看到完整记录。"""
-    lim = 5 if not isinstance(limit, int) else max(1, min(limit, 5))
+    lim = 40 if not isinstance(limit, int) else max(1, min(limit, 40))
     sql = """SELECT s.id, s.user_id, s.messages, s.created_at,
                     COALESCE(s.updated_at, s.created_at) AS updated_at,
                     u.nickname AS author_nickname, u.email AS author_email
