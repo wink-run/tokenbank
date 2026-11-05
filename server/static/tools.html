@@ -14,7 +14,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  background: #faf9f5;
+  background: linear-gradient(180deg, #fafafa 0%, #ffffff 280px);
   color: #0a0a0a;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
@@ -23,39 +23,43 @@ a { color: inherit; text-decoration: none; }
 .container { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
 
 /* 智能体主页，和社区网络同一套卡片 */
-.ag-top { position: sticky; top: 0; z-index: 20; background: rgba(250,249,245,.9); backdrop-filter: blur(12px); border-bottom: 1px solid #e7e4e1; }
+.ag-top { position: sticky; top: 0; z-index: 20; background: rgba(255,255,255,.9); backdrop-filter: blur(12px); border-bottom: 1px solid #eee; }
 .ag-top-in { max-width: 1200px; margin: 0 auto; height: 56px; padding: 0 20px; display: flex; align-items: center; gap: 18px; }
 .ag-brand { display: flex; align-items: center; gap: 9px; font-weight: 650; }
 .ag-brand img { width: 26px; height: 26px; border-radius: 7px; }
 .ag-nav { font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 8px; background: #f5f2f0; }
 .ag-lang { margin-left: auto; border: none; background: transparent; color: #7b7b7b; cursor: pointer; font: inherit; font-size: 13px; }
-.ag-page { max-width: 1200px; margin: 0 auto; padding: 28px 20px 72px; }
-.ag-hero h1 { font-size: 28px; font-weight: 700; letter-spacing: -.025em; }
-.ag-hero p { margin-top: 6px; color: #7b7b7b; font-size: 14px; }
-.ag-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 20px 0 14px; }
-.ag-search { position: relative; flex: 0 1 320px; min-width: 200px; }
-.ag-search input { width: 100%; height: 36px; padding: 0 12px 0 34px; border: 1px solid #e7e4e1; border-radius: 10px; background: #fff; outline: none; font: inherit; font-size: 13px; }
-.ag-search input:focus { border-color: #0a0a0a; }
-.ag-search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: #b4b4b4; }
-.ag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.ag-chip { height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid #e7e4e1; background: #fff; font: inherit; font-size: 12px; color: #3f3f46; cursor: pointer; }
-.ag-chip.on { background: #0a0a0a; color: #fff; border-color: #0a0a0a; }
-.ag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
-.ag-card { background: #fff; border: 1px solid #e7e4e1; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; transition: border-color .15s, box-shadow .15s, transform .15s; }
-.ag-card:hover { border-color: #d6d2ce; box-shadow: 0 4px 16px rgba(0,0,0,.04); transform: translateY(-1px); }
-.ag-h { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
-.ag-av { width: 38px; height: 38px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 650; flex-shrink: 0; }
-.ag-av.brand { background: #fff; border: 1px solid rgba(0,0,0,.08); padding: 6px; }
+/* 智能体工具广场：居中介绍，按任务挑一张名片 */
+.ag-page { max-width: 1200px; margin: 0 auto; padding: 48px 24px 80px; }
+.ag-hero { text-align: center; margin-bottom: 28px; }
+.ag-badge-top { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; margin-bottom: 14px; background: #eff6ff; color: #2563eb; border-radius: 999px; font-size: 14px; font-weight: 500; }
+.ag-hero h1 { font-size: 44px; font-weight: 700; letter-spacing: -.03em; line-height: 1.15; color: #09090b; }
+.ag-hero p { margin: 12px auto 0; max-width: 36rem; color: #71717a; font-size: 17px; line-height: 1.7; }
+.ag-bar { display: flex; flex-direction: column; align-items: center; gap: 16px; margin: 0 0 28px; }
+.ag-search { position: relative; width: min(100%, 640px); }
+.ag-search input { width: 100%; height: 52px; padding: 0 48px 0 20px; border: 2px solid #e4e4e7; border-radius: 16px; background: #fff; outline: none; font: inherit; font-size: 16px; }
+.ag-search input:focus { border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,.12); }
+.ag-search svg { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: #a1a1aa; }
+.ag-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.ag-chip { height: 36px; padding: 0 16px; border-radius: 999px; border: 1px solid #e4e4e7; background: #fff; font: inherit; font-size: 14px; font-weight: 500; color: #52525b; cursor: pointer; }
+.ag-chip:hover { background: #f4f4f5; }
+.ag-chip.on { background: #3b82f6; color: #fff; border-color: #3b82f6; box-shadow: 0 4px 12px rgba(59,130,246,.28); }
+.ag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
+.ag-card { position: relative; background: #fff; border: 1px solid #e4e4e7; border-radius: 24px; padding: 22px; display: flex; flex-direction: column; gap: 12px; min-width: 0; transition: border-color .2s, box-shadow .2s, transform .2s; }
+.ag-card:hover { border-color: #93c5fd; box-shadow: 0 12px 24px rgba(0,0,0,.08); transform: translateY(-2px); }
+.ag-h { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.ag-av { width: 64px; height: 64px; border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 26px; flex-shrink: 0; background: linear-gradient(135deg, #fafafa, #f4f4f5); }
+.ag-av.brand { background: #fff; border: 1px solid #eee; padding: 12px; }
 .ag-av.brand img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.ag-name { font-weight: 600; font-size: 14px; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ag-meta { font-size: 12px; color: #7b7b7b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ag-desc { font-size: 12.5px; color: #7b7b7b; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 37px; }
-.ag-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 10px; border-top: 1px solid #f0edea; font-size: 12px; color: #7b7b7b; }
-.ag-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.ag-name { font-weight: 700; font-size: 18px; letter-spacing: -.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-meta { margin-top: 2px; font-size: 13px; color: #a1a1aa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-desc { font-size: 14px; color: #71717a; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 43px; }
+.ag-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 12px; border-top: 1px solid #f4f4f5; font-size: 13px; color: #71717a; }
+.ag-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .ag-dot.ok { background: #16a34a; }
 .ag-dot.off { background: #d4d4d8; }
-.ag-go { margin-left: auto; font-weight: 600; color: #0a0a0a; }
-.ag-badge { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 6px; font-size: 11px; background: #f5f2f0; color: #3f3f46; }
+.ag-go { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-weight: 650; color: #18181b; }
+.ag-badge { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #f4f4f5; color: #52525b; }
 .tool-badge { display: inline-block; padding: 0.25rem 0.625rem; font-size: 0.75rem; font-weight: 600; color: #fff; border-radius: 9999px; }
 .badge-virtual { background: #3b82f6; }
 .badge-user-rented { background: #10b981; }
@@ -125,8 +129,9 @@ a { color: inherit; text-decoration: none; }
 .ad-skip { width: 100%; margin-top: 1rem; padding: 0.5rem 1rem; background: #f4f4f5; color: #52525b; border: none; border-radius: 0.5rem; cursor: pointer; }
 
 @media (max-width: 768px) {
-  .ag-hero h1 { font-size: 24px; }
-  .ag-page { padding: 20px 16px 48px; }
+  .ag-hero h1 { font-size: 32px; }
+  .ag-hero p { font-size: 15px; }
+  .ag-page { padding: 28px 16px 48px; }
   .container { padding: 1.5rem 1rem; }
   .ag-grid { grid-template-columns: 1fr; }
 }
@@ -145,15 +150,16 @@ a { color: inherit; text-decoration: none; }
     </nav>
     <main class="ag-page">
       <header class="ag-hero">
-        <h1>{{ T.title }}</h1>
+        <div class="ag-badge-top"><span>✦</span><span>{{ T.badge }}</span></div>
+        <h1>{{ T.plaza }}</h1>
         <p>{{ T.sub }}</p>
       </header>
       <div class="ag-bar">
         <div class="ag-search">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input v-model="searchQuery" @keyup.enter="loadTools" type="text" :placeholder="T.search">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         </div>
-        <div v-if="scenes.length" class="ag-chips">
+        <div class="ag-chips">
           <button type="button" @click="selectedScene = ''; loadTools()" :class="['ag-chip', { on: selectedScene === '' }]">{{ T.all }}</button>
           <button v-for="scene in scenes" :key="scene.value" type="button" @click="selectedScene = scene.value; loadTools()" :class="['ag-chip', { on: selectedScene === scene.value }]">{{ sceneLabel(scene) }}</button>
         </div>
@@ -180,7 +186,7 @@ a { color: inherit; text-decoration: none; }
             <template v-if="tool.source === 'network'">
               <i class="ag-dot" :class="tool.online === false ? 'off' : 'ok'"></i>
               <span>{{ tool.online === false ? T.offline : T.online }}</span>
-              <span class="ag-go">{{ tool.online === false ? T.history : T.chat }}</span>
+              <span class="ag-go">{{ tool.online === false ? T.history : T.use }} <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></span>
             </template>
             <span v-else class="ag-badge">{{ getBadgeText(tool.trust_level) }}</span>
           </div>
@@ -321,17 +327,19 @@ createApp({
     T() {
       if (this.lang === 'en') {
         return {
-          title: 'Agents', sub: 'Talk to agents that are online. Offline ones still keep their history.',
+          title: 'Agents', plaza: 'Agent plaza', badge: 'Pick one for the task',
+          sub: 'Choose the agent that fits. Online ones start right away. Offline ones still keep their history.',
           search: 'Search name, author, or use…', all: 'All', agents: 'Agents',
           loading: 'Loading…', empty: 'No agents yet',
-          online: 'Online', offline: 'Offline', chat: 'Chat', history: 'History',
+          online: 'Online', offline: 'Offline', chat: 'Chat', use: 'Use', history: 'History',
         };
       }
       return {
-        title: '智能体', sub: '在线的可以直接对话，暂时离线的仍可查看历史。',
+        title: '智能体', plaza: '智能体工具广场', badge: '按需选用',
+        sub: '挑一个合适的智能体，把任务交给它。在线的可以直接开始，离线的仍可查看历史。',
         search: '搜索名称、作者或用途…', all: '全部', agents: '智能体',
         loading: '加载中…', empty: '暂时没有智能体',
-        online: '在线', offline: '离线', chat: '对话', history: '记录',
+        online: '在线', offline: '离线', chat: '对话', use: '去使用', history: '记录',
       };
     },
   },
@@ -347,7 +355,7 @@ createApp({
       this.loadTools();
     }
     document.documentElement.lang = this.lang === 'zh' ? 'zh-CN' : 'en';
-    document.title = this.T.title + ' · Token Bank';
+    document.title = this.T.plaza + ' · Token Bank';
   },
   beforeUnmount() {
     if (this.pollTimer) clearInterval(this.pollTimer);
@@ -357,7 +365,7 @@ createApp({
       this.lang = this.lang === 'zh' ? 'en' : 'zh';
       localStorage.setItem('tb_lang', this.lang);
       document.documentElement.lang = this.lang === 'zh' ? 'zh-CN' : 'en';
-      document.title = this.T.title + ' · Token Bank';
+      document.title = this.T.plaza + ' · Token Bank';
     },
     sceneLabel(scene) {
       return scene && scene.value === 'agent' ? this.T.agents : (scene && scene.label) || '';

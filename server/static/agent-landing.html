@@ -100,6 +100,8 @@
     </header>
 
     <div class="cstage">
+    <div class="cchat">
+    <div class="cmid">
     <aside class="hist">
       <div class="hist-bar">
         <b>{{ T.historyTitle }}</b>
@@ -126,7 +128,6 @@
         </template>
       </div>
     </aside>
-    <div class="cchat">
 
     <div class="cscroll" ref="chatEl" @click="onChatClick" @mouseover="onImgOver" @mouseout="onImgOut" @scroll="onChatScroll" @load.capture="onChatMedia" @loadedmetadata.capture="onChatMedia">
       <div class="cinner">
@@ -183,6 +184,7 @@
           </div>
         </div>
       </div>
+    </div>
     </div>
 
     <footer class="cfoot">
