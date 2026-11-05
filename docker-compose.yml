@@ -117,7 +117,8 @@ services:
       - "11430:11430"   # OpenAI-compatible gateway (OPENAI_BASE_URL)
       - "11431:11431"   # Admin API + Web UI
     volumes:
-      - ./gateway-data:/data/.llm-agent   # 持久化；local-config.json 首次启动自动创建
+      - ./gateway-data:/data/.llm-agent          # 配置；local-config.json 首次启动自动创建
+      - ./gateway-data/tokenbank:/data/.tokenbank # 请求记录 / 用量库，重启容器后保留
     environment:
       - HOME=/data
       - NODE_ENV=production

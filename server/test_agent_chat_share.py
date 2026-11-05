@@ -94,6 +94,10 @@ def test_history_keeps_one_snapshot_per_chat():
     }
     out = dedupe_chat_snapshots([newer, same_again, older, other], limit=5)
     assert [c["id"] for c in out] == ["new", "other"]
+    blank = {"id": "blank", "messages": []}
+    blank2 = {"id": "blank2", "messages": []}
+    kept = dedupe_chat_snapshots([blank, blank2, other], limit=5)
+    assert [c["id"] for c in kept] == ["blank", "blank2", "other"]
 
 
 def test_share_drops_empty_chat():

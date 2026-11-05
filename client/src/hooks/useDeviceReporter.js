@@ -56,14 +56,25 @@ async function _resolveDeviceId(cfg) {
   return id;
 }
 
-/** 浏览器 / Docker Web 环境下的平台说明（非 Electron） */
+/** 浏览器 UA 里的系统版本。Chromium 把 macOS 冻在 10.15.7，不能当成真实版本。 */
 function _browserPlatform() {
   const ua = navigator.userAgent || '';
   const mac = ua.match(/Mac OS X (\d+[._]\d+(?:[._]\d+)?)/);
-  if (mac) return `macOS ${mac[1].replace(/_/g, '.')}`;
+  if (mac) {
+    const ver = mac[1].replace(/_/g, '.');
+    if (ver === '10.15.7' || ver === '10.15') return 'macOS';
+    return `macOS ${ver}`;
+  }
   const win = ua.match(/Windows NT (\d+\.\d+)/);
   if (win) return parseFloat(win[1]) >= 10 ? 'Windows' : `Windows NT ${win[1]}`;
   return navigator.userAgentData?.platform || navigator.platform || 'Web';
+}
+
+/** 「CLI」是拿不到电脑名时的占位，不能当成机器名上报。 */
+function _usableDeviceName(name) {
+  const n = String(name || '').trim();
+  if (!n || /^cli$/i.test(n)) return '';
+  return n;
 }
 
 /** 解析应用版本：优先 Electron preload 注入的 package.json 版本，勿用 agent 配置里的 version */
@@ -75,36 +86,31 @@ function _resolveAppVersion(identityVersion) {
   return '0.0.0';
 }
 
-/** 采集设备名称 / 平台 / 版本（注册与心跳共用） */
-async function _collectDeviceMeta(port, cfg) {
+/** 采集设备名称 / 平台 / 版本。优先系统电脑名和 sw_vers，不用浏览器 UA 里的假版本。 */
+async function _collectDeviceMeta(port) {
   const type = isElectron() ? 'desktop' : 'cli';
-  let name;
-  let platform;
-  let version;
+  let identity = null;
 
-  if (isElectron() && window.electronAPI?.app?.getDeviceIdentity) {
-    const identity = window.electronAPI.app.getDeviceIdentity({ customName: cfg?.name || '' });
-    name     = identity?.name || cfg?.name || '桌面设备';
-    platform = identity?.platform || _browserPlatform();
-    version  = _resolveAppVersion(identity?.version);
-  } else {
-    let identity = null;
+  if (isElectron() && typeof window.electronAPI?.app?.getDeviceIdentity === 'function') {
+    try { identity = window.electronAPI.app.getDeviceIdentity({}) || null; } catch { identity = null; }
+  }
+  if (!_usableDeviceName(identity?.name)) {
     try {
       const r = await fetch('/api/device-identity');
-      if (r.ok) identity = await r.json();
-    } catch {}
-    if (identity?.name) {
-      name     = identity.name;
-      platform = identity.platform || _browserPlatform();
-      version  = _resolveAppVersion(identity.version);
-    } else {
-      const host = (cfg?.name || 'CLI').replace(/\.local$/i, '');
-      name     = `${host} · CLI :${port}`;
-      platform = _browserPlatform();
-      version  = _resolveAppVersion(null);
-    }
+      if (r.ok) {
+        const j = await r.json();
+        if (_usableDeviceName(j?.name)) identity = j;
+      }
+    } catch { /* 开发态 Vite 没有这条接口时走下面的兜底 */ }
   }
 
+  const name = _usableDeviceName(identity?.name)
+    || (type === 'desktop' ? '桌面设备' : `CLI :${port}`);
+  // 10.15.7 是 Chromium 冻结的 UA，不能覆盖系统读到的真实版本
+  const platform = (identity?.platform && !/10\.15\.7/.test(identity.platform))
+    ? identity.platform
+    : _browserPlatform();
+  const version = _resolveAppVersion(identity?.version);
   return { type, name, platform, version };
 }
 
@@ -116,7 +122,7 @@ async function _doRegister() {
     const cfg = await getConfig().read().catch(() => ({}));
     const storedId = await _resolveDeviceId(cfg);
 
-    const { type, name, platform, version } = await _collectDeviceMeta(port, cfg);
+    const { type, name, platform, version } = await _collectDeviceMeta(port);
     _deviceMeta = { name, platform, version, type };
 
     const res   = await registerDevice({ device_id: storedId, type, name, platform, version, gateway_port: port });
@@ -223,6 +229,10 @@ export function requestAccountsHeartbeat() {
 async function _sendHeartbeat() {
   if (!_deviceId) return;
   try {
+    // 每次心跳重新读电脑名和系统版本，避免第一次失败后一直上报 CLI / 10.15.7
+    const gwStatus = await getGateway().status().catch(() => null);
+    const meta = await _collectDeviceMeta(gwStatus?.port || 11430);
+    if (meta?.name) _deviceMeta = meta;
     const inv = await _collectInventory();
     const d1 = inv['1'] || {};
     await heartbeatDevice(_deviceId, {

@@ -214,8 +214,9 @@ def dedupe_chat_snapshots(chats, limit: int = 5) -> list:
         if not isinstance(chat, dict):
             continue
         key = transcript_key(chat.get("messages"))
+        # 刚点的新对话还没有发言，也要单独占一条，不能被丢掉
         if not key:
-            continue
+            key = ("__blank__", str(chat.get("id") or ""))
         skip = False
         for i, prev in enumerate(kept_keys):
             if key == prev or prev[:len(key)] == key:

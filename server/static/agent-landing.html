@@ -107,10 +107,9 @@
           <p>{{ T.historyLogin }}</p>
           <button type="button" class="nbtn" style="margin-top:10px" @click="openAuth('login')">{{ T.login }}</button>
         </div>
-        <p v-else-if="historyLoading" class="hist-empty">{{ T.loading }}</p>
+        <p v-else-if="historyLoading && !historyItems.length" class="hist-empty">{{ T.loading }}</p>
         <p v-else-if="!historyItems.length" class="hist-empty">{{ T.historyEmpty }}</p>
         <template v-else>
-          <p class="hist-empty">{{ T.historyHint }}</p>
           <button v-for="h in historyItems" :key="h.id" type="button" class="hist-item" :class="{ on: h.id === relayShareId }" @click="selectHistory(h)">
             <span class="tag">{{ h.role === 'owner' ? T.historyMine : T.historyJoined }}</span>
             <span class="hist-preview">{{ h.preview || T.emptyThread }}</span>
@@ -320,7 +319,7 @@ createApp({
         newChat: '新对话', share: '分享', shared: '链接已复制', shareFail: '分享失败',
         history: '历史', historyTitle: '最近 5 次对话', historyClose: '关闭',
         historyLogin: '登录后可以查看你发起或参与的最近 5 次完整对话。',
-        historyEmpty: '还没有对话记录', historyHint: '每次新对话一条记录，点开可以接着聊',
+        historyEmpty: '还没有对话记录', historyHint: '',
         historyMine: '我发起', historyJoined: '我参与',
         historyBy: '{name} 发起',
         sharedContinue: '大家的发言按时间接在同一条对话里，直接发消息就能接着聊。', shareMissing: '分享不存在或已失效',
@@ -367,7 +366,7 @@ createApp({
         newChat: 'New chat', share: 'Share', shared: 'Link copied', shareFail: 'Could not share',
         history: 'History', historyTitle: 'Last 5 chats', historyClose: 'Close',
         historyLogin: 'Sign in to read the last 5 full chats you started or joined.',
-        historyEmpty: 'No chats yet', historyHint: 'One entry per new chat. Open one to continue.',
+        historyEmpty: 'No chats yet', historyHint: '',
         historyMine: 'Started', historyJoined: 'Joined',
         historyBy: 'Started by {name}',
         sharedContinue: 'Everyone’s messages stay in one timeline. Send a message to continue.', shareMissing: 'This share is missing',
@@ -417,6 +416,10 @@ createApp({
     const fromShare = ref(false)
     // 正在接着聊的那条分享。新发言会补回这条记录，别人打开还是同一条历史
     const relayShareId = ref('')
+    // 屏幕上这份记录属于哪一条分享。轮询和发送都对着它，避免串到另一场
+    let screenShareId = ''
+    let viewGen = 0
+    let boundTurnShare = ''
     // 别人正在这一轮里说话。自己抢到的那轮不算锁住
     const foreignTurn = ref(null)
     const holdingTurn = ref(false)
@@ -1010,14 +1013,28 @@ createApp({
       return `${location.origin}/a/${encodeURIComponent(aid)}?share=${encodeURIComponent(id)}`
     }
     let sessionPromise = null
-    // 一场对话只建一条记录。已经有 id 就接着写，不再另存一份。
-    async function ensureChatSession() {
+    // 刚建的对话先插进左侧列表，接口回来后再换成正式 id
+    function showFreshHistory(id) {
+      const now = new Date().toISOString()
+      const item = {
+        id,
+        role: 'owner',
+        author: currentUserLabel.value || '',
+        preview: '',
+        created_at: now,
+        updated_at: now,
+        messages: [],
+      }
+      historyItems.value = [item, ...historyItems.value.filter(h => h && h.id !== id)].slice(0, 5)
+    }
+    // 一场对话只建一条记录。已经有 id 就接着写，不再另存一份。allowEmpty 用于点「新对话」
+    async function ensureChatSession(allowEmpty) {
       if (relayShareId.value) return relayShareId.value
       if (!getToken()) return ''
       if (sessionPromise) return sessionPromise
       const aid = agent.value?.id || assistantIdFromPath()
       const snapshot = serializeChat(messages.value.filter(m => m && !m.pending && !m.liveTurn))
-      if (!aid || !snapshot.length) return ''
+      if (!aid || (!snapshot.length && !allowEmpty)) return ''
       sessionPromise = (async () => {
         const { r, data } = await fetchJson('/api/agent-chats/shares', {
           method: 'POST',
@@ -1026,6 +1043,7 @@ createApp({
         })
         if (!r.ok || !data || !data.id) return ''
         relayShareId.value = data.id
+        screenShareId = data.id
         fromShare.value = true
         detachedChat.value = false
         saveChatHistory(aid, messages.value)
@@ -1039,11 +1057,15 @@ createApp({
       }
     }
     async function selectHistory(item) {
-      if (!item || !item.id) return
+      if (!item || !item.id || String(item.id).indexOf('new-') === 0) return
+      // 这一轮还在往当前对话里写，切走会把回复落到另一场
+      if (running.value) return
       const aid = agent.value?.id || assistantIdFromPath()
+      viewGen += 1
       stopShareWatch()
       detachedChat.value = false
       relayShareId.value = item.id
+      screenShareId = item.id
       fromShare.value = true
       foreignTurn.value = null
       holdingTurn.value = false
@@ -1106,7 +1128,7 @@ createApp({
       } catch { return [] }
     }
     async function openChat(aid) {
-      const merged = readSavedChat(aid)
+      let merged = readSavedChat(aid)
       const sid = (new URLSearchParams(location.search).get('share') || '').trim()
       if (sid) {
         const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid))
@@ -1114,6 +1136,9 @@ createApp({
         if (same && Array.isArray(data.messages) && data.messages.length) {
           detachedChat.value = false
           relayShareId.value = sid
+          screenShareId = sid
+          // 打开的是这一条分享，不要把上一场本地记录并进来
+          merged = []
           absorbShare(merged, data)
           const url = new URL(location.href)
           url.searchParams.delete('share')
@@ -1124,6 +1149,8 @@ createApp({
       }
       messages.value = sortMessages(loadChatHistoryFrom(merged))
       fromShare.value = !!relayShareId.value || messages.value.some(m => m.shared)
+      if (!screenShareId && relayShareId.value) screenShareId = relayShareId.value
+      viewGen += 1
       saveChatHistory(aid, messages.value)
       startShareWatch()
       await pollShareTurn()
@@ -1246,24 +1273,50 @@ createApp({
     function transcriptKey(list) {
       return (list || []).filter(m => m && !m.liveTurn && !m.pending).map(m => `${m.role}\n${m.content || ''}`).join('\n---\n')
     }
+    function syncHistoryTranscript(sid) {
+      if (!sid) return
+      const snapshot = serializeChat(messages.value.filter(m => m && !m.pending && !m.liveTurn))
+      let preview = ''
+      for (let i = snapshot.length - 1; i >= 0; i -= 1) {
+        if (snapshot[i].role !== 'user') continue
+        preview = String(snapshot[i].content || '').replace(/\s+/g, ' ').trim().slice(0, 42)
+        if (preview) break
+      }
+      historyItems.value = historyItems.value.map(h => {
+        if (!h || h.id !== sid) return h
+        return { ...h, messages: snapshot, preview: preview || h.preview }
+      })
+    }
     async function pollShareTurn() {
       // 自己正在说的这轮不用被刷新打断；别人的页面要一直把新内容拉下来
       if (running.value || pollBusy) return
       const sid = relayShareId.value
+      const gen = viewGen
       const aid = agent.value?.id || assistantIdFromPath()
       if (!sid && (!fromShare.value || detachedChat.value)) return
       pollBusy = true
+      let switched = false
       try {
-        const kept = messages.value.filter(m => !m.liveTurn)
+        // 只在这一条对话的气泡上合并。屏幕已经换成另一场时，从空列表开始，避免把两场叠在一起
+        const sameScreen = !sid || screenShareId === sid
+        const kept = (sameScreen ? messages.value : []).filter(m => m && !m.liveTurn)
         const before = transcriptKey(kept)
         let turn = null
         if (sid) {
           const hold = myTurnToken(sid)
           const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '?hold=' + encodeURIComponent(hold))
+          if (gen !== viewGen || sid !== relayShareId.value) {
+            switched = true
+            return
+          }
           if (r.ok && data) {
             absorbShare(kept, data)
             turn = data.turn || null
           }
+        }
+        if (gen !== viewGen || sid !== relayShareId.value) {
+          switched = true
+          return
         }
         if (turn && turn.mine) {
           holdingTurn.value = true
@@ -1274,6 +1327,7 @@ createApp({
         if (turn && (turn.text || turn.task_id)) {
           holdingTurn.value = false
           if (transcriptKey(kept) !== before) {
+            if (sid) screenShareId = sid
             messages.value = sortMessages(loadChatHistoryFrom(kept))
             saveChatHistory(aid, messages.value)
           }
@@ -1284,11 +1338,14 @@ createApp({
         watchingTask = ''
         try { turnWatchAbort?.abort() } catch { /* 这轮已经结束 */ }
         if (!hadLive && transcriptKey(kept) === before) return
+        if (sid) screenShareId = sid
         messages.value = sortMessages(loadChatHistoryFrom(kept))
         saveChatHistory(aid, messages.value)
         if (stickToBottom) scrollChat()
       } finally {
         pollBusy = false
+        // 切走之后补拉当前这一条，不要把上一条的结果写进来
+        if (switched && relayShareId.value) pollShareTurn()
       }
     }
     function startShareWatch() {
@@ -1301,8 +1358,8 @@ createApp({
       sharePollTimer = null
       try { turnWatchAbort?.abort() } catch { /* 页面关了 */ }
     }
-    async function claimRelayTurn(text) {
-      const sid = relayShareId.value
+    async function claimRelayTurn(text, shareId) {
+      const sid = shareId || relayShareId.value
       if (!sid) return true
       const token = myTurnToken(sid)
       const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '/turn', {
@@ -1338,11 +1395,13 @@ createApp({
       } catch { publishedTurnTask = '' }
     }
     async function endRelayTurn(commit) {
-      const sid = relayShareId.value
+      const sid = boundTurnShare || relayShareId.value
       if (!sid || !holdingTurn.value) return
+      // 人已经切到另一场时，不要把那一场的末尾写进这一条
+      const stillHere = !screenShareId || screenShareId === sid
       holdingTurn.value = false
       const token = myTurnToken(sid)
-      const tail = commit
+      const tail = commit && stillHere
         ? serializeChat(messages.value.filter(m => m && !m.pending && !m.liveTurn).slice(-2))
         : []
       try {
@@ -1351,9 +1410,11 @@ createApp({
           auth: !!getToken(),
           body: JSON.stringify({ token, messages: tail }),
         })
+        if (commit && stillHere) syncHistoryTranscript(sid)
       } catch { /* 锁过期后别人也能重新抢 */ }
       clearTurnToken(sid)
       publishedTurnTask = ''
+      boundTurnShare = ''
     }
     function storedChatShared(aid) {
       try {
@@ -1477,9 +1538,12 @@ createApp({
         if (getToken() && id && !relayShareId.value) {
           try { await ensureChatSession() } catch { /* 存不下也不要卡住新对话 */ }
         }
+        viewGen += 1
         stopShareWatch()
-        detachedChat.value = true
+        detachedChat.value = false
         relayShareId.value = ''
+        screenShareId = ''
+        boundTurnShare = ''
         fromShare.value = false
         foreignTurn.value = null
         holdingTurn.value = false
@@ -1487,6 +1551,22 @@ createApp({
         pendingImages.value = []
         err.value = ''
         saveChatHistory(id, [])
+        // 先在列表里占位，空记录存好后换成同一条
+        if (getToken() && id) {
+          const tempId = 'new-' + Date.now()
+          showFreshHistory(tempId)
+          try {
+            const nid = await ensureChatSession(true)
+            if (nid) {
+              screenShareId = nid
+              historyItems.value = historyItems.value.map(h => h && h.id === tempId ? { ...h, id: nid } : h)
+            } else {
+              historyItems.value = historyItems.value.filter(h => h && h.id !== tempId)
+            }
+          } catch {
+            historyItems.value = historyItems.value.filter(h => h && h.id !== tempId)
+          }
+        }
         loadHistory()
       } finally {
         clearingChat = false
@@ -2073,10 +2153,16 @@ createApp({
       const displayText = text
         || (fileItems.length ? T.value.fileOnly : '')
         || (imageItems.length ? T.value.imageOnly : '')
-      // 分享里先抢轮次。没抢到就留下草稿，等这轮结束再发
-      if (relayShareId.value && !auto) {
-        const won = await claimRelayTurn(displayText)
+      // 这句话只属于现在这场。抢锁期间如果换了对话，就不要写进新的那一场
+      const speakShare = relayShareId.value || ''
+      boundTurnShare = speakShare
+      if (speakShare && !auto) {
+        const won = await claimRelayTurn(displayText, speakShare)
         if (!won) return
+        if (relayShareId.value !== speakShare) {
+          await endRelayTurn(false)
+          return
+        }
       }
       const history = messages.value.slice()
       // 访客单轮不带历史；登录后压缩多轮上下文
@@ -2090,6 +2176,12 @@ createApp({
         images: attachUrls.length ? attachUrls.slice() : undefined,
         files: fileItems.length ? fileItems.map(p => ({ name: p.name || 'file' })) : undefined,
       })
+      // 新对话的第一条，左侧摘要马上换成这句话，不必等回复结束
+      if (relayShareId.value) {
+        const sid = relayShareId.value
+        const preview = String(displayText || '').replace(/\s+/g, ' ').trim().slice(0, 42)
+        historyItems.value = historyItems.value.map(h => h && h.id === sid ? { ...h, preview: preview || h.preview } : h)
+      }
       messages.value.push({ role: 'assistant', content: '', pending: true, startedAt: Date.now() })
       const asstIdx = messages.value.length - 1
       prompt.value = ''

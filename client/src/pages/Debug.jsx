@@ -82,6 +82,19 @@ function modelSelectValue(m) {
   return m.tier ? encodeTierModelRoute(m.tier, id) : id;
 }
 
+/** 同一分组里 tier+模型名相同的只留第一条，option key 才能唯一。 */
+function uniqueBySelectValue(list) {
+  const seen = new Set();
+  const out = [];
+  for (const m of list) {
+    const key = modelSelectValue(m);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(m);
+  }
+  return out;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** 合并 Agent 流式步骤；output 去重/剥离已展示的 thinking */
@@ -3216,14 +3229,14 @@ export default function Debug() {
                 )}
                 {filteredModels.some(m => m.tier)
                   ? [{ key: 'local', tiers: ['free', 'paid'] }, { key: 'remote', tiers: ['p2p'] }].map(g => {
-                      const tms = filteredModels.filter(m => g.tiers.includes(m.tier));
+                      const tms = uniqueBySelectValue(filteredModels.filter(m => g.tiers.includes(m.tier)));
                       return tms.length ? (
                         <optgroup key={g.key} label={t(`debug.tier.${g.key}`)}>
                           {tms.map(m => <option key={modelSelectValue(m)} value={modelSelectValue(m)}>{formatModelDropdownLabel(m)}{m.needsClientAuth ? t('debug.needsClientAuthTag') : ''}</option>)}
                         </optgroup>
                       ) : null;
                     })
-                  : filteredModels.map(m => <option key={m.name} value={m.name}>{formatModelDropdownLabel(m)}</option>)
+                  : uniqueBySelectValue(filteredModels).map(m => <option key={m.name} value={m.name}>{formatModelDropdownLabel(m)}</option>)
                 }
               </select>
             ) : (

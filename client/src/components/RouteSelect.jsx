@@ -183,14 +183,26 @@ function buildRouteMenuItems({ routes, availableModels, t, showGatewayRoutes, is
   };
   if (local.length) {
     items.push({ kind: 'group', label: t('gateway.app.tier.local') });
-    const chainShown = new Set();
+    // 与供给源「模型列表」一致：降级链在前，其余在后，组内按名称。桌面和 Docker Web 共用这段。
+    const byId = (a, b) => String(a).localeCompare(String(b));
+    const chainIds = [];
+    const plainIds = [];
+    const seenId = new Set();
     for (const m of local) {
-      // 降级链单独一行，只写模型名。各供给源再各写一行，前面放该源的图标。
-      if (chainHeads?.has(m.id) && !chainShown.has(m.id)) {
-        chainShown.add(m.id);
-        pushModel(m, m.id, { chain: true });
+      if (!m?.id || seenId.has(m.id)) continue;
+      seenId.add(m.id);
+      (chainHeads?.has(m.id) ? chainIds : plainIds).push(m.id);
+    }
+    chainIds.sort(byId);
+    plainIds.sort(byId);
+    for (const id of chainIds) {
+      const m = local.find(x => x.id === id);
+      if (m) pushModel(m, m.id, { chain: true });
+    }
+    for (const id of [...chainIds, ...plainIds]) {
+      for (const m of local) {
+        if (m.id === id) pushModel(m, routeOptionValue(m));
       }
-      pushModel(m, routeOptionValue(m));
     }
   }
   if (remote.length) {

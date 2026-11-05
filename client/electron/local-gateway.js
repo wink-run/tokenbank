@@ -81,16 +81,29 @@ function _loadRouteLog() {
     if (Array.isArray(arr)) for (const e of arr.slice(-LOG_MAX)) log.push(e);
   } catch {}
 }
+function _writeRouteLogNow() {
+  // 空日志不覆盖已有文件，避免启动失败时把历史清掉
+  if (!log.length) return;
+  try {
+    fs.mkdirSync(path.dirname(ROUTE_LOG_FILE), { recursive: true });
+    fs.writeFileSync(ROUTE_LOG_FILE, JSON.stringify(log));
+  } catch {}
+}
 function _saveRouteLog() {
   // 节流：合并 1s 内的多次写入，避免每请求一次磁盘 IO
   if (_routeLogSaveTimer) return;
   _routeLogSaveTimer = setTimeout(() => {
     _routeLogSaveTimer = null;
-    try {
-      fs.mkdirSync(path.dirname(ROUTE_LOG_FILE), { recursive: true });
-      fs.writeFileSync(ROUTE_LOG_FILE, JSON.stringify(log));
-    } catch {}
+    _writeRouteLogNow();
   }, 1000);
+}
+/** 进程退出前立刻落盘。Docker 收到 SIGTERM 后会马上 exit，等不到上面的 1s 定时器。 */
+function flushRouteLog() {
+  if (_routeLogSaveTimer) {
+    clearTimeout(_routeLogSaveTimer);
+    _routeLogSaveTimer = null;
+  }
+  _writeRouteLogNow();
 }
 _loadRouteLog();
 
@@ -3203,7 +3216,43 @@ function expandBoundListRoute(scene) {
   return scene;
 }
 
-async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
+/**
+ * User-Agent 对上应用列表里的某一项（Claude Code、Cursor、Pi）。
+ * 钥匙对不上时用它区分同一条协议路径上的多个 shim。
+ */
+function appHintFromAgent(userAgent) {
+  const ua = String(userAgent || '');
+  if (!ua || !_appControls.length) return null;
+  const rules = [
+    [/claude-cli|claude-code|claude code/i, /claude.?code/i],
+    [/claude-desktop|\bClaude\//i, /claude.?desktop/i],
+    [/cursor/i, /cursor/i],
+    [/\bpi\b/i, /(^|[^a-z])pi([^a-z]|$)/i],
+    [/codex/i, /codex/i],
+  ];
+  for (const [uaRe, nameRe] of rules) {
+    if (!uaRe.test(ua)) continue;
+    const hit = _appControls.find(c =>
+      nameRe.test(String(c.app_name || '')) || nameRe.test(String(c.app_id || '')));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** 路由明细里的应用名就是应用列表那一项；另外只留当前用户话的前 20 字。 */
+function routeLogContext(callerKey, reqPath, body, userAgent) {
+  const ctrl = resolveAppControl(callerKey, reqPath, userAgent);
+  const text = extractLastUserText(body).replace(/\s+/g, ' ').trim();
+  return {
+    app_name: (ctrl && ctrl.app_name) || '',
+    prompt_preview: text.slice(0, 20),
+  };
+}
+
+async function route(model, reqPath, body, res, callerKey, skipP2P = false, userAgent = '') {
+  // 每条明细都带上是谁、哪个应用、这句话开头。后面的 pushLog 实际走 logRoute。
+  const logCtx = routeLogContext(callerKey, reqPath, body, userAgent);
+  const logRoute = (entry) => pushLog({ ...logCtx, ...entry });
   const t0          = Date.now();
   let lastErr       = null;
   const isAnthropic = reqPath === '/v1/messages';
@@ -3286,7 +3335,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
       lastErr: lastErr?.message,
       lastErr_stack: lastErr?.stack,
     });
-    pushLog({
+    logRoute({
       ts: t0, requested_model: origModel, model, scene_name, claude_from: claudeFrom,
       tried: failedModels?.length ? [...failedModels] : undefined,
       via: null, latency_ms: Date.now() - t0, status: 'error',
@@ -3414,7 +3463,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
         if (result.latency) reqRouter.recordLatency(c.provider.id, result.latency);
         recordProviderSpeed(c.model, c.provider, result, streaming);
         learnSlowPeers(c.model, c.provider, result, ordered.map(x => x.provider).filter(Boolean), stratSharer);
-        pushLog({ ts: t0, requested_model: origModel, model: c.model, scene_name: _stratScene.scene_name, claude_from: claudeFrom,
+        logRoute({ ts: t0, requested_model: origModel, model: c.model, scene_name: _stratScene.scene_name, claude_from: claudeFrom,
                   tier: c.provider.type, via: c.provider.id, via_label: c.provider.label,
                   latency_ms: result.latency, first_token_ms: result.first_token_ms, status: 'ok',
                   worker: result.worker_id || undefined });
@@ -3511,7 +3560,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
           }
           try {
             const result = await callProvider(c.provider, isAnthropic, streaming, reqPath, body, c.model, res, sMeta);
-            pushLog({ ts: t0, requested_model: origModel, model: c.model, scene_name: scene.scene_name, claude_from: stepClaudeFrom,
+            logRoute({ ts: t0, requested_model: origModel, model: c.model, scene_name: scene.scene_name, claude_from: stepClaudeFrom,
               tried: failedModels.length ? [...failedModels] : undefined,
               tier: c.provider.type, via: c.provider.id, via_label: c.provider.label,
               latency_ms: result.latency, first_token_ms: result.first_token_ms, status: 'ok', worker: result.worker_id || undefined });
@@ -3586,7 +3635,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
         const p2pReject = rejectP2pIfUnconfigured(provider, res, isResponses);
         if (p2pReject) {
           lastErr = p2pAbortError(p2pReject);
-          pushLog({
+          logRoute({
             ts: t0, requested_model: origModel, model: stepModel,
             scene_name: scene.scene_name, claude_from: stepClaudeFrom,
             tier: provider.type, via: provider.id, via_label: provider.label,
@@ -3599,7 +3648,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
         }
         try {
           const result = await callProvider(provider, isAnthropic, streaming, reqPath, stepBody, stepModel, res, stepMeta);
-          pushLog({
+          logRoute({
             ts: t0, requested_model: origModel, model: stepModel,
             scene_name: scene.scene_name, claude_from: stepClaudeFrom,
             tried: failedModels.length ? [...failedModels] : undefined,
@@ -3623,7 +3672,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
         } catch (err) {
           if (handleP2pFatal(provider, err, res, isResponses)) {
             lastErr = err;
-            pushLog({
+            logRoute({
               ts: t0, requested_model: origModel, model: stepModel,
               scene_name: scene.scene_name, claude_from: stepClaudeFrom,
               tier: provider.type, via: provider.id, via_label: provider.label,
@@ -3688,7 +3737,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
         .filter(p => providerHasModel(p, model, modelMatch));
       const others   = allEnabled.filter(p => !providerIds.includes(p.id) && providerHasModel(p, model, modelMatch));
       sorted = [...inPolicy, ...others];
-      pushLog({ ts: t0, requested_model: model, model, policy: policyRef,
+      logRoute({ ts: t0, requested_model: model, model, policy: policyRef,
                 features: { task_type: features.task_type, has_tools: features.has_tools,
                             context_length: features.context_length }, status: 'routing' });
     } else {
@@ -3733,7 +3782,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
     const p2pReject = rejectP2pIfUnconfigured(provider, res, isResponses);
     if (p2pReject) {
       lastErr = p2pAbortError(p2pReject);
-      pushLog({
+      logRoute({
         ts: t0, requested_model: origModel, model, claude_from: claudeFrom,
         tier: provider.type, via: provider.id, via_label: provider.label,
         latency_ms: Date.now() - t0, status: 'error',
@@ -3749,7 +3798,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
       recordProviderSpeed(model, provider, result, streaming);
       learnSlowPeers(model, provider, result, sorted, routeMeta && routeMeta.sharer);
       cooldown.clear(coolKey(provider, model, routeMeta && routeMeta.sharer));
-      pushLog({
+      logRoute({
         ts: t0, requested_model: origModel, model, claude_from: claudeFrom,
         tier: provider.type, via: provider.id, via_label: provider.label,
         latency_ms: result.latency, first_token_ms: result.first_token_ms, status: 'ok',
@@ -3763,7 +3812,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false) {
     } catch (err) {
       if (handleP2pFatal(provider, err, res, isResponses)) {
         lastErr = err;
-        pushLog({
+        logRoute({
           ts: t0, requested_model: origModel, model, claude_from: claudeFrom,
           tier: provider.type, via: provider.id, via_label: provider.label,
           latency_ms: Date.now() - t0, status: 'error',
@@ -4110,10 +4159,12 @@ function handleRequest(req, res) {
     req.on('data', c => body += c);
     req.on('end', () => {
       try {
-        handleEmbedding(JSON.parse(body), res, enabledProviders, {
+        const parsed = JSON.parse(body);
+        handleEmbedding(parsed, res, enabledProviders, {
           onComplete({ ok, status, latencyMs, origModel, model, provider, error }) {
             const t0 = Date.now() - (latencyMs || 0);
             pushLog({
+              ...routeLogContext(callerKey, cleanPath, parsed, req.headers['user-agent'] || ''),
               ts: t0, requested_model: origModel, model,
               via: provider?.id || null, via_label: provider?.label,
               tier: provider ? _providerTier(provider) : null,
@@ -4237,7 +4288,7 @@ function handleRequest(req, res) {
 
     const skipP2P = !!req.headers['x-p2p-hop'];
     try {
-      await route(model, cleanPath, body, res, callerKey, skipP2P);
+      await route(model, cleanPath, body, res, callerKey, skipP2P, req.headers['user-agent'] || '');
     } catch (err) {
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -4275,6 +4326,8 @@ function start(port, getConfig, saveConfig, bindHost = '127.0.0.1', onListenErro
 }
 
 function stop() {
+  // 与监听无关：重启前先把内存里的路由日志写盘
+  try { flushRouteLog(); } catch {}
   if (!_server) return;
   const s = _server;
   _server = null;
@@ -4350,12 +4403,20 @@ function setAgentApiKey(key) {
   _agentApiKey = String(key || '').trim();
 }
 
-function resolveAppControl(callerKey, reqPath) {
+function resolveAppControl(callerKey, reqPath, userAgent) {
+  // 钥匙对上的就是那个应用（Cursor、Pi、Claude Desktop 都走这条）。
   if (callerKey) {
     const byKey = _appControls.find(c => c.match && c.match.key && c.match.key === callerKey);
     if (byKey) return byKey;
   }
-  return _appControls.find(c => c.match && c.match.path && reqPath.startsWith(c.match.path)) || null;
+  // Claude Code 这类 shim 不带应用钥匙，按协议路径认；多条路径相同时再用 User-Agent 选。
+  const pathHits = _appControls.filter(c =>
+    c.match && c.match.path && reqPath && String(reqPath).startsWith(c.match.path));
+  const hinted = appHintFromAgent(userAgent);
+  if (hinted && pathHits.some(c => c.app_id === hinted.app_id)) return hinted;
+  if (pathHits.length === 1) return pathHits[0];
+  if (hinted) return hinted;
+  return pathHits[0] || null;
 }
 
 // 按 caller key 反查应用 id（api-key 应用按 key 匹配）→ 统计按稳定的 app_id 记账，

@@ -46,9 +46,10 @@ const KEEP_ALIVE_ROUTE_CONFIGS = [
 function Layout() {
   const { user, guest, loading } = useAuth();
   const { t } = useLang();
-  const authed = user || guest;   // 登录用户 或 游客模式：可进入「中心」
   const navigate = useNavigate();
   const cliMode = !isElectron();
+  // Docker / CLI Web：未登录不能进任何业务页。桌面仍允许游客。
+  const authed = cliMode ? !!user : !!(user || guest);
   // Windows titleBarOverlay 右侧约 138px 系统按钮，拖拽区须让开
   const isWin = isElectron() && window.electronAPI?.platform === 'win32';
   const dragRight = isWin ? 'right-36' : 'right-2.5';
@@ -126,10 +127,15 @@ function Layout() {
           </button>
         )}
         {/* 缓存层始终挂载，切换菜单 / 登录页时仅 hidden，保留 Debug 等页面 state */}
-        <KeepAliveRoutes configs={KEEP_ALIVE_ROUTE_CONFIGS} user={user} guest={guest} />
+        {authed && (
+          <KeepAliveRoutes configs={KEEP_ALIVE_ROUTE_CONFIGS} user={user} guest={cliMode ? false : guest} />
+        )}
 
         {location.pathname === '/' && (
           <Navigate to={authed ? '/gateway' : '/login'} replace />
+        )}
+        {cliMode && !user && location.pathname !== '/login' && location.pathname !== '/' && (
+          <Navigate to="/login" replace />
         )}
         {location.pathname === '/login' && (
           <div className="relative z-10 min-h-full">

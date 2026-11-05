@@ -504,19 +504,27 @@ function DevicesSection() {
   const [devices, setDevices] = useState(null);
 
   useEffect(() => {
-    getUserDevices()
-      .then(r => {
-        const raw = r.data?.devices || [];
-        const normalised = raw.map(d => ({ ...d, device_id: d.device_id || d.id || null }));
-        const seen = new Set();
-        const clean = normalised.filter(d => {
-          if (!d.device_id || seen.has(d.device_id)) return false;
-          seen.add(d.device_id);
-          return true;
-        });
-        setDevices(clean);
-      })
-      .catch(() => setDevices([]));
+    let alive = true;
+    const load = () => {
+      getUserDevices()
+        .then(r => {
+          if (!alive) return;
+          const raw = r.data?.devices || [];
+          const normalised = raw.map(d => ({ ...d, device_id: d.device_id || d.id || null }));
+          const seen = new Set();
+          const clean = normalised.filter(d => {
+            if (!d.device_id || seen.has(d.device_id)) return false;
+            seen.add(d.device_id);
+            return true;
+          });
+          setDevices(clean);
+        })
+        .catch(() => { if (alive) setDevices([]); });
+    };
+    load();
+    // 心跳会改写机器名和系统版本，稍后再拉一次，避免停在旧的 CLI / 10.15.7
+    const timer = setTimeout(load, 2500);
+    return () => { alive = false; clearTimeout(timer); };
   }, []);
 
   async function handleRemove(deviceId) {

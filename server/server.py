@@ -1119,7 +1119,8 @@ async def create_agent_chat_share_route(
     if not assistant_id:
         raise HTTPException(400, "missing assistant")
     messages = normalize_share_messages(body.messages)
-    if not messages:
+    # 登录用户点「新对话」时先建一条空记录，列表里马上能看到
+    if not messages and uid is None:
         raise HTTPException(400, "empty chat")
     blob = _json.dumps(messages, ensure_ascii=False)
     if len(blob) > SHARE_MAX_CHARS:

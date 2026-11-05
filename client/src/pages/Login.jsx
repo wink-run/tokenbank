@@ -5,6 +5,7 @@ import { useAuth } from '../store/index';
 import logo from '../assets/logo.svg';
 import { useLang } from '../store/lang';
 import { SERVER_URL_PLACEHOLDER, DEFAULT_TOKEN_SERVER_URL, normalizeServerBase, syncCloudConfigUrl, bootstrapServerUrl } from '../config';
+import { isElectron } from '../api/adapter';
 
 /** 切换服务器时清除旧 token，避免跨服鉴权失败 */
 function persistServerUrl(url) {
@@ -351,8 +352,8 @@ export default function Login() {
           </div>
         )}
 
-        {/* 未登录也能先看看社区网络（公开页） */}
-        {mode !== 'forgot' && (
+        {/* 桌面版未登录可以先看社区网络。Docker / CLI Web 必须登录后才能进各页。 */}
+        {isElectron() && mode !== 'forgot' && (
           <div className="pt-2 border-t border-zinc-200/70 dark:border-white/[0.06]">
             <button type="button" onClick={() => navigate('/network')}
               className="w-full inline-flex items-center justify-center gap-1.5 py-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/60 dark:bg-zinc-900/40 text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800 transition-colors">

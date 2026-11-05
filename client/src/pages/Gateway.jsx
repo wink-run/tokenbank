@@ -4978,6 +4978,12 @@ function RouteLogDetailModal({ entry, onClose }) {
           <DetailRow label={t('gateway.log.requestTime')}>
             {new Date(entry.ts).toLocaleString('zh-CN')}
           </DetailRow>
+          <DetailRow label={t('gateway.log.app')}>
+            {entry.app_name || entry.caller || '—'}
+          </DetailRow>
+          <DetailRow label={t('gateway.log.prompt')}>
+            {entry.prompt_preview || '—'}
+          </DetailRow>
           <DetailRow label={t('gateway.log.requestedModel')}>
             <span className="font-mono">{entry.requested_model || '—'}</span>
           </DetailRow>

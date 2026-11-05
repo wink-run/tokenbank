@@ -288,7 +288,7 @@ jobs:
           docker pull ${IMAGE}:${TAG}
 
           # 持久化目录（local-config.json 由网关首次启动自动创建）
-          mkdir -p gateway-data
+          mkdir -p gateway-data/tokenbank
 
           # 启动
           docker run -d \\
@@ -296,6 +296,7 @@ jobs:
             -p 11430:11430 \\
             -p 11431:11431 \\
             -v ./gateway-data:/data/.llm-agent \\
+            -v ./gateway-data/tokenbank:/data/.tokenbank \\
             ${IMAGE}:${TAG}
           \`\`\`
 

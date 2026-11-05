@@ -29,6 +29,8 @@ ENV/
 *.db
 *.sqlite
 *.sqlite3
+# Docker 网关请求记录与用量库（运行时生成）
+gateway-data/tokenbank/
 
 # 测试与类型检查
 .pytest_cache/
