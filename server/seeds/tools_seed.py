@@ -12,6 +12,9 @@ async def seed_tools():
     """插入示例出租智能体数据（用户出租 + 平台虚拟）"""
     
     async with connect() as conn:
+        # 平台虚拟示例（一键抠图、PDF 转 Word）不再展示
+        await conn.execute("UPDATE tools SET enabled=0 WHERE trust_level='virtual'")
+        await conn.commit()
         # 检查是否已有数据
         count = await conn.fetch_one("SELECT COUNT(*) as cnt FROM tools")
         if count["cnt"] > 0:
@@ -20,21 +23,6 @@ async def seed_tools():
         
         # 精选出租智能体（用户出租 + 平台虚拟）
         tools_data = [
-            {
-                "name": "pdf-to-word-agent",
-                "display_name": "PDF 转 Word 智能体",
-                "description": "把 PDF 变成可编辑的 Word",
-                "detail_desc": "上传 PDF，智能体帮你转成 Word，保留格式、图片和表格。转完直接下载，适合改合同、编辑报告。\n\n🤖 由平台虚拟智能体执行（类似虚拟模型，算力由平台提供）",
-                "icon": "📄",
-                "scene": "office",
-                "scene_display_name": "办公文档",
-                "featured": 1,
-                "trust_level": "virtual",
-                "pricing_type": "ad_or_paid",
-                "pricing_amount": 2.0,
-                "dispatch_type": "rented_agent",
-                "dispatch_url": "http://localhost:8001/agents/pdf-to-word",
-            },
             {
                 "name": "video-watermark-agent",
                 "display_name": "视频去水印智能体",
@@ -49,21 +37,6 @@ async def seed_tools():
                 "pricing_amount": 3.0,
                 "dispatch_type": "rented_agent",
                 "dispatch_url": "http://localhost:8001/agents/video-watermark",
-            },
-            {
-                "name": "image-bg-remover-agent",
-                "display_name": "一键抠图智能体",
-                "description": "把人或物从照片里抠出来",
-                "detail_desc": "传照片，智能体认出主体，背景全去掉，导出透明 PNG。做电商图、证件照都能用。\n\n🤖 由平台虚拟智能体执行（类似虚拟模型，算力由平台提供）",
-                "icon": "🖼️",
-                "scene": "image",
-                "scene_display_name": "图片处理",
-                "featured": 1,
-                "trust_level": "virtual",
-                "pricing_type": "ad_or_paid",
-                "pricing_amount": 1.0,
-                "dispatch_type": "rented_agent",
-                "dispatch_url": "http://localhost:8001/agents/remove-bg",
             },
             {
                 "name": "image-compress-agent",

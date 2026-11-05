@@ -3,7 +3,6 @@
 import json
 import logging
 import secrets
-import time
 import uuid
 from typing import Optional
 
@@ -15,37 +14,6 @@ from auth import get_current_user_id, get_optional_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-# agent:* 通行门票据（不落 tools FK；V1 内存）
-_agent_gate_tickets: dict[str, dict] = {}
-_AGENT_GATE_TICKET_TTL_SEC = 30 * 60
-
-
-def redeem_agent_gate_ticket(ticket_id: str, assistant_id: str) -> Optional[dict]:
-    """Consume a pending tools-hub gate ticket for one anonymous agent use.
-
-    Returns ticket meta on success; None if missing/expired/mismatched/already used.
-    Ad-watched tickets authorize use without login; paid tickets are issued only
-    after login+debit at /api/tools/gate.
-    """
-    tid = (ticket_id or "").strip()
-    aid = (assistant_id or "").strip()
-    if not tid or not aid:
-        return None
-    meta = _agent_gate_tickets.get(tid)
-    if not meta:
-        return None
-    if meta.get("status") != "pending":
-        return None
-    if str(meta.get("assistant_id") or "").strip() != aid:
-        return None
-    created = float(meta.get("created_at") or 0)
-    if created and (time.time() - created) > _AGENT_GATE_TICKET_TTL_SEC:
-        meta["status"] = "expired"
-        return None
-    meta["status"] = "used"
-    meta["used_at"] = time.time()
-    return meta
 
 
 # ── V1 演示辅助函数 ────────────────────────────────────────────────────────────
@@ -95,9 +63,9 @@ async def _demo_process_task(task_id: str):
 # ── 数据模型 ──────────────────────────────────────────────────────────────────
 
 class ToolGateRequest(BaseModel):
-    """工具通行门请求（看广告 OR 付费）"""
+    """工具通行门请求。只接受付积分，看广告不能换使用资格。"""
     tool_id: str  # 数字 id 或 agent:<assistant_id>
-    gate_type: str  # 'ad' or 'paid'
+    gate_type: str  # 仅 'paid'
 
 
 class TaskStartRequest(BaseModel):
@@ -112,15 +80,14 @@ async def _snapshot_live_public_agents() -> None:
         from worker_pool import pool
     except Exception:
         return
-    seen = set()
+    # 同一用户的每台终端都要记下来，不能只留先连上的那一台
     for w in pool.all_workers():
         wid = str(getattr(w, "worker_id", "") or "")
         if wid.startswith("vw-"):
             continue
         uid = getattr(w, "user_id", None)
-        if not uid or uid in seen:
+        if not uid:
             continue
-        seen.add(uid)
         try:
             await db.replace_owner_public_agents(int(uid), getattr(w, "agents", None) or [])
         except Exception as e:
@@ -139,8 +106,8 @@ async def discover_tools(
     """
     出租智能体发现首页（用户出租 + 平台虚拟）
 
-    用户出租：与 Network → Agents / /public/agents 同源（在线 worker 公开名片）
-    平台虚拟：tools 表 trust_level=virtual 的种子/平台条目（对齐虚拟模型）
+    用户出租：与 Network → Agents / /public/agents 同源（在线 worker 公开名片）。
+    平台虚拟示例（一键抠图、PDF 转 Word）不再列入。
     """
     q = (search or "").strip().lower()
     scene_f = (scene or "").strip()
@@ -155,11 +122,12 @@ async def discover_tools(
         logger.warning("discover: list public agents failed: %s", e)
         live = []
 
+    seen_live = set()
     for a in live:
         if not isinstance(a, dict):
             continue
         aid = str(a.get("id") or "").strip()
-        if not aid:
+        if not aid or aid in seen_live:
             continue
         dn = (a.get("display_name") or a.get("name") or aid).strip()
         desc = (a.get("description") or "").strip()
@@ -170,16 +138,18 @@ async def discover_tools(
             if q not in blob:
                 continue
         if scene_f and scene_f not in ("agent", "rented"):
-            # 场景筛选命中工具种子时，跳过在线出租（它们统一归「在线智能体」）
+            # 场景筛选命中工具种子时，跳过在线出租（它们统一归「智能体」）
             continue
+        # 同一智能体在多台终端同时在线时只展示一条
+        seen_live.add(aid)
         cards.append({
             "id": f"agent:{aid}",
             "name": a.get("name") or aid,
             "display_name": dn,
-            "description": desc or "在线出租智能体，看广告或付积分即可使用",
+            "description": desc or "公开智能体",
             "icon": "🤖",
             "scene": "agent",
-            "scene_display_name": "在线智能体",
+            "scene_display_name": "智能体",
             "featured": 1,
             "trust_level": "user_rented",
             "pricing_type": "ad_or_paid",
@@ -222,7 +192,7 @@ async def discover_tools(
             "description": desc or "暂时不在线，可查看历史对话",
             "icon": "🤖",
             "scene": "agent",
-            "scene_display_name": "在线智能体",
+            "scene_display_name": "智能体",
             "featured": 0,
             "trust_level": "user_rented",
             "pricing_type": "ad_or_paid",
@@ -235,61 +205,10 @@ async def discover_tools(
             "online": False,
         })
 
-    # 2) 平台虚拟（tools 表，仅 virtual；避免假「用户出租」种子盖过真出租）
-    query = """
-        SELECT
-            t.id, t.name, t.display_name, t.description, t.icon,
-            t.scene, t.scene_display_name, t.featured, t.trust_level,
-            tv.pricing_type, tv.pricing_amount,
-            t.created_at, t.updated_at
-        FROM tools t
-        JOIN tool_versions tv ON t.id = tv.tool_id AND tv.is_active = 1
-        WHERE t.enabled = 1 AND t.trust_level = 'virtual'
-    """
-    params: list = []
-    if scene_f and scene_f not in ("agent", "rented"):
-        query += " AND t.scene = ?"
-        params.append(scene_f)
-    elif scene_f in ("agent", "rented"):
-        # 只要在线出租时，不再附带虚拟种子
-        query += " AND 1=0"
-    if q:
-        query += " AND (LOWER(t.display_name) LIKE ? OR LOWER(COALESCE(t.description,'')) LIKE ?)"
-        params.extend([f"%{q}%", f"%{q}%"])
-    query += " ORDER BY t.featured DESC, t.created_at DESC"
-
-    try:
-        async with db.connect() as conn:
-            rows = await conn.fetch_all(query, params)
-        for row in rows:
-            item = dict(row)
-            item["id"] = item["id"]  # int ok for seed virtual
-            item["source"] = "virtual"
-            item["online"] = True
-            item["try_url"] = f"/tools/{item['id']}"
-            cards.append(item)
-    except Exception as e:
-        logger.warning("discover: virtual tools query failed: %s", e)
-
-    # 场景聚合
-    scenes_map = {"agent": "在线智能体"}
-    try:
-        async with db.connect() as conn:
-            scene_rows = await conn.fetch_all(
-                """
-                SELECT DISTINCT scene, scene_display_name
-                FROM tools
-                WHERE enabled = 1 AND trust_level = 'virtual'
-                  AND scene IS NOT NULL AND scene != ''
-                ORDER BY scene
-                """
-            )
-        for row in scene_rows:
-            scenes_map[row["scene"]] = row["scene_display_name"] or row["scene"]
-    except Exception:
-        pass
+    # 只保留真实出租的智能体。平台虚拟示例不进列表。
+    scenes_map = {}
     if any(c.get("source") == "network" for c in cards):
-        scenes_map.setdefault("agent", "在线智能体")
+        scenes_map["agent"] = "智能体"
 
     return {
         "tools": cards[:lim],
@@ -332,15 +251,14 @@ async def get_tool_detail(
             "id": f"agent:{aid}",
             "name": card.get("name") or aid,
             "display_name": dn,
-            "description": desc or ("暂时不在线，可查看历史对话" if offline else "在线出租智能体"),
+            "description": desc or ("暂时不在线，可查看历史对话" if offline else "公开智能体"),
             "detail_desc": (
                 f"供给者 @{owner}" if owner else "用户出租智能体"
             ) + (f" · 运行时 {runtime}" if runtime else "")
-            + ("\n暂时不在线，不能发起新对话，历史记录仍可查看。" if offline
-               else "\n与 Network → 智能体同源；通行门后打开网页对话。"),
+            + ("\n暂时不在线，不能发起新对话，历史记录仍可查看。" if offline else ""),
             "icon": "🤖",
             "scene": "agent",
-            "scene_display_name": "在线智能体",
+            "scene_display_name": "智能体",
             "featured": 1,
             "trust_level": "user_rented",
             "pricing_type": "ad_or_paid",
@@ -399,16 +317,15 @@ async def pass_gate(
     user_id: Optional[int] = Depends(get_optional_user_id),
 ):
     """
-    通过通行门雇用智能体（看广告 OR 付积分）
-    - 看广告：免费，模拟广告播放成功
-    - 付积分：扣除积分（需登录）
-    用户出租（agent:*）与平台虚拟共用同一套收费模式
+    通过通行门雇用智能体（付积分，需登录）。
+    看广告不能换使用资格。
     """
     tid = str(req.tool_id or "").strip()
     if not tid:
         raise HTTPException(status_code=400, detail="tool_id required")
 
-    if req.gate_type not in ("ad", "paid"):
+    # 看广告不再发放免费使用
+    if req.gate_type != "paid":
         raise HTTPException(status_code=400, detail="Invalid gate_type")
 
     # ── 用户出租智能体（与 Network 同源）──────────────────────────────────────
@@ -426,50 +343,30 @@ async def pass_gate(
             raise HTTPException(status_code=404, detail="Agent offline or not found")
 
         dn = (card.get("display_name") or card.get("name") or aid).strip()
-        pricing_amount = 1.0
-        if req.gate_type == "ad":
-            settlement_type = "ad_watched"
-            credits_cost = 0
-        else:
-            settlement_type = "credits_paid"
-            credits_cost = pricing_amount
-            if not user_id:
-                raise HTTPException(status_code=401, detail="Login required to pay with credits")
-            async with db.connect() as conn:
-                user = await conn.fetch_one(
-                    "SELECT credits_balance FROM users WHERE id = ?",
-                    [user_id],
-                )
-            if user and user["credits_balance"] < credits_cost:
-                raise HTTPException(status_code=402, detail="Insufficient credits")
-            await db.add_transaction(
-                user_id=user_id,
-                type="tool_usage",
-                delta=-credits_cost,
-                note=f"使用出租智能体: {dn}",
-                model_name=f"tool_{tid}",
+        credits_cost = 1.0
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Login required to pay with credits")
+        async with db.connect() as conn:
+            user = await conn.fetch_one(
+                "SELECT credits_balance FROM users WHERE id = ?",
+                [user_id],
             )
-
-        ticket_id = f"tkt_{secrets.token_urlsafe(16)}"
-        # 把广告/付费票带进对话页，匿名看完广告即可用，不必再登录
-        redirect_url = f"/a/{aid}?gate_ticket={ticket_id}"
-        _agent_gate_tickets[ticket_id] = {
-            "tool_id": tid,
-            "assistant_id": aid,
-            "user_id": user_id,
-            "settlement_type": settlement_type,
-            "credits_cost": credits_cost,
-            "redirect_url": redirect_url,
-            "display_name": dn,
-            "status": "pending",
-            "created_at": time.time(),
-        }
+        if user and user["credits_balance"] < credits_cost:
+            raise HTTPException(status_code=402, detail="Insufficient credits")
+        await db.add_transaction(
+            user_id=user_id,
+            type="tool_usage",
+            delta=-credits_cost,
+            note=f"使用出租智能体: {dn}",
+            model_name=f"tool_{tid}",
+        )
+        # 登录后直接进对话，不再发广告票
         return {
-            "ticket_id": ticket_id,
+            "ticket_id": "",
             "tool_id": tid,
-            "settlement_type": settlement_type,
+            "settlement_type": "credits_paid",
             "credits_cost": credits_cost,
-            "redirect_url": redirect_url,
+            "redirect_url": f"/a/{aid}",
         }
 
     # ── 平台虚拟 / 种子（数字 id）────────────────────────────────────────────
@@ -490,22 +387,17 @@ async def pass_gate(
         raise HTTPException(status_code=404, detail="Tool not found")
 
     ticket_id = f"tkt_{secrets.token_urlsafe(16)}"
-
-    if req.gate_type == "ad":
-        settlement_type = "ad_watched"
-        credits_cost = 0
-    else:
-        settlement_type = "credits_paid"
-        credits_cost = tool["pricing_amount"] or 0
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Login required to pay with credits")
-        async with db.connect() as conn:
-            user = await conn.fetch_one(
-                "SELECT credits_balance FROM users WHERE id = ?",
-                [user_id],
-            )
-        if user and user["credits_balance"] < credits_cost:
-            raise HTTPException(status_code=402, detail="Insufficient credits")
+    settlement_type = "credits_paid"
+    credits_cost = tool["pricing_amount"] or 0
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Login required to pay with credits")
+    async with db.connect() as conn:
+        user = await conn.fetch_one(
+            "SELECT credits_balance FROM users WHERE id = ?",
+            [user_id],
+        )
+    if user and user["credits_balance"] < credits_cost:
+        raise HTTPException(status_code=402, detail="Insufficient credits")
 
     async with db.connect() as conn:
         await conn.execute("""
@@ -515,7 +407,7 @@ async def pass_gate(
         """, [ticket_id, numeric_id, user_id, settlement_type, credits_cost])
         await conn.commit()
 
-    if req.gate_type == "paid" and user_id and credits_cost > 0:
+    if user_id and credits_cost > 0:
         await db.add_transaction(
             user_id=user_id,
             type="tool_usage",

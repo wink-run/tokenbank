@@ -498,27 +498,28 @@ async def prune_public_agent_cards() -> None:
 
 
 async def replace_owner_public_agents(owner_user_id: int, cards: list) -> None:
-    """记下该用户当前上架的智能体，并刷新活跃时间。空列表多半是还没探测完，不清除上次的名片。"""
+    """补上这一端正在出租的公开智能体，并刷新活跃时间。
+
+    同一用户可以同时从多台终端出租。这里只合并写入，不删掉其他终端已经上架的名片。
+    空列表多半是还没探测完，也不清除上次的名片。超过 7 天没再出现的才由清理逻辑删掉。
+    """
     if not owner_user_id:
         return
     keep = []
+    seen = set()
     for card in cards or []:
         if not isinstance(card, dict):
             continue
         if (card.get("visibility") or "public") != "public":
             continue
         aid = str(card.get("id") or "").strip()
-        if aid:
-            keep.append(card)
+        if not aid or aid in seen:
+            continue
+        seen.add(aid)
+        keep.append(card)
     if not keep:
         return
     async with connect() as db:
-        ids = [str(c.get("id") or "").strip() for c in keep]
-        placeholders = ",".join("?" for _ in ids)
-        await db.execute(
-            f"DELETE FROM public_agent_cards WHERE owner_user_id=? AND assistant_id NOT IN ({placeholders})",
-            [owner_user_id, *ids],
-        )
         for card in keep:
             aid = str(card.get("id") or "").strip()
             await db.execute(
