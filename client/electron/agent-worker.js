@@ -52,6 +52,28 @@ let _onLog = null;
 let _onStatus = null;
 /** 主动重连时忽略 close 触发的自动重连，避免双连接 */
 let _skipAutoReconnect = false;
+/** 断线后退避，避免云端一抖动就每 5 秒打一次 */
+let reconnectTimer = null;
+let reconnectAttempt = 0;
+const HEARTBEAT_MS = 25000;
+
+function clearReconnectTimer() {
+  if (!reconnectTimer) return;
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+}
+
+function scheduleReconnect(liveCfg) {
+  if (_skipAutoReconnect || !running || reconnectTimer) return;
+  const step = Math.min(reconnectAttempt, 5);
+  const delay = Math.min(30000, 1000 * (2 ** step)) + Math.floor(Math.random() * 500);
+  reconnectAttempt += 1;
+  log(`[agent] reconnecting in ${Math.round(delay / 1000)}s…`);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    if (running && !ws) connect(loadConfig() || liveCfg);
+  }, delay);
+}
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
 let activeRequests = 0;
@@ -1000,9 +1022,16 @@ async function handleAgentTask(msg, cfg) {
 function connect(cfg) {
   // 每次连接都读最新配置，避免「已在跑时改勾选武将」仍用旧 closure
   const liveCfg = loadConfig() || cfg;
+  clearReconnectTimer();
   log(`[agent] connecting → ${liveCfg.server_url}`);
-  ws = new WebSocket(liveCfg.server_url, { handshakeTimeout: 10000 });
+  ws = new WebSocket(liveCfg.server_url, { handshakeTimeout: 20000 });
   const thisSocket = ws;
+  let heartbeat = null;
+  const stopHeartbeat = () => {
+    if (!heartbeat) return;
+    clearInterval(heartbeat);
+    heartbeat = null;
+  };
 
   ws.on('open', () => {
     const models = modelsForRegister(liveCfg);
@@ -1056,6 +1085,16 @@ function connect(cfg) {
         else log('[agent] public_ip unavailable — map may use fallback location');
       }).catch(() => {});
     }
+    // 文本心跳给云端认活；协议 ping 给中间网络保活。发不出去就立刻重连
+    heartbeat = setInterval(() => {
+      if (thisSocket.readyState !== WebSocket.OPEN) return;
+      try { thisSocket.ping(); } catch { /* 协议层失败时下面的文本心跳仍会触发重连 */ }
+      try {
+        thisSocket.send(JSON.stringify({ type: 'ping' }));
+      } catch {
+        try { thisSocket.terminate(); } catch { /* ignore */ }
+      }
+    }, HEARTBEAT_MS);
   });
 
   ws.on('message', async (raw) => {
@@ -1063,6 +1102,7 @@ function connect(cfg) {
     try { msg = JSON.parse(raw.toString()); } catch { return; }
 
     if (msg.type === 'registered') {
+      reconnectAttempt = 0;
       log(`[agent] connected worker_id=${msg.worker_id}`);
       const allModels = modelsForRegister(liveCfg);
       const modelsSummary = allModels
@@ -1071,6 +1111,8 @@ function connect(cfg) {
       log(`[agent] models: ${modelsSummary}`);
       return;
     }
+
+    if (msg.type === 'pong' || msg.type === 'ping') return;
 
     if (msg.type === 'offline_models') {
       applyOfflineModels(msg.models, msg.reason);
@@ -1135,16 +1177,13 @@ function connect(cfg) {
   ws.on('error', (err) => log(`[agent] ws error: ${err.message}`));
 
   ws.on('close', (code) => {
+    stopHeartbeat();
     log(`[agent] disconnected code=${code}`);
     // 仅清理当前这条连接，避免重连竞态把新 ws 引用置空
     if (ws === thisSocket) ws = null;
     if (_skipAutoReconnect) return;
-    if (running) {
-      log('[agent] reconnecting in 5s…');
-      setTimeout(() => { if (running && !ws) connect(loadConfig() || liveCfg); }, 5000);
-    } else {
-      _onStatus?.({ running: false });
-    }
+    if (running) scheduleReconnect(liveCfg);
+    else _onStatus?.({ running: false });
   });
 }
 
@@ -1156,6 +1195,7 @@ function reconnectWithLatestConfig() {
     return;
   }
   log('[agent] applying latest config (reconnect)');
+  clearReconnectTimer();
   _skipAutoReconnect = true;
   if (ws) {
     try { ws.close(); } catch { /* ignore */ }
@@ -1211,6 +1251,8 @@ function start({ onLog, onStatus } = {}) {
 function stop() {
   if (!running) return;
   running = false;
+  clearReconnectTimer();
+  reconnectAttempt = 0;
   if (ws) { ws.close(); ws = null; }
   log('[agent] stopped');
   _onStatus?.({ running: false });

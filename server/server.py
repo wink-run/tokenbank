@@ -1647,10 +1647,36 @@ async def worker_ws(ws: WebSocket):
 
         AUTH_RECHECK_INTERVAL = 300  # 秒：长连接定期复核 worker_key 是否仍有效/仍属该用户
         last_auth_check = time.time()
+        # 新客户端约 25 秒发一次 ping。只有发过心跳的连接才因沉默断开，旧客户端保持长等。
+        seen_ping = False
         while True:
-            raw = await ws.receive_text()
-            msg = json.loads(raw)
+            try:
+                if seen_ping:
+                    raw = await asyncio.wait_for(ws.receive_text(), timeout=90)
+                else:
+                    raw = await ws.receive_text()
+            except asyncio.TimeoutError:
+                logger.info(
+                    "[worker/ws] heartbeat lost peer=%s worker_id=%s",
+                    peer, worker_id,
+                )
+                try:
+                    await ws.close(code=4000, reason="heartbeat lost")
+                except Exception:
+                    pass
+                break
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
             kind = msg.get("type")
+            if kind == "ping":
+                seen_ping = True
+                try:
+                    await ws.send_text(json.dumps({"type": "pong"}))
+                except Exception:
+                    break
+                continue
 
             # 已认证连接的持续授权复核：防止密钥被吊销/转移后，已建立的 WS 会话仍可无限期操作
             now = time.time()
