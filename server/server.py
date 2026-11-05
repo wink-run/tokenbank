@@ -618,6 +618,17 @@ async def backfill_worker_owner_labels() -> None:
         w.agents = refreshed
 
 
+async def _remember_worker_agents(worker) -> None:
+    """公开名片落库。节点断开后列表仍能看到，只是标成离线。"""
+    uid = getattr(worker, "user_id", None)
+    if not uid:
+        return
+    try:
+        await db.replace_owner_public_agents(int(uid), getattr(worker, "agents", None) or [])
+    except Exception as e:
+        logger.warning("remember public agents failed: %s", e)
+
+
 async def _list_public_agents() -> list:
     await backfill_worker_owner_labels()
     return pool.list_agents_for_user(public_only=True)
@@ -637,9 +648,13 @@ async def public_agent_detail(assistant_id: str):
     if not aid:
         raise HTTPException(400, "missing assistant_id")
     card = pool.get_agent_for_user(aid, public_only=True)
-    if not card:
-        raise HTTPException(404, "agent not found or offline")
-    return {"agent": card, "credits_per_task": AGENT_TASK_CREDITS}
+    if card:
+        return {"agent": {**card, "online": True}, "credits_per_task": AGENT_TASK_CREDITS}
+    # 节点暂时不在线：仍返回上次名片，页面只能看历史
+    stored = await db.get_stored_public_agent(aid)
+    if stored:
+        return {"agent": stored, "credits_per_task": AGENT_TASK_CREDITS}
+    raise HTTPException(404, "agent not found or offline")
 
 
 async def auth_api_key_or_jwt(
@@ -942,9 +957,12 @@ async def api_agent_detail(assistant_id: str, uid: int = Depends(auth_api_key_or
         raise HTTPException(400, "missing assistant_id")
     circles = set(await db.get_user_circle_ids(uid))
     card = pool.get_agent_for_user(aid, user_circle_ids=circles)
-    if not card:
-        raise HTTPException(404, "agent not found, offline, or not visible")
-    return {"agent": card, "credits_per_task": AGENT_TASK_CREDITS}
+    if card:
+        return {"agent": {**card, "online": True}, "credits_per_task": AGENT_TASK_CREDITS}
+    stored = await db.get_stored_public_agent(aid)
+    if stored:
+        return {"agent": stored, "credits_per_task": AGENT_TASK_CREDITS}
+    raise HTTPException(404, "agent not found, offline, or not visible")
 
 
 class AgentHireBody(BaseModel):
@@ -1584,6 +1602,7 @@ async def worker_ws(ws: WebSocket):
             client_ip=client_ip,
         )
         pool.add(worker)
+        await _remember_worker_agents(worker)
 
         async def _geo_worker(w: WorkerConnection) -> None:
             geo = await resolve_ip_geo(w.client_ip)
@@ -1632,6 +1651,7 @@ async def worker_ws(ws: WebSocket):
                 worker.agents = normalize_agent_cards(
                     msg.get("agents"), owner_nickname=getattr(worker, "owner_nickname", None) or "",
                 )
+                await _remember_worker_agents(worker)
                 logger.info(
                     "[worker/ws] agents_update worker_id=%s agents=%s",
                     worker.worker_id,

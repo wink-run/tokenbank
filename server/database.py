@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import random
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -375,6 +376,7 @@ async def init_db() -> None:
     await _migrate_community_catalog_installs()
     await _migrate_studio()
     await _migrate_agent_chat_shares()
+    await _migrate_public_agent_cards()
 
 
 async def _migrate_agent_chat_shares() -> None:
@@ -436,6 +438,147 @@ async def _migrate_agent_chat_shares() -> None:
         await db.commit()
 
 
+# 上架名片保留窗口：最近一次在线（updated_at）起 7 天
+_PUBLIC_AGENT_KEEP = "7 days"
+
+
+async def _migrate_public_agent_cards() -> None:
+    """上架智能体名片。离线后仍保留，只留最近 7 天活跃过的。"""
+    async with connect() as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS public_agent_cards (
+                assistant_id   TEXT PRIMARY KEY,
+                name           TEXT NOT NULL DEFAULT '',
+                display_name   TEXT NOT NULL DEFAULT '',
+                description    TEXT NOT NULL DEFAULT '',
+                runtime        TEXT NOT NULL DEFAULT '',
+                owner_nickname TEXT NOT NULL DEFAULT '',
+                owner_user_id  INTEGER,
+                updated_at     TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await db.commit()
+
+
+def _stored_agent_card(row) -> dict:
+    item = dict(row)
+    aid = item.get("assistant_id") or ""
+    return {
+        "id": aid,
+        "name": item.get("name") or aid,
+        "display_name": item.get("display_name") or item.get("name") or aid,
+        "description": item.get("description") or "",
+        "visibility": "public",
+        "runtime": item.get("runtime") or "",
+        "owner_nickname": item.get("owner_nickname") or "",
+        "online": False,
+    }
+
+
+async def prune_public_agent_cards() -> None:
+    """超过 7 天没再上线的上架智能体，名片和它的对话一起删掉。"""
+    cutoff = f"NOW() - INTERVAL '{_PUBLIC_AGENT_KEEP}'"
+    expired = f"""SELECT assistant_id FROM public_agent_cards WHERE updated_at < {cutoff}"""
+    async with connect() as db:
+        # 先清参与人，再清对话，最后清名片。智能体还在 7 天窗口内的记录不动。
+        await db.execute(
+            f"""DELETE FROM agent_chat_share_members
+                WHERE share_id IN (
+                  SELECT id FROM agent_chat_shares
+                  WHERE assistant_id IN ({expired})
+                )"""
+        )
+        await db.execute(
+            f"DELETE FROM agent_chat_shares WHERE assistant_id IN ({expired})"
+        )
+        await db.execute(
+            f"DELETE FROM public_agent_cards WHERE updated_at < {cutoff}"
+        )
+        await db.commit()
+
+
+async def replace_owner_public_agents(owner_user_id: int, cards: list) -> None:
+    """记下该用户当前上架的智能体，并刷新活跃时间。空列表多半是还没探测完，不清除上次的名片。"""
+    if not owner_user_id:
+        return
+    keep = []
+    for card in cards or []:
+        if not isinstance(card, dict):
+            continue
+        if (card.get("visibility") or "public") != "public":
+            continue
+        aid = str(card.get("id") or "").strip()
+        if aid:
+            keep.append(card)
+    if not keep:
+        return
+    async with connect() as db:
+        ids = [str(c.get("id") or "").strip() for c in keep]
+        placeholders = ",".join("?" for _ in ids)
+        await db.execute(
+            f"DELETE FROM public_agent_cards WHERE owner_user_id=? AND assistant_id NOT IN ({placeholders})",
+            [owner_user_id, *ids],
+        )
+        for card in keep:
+            aid = str(card.get("id") or "").strip()
+            await db.execute(
+                """INSERT INTO public_agent_cards
+                   (assistant_id, name, display_name, description, runtime, owner_nickname, owner_user_id, updated_at)
+                   VALUES (?,?,?,?,?,?,?,NOW())
+                   ON CONFLICT(assistant_id) DO UPDATE SET
+                     name=excluded.name,
+                     display_name=excluded.display_name,
+                     description=excluded.description,
+                     runtime=excluded.runtime,
+                     owner_nickname=excluded.owner_nickname,
+                     owner_user_id=excluded.owner_user_id,
+                     updated_at=NOW()""",
+                (
+                    aid,
+                    (card.get("name") or aid)[:200],
+                    (card.get("display_name") or card.get("name") or aid)[:200],
+                    (card.get("description") or "")[:2000],
+                    (card.get("runtime") or "")[:80],
+                    (card.get("owner_nickname") or "")[:80],
+                    owner_user_id,
+                ),
+            )
+        await db.commit()
+    await prune_public_agent_cards()
+
+
+async def list_stored_public_agents() -> list[dict]:
+    """最近 7 天内上线过的上架智能体。"""
+    await prune_public_agent_cards()
+    async with connect() as db:
+        async with db.execute(
+            f"""SELECT assistant_id, name, display_name, description, runtime, owner_nickname
+               FROM public_agent_cards
+               WHERE updated_at >= NOW() - INTERVAL '{_PUBLIC_AGENT_KEEP}'
+               ORDER BY updated_at DESC"""
+        ) as cur:
+            rows = await cur.fetchall()
+    return [_stored_agent_card(r) for r in rows]
+
+
+async def get_stored_public_agent(assistant_id: str) -> Optional[dict]:
+    aid = (assistant_id or "").strip()
+    if not aid:
+        return None
+    async with connect() as db:
+        async with db.execute(
+            f"""SELECT assistant_id, name, display_name, description, runtime, owner_nickname
+               FROM public_agent_cards
+               WHERE assistant_id=?
+                 AND updated_at >= NOW() - INTERVAL '{_PUBLIC_AGENT_KEEP}'""",
+            (aid,),
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return None
+    return _stored_agent_card(row)
+
+
 async def create_agent_chat_share(assistant_id: str, messages_json: str, user_id: Optional[int] = None) -> str:
     share_id = secrets.token_urlsafe(9)
     async with connect() as db:
@@ -456,6 +599,8 @@ async def create_agent_chat_share(assistant_id: str, messages_json: str, user_id
 
 
 async def get_agent_chat_share(share_id: str) -> Optional[dict]:
+    # 智能体已过存活期时，分享链接也一并失效
+    await prune_public_agent_cards()
     async with connect() as db:
         async with db.execute(
             """SELECT s.id, s.assistant_id, s.messages, s.created_at,
@@ -474,6 +619,7 @@ async def get_agent_chat_share(share_id: str) -> Optional[dict]:
 
 async def list_agent_chat_shares(assistant_id: str, viewer_id: int, include_all: bool = False) -> list[dict]:
     """当前用户自己分享的对话。智能体主人能看到这个智能体下所有人的分享。"""
+    await prune_public_agent_cards()
     sql = """SELECT s.id, s.user_id, s.messages, s.created_at,
                     u.nickname AS author_nickname, u.email AS author_email
              FROM agent_chat_shares s
@@ -508,7 +654,8 @@ async def ensure_share_member(share_id: str, user_id: int, role: str = "member")
 
 
 async def list_agent_chat_history(assistant_id: str, viewer_id: int, limit: int = 5) -> list[dict]:
-    """最近几条对话。只有发起人或参与过的人能看到完整记录。"""
+    """最近几条对话。只有发起人或参与过的人能看到完整记录。智能体过期后这里为空。"""
+    await prune_public_agent_cards()
     lim = 40 if not isinstance(limit, int) else max(1, min(limit, 40))
     sql = """SELECT s.id, s.user_id, s.messages, s.created_at,
                     COALESCE(s.updated_at, s.created_at) AS updated_at,
@@ -2291,6 +2438,33 @@ async def _migrate_devices() -> None:
 
 
 # ── devices ───────────────────────────────────────────────────────────────────
+
+def device_identity_key(name: str, platform: str) -> tuple[str, str] | None:
+    """与个人页合并规则一致：展示名 + 系统，忽略版本和 CLI 端口后缀。"""
+    raw = re.sub(r"\s·\sCLI\s:\d+$", "", (name or "").strip())
+    raw = re.sub(r"\.local$", "", raw, flags=re.I).strip().casefold()
+    plat = (platform or "").strip().casefold()
+    if not raw:
+        return None
+    return (raw, plat)
+
+
+async def find_device_by_identity(user_id: int, name: str, platform: str) -> str | None:
+    """同一用户下，机器名和系统相同的最早一条设备。"""
+    key = device_identity_key(name, platform)
+    if not key:
+        return None
+    async with connect() as db:
+        async with db.execute(
+            "SELECT id, name, platform FROM devices WHERE user_id=? ORDER BY created_at ASC",
+            (user_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+    for row in rows:
+        if device_identity_key(row["name"], row["platform"]) == key:
+            return row["id"]
+    return None
+
 
 async def upsert_device(device_id: str, user_id: int, type_: str, name: str,
                         platform: str, version: str, gateway_port: int) -> dict:

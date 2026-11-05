@@ -163,7 +163,7 @@ body {
           <span v-if="tool.owner_nickname">@{{ tool.owner_nickname }}</span>
           <span v-if="tool.owner_nickname && tool.runtime"> · </span>
           <span v-if="tool.runtime">{{ tool.runtime }}</span>
-          <span v-if="tool.source==='network'"> · 在线</span>
+          <span v-if="tool.source==='network'"> · {{ tool.online === false ? '离线' : '在线' }}</span>
         </p>
         <div class="tool-footer">
           <div class="tool-price">
@@ -199,7 +199,12 @@ body {
       <div v-if="currentTool.detail_desc" class="detail-detail">{{ currentTool.detail_desc }}</div>
     </div>
 
-    <div class="gate-card">
+    <div v-if="currentTool.online === false" class="gate-card">
+      <h2 class="gate-title">暂时不在线</h2>
+      <p class="gate-subtitle">现在不能对话，仍可查看历史记录</p>
+      <button @click="openAgent" class="start-button">查看对话记录</button>
+    </div>
+    <div v-else class="gate-card">
       <h2 class="gate-title">使用方式</h2>
       <p class="gate-subtitle">选一种方式开始 · 看广告免费 · 或付积分跳过</p>
       <div class="gate-options">
@@ -382,7 +387,18 @@ createApp({
       }
     },
     viewTool(toolId) {
+      const tool = this.tools.find(t => String(t.id) === String(toolId));
+      // 离线智能体不走通行门，直接打开页面看历史
+      if (tool && tool.online === false && tool.try_url) {
+        window.location.href = tool.try_url;
+        return;
+      }
       this.loadToolDetail(toolId);
+    },
+    openAgent() {
+      if (this.currentTool && this.currentTool.try_url) {
+        window.location.href = this.currentTool.try_url;
+      }
     },
     backToList() {
       this.view = 'list';

@@ -9,7 +9,7 @@ import UserAccountsPanel from '../components/UserAccountsPanel';
 import { billingAccountsFromDevices } from '../lib/accountsSummary';
 import { enrichBillingCost, resolveBillableSubscriptions } from '../utils/billing-cost';
 import { loadUserAccounts } from '../api/userAccounts';
-import { formatDeviceTitle, formatLegacyPlatform, effectiveDeviceType } from '../lib/device-display';
+import { formatDeviceTitle, formatLegacyPlatform, effectiveDeviceType, mergeSameDevices } from '../lib/device-display';
 import { isAppIcon, appIconSvg } from '../lib/appIcons';
 
 /** 从云端拉取各设备聚合盘点；失败时回退本机数据，并合并订阅折算 + 按量费用 */
@@ -517,7 +517,7 @@ function DevicesSection() {
             seen.add(d.device_id);
             return true;
           });
-          setDevices(clean);
+          setDevices(mergeSameDevices(clean));
         })
         .catch(() => { if (alive) setDevices([]); });
     };
@@ -527,10 +527,15 @@ function DevicesSection() {
     return () => { alive = false; clearTimeout(timer); };
   }, []);
 
-  async function handleRemove(deviceId) {
+  async function handleRemove(device) {
+    const ids = device.device_ids?.length ? device.device_ids : [device.device_id];
     try {
-      await deleteDevice(deviceId);
-      setDevices(prev => prev.filter(d => d.device_id !== deviceId));
+      await Promise.all(ids.map(id => deleteDevice(id)));
+      const drop = new Set(ids);
+      setDevices(prev => prev.filter(d => {
+        const own = d.device_ids?.length ? d.device_ids : [d.device_id];
+        return !own.some(id => drop.has(id));
+      }));
     } catch {}
   }
 
@@ -569,7 +574,7 @@ function DevicesSection() {
               {d.online ? t('profile.online') : t('profile.offline')}
             </span>
             {!d.online && (
-              <button onClick={() => handleRemove(d.device_id)}
+              <button onClick={() => handleRemove(d)}
                 className="shrink-0 text-xs text-zinc-400 hover:text-red-500 dark:hover:text-red-400 transition-colors px-1">
                 ✕
               </button>

@@ -41,6 +41,10 @@ async def register_device(req: RegisterRequest, uid: int = Depends(get_current_u
             device_id = ""
     if not device_id:
         device_id = "dev-" + secrets.token_hex(8)
+    # 同一台机器重复注册时复用已有记录，避免 Docker 重建后再插一行
+    same = await db.find_device_by_identity(uid, req.name, req.platform)
+    if same:
+        device_id = same
     row = await db.upsert_device(
         device_id=device_id,
         user_id=uid,

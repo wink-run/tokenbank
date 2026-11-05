@@ -106,6 +106,27 @@ class TaskStartRequest(BaseModel):
     input_data: dict
 
 
+async def _snapshot_live_public_agents() -> None:
+    """把此刻在线的公开名片写入库，节点稍后断开也不会从列表消失。"""
+    try:
+        from worker_pool import pool
+    except Exception:
+        return
+    seen = set()
+    for w in pool.all_workers():
+        wid = str(getattr(w, "worker_id", "") or "")
+        if wid.startswith("vw-"):
+            continue
+        uid = getattr(w, "user_id", None)
+        if not uid or uid in seen:
+            continue
+        seen.add(uid)
+        try:
+            await db.replace_owner_public_agents(int(uid), getattr(w, "agents", None) or [])
+        except Exception as e:
+            logger.warning("snapshot public agents failed: %s", e)
+
+
 # ── 工具发现 ──────────────────────────────────────────────────────────────────
 
 @router.get("/api/tools/discover")
@@ -169,6 +190,49 @@ async def discover_tools(
             "try_url": f"/a/{aid}",
             "source": "network",
             "online": True,
+        })
+
+    # 先把当前在线名片记下，之后节点断开列表里还能看到
+    await _snapshot_live_public_agents()
+    # 暂时离线的公开智能体：名片还在，打开只能看历史
+    live_ids = {str(c.get("assistant_id") or "") for c in cards}
+    try:
+        stored = await db.list_stored_public_agents()
+    except Exception as e:
+        logger.warning("discover: stored agents failed: %s", e)
+        stored = []
+    for a in stored:
+        aid = str(a.get("id") or "").strip()
+        if not aid or aid in live_ids:
+            continue
+        dn = (a.get("display_name") or a.get("name") or aid).strip()
+        desc = (a.get("description") or "").strip()
+        owner = (a.get("owner_nickname") or "").strip()
+        runtime = (a.get("runtime") or "").strip()
+        if q:
+            blob = f"{dn} {desc} {owner} {runtime} {aid}".lower()
+            if q not in blob:
+                continue
+        if scene_f and scene_f not in ("agent", "rented"):
+            continue
+        cards.append({
+            "id": f"agent:{aid}",
+            "name": a.get("name") or aid,
+            "display_name": dn,
+            "description": desc or "暂时不在线，可查看历史对话",
+            "icon": "🤖",
+            "scene": "agent",
+            "scene_display_name": "在线智能体",
+            "featured": 0,
+            "trust_level": "user_rented",
+            "pricing_type": "ad_or_paid",
+            "pricing_amount": 1.0,
+            "owner_nickname": owner,
+            "runtime": runtime,
+            "assistant_id": aid,
+            "try_url": f"/a/{aid}",
+            "source": "network",
+            "online": False,
         })
 
     # 2) 平台虚拟（tools 表，仅 virtual；避免假「用户出租」种子盖过真出租）
@@ -254,6 +318,10 @@ async def get_tool_detail(
         except Exception as e:
             logger.warning("tool detail agent lookup failed: %s", e)
             card = None
+        offline = False
+        if not card:
+            card = await db.get_stored_public_agent(aid)
+            offline = bool(card)
         if not card:
             raise HTTPException(status_code=404, detail="Agent offline or not found")
         dn = (card.get("display_name") or card.get("name") or aid).strip()
@@ -264,11 +332,12 @@ async def get_tool_detail(
             "id": f"agent:{aid}",
             "name": card.get("name") or aid,
             "display_name": dn,
-            "description": desc or "在线出租智能体",
+            "description": desc or ("暂时不在线，可查看历史对话" if offline else "在线出租智能体"),
             "detail_desc": (
                 f"供给者 @{owner}" if owner else "用户出租智能体"
             ) + (f" · 运行时 {runtime}" if runtime else "")
-            + "\n与 Network → 智能体同源；通行门后打开网页对话。",
+            + ("\n暂时不在线，不能发起新对话，历史记录仍可查看。" if offline
+               else "\n与 Network → 智能体同源；通行门后打开网页对话。"),
             "icon": "🤖",
             "scene": "agent",
             "scene_display_name": "在线智能体",
@@ -282,7 +351,7 @@ async def get_tool_detail(
             "assistant_id": aid,
             "try_url": f"/a/{aid}",
             "source": "network",
-            "online": True,
+            "online": not offline,
             "manifest": {},
         }
 

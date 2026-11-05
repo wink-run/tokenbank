@@ -325,7 +325,7 @@ createApp({
         sharedContinue: '大家的发言按时间接在同一条对话里，直接发消息就能接着聊。', shareMissing: '分享不存在或已失效',
         turnWait: '{name} 正在让智能体回复，这轮结束后才能接着说。谁先发出去，谁算下一轮。', someone: '有人',
         myChat: '我的对话', sharedChat: '分享的对话', sharedBy: '{name}的对话', emptyThread: '暂无内容',
-        shareOffline: '这个智能体已下线，分享的对话只能查看，暂时不能继续聊。',
+        shareOffline: '这个智能体暂时不在线，现在不能对话，历史记录仍可查看。',
         copy: '复制', copied: '已复制', attach: '添加附件', hires: '{n} 次雇佣',
         imageOnly: '请根据附图完成任务', fileOnly: '请根据附件完成任务',
         enterHint: 'Enter 换行 · Shift+Enter 发送', trialDone: '本次已用完', gateSub: '再看一次广告，或登录后按积分继续。', watchAdAgain: '再看广告',
@@ -372,7 +372,7 @@ createApp({
         sharedContinue: 'Everyone’s messages stay in one timeline. Send a message to continue.', shareMissing: 'This share is missing',
         turnWait: '{name} is waiting on the agent. You can send after this turn. First send wins the next turn.', someone: 'Someone',
         myChat: 'My chat', sharedChat: 'Shared chat', sharedBy: "{name}'s chat", emptyThread: 'Empty',
-        shareOffline: 'This agent is offline. The shared conversation is read-only for now.',
+        shareOffline: 'This agent is offline. You can read past chats, but not send new ones.',
         copy: 'Copy', copied: 'Copied', attach: 'Add attachment', hires: '{n} hires',
         imageOnly: 'Please use the attached images.', fileOnly: 'Please use the attached files.',
         enterHint: 'Enter for newline · Shift+Enter to send', trialDone: 'Turn used up', gateSub: 'Watch another ad, or sign in to continue (credits).', watchAdAgain: 'Watch ad',
@@ -1457,9 +1457,10 @@ createApp({
         if (gen !== presenceGen) return
         if (found.auth) return
         if (found.agent) {
-          agent.value = found.agent
+          const off = found.agent.online === false
+          agent.value = { ...found.agent, offline: off }
           if (found.credits != null) creditsPerTask.value = found.credits
-          agentOffline.value = false
+          agentOffline.value = off
           applyMeta()
           return
         }
@@ -1692,7 +1693,9 @@ createApp({
           return
         }
         if (found.agent) {
-          agent.value = found.agent
+          const off = found.agent.online === false
+          agent.value = { ...found.agent, offline: off }
+          agentOffline.value = off
           creditsPerTask.value = found.credits ?? 10
           await openChat(found.agent.id)
           if (gateTicket.value) {
