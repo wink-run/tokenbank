@@ -1117,6 +1117,9 @@ class AgentTaskBody(BaseModel):
     source: Optional[str] = None  # 兼容 metadata.source
     # 多轮对话：续上之前的 response（本地 agent session），而不是新开会话
     previous_response_id: Optional[str] = None
+    # 调用上下文：local=本机直接调用（保留本地路径），hired=雇佣/远程调用（上传产物，改写路径）
+    # 默认 hired（云端API默认是雇佣调用）。不用于鉴权，仅决定产物处理策略。
+    call_context: Optional[str] = "hired"
 
 
 @app.post("/api/agent-tasks")
@@ -1152,6 +1155,11 @@ async def create_agent_task(
     # 发起方标识：优先 app_id，否则 source，均未提供时保持 None（Gateway用默认值 "direct"）
     initiator = (body.app_id or body.source or "").strip() or None
     
+    # 调用上下文：默认hired（云端API是雇佣调用），显式local时不处理产物
+    call_ctx = str(body.call_context or "hired").strip().lower()
+    if call_ctx not in ("local", "hired"):
+        call_ctx = "hired"
+    
     if body.stream:
         from dispatch_agent import iter_agent_task_sse
         gen = iter_agent_task_sse(
@@ -1168,6 +1176,7 @@ async def create_agent_task(
             share_id=body.share_id,
             app_id=initiator,
             previous_response_id=body.previous_response_id,
+            call_context=call_ctx,
         )
         return StreamingResponse(
             gen,
@@ -1191,6 +1200,7 @@ async def create_agent_task(
         files=task_files or None,
         share_id=body.share_id,
         app_id=initiator,
+        call_context=call_ctx,
     )
     if not result.get("ok"):
         status = result.get("status") or "failed"

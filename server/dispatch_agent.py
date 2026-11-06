@@ -643,6 +643,7 @@ async def handle_agent_task(
     share_id: Optional[str] = None,
     app_id: Optional[str] = None,
     previous_response_id: Optional[str] = None,
+    call_context: str = "hired",
 ) -> dict:
     """选 worker → 预扣积分 → 下发 → 等待终态结果；失败退款。
     
@@ -778,9 +779,13 @@ async def handle_agent_task(
                 note=f"agent_task failed refund task_id={task_id}",
             )
 
-        # 处理产物：上传图片/文件，改写本地路径为可访问URL
+        # 处理产物：雇佣/远程调用需要上传图片/文件，改写本地路径为可访问URL
+        # 本机直接调用（call_context="local"）保留本地路径
         raw_artifacts = gateway_response.get("artifacts")
-        processed_output, public_arts = _apply_artifacts(task_id, output_text, raw_artifacts)
+        if call_context == "hired":
+            processed_output, public_arts = _apply_artifacts(task_id, output_text, raw_artifacts)
+        else:
+            processed_output, public_arts = output_text, []
         
         result = {
             "ok": success,
@@ -1025,6 +1030,7 @@ async def iter_agent_task_sse(
     share_id: Optional[str] = None,
     app_id: Optional[str] = None,
     previous_response_id: Optional[str] = None,
+    call_context: str = "hired",
 ) -> AsyncIterator[str]:
     """SSE：progress 事件推正文，done/error 收尾。
     
@@ -1212,9 +1218,13 @@ async def iter_agent_task_sse(
                 # 提取 response_id（用于多轮对话续session）
                 response_id = event_data.get("id")
                 
-                # 处理产物：上传图片/文件，改写本地路径为可访问URL
+                # 处理产物：雇佣/远程调用需要上传图片/文件，改写本地路径为可访问URL
+                # 本机直接调用（call_context="local"）保留本地路径
                 raw_artifacts = event_data.get("artifacts")
-                processed_output, public_arts = _apply_artifacts(task_id, output_text, raw_artifacts)
+                if call_context == "hired":
+                    processed_output, public_arts = _apply_artifacts(task_id, output_text, raw_artifacts)
+                else:
+                    processed_output, public_arts = output_text, []
                 
                 done_payload = {
                     "event": "done",
