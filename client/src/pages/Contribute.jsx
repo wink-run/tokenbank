@@ -12,6 +12,7 @@ import {
 } from '../api/agentControl';
 import Circles from './Circles';
 import Network from './Network';
+import { SessionTraceModal } from './Gateway';
 import TruncTip from '../components/TruncTip';
 import { useLang } from '../store/lang';
 import { useAuth } from '../store/index';
@@ -1628,6 +1629,7 @@ function LiveRentals({ pageActive, onCount }) {
   const { t } = useLang();
   const [tasks, setTasks] = useState([]);
   const [now, setNow] = useState(() => Date.now());
+  const [trace, setTrace] = useState(null);
   const supported = typeof window !== 'undefined' && !!window.electronAPI?.agent?.listContributeTasks;
 
   useEffect(() => {
@@ -1668,21 +1670,42 @@ function LiveRentals({ pageActive, onCount }) {
         <p className="text-xs text-zinc-400 dark:text-zinc-500">{t('contribute.liveTasksEmpty')}</p>
       ) : (
         <ul className="space-y-1.5">
-          {tasks.map((task) => (
-            <li key={task.id} className="rounded-lg border border-zinc-200/80 dark:border-white/[0.08] bg-white/60 dark:bg-zinc-900/40 px-3 py-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-xs font-medium text-zinc-800 dark:text-zinc-100 truncate">{task.name || task.assistantId}</span>
-                <span className="shrink-0 text-[10px] text-green-600 dark:text-green-400">{t('contribute.liveTaskRunning')}</span>
-                <span className="ml-auto shrink-0 text-[10px] tabular-nums text-zinc-400">
-                  {fmtTaskElapsed(now - Number(task.startedAt || now))}
-                </span>
-              </div>
-              {task.prompt && (
-                <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 truncate">{task.prompt}</p>
-              )}
-            </li>
-          ))}
+          {tasks.map((task) => {
+            const canTrace = !!(task.cliSessionId && task.runtime);
+            return (
+              <li key={task.id}>
+                <button
+                  type="button"
+                  disabled={!canTrace}
+                  title={canTrace ? t('contribute.liveTaskTrace') : t('contribute.liveTaskTraceWait')}
+                  onClick={() => setTrace({ sessionId: task.cliSessionId, agentId: task.runtime })}
+                  className={`w-full text-left rounded-lg border border-zinc-200/80 dark:border-white/[0.08] bg-white/60 dark:bg-zinc-900/40 px-3 py-2 ${
+                    canTrace ? 'cursor-pointer hover:border-zinc-300 dark:hover:border-zinc-600' : 'cursor-default'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-medium text-zinc-800 dark:text-zinc-100 truncate">{task.name || task.assistantId}</span>
+                    <span className="shrink-0 text-[10px] text-green-600 dark:text-green-400">{t('contribute.liveTaskRunning')}</span>
+                    <span className="ml-auto shrink-0 text-[10px] tabular-nums text-zinc-400">
+                      {fmtTaskElapsed(now - Number(task.startedAt || now))}
+                    </span>
+                  </div>
+                  {task.prompt && (
+                    <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 truncate">{task.prompt}</p>
+                  )}
+                </button>
+              </li>
+            );
+          })}
         </ul>
+      )}
+      {trace && (
+        <SessionTraceModal
+          app={null}
+          sessionId={trace.sessionId}
+          traceAgentId={trace.agentId}
+          onClose={() => setTrace(null)}
+        />
       )}
     </section>
   );

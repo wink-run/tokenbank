@@ -412,6 +412,7 @@ async def _migrate_agent_chat_shares() -> None:
             ("turn_started_at", "TIMESTAMPTZ"),
             ("updated_at", "TIMESTAMPTZ"),
             ("cli_session_id", "TEXT"),
+            ("turn_user_id", "INTEGER"),
         ):
             try:
                 await db.execute(f"ALTER TABLE agent_chat_shares ADD COLUMN {col} {decl}")
@@ -683,7 +684,7 @@ async def get_agent_chat_share(share_id: str) -> Optional[dict]:
     async with connect() as db:
         async with db.execute(
             """SELECT s.id, s.assistant_id, s.user_id, s.messages, s.created_at, s.cli_session_id,
-                      s.turn_token, s.turn_author, s.turn_text, s.turn_at, s.turn_task_id, s.turn_started_at,
+                      s.turn_token, s.turn_author, s.turn_text, s.turn_at, s.turn_task_id, s.turn_started_at, s.turn_user_id,
                       u.nickname AS author_nickname, u.email AS author_email
                FROM agent_chat_shares s
                LEFT JOIN users u ON u.id = s.user_id
@@ -790,7 +791,7 @@ async def replace_agent_chat_share_messages(share_id: str, messages_json: str) -
 
 
 def _clear_turn_sql() -> str:
-    return "turn_token=NULL, turn_author='', turn_text='', turn_at=NULL, turn_task_id=NULL, turn_started_at=NULL"
+    return "turn_token=NULL, turn_author='', turn_text='', turn_at=NULL, turn_task_id=NULL, turn_started_at=NULL, turn_user_id=NULL"
 
 
 async def clear_expired_share_turn(share_id: str) -> None:
@@ -808,20 +809,39 @@ async def clear_expired_share_turn(share_id: str) -> None:
         await db.commit()
 
 
-async def claim_share_turn(share_id: str, token: str, author: str, text: str, spoken_at: int) -> bool:
-    """谁先抢到谁说。同一人刷新后续上自己的这一轮，不把任务号清掉。"""
+async def claim_share_turn(
+    share_id: str,
+    token: str,
+    author: str,
+    text: str,
+    spoken_at: int,
+    user_id: Optional[int] = None,
+    same_author: str = "",
+) -> bool:
+    """谁先抢到谁说。同一账号换个页面可以接上自己这一轮，不把任务号清掉。"""
+    uid = int(user_id) if user_id else 0
+    label = str(same_author or "").strip()[:40]
+    # 同一令牌、同一账号，或还没记下账号但署名就是本人：都算自己的这一轮
+    keep = "turn_token=? OR (? > 0 AND turn_user_id=?) OR (? <> '' AND COALESCE(turn_user_id, 0)=0 AND turn_author=?)"
     async with connect() as db:
         cur = await db.execute(
-            """UPDATE agent_chat_shares
+            f"""UPDATE agent_chat_shares
                SET turn_token=?,
                    turn_author=?,
                    turn_text=?,
                    turn_at=?,
+                   turn_user_id=CASE WHEN ? > 0 THEN ? ELSE turn_user_id END,
                    updated_at=NOW(),
-                   turn_task_id=CASE WHEN turn_token=? THEN turn_task_id ELSE NULL END,
-                   turn_started_at=CASE WHEN turn_token=? THEN COALESCE(turn_started_at, NOW()) ELSE NOW() END
-               WHERE id=? AND (turn_token IS NULL OR turn_token='' OR turn_token=?)""",
-            (token, author, text, spoken_at, token, token, share_id, token),
+                   turn_task_id=CASE WHEN {keep} THEN turn_task_id ELSE NULL END,
+                   turn_started_at=CASE WHEN {keep} THEN COALESCE(turn_started_at, NOW()) ELSE NOW() END
+               WHERE id=? AND (turn_token IS NULL OR turn_token='' OR {keep})""",
+            (
+                token, author, text, spoken_at, uid, uid,
+                token, uid, uid, label, label,
+                token, uid, uid, label, label,
+                share_id,
+                token, uid, uid, label, label,
+            ),
         )
         await db.commit()
     return cur.rowcount > 0

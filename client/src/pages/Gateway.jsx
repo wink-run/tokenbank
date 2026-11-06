@@ -1807,7 +1807,7 @@ function fmtCompactTok(n) {
 }
 
 // Session Trace 弹窗（参考 tokentelemetry，简化版）
-function SessionTraceModal({ app, sessionId, traceAgentId, onClose }) {
+export function SessionTraceModal({ app, sessionId, traceAgentId, onClose }) {
   const { t } = useLang();
   const [trace, setTrace]     = useState(null);
   const [loading, setLoading] = useState(true);

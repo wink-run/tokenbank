@@ -23,8 +23,8 @@ from worker_pool import pool
 
 logger = logging.getLogger("server")
 
-# 一期固定按次计费（积分）；可用环境变量覆盖
-AGENT_TASK_CREDITS = float(os.getenv("AGENT_TASK_CREDITS", "10"))
+# 一次用户发言算一次交互。同一对话里的多轮各自扣一次，可用环境变量覆盖
+AGENT_TASK_CREDITS = float(os.getenv("AGENT_TASK_CREDITS", "5"))
 # 默认超时 10 分钟（本机 CLI 可能较慢）
 AGENT_TASK_TIMEOUT_SEC = int(os.getenv("AGENT_TASK_TIMEOUT_SEC", "600"))
 

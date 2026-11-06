@@ -189,7 +189,10 @@
               <span v-if="m.pending && !(m.parts && m.parts.length) && (!m.content || m.content === T.thinking)" class="typing"><i></i><i></i><i></i></span>
               <span v-else-if="m.pending" class="typing stream-caret"><i></i><i></i><i></i></span>
               <div v-if="activityLabel(m)" class="run-status">{{ activityLabel(m) }}</div>
-              <div v-if="m.pending && runLabel(m)" class="run-time">{{ runLabel(m) }}</div>
+              <div v-if="m.pending && (messageClock(m) || runLabel(m))" class="run-time">
+                <span v-if="messageClock(m)">{{ messageClock(m) }}</span>
+                <span v-if="runLabel(m)">{{ runLabel(m) }}</span>
+              </div>
               <div v-if="m.artifacts && m.artifacts.length" class="afiles">
                 <figure v-for="(f, j) in m.artifacts" :key="j" class="afig">
                   <img v-if="f.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name || '')" :src="f.url || f.dataUrl" :alt="f.name">
@@ -198,7 +201,10 @@
                   <button v-else type="button" class="afile" @click="downloadArtifact(f)">{{ f.name }}</button>
                 </figure>
               </div>
-              <div v-if="!m.pending && runLabel(m)" class="run-time">{{ runLabel(m) }}</div>
+              <div v-if="!m.pending && (messageClock(m) || runLabel(m))" class="run-time">
+                <span v-if="messageClock(m)">{{ messageClock(m) }}</span>
+                <span v-if="runLabel(m)">{{ runLabel(m) }}</span>
+              </div>
               <div v-if="!m.pending && answerOf(m)" class="msg-tools">
                 <button type="button" class="mini" @click="copyMsg(m, $event)">{{ T.copy }}</button>
               </div>
@@ -209,6 +215,7 @@
             <div v-if="m.content" class="ubub">{{ m.content }}</div>
             <div v-if="m.files && m.files.length" class="ufiles"><span v-for="(f, j) in m.files" :key="j" class="ufile">{{ f.name }}</span></div>
             <div v-if="m.images && m.images.length" class="uimgs"><img v-for="(src, j) in m.images" :key="j" :src="src" alt=""></div>
+            <div v-if="messageClock(m)" class="msg-clock">{{ messageClock(m) }}</div>
           </div>
         </div>
       </div>
@@ -332,7 +339,7 @@ createApp({
         loading: '加载中…', unavailable: '无法访问此智能体', backHome: '返回首页',
         backNetwork: '← 社区网络', backTools: '← 智能体', navTitle: 'TokenBank 智能体',
         noDesc: '暂无简介', online: '在线', offline: '离线', publicShare: '全球分享', circleShare: '圈子分享',
-        creditsPerTask: '每次 {n} 积分', promptPh: '输入消息，或添加图片和文件，Shift+Enter 发送…',
+        creditsPerTask: '每次交互 {n} 积分', promptPh: '输入消息，或添加图片和文件，Shift+Enter 发送…',
         send: '发送', running: '思考中…', needLogin: '圈子分享仅成员可见；全球分享未登录可试一轮。',
         loginToContinue: '试用一轮已结束，登录后可继续对话（按正常积分扣费）。',
         login: '登录', register: '注册', loggingIn: '登录中…', registering: '注册中…',
@@ -450,7 +457,7 @@ createApp({
     const fatal = ref('')
     const showAuthGate = ref(false)
     const agent = ref(null)
-    const creditsPerTask = ref(10)
+    const creditsPerTask = ref(5)
     const loggedIn = ref(!!storageGet('user_token'))
     const profile = ref(null)
     // 右上角展示：昵称优先，否则邮箱前缀
@@ -475,10 +482,20 @@ createApp({
     // 连点两条记录时，丢掉先发出、后回来的那次正文
     let historyPickGen = 0
     let boundTurnShare = ''
-    // 别人正在这一轮里说话。自己抢到的那轮不算锁住
+    // 别人正在这一轮里说话。本人换页打开不算锁住，这道闸只拦其他人
     const foreignTurn = ref(null)
     const holdingTurn = ref(false)
-    const shareTurnLocked = computed(() => !!foreignTurn.value && !holdingTurn.value && !running.value)
+    function speakerIsMe(turn) {
+      if (!turn) return false
+      if (turn.mine) return true
+      const me = String(currentUserLabel.value || '').trim()
+      const author = String(turn.author || '').trim()
+      return !!(me && author && me === author)
+    }
+    const shareTurnLocked = computed(() => {
+      const turn = foreignTurn.value
+      return !!turn && !speakerIsMe(turn) && !holdingTurn.value && !running.value
+    })
     const turnLockText = computed(() => {
       const name = (foreignTurn.value && foreignTurn.value.author) || T.value.someone
       return String(T.value.turnWait || '').replace('{name}', name)
@@ -531,7 +548,13 @@ createApp({
       return `tb_agent_threads:${String(aid || '').trim()}`
     }
     function messageAt(m) {
-      return Number(m && (m.at || m.startedAt || m.finishedAt)) || 0
+      if (!m) return 0
+      const at = Number(m.at) || 0
+      const started = Number(m.startedAt) || 0
+      const finished = Number(m.finishedAt) || 0
+      // 回复按说完的时间排。分享创建时间曾被写进 at，会把回答排到提问前面
+      if (m.role === 'assistant') return finished || started || at || 0
+      return at || started || finished || 0
     }
     function sameLine(a, b) {
       if (!a || !b || a.role !== b.role) return false
@@ -542,25 +565,48 @@ createApp({
       if (ta && tb && Math.abs(ta - tb) > 2000) return false
       return true
     }
-    // 待完成的那条留在最底下，其余按发言时间排
+    // 排在所有用户发言前面的回复，是被时间戳甩上去的，按顺序放回各自的提问后面
+    function placeRepliesAfterUsers(list) {
+      const lead = []
+      const body = []
+      for (const m of list) {
+        if (m && m.role === 'assistant' && !body.some(x => x && x.role === 'user')) lead.push(m)
+        else body.push(m)
+      }
+      if (!lead.length) return body
+      const out = []
+      let n = 0
+      for (const m of body) {
+        out.push(m)
+        if (m && m.role === 'user' && n < lead.length) out.push(lead[n++])
+      }
+      while (n < lead.length) out.push(lead[n++])
+      return out
+    }
+    // 待完成的那条留在最底下。有真实时间的按时间排，缺时间的保持原顺序
     function sortMessages(list) {
       const pending = []
       const rest = []
       ;(list || []).forEach((m, i) => (m && m.pending ? pending : rest).push({ m, i }))
-      rest.sort((a, b) => (messageAt(a.m) || a.i) - (messageAt(b.m) || b.i) || a.i - b.i)
-      return rest.map(x => x.m).concat(pending.map(x => x.m))
+      rest.sort((a, b) => {
+        const ta = messageAt(a.m)
+        const tb = messageAt(b.m)
+        if (ta && tb && ta !== tb) return ta - tb
+        return a.i - b.i
+      })
+      return placeRepliesAfterUsers(rest.map(x => x.m)).concat(pending.map(x => x.m))
     }
     function absorbShare(into, pack) {
       if (!pack || !Array.isArray(pack.messages)) return
       const author = String(pack.author || '').slice(0, 40)
-      const base = Date.parse(pack.created_at || pack.createdAt)
-      const start = Number.isFinite(base) ? base : 0
-      pack.messages.forEach((raw, i) => {
+      pack.messages.forEach((raw) => {
         if (!raw || (raw.role !== 'user' && raw.role !== 'assistant')) return
         const row = {
           ...raw,
           author: raw.role === 'user' ? String(raw.author || author || '').slice(0, 40) : undefined,
-          at: Number(raw.at || raw.startedAt || raw.finishedAt) || (start + i),
+          at: Number(raw.at) || undefined,
+          startedAt: Number(raw.startedAt) || undefined,
+          finishedAt: Number(raw.finishedAt) || undefined,
           shared: true,
         }
         const hit = into.find(x => sameLine(x, row))
@@ -677,6 +723,18 @@ createApp({
         return { ...p, startedAt, ...(finishedAt ? { finishedAt } : {}), done: !!p.done }
       })
     }
+    function messageClock(m) {
+      if (!m) return ''
+      const t = m.role === 'assistant'
+        ? (Number(m.finishedAt) || Number(m.startedAt) || Number(m.at) || 0)
+        : (Number(m.at) || Number(m.startedAt) || 0)
+      if (!t) return ''
+      const d = new Date(t)
+      if (Number.isNaN(d.getTime())) return ''
+      return d.toLocaleString(lang.value === 'zh' ? 'zh-CN' : 'en', {
+        month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      })
+    }
     function runLabel(m) {
       if (!m) return ''
       const live = !!m.pending
@@ -745,6 +803,8 @@ createApp({
       if (!row || row.role !== 'assistant' || row.pending) return
       if (!row.finishedAt) row.finishedAt = Date.now()
       if (row.startedAt && !row.durationMs) row.durationMs = Math.max(0, row.finishedAt - row.startedAt)
+      // 回复时间用说完的时刻，重新打开时才会排在用户那句话后面
+      if (row.finishedAt) row.at = row.finishedAt
       if (!Array.isArray(row.parts)) return
       for (const p of row.parts) {
         if (p && p.type === 'tool' && p.startedAt && !p.finishedAt) p.finishedAt = row.finishedAt
@@ -1424,6 +1484,7 @@ createApp({
         text: String(turn.text || ''),
         at: Number(turn.at) || Date.now(),
         taskId: String(turn.task_id || '').slice(0, 40),
+        mine: speakerIsMe(turn),
       }
       const live = foreignTurn.value
       let user = messages.value.find(m => m && m.liveTurn && m.role === 'user')
@@ -1551,7 +1612,7 @@ createApp({
         let turn = null
         if (sid) {
           const hold = myTurnToken(sid)
-          const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '?hold=' + encodeURIComponent(hold))
+          const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '?hold=' + encodeURIComponent(hold), { auth: !!getToken() })
           if (gen !== viewGen || sid !== relayShareId.value) {
             switched = true
             return
@@ -1565,8 +1626,8 @@ createApp({
           switched = true
           return
         }
-        if (turn && turn.mine) {
-          holdingTurn.value = true
+        // 本页已经拿着这一轮：不要被轮询改成「别人在说」
+        if (turn && speakerIsMe(turn) && holdingTurn.value) {
           foreignTurn.value = null
           return
         }
@@ -1939,7 +2000,7 @@ createApp({
           const off = found.agent.online === false
           agent.value = { ...found.agent, offline: off }
           agentOffline.value = off
-          creditsPerTask.value = found.credits ?? 10
+          creditsPerTask.value = found.credits ?? 5
           await openChat(found.agent.id)
           guestUsed.value = storageGet(guestUsedKey(found.agent.id)) === '1'
           applyMeta()
@@ -2682,7 +2743,7 @@ createApp({
 
     return {
       authOpen, openAuth, composerEl, fileEl, agentName, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor, appIcon,
-      runLabel, activityLabel, toolElapsed, toolFriendly, toolSummary, toolStatus, thinkLine,
+      runLabel, messageClock, activityLabel, toolElapsed, toolFriendly, toolSummary, toolStatus, thinkLine,
       renderRich, onChatClick, onImgOver, onImgOut, onImgHide, copyMsg, answerOf, downloadArtifact, isVideoFile,
       lang, T, toggleLang, backToTools, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,

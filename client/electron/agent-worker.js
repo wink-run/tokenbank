@@ -69,8 +69,31 @@ function contributeTaskName(assistantId) {
   return String(assistantId || '');
 }
 
+function contributeTaskRuntime(assistantId) {
+  const runtime = contributedAppRuntime(assistantId);
+  if (runtime) return runtime;
+  try {
+    const resourceManager = require('./resource-manager');
+    if (typeof resourceManager.init === 'function') resourceManager.init();
+    const { parseAssistantConfig, resolveAssistantRuntimeAgent } = require('./resource-assistant');
+    const list = resourceManager.listResources?.({ type: 'assistant' }) || [];
+    const hit = list.find((r) => r && r.id === assistantId);
+    if (!hit) return '';
+    const config = parseAssistantConfig(hit.content) || {};
+    return String(resolveAssistantRuntimeAgent(config, hit.projections || []) || '').trim();
+  } catch { /* 运行时解析失败就先不给 Trace */ }
+  return '';
+}
+
 function listContributeTasks() {
   return [...liveContributeTasks.values()].map((task) => ({ ...task }));
+}
+
+function patchContributeTask(taskId, patch) {
+  const cur = liveContributeTasks.get(taskId);
+  if (!cur) return;
+  liveContributeTasks.set(taskId, { ...cur, ...patch });
+  publishContributeTasks();
 }
 
 function publishContributeTasks() {
@@ -910,6 +933,7 @@ async function handleAgentTask(msg, cfg) {
     const sid = String(ev.cliSessionId || '').trim();
     if (!sid || sid === knownCliSession) return;
     knownCliSession = sid;
+    patchContributeTask(taskId, { cliSessionId: sid });
     pushProgress({ force: true });
   };
 
@@ -920,6 +944,8 @@ async function handleAgentTask(msg, cfg) {
       id: taskId,
       assistantId,
       name: contributeTaskName(assistantId),
+      runtime: contributeTaskRuntime(assistantId),
+      cliSessionId: knownCliSession || '',
       prompt: prompt.replace(/\s+/g, ' ').slice(0, 160),
       startedAt: started,
     });

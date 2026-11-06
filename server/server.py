@@ -1121,7 +1121,7 @@ async def create_agent_task(
     uid: Optional[int] = Depends(optional_auth_api_key_or_jwt),
 ):
     """发起远程武将任务。
-    - 已登录：JWT/API Key，按固定积分扣费
+    - 已登录：JWT/API Key，每次交互扣固定积分
     - 未登录：公开智能体单轮试用，按 IP 限流
     - stream=true：SSE（progress / done / error）
     """
@@ -1346,7 +1346,7 @@ async def delete_agent_chat_share_route(
     return {"ok": True}
 
 
-def _public_share_turn(row: dict, hold_token: str = "") -> Optional[dict]:
+def _public_share_turn(row: dict, hold_token: str = "", viewer_id: Optional[int] = None) -> Optional[dict]:
     """别人能看到谁在说、说了什么、任务号。认领用的 token 不外传。"""
     from agent_chat_share import share_turn_expired
 
@@ -1357,12 +1357,19 @@ def _public_share_turn(row: dict, hold_token: str = "") -> Optional[dict]:
     if share_turn_expired(row.get("turn_started_at"), task_id):
         return None
     spoken = row.get("turn_at")
+    owner = row.get("turn_user_id")
+    # 同一账号新开一页也算自己的这一轮，不拿来拦本人
+    same_user = False
+    try:
+        same_user = viewer_id is not None and owner is not None and int(owner) == int(viewer_id)
+    except (TypeError, ValueError):
+        same_user = False
     return {
         "author": str(row.get("turn_author") or "")[:40],
         "text": str(row.get("turn_text") or ""),
         "at": int(spoken) if isinstance(spoken, (int, float)) else 0,
         "task_id": task_id,
-        "mine": bool(hold_token) and hold_token == token,
+        "mine": (bool(hold_token) and hold_token == token) or same_user,
     }
 
 
@@ -1434,13 +1441,19 @@ async def claim_agent_chat_share_turn(
     author = (body.author or "").strip()[:40]
     text = (body.text or "").strip()[:80_000]
     spoken = int(body.at) if isinstance(body.at, (int, float)) and body.at > 0 else 0
-    won = await db.claim_share_turn(safe, token, author, text, spoken)
+    label = ""
+    if uid:
+        user = await db.get_user_by_id(uid)
+        if user:
+            from agent_chat_share import share_author_label
+            label = share_author_label(user.get("nickname"), user.get("email"))
+    won = await db.claim_share_turn(safe, token, author, text, spoken, user_id=uid, same_author=label)
     if won and uid:
         await db.ensure_share_member(safe, uid, "member")
     row = await db.get_agent_chat_share(safe)
     if not row:
         raise HTTPException(404, "share not found")
-    turn = _public_share_turn(row, token)
+    turn = _public_share_turn(row, token, uid)
     if won:
         return {"ok": True, "turn": turn}
     return JSONResponse(status_code=409, content={"ok": False, "turn": turn})
@@ -1497,7 +1510,11 @@ async def finish_agent_chat_share_turn(
 
 
 @app.get("/api/agent-chats/shares/{share_id}")
-async def get_agent_chat_share_route(share_id: str, hold: str = ""):
+async def get_agent_chat_share_route(
+    share_id: str,
+    hold: str = "",
+    uid: Optional[int] = Depends(optional_auth_api_key_or_jwt),
+):
     """打开分享。知道链接就能看，也可以在这个智能体上接着聊。"""
     import json as _json
 
@@ -1521,7 +1538,7 @@ async def get_agent_chat_share_route(share_id: str, hold: str = ""):
             "author": share_author_label(row.get("author_nickname"), row.get("author_email")),
             "created_at": created.isoformat() if hasattr(created, "isoformat") else created,
             "messages": messages,
-            "turn": _public_share_turn(row, (hold or "").strip()[:40]),
+            "turn": _public_share_turn(row, (hold or "").strip()[:40], uid),
         },
         headers={"Cache-Control": "no-store"},
     )
