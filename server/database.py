@@ -4,7 +4,6 @@ import hashlib
 import json
 import logging
 import random
-import re
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
@@ -13,6 +12,11 @@ from typing import Optional
 
 from avatar_utils import pick_random_avatar_url
 from db_pool import init_pool, close_pool
+from device_identity import (
+    device_identity_key,
+    is_placeholder_device_name,
+    reuse_cli_device_id,
+)
 from pg_compat import connect
 logger = logging.getLogger(__name__)
 
@@ -2506,41 +2510,46 @@ async def _migrate_devices() -> None:
 
 # ── devices ───────────────────────────────────────────────────────────────────
 
-_PLACEHOLDER_DEVICE_NAMES = frozenset({"cli", "桌面设备", "cli 设备"})
-
-
-def is_placeholder_device_name(name: str) -> bool:
-    """「桌面设备」「CLI」不是电脑名。两台 Mac 都会报到这个名字，不能用来认机器。"""
-    raw = re.sub(r"\s·\sCLI\s:\d+$", "", (name or "").strip())
-    raw = re.sub(r"\.local$", "", raw, flags=re.I).strip().casefold()
-    return raw in _PLACEHOLDER_DEVICE_NAMES
-
-
-def device_identity_key(name: str, platform: str) -> tuple[str, str] | None:
-    """与个人页合并规则一致：展示名 + 系统，忽略版本和 CLI 端口后缀。"""
-    raw = re.sub(r"\s·\sCLI\s:\d+$", "", (name or "").strip())
-    raw = re.sub(r"\.local$", "", raw, flags=re.I).strip().casefold()
-    plat = (platform or "").strip().casefold()
-    if not raw:
-        return None
-    return (raw, plat)
-
-
-async def find_device_by_identity(user_id: int, name: str, platform: str) -> str | None:
-    """同一用户下，机器名和系统相同的最早一条设备。"""
+async def find_device_by_identity(user_id: int, name: str, platform: str, type_: str | None = None) -> str | None:
+    """同一用户下，机器名和系统相同的最早一条设备。type_ 给定时只认该类型。"""
     key = device_identity_key(name, platform)
     if not key:
         return None
     async with connect() as db:
         async with db.execute(
-            "SELECT id, name, platform FROM devices WHERE user_id=? ORDER BY created_at ASC",
+            "SELECT id, name, platform, type FROM devices WHERE user_id=? ORDER BY created_at ASC",
             (user_id,),
         ) as cur:
             rows = await cur.fetchall()
     for row in rows:
+        if type_ and (row["type"] or "") != type_:
+            continue
         if device_identity_key(row["name"], row["platform"]) == key:
             return row["id"]
     return None
+
+
+async def delete_cli_device_duplicates(user_id: int, keep_id: str, name: str, platform: str) -> None:
+    """删掉同一台 CLI 上多余的 device id，只留 keep_id。"""
+    key = device_identity_key(name, platform)
+    if not key or not keep_id or is_placeholder_device_name(name):
+        return
+    async with connect() as db:
+        async with db.execute(
+            "SELECT id, name, platform, type FROM devices WHERE user_id=?",
+            (user_id,),
+        ) as cur:
+            rows = await cur.fetchall()
+        for row in rows:
+            if row["id"] == keep_id or (row["type"] or "") != "cli":
+                continue
+            if device_identity_key(row["name"], row["platform"]) != key:
+                continue
+            await db.execute(
+                "DELETE FROM devices WHERE id=? AND user_id=?",
+                (row["id"], user_id),
+            )
+        await db.commit()
 
 
 async def upsert_device(device_id: str, user_id: int, type_: str, name: str,

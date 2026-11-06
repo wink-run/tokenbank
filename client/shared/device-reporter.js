@@ -176,8 +176,9 @@ async function init(options) {
   // a new ID if we have none. The server reuses the existing ID if it already
   // belongs to this user.
   const registeredId = await _register();
-  // 服务端若按名字把本机并到另一台，忽略那个 id，继续用本机文件里的
-  if (registeredId && registeredId !== localDeviceId) {
+  // 桌面版：服务端若按名字并到另一台，忽略那个 id，继续用本机文件里的。
+  // CLI / Docker：容器重建会换一个新 id，服务端指回已有的那台时要写回本机文件。
+  if (registeredId && registeredId !== localDeviceId && deviceKind !== 'cli') {
     _config.device_id = localDeviceId;
   } else if (registeredId) {
     _config.device_id = registeredId;
@@ -223,6 +224,15 @@ function setUserJwt(jwt) {
   if (!jwt && _timer) {
     clearInterval(_timer);
     _timer = null;
+    return;
+  }
+  // 网关先起来、后登录时，init 没能注册。CLI 在这里把新 id 换成云端已有的那条。
+  if (jwt && _config && _config.type === 'cli') {
+    _register().then((registeredId) => {
+      if (!registeredId || !_config || registeredId === _config.device_id) return;
+      _config.device_id = registeredId;
+      writeDeviceId(registeredId, 'cli');
+    }).catch(() => {});
   }
 }
 

@@ -129,8 +129,9 @@ async function _doRegister() {
     // Backend returns the devices table row: primary key column is "id", not "device_id"
     const newId = res.data?.id || res.data?.device_id;
     if (!newId) return;
-    // 服务端按名字并过来的是另一台机器的 id，心跳继续用本机这份
-    const keepId = storedId && newId !== storedId ? storedId : newId;
+    // 桌面版不接受服务端按名字换掉的 id。Docker / CLI 网页要接受，否则容器每次重建都多一条设备。
+    const adoptServerId = !isElectron() && storedId && newId !== storedId;
+    const keepId = adoptServerId ? newId : (storedId && newId !== storedId ? storedId : newId);
     _deviceId = keepId;
     if (keepId !== cfg?.device_id) {
       getConfig().write({ ...(cfg || {}), device_id: keepId }).catch(() => {});

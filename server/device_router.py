@@ -40,10 +40,18 @@ async def register_device(req: RegisterRequest, uid: int = Depends(get_current_u
         # 这个 id 是别人的，本机另外生成，不能并到对方那条记录上
         device_id = ""
         owner_id = None
+    # Docker 每次重建本地文件会丢，带上来的是新 id。同名 CLI 复用已有的那条。
+    # 桌面版仍保留客户端自己的 id，避免两台都叫「桌面设备」的 Mac 被并成一台。
+    owned_by_user = owner_id == uid
+    same_cli = None
+    if (req.type or "").strip() == "cli" and not db.is_placeholder_device_name(req.name):
+        same_cli = await db.find_device_by_identity(uid, req.name, req.platform, type_="cli")
+    reused = db.reuse_cli_device_id(owned_by_user, same_cli, req.type, req.name)
+    if reused:
+        device_id = reused
     if not device_id:
         device_id = "dev-" + secrets.token_hex(8)
-    # 客户端自己带了 id 就保留。按名字复用只发生在没带 id 的旧客户端，
-    # 否则两台同名 Mac 删掉本地文件后，新 id 又会被换回旧的那条。
+    # 没带 id 的旧客户端才按名字复用。带了 id 的桌面版不能换回旧记录。
     if not sent and not db.is_placeholder_device_name(req.name):
         same = await db.find_device_by_identity(uid, req.name, req.platform)
         if same:
@@ -57,6 +65,8 @@ async def register_device(req: RegisterRequest, uid: int = Depends(get_current_u
         version=req.version,
         gateway_port=req.gateway_port,
     )
+    if (req.type or "").strip() == "cli":
+        await db.delete_cli_device_duplicates(uid, device_id, req.name, req.platform)
     return row
 
 
