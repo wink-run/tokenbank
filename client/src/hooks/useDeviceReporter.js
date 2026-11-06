@@ -262,6 +262,11 @@ async function _sendHeartbeat() {
   }
 }
 
+/** 本机正在上报的设备 id。个人页用来标出「本机」。注册完成前可能为空。 */
+export function getReportedDeviceId() {
+  return _deviceId || null;
+}
+
 export function useDeviceReporter(user) {
   const timerRef = useRef(null);
 

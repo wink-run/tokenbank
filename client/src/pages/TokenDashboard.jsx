@@ -10,6 +10,7 @@ import { billingAccountsFromDevices } from '../lib/accountsSummary';
 import { enrichBillingCost, resolveBillableSubscriptions } from '../utils/billing-cost';
 import { loadUserAccounts } from '../api/userAccounts';
 import { formatDeviceTitle, formatLegacyPlatform, effectiveDeviceType, mergeSameDevices } from '../lib/device-display';
+import { getReportedDeviceId } from '../hooks/useDeviceReporter';
 import { isAppIcon, appIconSvg } from '../lib/appIcons';
 
 /** 从云端拉取各设备聚合盘点；失败时回退本机数据，并合并订阅折算 + 按量费用 */
@@ -499,9 +500,18 @@ function DistBarList({ items, total, barClass }) {
 }
 
 // ── 我的设备（简洁列表）────────────────────────────────────────────────────
+
+/** 合并后的一行里，只要有本机正在上报的 id，就标成当前设备。 */
+function isCurrentDevice(device, currentId) {
+  if (!currentId) return false;
+  const ids = device?.device_ids?.length ? device.device_ids : [device?.device_id];
+  return ids.includes(currentId);
+}
+
 function DevicesSection() {
   const { t } = useLang();
   const [devices, setDevices] = useState(null);
+  const [currentId, setCurrentId] = useState(() => getReportedDeviceId());
 
   useEffect(() => {
     let alive = true;
@@ -518,6 +528,7 @@ function DevicesSection() {
             return true;
           });
           setDevices(mergeSameDevices(clean));
+          setCurrentId(getReportedDeviceId());
         })
         .catch(() => { if (alive) setDevices([]); });
     };
@@ -554,6 +565,11 @@ function DevicesSection() {
               <div className="flex items-center gap-1.5">
                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${d.online ? 'bg-green-500' : 'bg-zinc-400'}`} />
                 <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">{formatDeviceTitle(d)}</span>
+                {isCurrentDevice(d, currentId) && (
+                  <span className="shrink-0 text-[10px] leading-4 px-1.5 rounded-full bg-zinc-200/80 dark:bg-zinc-600 text-zinc-600 dark:text-zinc-200">
+                    {t('profile.thisDevice')}
+                  </span>
+                )}
                 {d.version && <span className="text-xs text-zinc-400 shrink-0">v{d.version}</span>}
               </div>
               <div className="flex items-center gap-2 mt-0.5">

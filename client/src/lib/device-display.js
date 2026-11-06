@@ -23,11 +23,36 @@ export function formatDeviceTitle(device) {
   return stripLocalSuffix(raw) || raw;
 }
 
+/** 还没读到电脑名时的占位。同一台 Mac 会先后记成 CLI 和「桌面设备」。 */
+const PLACEHOLDER_NAMES = new Set(['cli', '桌面设备', 'cli 设备']);
+
+function normalizedTitle(device) {
+  return formatDeviceTitle(device).trim().toLowerCase();
+}
+
+/** Chromium 把 macOS 冻在 10.15.7；剥掉之后只剩「macOS」，不能当成另一台机器。 */
+function isFrozenMacPlatform(platform) {
+  const p = formatLegacyPlatform(platform).trim().toLowerCase();
+  return p === 'macos' || p === 'macos 10.15.7' || p === 'macos 10.15' || p === 'macintel';
+}
+
+function isMacPlatform(platform) {
+  const p = formatLegacyPlatform(platform).trim().toLowerCase();
+  return p === 'macos' || p.startsWith('macos ') || p.startsWith('darwin');
+}
+
+/** 旧上报：占位名 + 冻结的 macOS 版本。机器其实还在，只是改用了新的设备 id。 */
+function isLegacyMacPlaceholder(device) {
+  return PLACEHOLDER_NAMES.has(normalizedTitle(device)) && isFrozenMacPlatform(device?.platform);
+}
+
 /** 同一台机器的归并键：展示名 + 系统。版本号不同仍视为同一台。 */
 export function deviceIdentityKey(device) {
-  const name = formatDeviceTitle(device).trim().toLowerCase();
+  const name = normalizedTitle(device);
   const platform = formatLegacyPlatform(device?.platform).trim().toLowerCase();
   if (!name) return '';
+  // CLI / 10.15.7 与「桌面设备 / macOS」是同一台 Mac 换 id 前后的两条记录
+  if (isLegacyMacPlaceholder(device)) return 'legacy-mac';
   return `${name}\0${platform}`;
 }
 
@@ -52,7 +77,7 @@ export function mergeSameDevices(devices) {
     }
     groups.get(key).push(d);
   }
-  return order.map((key) => {
+  const merged = order.map((key) => {
     const list = groups.get(key);
     if (list.length === 1) return list[0];
     const ranked = [...list].sort((a, b) => {
@@ -73,6 +98,31 @@ export function mergeSameDevices(devices) {
       device_ids: list.map(d => d.device_id).filter(Boolean),
     };
   });
+  return adoptOfflineLegacyMac(merged);
+}
+
+/**
+ * 电脑名已经改成真实名称后，旧的「CLI / 10.15.7」不再能靠名字并进去。
+ * 只要这台 Mac 仍有在线记录，就把这些停更的占位行收进来，避免列表里多出一台假离线。
+ */
+function adoptOfflineLegacyMac(devices) {
+  const legacy = [];
+  const rest = [];
+  for (const d of devices) {
+    if (!d.online && isLegacyMacPlaceholder(d)) legacy.push(d);
+    else rest.push(d);
+  }
+  if (!legacy.length) return devices;
+  const host = rest.find(d => d.online && isMacPlatform(d.platform));
+  if (!host) return devices;
+  const ids = [
+    ...(host.device_ids?.length ? host.device_ids : [host.device_id]),
+    ...legacy.flatMap(d => (d.device_ids?.length ? d.device_ids : [d.device_id])),
+  ].filter(Boolean);
+  host.device_ids = [...new Set(ids)];
+  host.today_calls = (Number(host.today_calls) || 0) + legacy.reduce((n, d) => n + (Number(d.today_calls) || 0), 0);
+  host.today_errors = (Number(host.today_errors) || 0) + legacy.reduce((n, d) => n + (Number(d.today_errors) || 0), 0);
+  return rest;
 }
 
 /** 展示用设备类型（DB 未及时刷新时根据名称推断） */

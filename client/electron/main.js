@@ -27,6 +27,7 @@ const sessionBrowser = require('./session-browser');
 const { STATS_DIR, computeImportSkip } = require('../shared/telemetry');
 const { defaultServerUrlFromEnv } = require('../shared/default-server-url');
 const deviceIdentity = require('../shared/device-identity');
+const { ensureDeviceId } = require('../shared/device-id');
 const detectTools = require('./detect-tools');
 const agentLinker = require('./agent-linker');
 const cursorHooks = require('./cursor-hooks');
@@ -2834,6 +2835,11 @@ function registerIPC() {
       version: app.getVersion(),
       customName: opts?.customName || '',
     });
+  });
+  // 沿用 config.json 里已有的 device_id，没有才新建，避免个人页又多出一台设备
+  ipcMain.on('app:getDeviceId', (e) => {
+    try { e.returnValue = ensureDeviceId('desktop'); }
+    catch { e.returnValue = ''; }
   });
   ipcMain.handle('agent:start',   () => { startAgent(); return { running: agent.isRunning() }; });
   ipcMain.handle('agent:stop',    () => { stopAgent();  return { running: false }; });

@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   app: {
     defaultServerUrl: () => ipcRenderer.sendSync('app:defaultServerUrl'),
     getDeviceIdentity: (opts) => ipcRenderer.sendSync('app:getDeviceIdentity', opts || {}),
+    // 稳定设备 id（~/.tokenbank/device-id）。渲染进程用来认出「本机」，避免每次换一个 id。
+    getDeviceId: () => ipcRenderer.sendSync('app:getDeviceId'),
     setHideDockIcon: (hide) => ipcRenderer.invoke('app:setHideDockIcon', hide),
     // light/dark/system → 同步 Windows 原生标题栏
     setThemeSource: (source) => ipcRenderer.invoke('app:setThemeSource', source),
