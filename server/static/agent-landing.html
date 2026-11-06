@@ -2394,6 +2394,7 @@ createApp({
             if (row) {
               row.pending = false
               row.taskId = undefined
+              if (ev.response_id) row.responseId = ev.response_id
               if (arts.length) row.artifacts = arts
               if (row.parts && row.parts.length) {
                 row.parts = rewriteParts(row.parts, arts)
@@ -2636,11 +2637,22 @@ createApp({
         }
       }
       const history = messages.value.slice()
+      // 找到历史中最后一个 assistant 的 response_id（如果有）
+      let lastResponseId = null
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i].role === 'assistant' && history[i].responseId) {
+          lastResponseId = history[i].responseId
+          break
+        }
+      }
       // 分享里的下一句要带上已有对话。访客单独试用仍只发这一句
       const shareContinue = !!relayShareId.value && String(relayShareId.value).indexOf('new-') !== 0
-      const apiPrompt = (!isGuest || shareContinue)
-        ? buildPromptWithHistory(history, text || displayText)
-        : text
+      // 有 previous_response_id 时只发本轮新消息，无需压缩历史
+      const apiPrompt = lastResponseId
+        ? (text || displayText)
+        : ((!isGuest || shareContinue)
+          ? buildPromptWithHistory(history, text || displayText)
+          : text)
       const attachUrls = imageItems.map(p => p.dataUrl)
       messages.value.push({
         role: 'user',
@@ -2694,6 +2706,9 @@ createApp({
           worker_id: agent.value.worker_id || undefined,
           stream: true,
           app_id: 'web-chat',  // 网页聊天UI（类似模型网关的发起应用）
+        }
+        if (lastResponseId) {
+          body.previous_response_id = lastResponseId
         }
         if (imageItems.length) {
           body.images = imageItems.map(p => ({ dataUrl: p.dataUrl, name: p.name || 'image' }))

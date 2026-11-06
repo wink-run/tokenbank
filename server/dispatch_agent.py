@@ -642,6 +642,7 @@ async def handle_agent_task(
     files: Optional[list] = None,
     share_id: Optional[str] = None,
     app_id: Optional[str] = None,
+    previous_response_id: Optional[str] = None,
 ) -> dict:
     """选 worker → 预扣积分 → 下发 → 等待终态结果；失败退款。
     
@@ -701,6 +702,9 @@ async def handle_agent_task(
             "harness_id": harness_id,
         },
     }
+    
+    if previous_response_id:
+        gateway_body["previous_response_id"] = previous_response_id
 
     # 扣除积分
     if not guest:
@@ -783,6 +787,11 @@ async def handle_agent_task(
             "credits_charged": AGENT_TASK_CREDITS if success else 0,
             "credits_refunded": 0 if success or guest else AGENT_TASK_CREDITS,
         }
+        
+        # 多轮对话：返回 response_id 用于续session
+        response_id = gateway_response.get("id")
+        if response_id:
+            result["response_id"] = response_id
         
         return result
 
@@ -1008,6 +1017,7 @@ async def iter_agent_task_sse(
     files: Optional[list] = None,
     share_id: Optional[str] = None,
     app_id: Optional[str] = None,
+    previous_response_id: Optional[str] = None,
 ) -> AsyncIterator[str]:
     """SSE：progress 事件推正文，done/error 收尾。
     
@@ -1076,6 +1086,10 @@ async def iter_agent_task_sse(
             "harness_id": harness_id,
         },
     }
+    
+    # 多轮对话：续上之前的 session（如果提供了 previous_response_id）
+    if previous_response_id:
+        gateway_body["previous_response_id"] = previous_response_id
 
     # 扣除积分
     if not is_guest:
@@ -1184,7 +1198,10 @@ async def iter_agent_task_sse(
                         note=f"agent_task kind=agent task_id={task_id} worker={worker.worker_id}",
                     )
 
-                yield _sse({
+                # 提取 response_id（用于多轮对话续session）
+                response_id = event_data.get("id")
+                
+                done_payload = {
                     "event": "done",
                     "ok": True,
                     "task_id": task_id,
@@ -1194,7 +1211,11 @@ async def iter_agent_task_sse(
                     "credits_charged": AGENT_TASK_CREDITS,
                     "guest": is_guest,
                     "need_login_to_continue": is_guest,
-                })
+                }
+                if response_id:
+                    done_payload["response_id"] = response_id
+                
+                yield _sse(done_payload)
                 return
             
             elif event_name == "error":

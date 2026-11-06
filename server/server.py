@@ -1115,6 +1115,8 @@ class AgentTaskBody(BaseModel):
     # 发起方标识（类似模型网关的 app_id）。调用方显式传递，不由服务端推断。
     app_id: Optional[str] = None
     source: Optional[str] = None  # 兼容 metadata.source
+    # 多轮对话：续上之前的 response（本地 agent session），而不是新开会话
+    previous_response_id: Optional[str] = None
 
 
 @app.post("/api/agent-tasks")
@@ -1165,6 +1167,7 @@ async def create_agent_task(
             files=task_files or None,
             share_id=body.share_id,
             app_id=initiator,
+            previous_response_id=body.previous_response_id,
         )
         return StreamingResponse(
             gen,
