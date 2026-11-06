@@ -47,22 +47,13 @@ function writeDeviceId(id, kind = 'desktop') {
   fs.renameSync(tmp, file);
 }
 
-/** 从旧版 config.json 迁移 device_id */
-function readLegacyDeviceId() {
-  try {
-    const { readAgentConfig } = require('./config-loader');
-    const legacy = String(readAgentConfig()?.device_id || '').trim();
-    if (legacy && ID_RE.test(legacy)) return legacy;
-  } catch (_) {}
-  return null;
-}
-
 /**
- * 确保本机有唯一设备 ID：优先 ~/.tokenbank/device-id，否则迁移旧配置或新生成。
+ * 确保本机有唯一设备 ID。
+ * 只认 ~/.tokenbank 里的文件。config.json 会在多台 Mac 之间同步，
+ * 文件被删掉时不能从那里把旧 id 抄回来。
  */
 function ensureDeviceId(kind = 'desktop') {
   let id = readDeviceId(kind);
-  if (!id && kind === 'desktop') id = readLegacyDeviceId();
   if (!id) id = `dev-${crypto.randomBytes(8).toString('hex')}`;
   writeDeviceId(id, kind);
   return id;

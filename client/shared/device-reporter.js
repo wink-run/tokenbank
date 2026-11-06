@@ -56,13 +56,10 @@ function _post(url, body, token) {
 // ── Registration ──────────────────────────────────────────────────────────────
 
 /** 读取/生成本机唯一设备 ID（~/.tokenbank/device-id 或 device-id-cli） */
-function _ensureLocalDeviceId(existing, kind = 'desktop') {
+function _ensureLocalDeviceId(_existing, kind = 'desktop') {
   const persisted = readDeviceId(kind);
   if (persisted) return persisted;
-  if (existing && /^dev-[a-f0-9]{16}$/.test(existing)) {
-    writeDeviceId(existing, kind);
-    return existing;
-  }
+  // 不把 config.json 里的 id 写回文件，那份配置可能是另一台 Mac 同步过来的
   return ensureDeviceId(kind);
 }
 
@@ -147,7 +144,7 @@ async function _sendHeartbeat(online = true) {
 /**
  * Call once on startup.
  * options: { type: 'desktop'|'cli', name, platform, version, serverUrl, userJwt }
- * Reads/generates device_id from config.json and persists it back.
+ * 设备 id 只认本机文件。云端返回了另一个 id 时不写回。
  */
 async function init(options) {
   // Merge options with any existing agent config
@@ -179,11 +176,15 @@ async function init(options) {
   // a new ID if we have none. The server reuses the existing ID if it already
   // belongs to this user.
   const registeredId = await _register();
-  _config.device_id = registeredId;
-  // 持久化到 ~/.tokenbank/device-id 与 agent config
-  if (registeredId) writeDeviceId(registeredId, deviceKind);
+  // 服务端若按名字把本机并到另一台，忽略那个 id，继续用本机文件里的
+  if (registeredId && registeredId !== localDeviceId) {
+    _config.device_id = localDeviceId;
+  } else if (registeredId) {
+    _config.device_id = registeredId;
+  }
+  if (_config.device_id) writeDeviceId(_config.device_id, deviceKind);
   const cfg = readAgentConfig() || {};
-  cfg.device_id = registeredId;
+  cfg.device_id = _config.device_id;
   try { writeAgentConfig(cfg); } catch (_) {}
 }
 

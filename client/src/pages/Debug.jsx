@@ -1255,6 +1255,17 @@ export default function Debug() {
     loadPromptList();
   }, []);
 
+  // 主进程先返回安装结果，版本和 Cursor 登录随后推过来
+  useEffect(() => {
+    const off = window.electronAPI?.agent?.onListUpdated?.((list) => {
+      if (!Array.isArray(list)) return;
+      setCachedAgentsList(list);
+      setAgents(list);
+      setLoadingAgents(false);
+    });
+    return () => { off?.(); };
+  }, []);
+
   // 游乐场 keep-alive：从「资产」返回时强制刷新智能体与提示词
   const prevDebugPathRef = useRef(location.pathname);
   useEffect(() => {
@@ -3414,9 +3425,13 @@ export default function Debug() {
             {isHubMode ? (
               /* 聚合入口：由主 Agent 编排 */
               !mainAgent ? (
-                <div className="flex-1 flex items-center justify-center text-center text-zinc-400 dark:text-zinc-500">
-                  <p className="text-sm">{t('debug.agent.noAgents')}</p>
-                </div>
+                loadingAgents ? (
+                  <div className="flex-1" />
+                ) : (
+                  <div className="flex-1 flex items-center justify-center text-center text-zinc-400 dark:text-zinc-500">
+                    <p className="text-sm">{t('debug.agent.noAgents')}</p>
+                  </div>
+                )
               ) : !conversationTurns.length && !currentUserPrompt && !currentUserImages.length && !taskSteps.length && !executing ? (
                 <div className="flex-1 flex items-center justify-center text-center text-zinc-400 dark:text-zinc-500 px-6">
                   <div className="max-w-md">

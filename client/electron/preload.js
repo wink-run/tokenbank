@@ -92,6 +92,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('agent:task:cliSession', handler);
       return () => ipcRenderer.removeListener('agent:task:cliSession', handler);
     },
+    // 列表先返回安装结果，版本和登录稍后推送
+    onListUpdated: (cb) => {
+      const handler = (_e, agents) => cb(agents);
+      ipcRenderer.on('agent:listUpdated', handler);
+      return () => ipcRenderer.removeListener('agent:listUpdated', handler);
+    },
   },
   mcp: {
     listServers: () => ipcRenderer.invoke('mcp:listServers'),

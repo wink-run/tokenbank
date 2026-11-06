@@ -129,9 +129,11 @@ async function _doRegister() {
     // Backend returns the devices table row: primary key column is "id", not "device_id"
     const newId = res.data?.id || res.data?.device_id;
     if (!newId) return;
-    _deviceId = newId;
-    if (newId !== cfg?.device_id) {
-      getConfig().write({ ...(cfg || {}), device_id: newId }).catch(() => {});
+    // 服务端按名字并过来的是另一台机器的 id，心跳继续用本机这份
+    const keepId = storedId && newId !== storedId ? storedId : newId;
+    _deviceId = keepId;
+    if (keepId !== cfg?.device_id) {
+      getConfig().write({ ...(cfg || {}), device_id: keepId }).catch(() => {});
     }
   } catch {
     // Not logged in, backend down — silent

@@ -2836,7 +2836,7 @@ function registerIPC() {
       customName: opts?.customName || '',
     });
   });
-  // 沿用 config.json 里已有的 device_id，没有才新建，避免个人页又多出一台设备
+  // 只读 ~/.tokenbank/device-id。文件不在就新建，不从 config.json 恢复
   ipcMain.on('app:getDeviceId', (e) => {
     try { e.returnValue = ensureDeviceId('desktop'); }
     catch { e.returnValue = ''; }

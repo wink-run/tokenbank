@@ -117,9 +117,11 @@ async function installCursorAgentCli() {
  * 探测 Agent CLI 是否已登录（`agent status`）。
  * 先尝试把 Cursor IDE 登录解密并写入 CLI 凭证，实现共享登录。
  */
-async function getCursorAgentAuthStatus() {
+async function getCursorAgentAuthStatus(opts = {}) {
   const bin = resolveInstalledPath();
   if (!bin) return { ok: false, loggedIn: false, reason: 'cli_not_installed' };
+  // 列表刷新用短超时；登录按钮仍等完整 status
+  const timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : 45000;
 
   // 启动和列表探测只复用已解开的钥匙串，不弹密码框
   let shared = null;
@@ -136,7 +138,7 @@ async function getCursorAgentAuthStatus() {
       env.CURSOR_AUTH_TOKEN = shared.accessToken;
     }
     execFile(bin, ['status'], {
-      timeout: 45000,
+      timeout: timeoutMs,
       windowsHide: true,
       env,
       maxBuffer: 1024 * 1024,

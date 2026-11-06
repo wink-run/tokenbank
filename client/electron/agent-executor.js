@@ -432,6 +432,8 @@ function buildKimiCodeArgs(prompt, {
 
 /** Agent 列表探测缓存（避免每次进 Debug 都 spawn CLI） */
 const AGENT_LIST_CACHE = { at: 0, agents: null, ttlMs: 45_000 };
+/** 后台补版本 / 登录时递增，避免旧探测覆盖新一次快检 */
+let _agentListEnrichGen = 0;
 
 /** Claude Code 续接：须 continueSession；有 sessionId 用 --resume，否则 -c */
 function buildClaudeContinueArgs({ continueSession, cliSessionId } = {}) {
@@ -649,76 +651,59 @@ class AgentExecutor extends EventEmitter {
       }
     }
 
-    // 并行探测各 CLI：已安装才填 version；未安装仍返回条目（installed:false）
-    const cliAgents = await Promise.all(
-      Object.entries(AGENT_CLI).map(async ([id, cfg]) => {
-        const names = Array.isArray(cfg.detectCommands) && cfg.detectCommands.length
-          ? cfg.detectCommands
-          : [cfg.detectCommand].filter(Boolean);
+    // 先只查命令是否存在就返回。--version 和 Cursor 登录会拖住整份列表（登录探测最长 45 秒）。
+    const prevById = new Map((AGENT_LIST_CACHE.agents || []).filter(a => a.type === 'cli').map(a => [a.id, a]));
+    const cliAgents = Object.entries(AGENT_CLI).map(([id, cfg]) => {
+      const names = Array.isArray(cfg.detectCommands) && cfg.detectCommands.length
+        ? cfg.detectCommands
+        : [cfg.detectCommand].filter(Boolean);
 
-        // 以 resolveRealCommand 命中为准（裸命令名回退不算已安装）
-        let resolvedPath = null;
-        let detectCommand = names[0] || cfg.detectCommand || id;
-        for (const name of names) {
-          const resolved = shim?.resolveRealCommand?.(name);
-          if (resolved) {
-            resolvedPath = resolved;
-            detectCommand = name;
-            break;
-          }
+      // 以 resolveRealCommand 命中为准（裸命令名回退不算已安装）
+      let resolvedPath = null;
+      let detectCommand = names[0] || cfg.detectCommand || id;
+      for (const name of names) {
+        const resolved = shim?.resolveRealCommand?.(name);
+        if (resolved) {
+          resolvedPath = resolved;
+          detectCommand = name;
+          break;
         }
-        const installed = !!resolvedPath;
+      }
+      const installed = !!resolvedPath;
+      const prev = prevById.get(id);
+      // 安装状态没变时先沿用上次的版本和登录，避免列表先闪成空白再补上
+      const keepMeta = prev && prev.installed === installed;
 
-        let version = null;
-        if (installed && runProbe) {
-          try {
-            // 用解析到的绝对路径探测版本（Codex 等可能不在 PATH）
-            const probeCmd = resolvedPath || detectCommand;
-            const probe = await runProbe(probeCmd, ['--version'], 1800);
-            if (probe.ok) {
-              version = probe.stdout.match(/[\d.]+/)?.[0] || probe.stdout;
-            }
-          } catch {
-            // 版本探测失败不影响「已安装」判定
-          }
+      const launch = installed ? this._resolveLaunchSpec(id) : null;
+      const entry = {
+        id,
+        name: cfg.name,
+        type: 'cli',
+        executable: launch?.executable || resolvedPath || null,
+        capabilities: cfg.capabilities,
+        version: installed && keepMeta ? (prev.version || null) : null,
+        installed,
+        status: installed ? 'active' : 'missing',
+        _probeCmd: installed ? (resolvedPath || detectCommand) : null,
+      };
+      // Cursor：应用列表看 IDE；游乐场看 CLI 安装 + 登录（优先共享 IDE 会话）。
+      if (id === 'cursor') {
+        try {
+          entry.idePresent = !!require('./resource-agent-targets').isAgentInstalled('cursor');
+        } catch {
+          entry.idePresent = false;
         }
-
-        const launch = installed ? this._resolveLaunchSpec(id) : null;
-        const entry = {
-          id,
-          name: cfg.name,
-          type: 'cli',
-          executable: launch?.executable || resolvedPath || null,
-          capabilities: cfg.capabilities,
-          version: installed ? version : null,
-          installed,
-          status: installed ? 'active' : 'missing',
-        };
-        // Cursor：应用列表看 IDE；游乐场看 CLI 安装 + 登录（优先共享 IDE 会话）。
-        if (id === 'cursor') {
-          try {
-            entry.idePresent = !!require('./resource-agent-targets').isAgentInstalled('cursor');
-          } catch {
-            entry.idePresent = false;
-          }
-          entry.modelLabel = readCursorCliModelLabel();
-          if (!installed) {
-            entry.canInstallCli = true;
-            entry.cliLoggedIn = false;
-          } else {
-            try {
-              const st = await require('./cursor-agent-install').getCursorAgentAuthStatus();
-              entry.cliLoggedIn = !!st.loggedIn;
-              entry.needsCliLogin = !st.loggedIn;
-            } catch {
-              entry.cliLoggedIn = false;
-              entry.needsCliLogin = true;
-            }
-          }
+        entry.modelLabel = readCursorCliModelLabel();
+        if (!installed) {
+          entry.canInstallCli = true;
+          entry.cliLoggedIn = false;
+        } else if (keepMeta && typeof prev.cliLoggedIn === 'boolean') {
+          entry.cliLoggedIn = prev.cliLoggedIn;
+          entry.needsCliLogin = !!prev.needsCliLogin;
         }
-        return entry;
-      }),
-    );
+      }
+      return entry;
+    });
 
     // 自定义智能体：已安装 CLI，或具备 npx 包回退的运行时均可挂载
     const launchableCliIds = new Set();
@@ -739,9 +724,61 @@ class AgentExecutor extends EventEmitter {
       ...require('./hired-community-agents').toAgentListEntries(),
     ];
 
+    // 探测命令只留给后台补版本，不发给界面
+    const probeCmds = new Map(cliAgents.map(a => [a.id, a._probeCmd || null]));
+    for (const a of cliAgents) delete a._probeCmd;
+
     AGENT_LIST_CACHE.at = now;
     AGENT_LIST_CACHE.agents = agents;
+    this._enrichCliAgents(cliAgents.map(a => ({ ...a, _probeCmd: probeCmds.get(a.id) })), ++_agentListEnrichGen)
+      .catch(() => {});
     return agents;
+  }
+
+  /**
+   * 后台补 CLI 版本和 Cursor 登录。列表已经返回，这里完成后再推一次。
+   * gen 对不上说明又开始了新一轮快检，丢掉这次结果。
+   */
+  async _enrichCliAgents(cliAgents, gen) {
+    const enriched = await Promise.all(cliAgents.map(async (entry) => {
+      const next = { ...entry };
+      delete next._probeCmd;
+      if (!entry.installed) return next;
+
+      if (entry._probeCmd && runProbe) {
+        try {
+          const probe = await runProbe(entry._probeCmd, ['--version'], 1800);
+          if (probe.ok) next.version = probe.stdout.match(/[\d.]+/)?.[0] || probe.stdout;
+        } catch { /* 版本失败不影响已安装 */ }
+      }
+
+      if (entry.id === 'cursor') {
+        try {
+          const st = await require('./cursor-agent-install').getCursorAgentAuthStatus({ timeoutMs: 2500 });
+          // 超时或探测失败时保留快检结果，避免误提示去登录
+          if (st && st.ok) {
+            next.cliLoggedIn = !!st.loggedIn;
+            next.needsCliLogin = !st.loggedIn;
+          }
+        } catch { /* 保留进入后台前的登录标记 */ }
+      }
+      return next;
+    }));
+
+    if (gen !== _agentListEnrichGen) return;
+    const byId = new Map(enriched.map(a => [a.id, a]));
+    const current = AGENT_LIST_CACHE.agents || [];
+    const next = current.map(a => (a.type === 'cli' && byId.has(a.id) ? byId.get(a.id) : a));
+    const changed = next.some((a, i) => {
+      const prev = current[i];
+      if (!prev || a === prev) return false;
+      return a.version !== prev.version
+        || a.cliLoggedIn !== prev.cliLoggedIn
+        || a.needsCliLogin !== prev.needsCliLogin;
+    });
+    AGENT_LIST_CACHE.agents = next;
+    AGENT_LIST_CACHE.at = Date.now();
+    if (changed) this.emit('list:updated', next);
   }
 
   /** 已纳管 Assistant → Debug 自定义 Agent */

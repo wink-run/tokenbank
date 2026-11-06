@@ -24,7 +24,13 @@ async function authRequest(method, path, { body, token } = {}) {
     }
     // status 0 是主进程网络失败（代理/超时），不能当成空成功
     if (!r.status || r.status >= 400) {
-      const detail = data?.detail ?? data?.message ?? r.body ?? `HTTP ${r.status}`;
+      let detail = data?.detail ?? data?.message ?? r.body ?? `HTTP ${r.status}`;
+      // nginx 502/504 的 HTML 页不能当错误文案抛出去
+      if (typeof detail === 'string' && /<\s*html/i.test(detail)) {
+        detail = (r.status === 502 || r.status === 503 || r.status === 504)
+          ? '服务暂时不可用，请稍后再试'
+          : `HTTP ${r.status}`;
+      }
       const err = new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
       err.response = { status: r.status, data };
       throw err;
@@ -309,7 +315,9 @@ export function getInventoryStats(days = 1) {
 // ── Device management ─────────────────────────────────────────────────────────
 
 export function getUserDevices() {
-  return http.get('/user/devices');
+  // 与 profile 一样走主进程，避免渲染进程被系统代理拦截后拿到 nginx 的 502 页
+  const token = localStorage.getItem('token');
+  return authRequest('GET', '/user/devices', { token });
 }
 
 export function deleteDevice(deviceId) {

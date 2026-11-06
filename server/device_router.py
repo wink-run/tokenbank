@@ -33,18 +33,21 @@ class HeartbeatRequest(BaseModel):
 
 @router.post("/device/register")
 async def register_device(req: RegisterRequest, uid: int = Depends(get_current_user_id)):
-    device_id = req.device_id.strip()
-    if device_id:
-        # 仅当 ID 已归属其他用户时丢弃；新 ID（库中不存在）允许客户端预生成
-        owner_id = await db.get_device_owner(device_id)
-        if owner_id is not None and owner_id != uid:
-            device_id = ""
+    sent = req.device_id.strip()
+    device_id = sent
+    owner_id = await db.get_device_owner(device_id) if device_id else None
+    if owner_id is not None and owner_id != uid:
+        # 这个 id 是别人的，本机另外生成，不能并到对方那条记录上
+        device_id = ""
+        owner_id = None
     if not device_id:
         device_id = "dev-" + secrets.token_hex(8)
-    # 同一台机器重复注册时复用已有记录，避免 Docker 重建后再插一行
-    same = await db.find_device_by_identity(uid, req.name, req.platform)
-    if same:
-        device_id = same
+    # 客户端自己带了 id 就保留。按名字复用只发生在没带 id 的旧客户端，
+    # 否则两台同名 Mac 删掉本地文件后，新 id 又会被换回旧的那条。
+    if not sent and not db.is_placeholder_device_name(req.name):
+        same = await db.find_device_by_identity(uid, req.name, req.platform)
+        if same:
+            device_id = same
     row = await db.upsert_device(
         device_id=device_id,
         user_id=uid,

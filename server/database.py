@@ -2496,10 +2496,25 @@ async def _migrate_devices() -> None:
                 providers INTEGER DEFAULT 0
             )
         """)
+        # 列表按设备取最近 24 小时一条快照；没有这个索引会扫全表，把接口拖到上游超时
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_device_snapshots_device_ts "
+            "ON device_stats_snapshots(device_id, ts DESC)"
+        )
         await db.commit()
 
 
 # ── devices ───────────────────────────────────────────────────────────────────
+
+_PLACEHOLDER_DEVICE_NAMES = frozenset({"cli", "桌面设备", "cli 设备"})
+
+
+def is_placeholder_device_name(name: str) -> bool:
+    """「桌面设备」「CLI」不是电脑名。两台 Mac 都会报到这个名字，不能用来认机器。"""
+    raw = re.sub(r"\s·\sCLI\s:\d+$", "", (name or "").strip())
+    raw = re.sub(r"\.local$", "", raw, flags=re.I).strip().casefold()
+    return raw in _PLACEHOLDER_DEVICE_NAMES
+
 
 def device_identity_key(name: str, platform: str) -> tuple[str, str] | None:
     """与个人页合并规则一致：展示名 + 系统，忽略版本和 CLI 端口后缀。"""
@@ -2814,25 +2829,33 @@ async def record_device_heartbeat(device_id: str, user_id: int, online: bool,
 
 
 async def get_user_devices(user_id: int) -> list[dict]:
+    """设备列表。不读 inventory_json（盘点走单独接口）。
+
+    每次心跳的 calls 是今日累计，不是增量，所以每台设备只取最近一条快照，不能 SUM。
+    """
     async with connect() as db:
         async with db.execute(
-            "SELECT * FROM devices WHERE user_id=? ORDER BY created_at DESC", (user_id,)
+            """SELECT d.id, d.user_id, d.type, d.name, d.platform, d.version,
+                      d.gateway_port, d.online, d.last_seen, d.created_at,
+                      s.calls AS today_calls, s.errors AS today_errors,
+                      s.providers AS today_providers
+               FROM devices d
+               LEFT JOIN (
+                 SELECT DISTINCT ON (device_id)
+                        device_id, calls, errors, providers
+                 FROM device_stats_snapshots
+                 WHERE user_id=? AND ts >= datetime('now', '-24 hours')
+                 ORDER BY device_id, ts DESC
+               ) s ON s.device_id = d.id
+               WHERE d.user_id=?
+               ORDER BY d.created_at DESC""",
+            (user_id, user_id),
         ) as cur:
             devices = [dict(r) for r in await cur.fetchall()]
-        for dev in devices:
-            # 每次心跳上报的 calls 是“今日累计总数”（非增量），故取最近一条快照即可，
-            # 不能 SUM——否则把同一累计值重复相加，数字会随心跳次数无限膨胀。
-            async with db.execute(
-                """SELECT calls, errors, providers
-                   FROM device_stats_snapshots
-                   WHERE device_id=? AND ts >= datetime('now', '-24 hours')
-                   ORDER BY ts DESC LIMIT 1""",
-                (dev["id"],),
-            ) as cur:
-                snap = await cur.fetchone()
-            dev["today_calls"] = snap["calls"] if snap and snap["calls"] is not None else 0
-            dev["today_errors"] = snap["errors"] if snap and snap["errors"] is not None else 0
-            dev["today_providers"] = snap["providers"] if snap and snap["providers"] is not None else 0
+    for dev in devices:
+        for key in ("today_calls", "today_errors", "today_providers"):
+            if dev.get(key) is None:
+                dev[key] = 0
     return devices
 
 

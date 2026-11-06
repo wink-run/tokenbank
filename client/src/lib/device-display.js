@@ -51,8 +51,8 @@ export function deviceIdentityKey(device) {
   const name = normalizedTitle(device);
   const platform = formatLegacyPlatform(device?.platform).trim().toLowerCase();
   if (!name) return '';
-  // CLI / 10.15.7 与「桌面设备 / macOS」是同一台 Mac 换 id 前后的两条记录
-  if (isLegacyMacPlaceholder(device)) return 'legacy-mac';
+  // 「桌面设备 / macOS」两台 Mac 都会报到。占位名不能把它们收成一台，按设备 id 分开。
+  if (isLegacyMacPlaceholder(device)) return `id:${device?.device_id || name}`;
   return `${name}\0${platform}`;
 }
 
@@ -113,8 +113,11 @@ function adoptOfflineLegacyMac(devices) {
     else rest.push(d);
   }
   if (!legacy.length) return devices;
-  const host = rest.find(d => d.online && isMacPlatform(d.platform));
-  if (!host) return devices;
+  const hosts = rest.filter(d => d.online && isMacPlatform(d.platform));
+  // 只有一台在线 Mac 时，旧的 CLI / 桌面设备 占位行才收进来。
+  // 两台 Mac 同时在线时分不清该归谁，各自保留。
+  if (hosts.length !== 1) return devices;
+  const host = hosts[0];
   const ids = [
     ...(host.device_ids?.length ? host.device_ids : [host.device_id]),
     ...legacy.flatMap(d => (d.device_ids?.length ? d.device_ids : [d.device_id])),

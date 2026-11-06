@@ -352,6 +352,14 @@ function registerAgentHandlers() {
     });
   });
 
+  /** 版本和登录在列表返回后补齐，推给已打开的游乐场 */
+  agentExecutor.on('list:updated', (agents) => {
+    BrowserWindow.getAllWindows().forEach(win => {
+      if (win.isDestroyed()) return;
+      win.webContents.send('agent:listUpdated', agents);
+    });
+  });
+
   /** 流式解析到 CLI sessionId 时尽早同步前端（停止后续接用） */
   agentExecutor.on('task:cliSession', (data) => {
     if (!shouldBroadcastToUi(data)) return;
