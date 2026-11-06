@@ -1224,7 +1224,7 @@ export default {
   'contribute.liveTasksEmpty': 'No tasks running right now',
   'contribute.liveTaskRunning': 'Running',
   'contribute.liveTaskTrace': 'Open this chat’s trace',
-  'contribute.liveTaskTraceWait': 'Session has not started yet',
+  'contribute.liveTaskTraceWait': 'Trace for this turn is not ready yet',
   'contribute.heroOnline': 'Supplying now',
   'contribute.heroOffline': 'Not supplying yet',
   'contribute.heroSummary': '{models} models · {agents} agents · open to {scope}',

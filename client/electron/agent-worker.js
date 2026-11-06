@@ -89,6 +89,73 @@ function listContributeTasks() {
   return [...liveContributeTasks.values()].map((task) => ({ ...task }));
 }
 
+/** 正在跑的本地任务上已经记下的 CLI 会话号。 */
+function sessionIdForRunningTask(localId) {
+  if (!localId) return '';
+  try {
+    const executor = require('./agent-executor');
+    return String(executor.runningTasks?.get(localId)?.cli_session_id || '').trim();
+  } catch { return ''; }
+}
+
+/** Claude 把工作目录编成 ~/.claude/projects 下的一层目录名。 */
+function claudeProjectDir(workingDir) {
+  const abs = path.resolve(workingDir).replace(/\\/g, '/');
+  const slug = abs.replace(/^\//, '').replace(/\//g, '-');
+  return path.join(os.homedir(), '.claude', 'projects', `-${slug}`);
+}
+
+/** 目录里最新的一份会话文件，文件名即 session id。 */
+function newestSessionFile(dir) {
+  let best = '';
+  let bestMs = -1;
+  const walk = (current, depth) => {
+    if (depth > 4) return;
+    let entries;
+    try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { return; }
+    for (const ent of entries) {
+      const full = path.join(current, ent.name);
+      if (ent.isDirectory()) {
+        walk(full, depth + 1);
+        continue;
+      }
+      if (!ent.name.endsWith('.jsonl')) continue;
+      let st;
+      try { st = fs.statSync(full); } catch { continue; }
+      if (st.mtimeMs <= bestMs) continue;
+      bestMs = st.mtimeMs;
+      const stem = ent.name.replace(/\.jsonl$/i, '');
+      const uuid = stem.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+      best = uuid ? uuid[0] : stem;
+    }
+  };
+  walk(dir, 0);
+  return best;
+}
+
+/** 事件还没把会话号送上来时，按这次任务的工作目录找正在写的会话。 */
+function findSessionByWorkspace(runtime, workingDir) {
+  if (!workingDir) return '';
+  const rt = String(runtime || '');
+  if (rt && rt !== 'claude-code' && rt !== 'claude') return '';
+  return newestSessionFile(claudeProjectDir(workingDir));
+}
+
+/** 点击当前任务时解析出可打开的 Trace。 */
+function resolveContributeTrace(taskId) {
+  const task = liveContributeTasks.get(String(taskId || ''));
+  if (!task) return { error: 'task_gone' };
+  const localId = liveAgentTasks.get(task.id);
+  const runtime = task.runtime || contributeTaskRuntime(task.assistantId);
+  let sid = String(task.cliSessionId || '').trim() || sessionIdForRunningTask(localId);
+  if (!sid) sid = findSessionByWorkspace(runtime, task.workingDir);
+  if (sid && sid !== task.cliSessionId) {
+    patchContributeTask(task.id, { cliSessionId: sid, runtime: runtime || task.runtime || '' });
+  }
+  if (!sid || !runtime) return { error: 'no_session' };
+  return { agentId: runtime, sessionId: sid };
+}
+
 function patchContributeTask(taskId, patch) {
   const cur = liveContributeTasks.get(taskId);
   if (!cur) return;
@@ -928,13 +995,23 @@ async function handleAgentTask(msg, cfg) {
     }
   };
 
-  const onCliSession = (ev) => {
-    if (!trackedTaskId || !ev || ev.taskId !== trackedTaskId) return;
-    const sid = String(ev.cliSessionId || '').trim();
+  // 会话号可能比本地任务号更早到，先记下来，对上后再写进当前任务
+  let pendingCli = null;
+  const rememberCli = (sid) => {
     if (!sid || sid === knownCliSession) return;
     knownCliSession = sid;
     patchContributeTask(taskId, { cliSessionId: sid });
     pushProgress({ force: true });
+  };
+  const onCliSession = (ev) => {
+    const sid = String(ev?.cliSessionId || '').trim();
+    if (!sid) return;
+    if (!trackedTaskId) {
+      pendingCli = { taskId: ev.taskId, sid };
+      return;
+    }
+    if (ev.taskId !== trackedTaskId) return;
+    rememberCli(sid);
   };
 
   executor.on('task:step', onStep);
@@ -946,6 +1023,7 @@ async function handleAgentTask(msg, cfg) {
       name: contributeTaskName(assistantId),
       runtime: contributeTaskRuntime(assistantId),
       cliSessionId: knownCliSession || '',
+      workingDir,
       prompt: prompt.replace(/\s+/g, ' ').slice(0, 160),
       startedAt: started,
     });
@@ -969,6 +1047,7 @@ async function handleAgentTask(msg, cfg) {
     });
     trackedTaskId = localId;
     liveAgentTasks.set(taskId, localId);
+    if (pendingCli && pendingCli.taskId === trackedTaskId) rememberCli(pendingCli.sid);
     if (cancelledCloudTasks.has(taskId)) {
       try { await executor.cancel(localId); } catch { /* 轮询会看到 cancelled */ }
     }
@@ -980,6 +1059,7 @@ async function handleAgentTask(msg, cfg) {
     let status = null;
     while (Date.now() < deadline) {
       status = await executor.getTaskStatus(localId);
+      rememberCli(sessionIdForRunningTask(localId));
       if (['completed', 'failed', 'cancelled'].includes(status?.status)) break;
       await new Promise((r) => setTimeout(r, 400));
     }
@@ -1346,4 +1426,5 @@ function isRunning() { return running; }
 module.exports = {
   start, stop, isRunning, getStats, resetSuffixFromHeaders, reconnectWithLatestConfig,
   listContributeTasks,
+  resolveContributeTrace,
 };

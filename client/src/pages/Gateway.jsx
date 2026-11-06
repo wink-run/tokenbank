@@ -1867,7 +1867,7 @@ export function SessionTraceModal({ app, sessionId, traceAgentId, onClose }) {
 
         {loading ? (
           <div className="py-16 flex justify-center text-xs text-zinc-400">{t('gateway.trace.loading')}</div>
-        ) : trace?.error ? (
+        ) : (trace?.error || !trace) ? (
           <div className="py-16 text-center text-xs text-zinc-400">{t('gateway.trace.notFound')}</div>
         ) : (
           <>

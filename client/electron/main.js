@@ -2846,6 +2846,10 @@ function registerIPC() {
   ipcMain.handle('agent:stop',    () => { stopAgent();  return { running: false }; });
   ipcMain.handle('agent:status',  () => ({ running: agent.isRunning() }));
   ipcMain.handle('agent:listContributeTasks', () => ({ tasks: agent.listContributeTasks() }));
+  ipcMain.handle('agent:resolveContributeTrace', (_e, taskId) => {
+    try { return agent.resolveContributeTrace(taskId); }
+    catch (e) { return { error: e.message || 'trace_failed' }; }
+  });
   ipcMain.handle('agent:getLogs', () => [..._agentLogBuf]);
   ipcMain.handle('config:read',  () => readAgentConfig());
   ipcMain.handle('config:write', (_e, cfg) => { writeAgentConfig(cfg); return { ok: true }; });

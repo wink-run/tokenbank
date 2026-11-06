@@ -142,42 +142,74 @@ def share_author_label(nickname, email) -> str:
 
 
 def _spoken_at(msg, index: int) -> int:
-    for key in ("at", "startedAt", "finishedAt"):
-        value = msg.get(key)
-        if isinstance(value, (int, float)) and value > 0:
-            return int(value)
+    # 只认发言时间。完成时间是各端自己盖的，拿来排序会把同一句话排到不同位置
+    value = msg.get("at") if isinstance(msg, dict) else None
+    if isinstance(value, (int, float)) and value > 0:
+        return int(value)
     return index
 
 
-def _same_turn(old, new) -> bool:
-    if old.get("role") != new.get("role"):
-        return False
-    if str(old.get("content") or "").strip() != str(new.get("content") or "").strip():
-        return False
-    old_author = old.get("author") or ""
-    new_author = new.get("author") or ""
-    if old_author and new_author and old_author != new_author:
-        return False
-    old_at = _spoken_at(old, 0)
-    new_at = _spoken_at(new, 0)
-    # 同一句隔了几秒以上，就当成另一次发言
-    if old_at and new_at and abs(old_at - new_at) > 2000:
-        return False
-    return True
-
-
-def append_share_turns(existing, incoming) -> list:
-    """把后来的人接上的发言补进同一条分享，已有的句子不重复。"""
-    merged = normalize_share_messages(existing)
-    for msg in normalize_share_messages(incoming):
-        hit = next((old for old in merged if _same_turn(old, msg)), None)
-        if hit:
-            # 后写入的一方如果带了本轮耗时，补到已经落库的同一句上
-            for key in ("startedAt", "finishedAt", "durationMs"):
-                if msg.get(key) and not hit.get(key):
-                    hit[key] = msg[key]
+def _keep_reply_after_its_user(messages: list) -> None:
+    """回复若比它前面那句用户消息还早，拉回到那句话之后。"""
+    last_user_at = 0
+    for msg in messages:
+        if not isinstance(msg, dict):
             continue
+        if msg.get("role") == "user":
+            spoken = msg.get("at")
+            if isinstance(spoken, (int, float)) and spoken > 0:
+                last_user_at = int(spoken)
+            continue
+        if msg.get("role") != "assistant" or not last_user_at:
+            continue
+        spoken = msg.get("at")
+        if not isinstance(spoken, (int, float)) or int(spoken) <= last_user_at:
+            msg["at"] = last_user_at + 1
+
+
+def _turn_sig(msg: dict) -> tuple:
+    return (
+        msg.get("role"),
+        str(msg.get("content") or "").strip(),
+        str(msg.get("author") or ""),
+    )
+
+
+def _suffix_overlap(merged: list, fresh: list) -> int:
+    """incoming 开头有几句已经在云端末尾。重放同一轮时不再写一遍。"""
+    limit = min(len(merged), len(fresh))
+    best = 0
+    for k in range(1, limit + 1):
+        if [_turn_sig(m) for m in merged[-k:]] == [_turn_sig(m) for m in fresh[:k]]:
+            best = k
+    return best
+
+
+def append_share_turns(existing, incoming, now_ms: int | None = None, user_at: int | None = None) -> list:
+    """把后来的人接上的发言补进同一条分享。发言时间由云端写，不采用端上的时钟。"""
+    import time
+
+    merged = normalize_share_messages(existing)
+    fresh = normalize_share_messages(incoming)
+    overlap = _suffix_overlap(merged, fresh)
+    for old, msg in zip(merged[-overlap:] if overlap else [], fresh[:overlap]):
+        # 重放的同一句：只补耗时，不改云端已经记下的发言时间
+        for key in ("startedAt", "finishedAt", "durationMs"):
+            if msg.get(key) and not old.get(key):
+                old[key] = msg[key]
+    now = int(now_ms if now_ms is not None else time.time() * 1000)
+    spoken_user = int(user_at) if isinstance(user_at, (int, float)) and user_at > 0 else 0
+    for msg in fresh[overlap:]:
+        # 端上带来的 at 丢掉，改由云端盖时间
+        msg.pop("at", None)
+        if msg.get("role") == "user" and spoken_user:
+            msg["at"] = spoken_user
+        else:
+            now = max(now, spoken_user + 1)
+            msg["at"] = now
+            now += 1
         merged.append(msg)
+    _keep_reply_after_its_user(merged)
     ordered = list(enumerate(merged))
     ordered.sort(key=lambda item: (_spoken_at(item[1], item[0]), item[0]))
     return [msg for _, msg in ordered][-SHARE_MAX_MSGS:]

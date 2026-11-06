@@ -733,6 +733,37 @@ async def ensure_share_member(share_id: str, user_id: int, role: str = "member")
         await db.commit()
 
 
+async def list_share_participants(share_id: str) -> list[dict]:
+    """参与这条对话的人。发起人在前，只给出显示名和头像。"""
+    safe = str(share_id or "").strip()
+    if not safe:
+        return []
+    async with connect() as db:
+        async with db.execute(
+            """SELECT u.nickname, u.email, u.avatar_url, m.role
+               FROM agent_chat_share_members m
+               JOIN users u ON u.id = m.user_id
+               WHERE m.share_id=?
+               ORDER BY CASE WHEN m.role='owner' THEN 0 ELSE 1 END, m.user_id""",
+            (safe,),
+        ) as cur:
+            rows = await cur.fetchall()
+    from agent_chat_share import share_author_label
+    out = []
+    seen = set()
+    for row in rows:
+        item = dict(row)
+        name = share_author_label(item.get("nickname"), item.get("email"))
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        avatar = str(item.get("avatar_url") or "").strip()
+        if not avatar.startswith("/avatar/"):
+            avatar = ""
+        out.append({"name": name, "avatar": avatar})
+    return out
+
+
 async def list_agent_chat_history(assistant_id: str, viewer_id: int, limit: int = 5) -> list[dict]:
     """最近几条对话的标题。不读正文，点开某一条再单独取。"""
     await prune_public_agent_cards()
@@ -818,9 +849,15 @@ async def claim_share_turn(
     user_id: Optional[int] = None,
     same_author: str = "",
 ) -> bool:
-    """谁先抢到谁说。同一账号换个页面可以接上自己这一轮，不把任务号清掉。"""
+    """谁先抢到谁说。同一账号换个页面可以接上自己这一轮，不把任务号清掉。
+
+    发言时间用云端时钟。spoken_at 不再采用，避免各端时钟不一致。
+    """
+    import time
+
     uid = int(user_id) if user_id else 0
     label = str(same_author or "").strip()[:40]
+    cloud_at = int(time.time() * 1000)
     # 同一令牌、同一账号，或还没记下账号但署名就是本人：都算自己的这一轮
     keep = "turn_token=? OR (? > 0 AND turn_user_id=?) OR (? <> '' AND COALESCE(turn_user_id, 0)=0 AND turn_author=?)"
     async with connect() as db:
@@ -829,14 +866,16 @@ async def claim_share_turn(
                SET turn_token=?,
                    turn_author=?,
                    turn_text=?,
-                   turn_at=?,
+                   turn_at=CASE WHEN {keep} AND COALESCE(turn_at, 0) > 0 THEN turn_at ELSE ? END,
                    turn_user_id=CASE WHEN ? > 0 THEN ? ELSE turn_user_id END,
                    updated_at=NOW(),
                    turn_task_id=CASE WHEN {keep} THEN turn_task_id ELSE NULL END,
                    turn_started_at=CASE WHEN {keep} THEN COALESCE(turn_started_at, NOW()) ELSE NOW() END
                WHERE id=? AND (turn_token IS NULL OR turn_token='' OR {keep})""",
             (
-                token, author, text, spoken_at, uid, uid,
+                token, author, text,
+                token, uid, uid, label, label, cloud_at,
+                uid, uid,
                 token, uid, uid, label, label,
                 token, uid, uid, label, label,
                 share_id,
@@ -888,7 +927,10 @@ async def release_share_turn_for_task(task_id: str, output: str = "") -> None:
         answer = str(output or "").strip()
         if answer:
             tail.append({"role": "assistant", "content": answer[:80_000]})
-        merged = append_share_turns(existing, tail) if tail else existing
+        import time as _time
+        now_ms = int(_time.time() * 1000)
+        user_at = int(tail[0]["at"]) if tail and isinstance(tail[0].get("at"), (int, float)) else None
+        merged = append_share_turns(existing, tail, now_ms=now_ms, user_at=user_at) if tail else existing
         blob = _json.dumps(merged, ensure_ascii=False)
         preview = _preview_from_messages_json(blob)
         await db.execute(

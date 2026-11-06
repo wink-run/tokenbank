@@ -1440,7 +1440,8 @@ async def claim_agent_chat_share_turn(
         raise HTTPException(400, "missing token")
     author = (body.author or "").strip()[:40]
     text = (body.text or "").strip()[:80_000]
-    spoken = int(body.at) if isinstance(body.at, (int, float)) and body.at > 0 else 0
+    # 发言时间在 claim_share_turn 里用云端时钟写，不读端上传来的 at
+    spoken = 0
     label = ""
     if uid:
         user = await db.get_user_by_id(uid)
@@ -1495,18 +1496,23 @@ async def finish_agent_chat_share_turn(
     if uid:
         await db.ensure_share_member(safe, uid, "member")
     blob = None
+    merged = []
     if body.messages:
         try:
             existing = _json.loads(row.get("messages") or "[]")
         except Exception:
             existing = []
-        merged = append_share_turns(existing, body.messages)
+        import time as _time
+        now_ms = int(_time.time() * 1000)
+        raw_turn = row.get("turn_at")
+        user_at = int(raw_turn) if isinstance(raw_turn, (int, float)) and raw_turn > 0 else now_ms
+        merged = append_share_turns(existing, body.messages, now_ms=now_ms, user_at=user_at)
         blob = _json.dumps(merged, ensure_ascii=False)
         if len(blob) > SHARE_MAX_CHARS:
             raise HTTPException(413, "chat too large")
     if not await db.finish_share_turn(safe, token, blob):
         raise HTTPException(409, "turn lost")
-    return {"ok": True}
+    return {"ok": True, "messages": merged}
 
 
 @app.get("/api/agent-chats/shares/{share_id}")
@@ -1538,6 +1544,7 @@ async def get_agent_chat_share_route(
             "author": share_author_label(row.get("author_nickname"), row.get("author_email")),
             "created_at": created.isoformat() if hasattr(created, "isoformat") else created,
             "messages": messages,
+            "participants": await db.list_share_participants(safe),
             "turn": _public_share_turn(row, (hold or "").strip()[:40], uid),
         },
         headers={"Cache-Control": "no-store"},

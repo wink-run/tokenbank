@@ -1227,7 +1227,7 @@ export default {
   'contribute.liveTasksEmpty': '当前没有正在执行的任务',
   'contribute.liveTaskRunning': '执行中',
   'contribute.liveTaskTrace': '打开本次对话的 Trace',
-  'contribute.liveTaskTraceWait': '会话还没开始，稍后再打开 Trace',
+  'contribute.liveTaskTraceWait': '还没找到这次会话的 Trace',
   'contribute.heroOnline': '正在供给',
   'contribute.heroOffline': '尚未上线供给',
   'contribute.heroSummary': '{models} 个模型 · {agents} 个智能体 · 对 {scope} 开放',

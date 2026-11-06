@@ -177,6 +177,12 @@ button{font-family:inherit}
 .icon-btn:hover:not(:disabled){background:var(--bg-muted);color:var(--text)}
 .icon-btn:disabled{opacity:.4;cursor:not-allowed}
 .send{margin-left:auto;width:36px;height:36px;border-radius:50%;border:none;background:var(--primary);color:#fff;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:opacity .12s}
+.people{margin-left:auto;display:flex;align-items:center}
+.pav{width:26px;height:26px;margin-left:-7px;border-radius:50%;border:2px solid var(--bg);overflow:hidden;flex-shrink:0}
+.pav:first-child{margin-left:0}
+.pav img{width:100%;height:100%;object-fit:cover;display:block}
+.pav i{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#fff;font-style:normal;font-size:11px;font-weight:650}
+.box-row .people + .send{margin-left:8px}
 .send:disabled{background:#d9d5d1;cursor:not-allowed}
 .send.stop{background:var(--primary)}
 .box-meta{font-size:12px;color:var(--text-faint);margin-left:4px}

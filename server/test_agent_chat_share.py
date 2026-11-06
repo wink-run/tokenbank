@@ -47,6 +47,21 @@ def test_share_appends_later_speaker_in_time_order():
     assert append_share_turns(out, extra) == out
 
 
+def test_cloud_clock_ignores_client_and_replay_keeps_it():
+    from agent_chat_share import append_share_turns
+    # 端上各自带来的 at 不入库。用户时间用抢到发言权时的云端时间，回复用落库时间
+    incoming = [
+        {"role": "user", "content": "钟鼓楼同框", "author": "adam", "at": 17_000},
+        {"role": "assistant", "content": "图", "at": 1_000},
+    ]
+    out = append_share_turns([], incoming, now_ms=20_000, user_at=18_000)
+    assert [m["role"] for m in out] == ["user", "assistant"]
+    assert out[0]["at"] == 18_000
+    assert out[1]["at"] == 20_000
+    again = append_share_turns(out, incoming, now_ms=90_000, user_at=90_000)
+    assert [m["at"] for m in again] == [18_000, 20_000]
+
+
 def test_share_turn_expires_when_idle_or_too_long():
     from datetime import datetime, timedelta, timezone
     from agent_chat_share import share_turn_expired

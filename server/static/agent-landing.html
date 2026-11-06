@@ -273,6 +273,12 @@
               <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14.5 9.5 9.6 14.4a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3l-5.5 5.5a1 1 0 0 1-1.5-1.5L11.6 6.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
             <span class="box-meta">{{ T.enterHint }}</span>
+            <div v-if="chatPeople.length" class="people">
+              <span v-for="p in chatPeople" :key="p.name" class="pav" :title="p.name">
+                <img v-if="p.avatar" :src="p.avatar" :alt="p.name">
+                <i v-else :style="{ background: avatarColor(p.name) }">{{ p.name.slice(0, 1).toUpperCase() }}</i>
+              </span>
+            </div>
             <button v-if="running && !hasDraft" type="button" class="send stop" :title="T.pause" @click="pauseRun">
               <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1.5" fill="currentColor"/></svg>
             </button>
@@ -476,6 +482,7 @@ createApp({
     const fromShare = ref(false)
     // 正在接着聊的那条分享。新发言会补回这条记录，别人打开还是同一条历史
     const relayShareId = ref('')
+    const participants = ref([])
     // 屏幕上这份记录属于哪一条分享。轮询和发送都对着它，避免串到另一场
     let screenShareId = ''
     let viewGen = 0
@@ -548,21 +555,15 @@ createApp({
       return `tb_agent_threads:${String(aid || '').trim()}`
     }
     function messageAt(m) {
-      if (!m) return 0
-      const at = Number(m.at) || 0
-      const started = Number(m.startedAt) || 0
-      const finished = Number(m.finishedAt) || 0
-      // 回复按说完的时间排。分享创建时间曾被写进 at，会把回答排到提问前面
-      if (m.role === 'assistant') return finished || started || at || 0
-      return at || started || finished || 0
+      // 各端都用这一份发言时间。完成时间是打开页面的设备自己盖的，不拿来排序
+      return Number(m && m.at) || 0
     }
     function sameLine(a, b) {
       if (!a || !b || a.role !== b.role) return false
       if (String(a.content || '').trim() !== String(b.content || '').trim()) return false
       if (a.author && b.author && a.author !== b.author) return false
-      const ta = messageAt(a)
-      const tb = messageAt(b)
-      if (ta && tb && Math.abs(ta - tb) > 2000) return false
+      const arts = (m) => (Array.isArray(m.artifacts) ? m.artifacts.map(x => (x && x.name) || '').join('|') : '')
+      if (arts(a) !== arts(b)) return false
       return true
     }
     // 排在所有用户发言前面的回复，是被时间戳甩上去的，按顺序放回各自的提问后面
@@ -583,7 +584,7 @@ createApp({
       while (n < lead.length) out.push(lead[n++])
       return out
     }
-    // 待完成的那条留在最底下。有真实时间的按时间排，缺时间的保持原顺序
+    // 待完成的那条留在最底下。发言时间以云端记下的为准，缺时间的保持原顺序
     function sortMessages(list) {
       const pending = []
       const rest = []
@@ -596,9 +597,52 @@ createApp({
       })
       return placeRepliesAfterUsers(rest.map(x => x.m)).concat(pending.map(x => x.m))
     }
+    function takeParticipants(pack) {
+      const list = Array.isArray(pack && pack.participants) ? pack.participants : null
+      if (!list) return
+      const out = []
+      const seen = new Set()
+      for (const raw of list) {
+        const name = String(raw && raw.name || '').trim().slice(0, 40)
+        if (!name || seen.has(name)) continue
+        seen.add(name)
+        const avatar = String(raw && raw.avatar || '').trim()
+        out.push({ name, avatar: avatar.startsWith('/avatar/') ? avatar : '' })
+      }
+      participants.value = out
+    }
+    // 这条对话里发过言的人，头像优先用账号上的图
+    const chatPeople = computed(() => {
+      const known = new Map()
+      for (const p of participants.value) {
+        if (p && p.name) known.set(p.name, { name: p.name, avatar: p.avatar || '' })
+      }
+      const me = String(currentUserLabel.value || '').trim()
+      const mine = String(profile.value && profile.value.avatar_url || '').trim()
+      if (me && mine.startsWith('/avatar/')) {
+        const hit = known.get(me)
+        if (hit) { if (!hit.avatar) hit.avatar = mine }
+        else known.set(me, { name: me, avatar: mine })
+      }
+      const order = []
+      const seen = new Set()
+      for (const m of messages.value || []) {
+        if (!m || m.role !== 'user') continue
+        const name = String(m.author || '').trim()
+        if (!name || seen.has(name)) continue
+        seen.add(name)
+        order.push(known.get(name) || { name, avatar: name === me ? mine : '' })
+      }
+      for (const p of known.values()) {
+        if (!seen.has(p.name)) order.push(p)
+      }
+      return order.slice(0, 8)
+    })
     function absorbShare(into, pack) {
       if (!pack || !Array.isArray(pack.messages)) return
+      takeParticipants(pack)
       const author = String(pack.author || '').slice(0, 40)
+      const used = new Set()
       pack.messages.forEach((raw) => {
         if (!raw || (raw.role !== 'user' && raw.role !== 'assistant')) return
         const row = {
@@ -609,10 +653,18 @@ createApp({
           finishedAt: Number(raw.finishedAt) || undefined,
           shared: true,
         }
-        const hit = into.find(x => sameLine(x, row))
-        if (hit) {
+        let hitAt = -1
+        for (let n = 0; n < into.length; n += 1) {
+          if (used.has(n) || !sameLine(into[n], row)) continue
+          hitAt = n
+          break
+        }
+        if (hitAt >= 0) {
+          used.add(hitAt)
+          const hit = into[hitAt]
           if (!hit.author && row.author) hit.author = row.author
-          if (!messageAt(hit)) hit.at = row.at
+          // 服务端记下的发言时间覆盖本机后来盖上的完成时间
+          if (row.at) hit.at = row.at
           if (!hit.durationMs && row.durationMs) hit.durationMs = row.durationMs
           if (!hit.startedAt && row.startedAt) hit.startedAt = row.startedAt
           if (!hit.finishedAt && row.finishedAt) hit.finishedAt = row.finishedAt
@@ -725,9 +777,8 @@ createApp({
     }
     function messageClock(m) {
       if (!m) return ''
-      const t = m.role === 'assistant'
-        ? (Number(m.finishedAt) || Number(m.startedAt) || Number(m.at) || 0)
-        : (Number(m.at) || Number(m.startedAt) || 0)
+      // 进行中还没有发言时间，先显示开始时刻；落盘后各端都显示同一份 at
+      const t = Number(m.at) || (m.pending ? Number(m.startedAt) || 0 : 0)
       if (!t) return ''
       const d = new Date(t)
       if (Number.isNaN(d.getTime())) return ''
@@ -803,8 +854,7 @@ createApp({
       if (!row || row.role !== 'assistant' || row.pending) return
       if (!row.finishedAt) row.finishedAt = Date.now()
       if (row.startedAt && !row.durationMs) row.durationMs = Math.max(0, row.finishedAt - row.startedAt)
-      // 回复时间用说完的时刻，重新打开时才会排在用户那句话后面
-      if (row.finishedAt) row.at = row.finishedAt
+      // 发言时间只由云端写。这里只记耗时，不把本机完成时刻当成发言时间
       if (!Array.isArray(row.parts)) return
       for (const p of row.parts) {
         if (p && p.type === 'tool' && p.startedAt && !p.finishedAt) p.finishedAt = row.finishedAt
@@ -1347,6 +1397,7 @@ createApp({
           return
         }
         body = data.messages
+        takeParticipants(data)
         historyItems.value = historyItems.value.map(h => h && h.id === picked.id ? { ...h, messages: body } : h)
       }
       viewGen += 1
@@ -1354,6 +1405,7 @@ createApp({
       detachedChat.value = false
       relayShareId.value = picked.id
       screenShareId = picked.id
+      if (Array.isArray(picked.messages)) participants.value = []
       fromShare.value = true
       foreignTurn.value = null
       holdingTurn.value = false
@@ -1410,11 +1462,7 @@ createApp({
         if (data && data.detached) detachedChat.value = true
         if (data && data.relay && !data.detached) relayShareId.value = String(data.relay).slice(0, 40)
         const list = Array.isArray(data?.messages) ? data.messages : []
-        const end = Number(data?.updatedAt) || 0
-        return list.map((m, i) => {
-          if (!m || messageAt(m) || !end) return m
-          return { ...m, at: end - (list.length - i) * 1000 }
-        })
+        return list
       } catch { return [] }
     }
     async function openChat(aid) {
@@ -1672,7 +1720,7 @@ createApp({
     }
     async function claimRelayTurn(text, shareId) {
       const sid = shareId || relayShareId.value
-      if (!sid) return true
+      if (!sid) return 0
       const token = myTurnToken(sid)
       const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '/turn', {
         method: 'POST',
@@ -1681,13 +1729,13 @@ createApp({
           token,
           author: currentUserLabel.value || '',
           text,
-          at: Date.now(),
         }),
       })
       if (r.ok && data && data.ok) {
         holdingTurn.value = true
         foreignTurn.value = null
-        return true
+        // 云端抢到发言权时写下的时间，各端都显示这一份
+        return Number(data.turn && data.turn.at) || 0
       }
       const turn = data && (data.turn || (data.detail && data.detail.turn))
       if (turn) showForeignTurn(turn)
@@ -1717,11 +1765,16 @@ createApp({
         ? serializeChat(messages.value.filter(m => m && !m.pending && !m.liveTurn).slice(-2))
         : []
       try {
-        await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '/turn/finish', {
+        const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '/turn/finish', {
           method: 'POST',
           auth: !!getToken(),
           body: JSON.stringify({ token, messages: tail }),
         })
+        // 用云端写回的发言时间盖掉本机时钟
+        if (r.ok && stillHere && data && Array.isArray(data.messages) && data.messages.length) {
+          absorbShare(messages.value, data)
+          messages.value = sortMessages(messages.value)
+        }
         if (commit && stillHere) syncHistoryTranscript(sid)
       } catch { /* 锁过期后别人也能重新抢 */ }
       clearTurnToken(sid)
@@ -2477,9 +2530,10 @@ createApp({
       // 这句话只属于现在这场。抢锁期间如果换了对话，就不要写进新的那一场
       const speakShare = relayShareId.value || ''
       boundTurnShare = speakShare
+      let cloudAt = 0
       if (speakShare && !auto) {
-        const won = await claimRelayTurn(displayText, speakShare)
-        if (!won) return
+        cloudAt = await claimRelayTurn(displayText, speakShare)
+        if (cloudAt === false) return
         if (relayShareId.value !== speakShare) {
           await endRelayTurn(false)
           return
@@ -2496,7 +2550,8 @@ createApp({
         role: 'user',
         content: displayText,
         author: currentUserLabel.value || undefined,
-        at: Date.now(),
+        // 分享对话只用云端时间。没分享的本地对话仍用本机时间，不会写进云端
+        at: cloudAt || (speakShare ? undefined : Date.now()),
         images: attachUrls.length ? attachUrls.slice() : undefined,
         files: fileItems.length ? fileItems.map(p => ({ name: p.name || 'file' })) : undefined,
       })
@@ -2746,7 +2801,7 @@ createApp({
       runLabel, messageClock, activityLabel, toolElapsed, toolFriendly, toolSummary, toolStatus, thinkLine,
       renderRich, onChatClick, onImgOver, onImgOut, onImgHide, copyMsg, answerOf, downloadArtifact, isVideoFile,
       lang, T, toggleLang, backToTools, loading, fatal, showAuthGate, agent, creditsPerTask,
-      loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
+      loggedIn, profile, currentUserLabel, chatPeople, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,
       sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, fromShare, shareReadOnly, shareTurnLocked, turnLockText, agentOffline, renderMarkdown, onComposerPaste, removePendingImage,
       historyLoading, historyItems, historyCurrent, histOpen, selectHistory, deleteHistory, historyWhen, historyBy, relayShareId,
