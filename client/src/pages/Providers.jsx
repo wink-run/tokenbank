@@ -3915,7 +3915,8 @@ export default function Providers() {
     const shared = await alignSyncAccountSecretsFromCloud(cfg);
     const includeSecrets = !!shared.value;
     setSyncAccountSecrets(includeSecrets);
-    const merged = mergeRemoteAccountConfigs(local, remotes, { includeSecrets });
+    // 用户指定了设备，对方还在用的账户不受本机删除墓碑阻挡
+    const merged = mergeRemoteAccountConfigs(local, remotes, { includeSecrets, reviveRemoved: true });
     // 用当前列表计算，避免在 setState 里写副作用（Strict Mode 会跑两次）
     const allowedGw = referencedGatewayIds(merged);
     const gw = mergeGatewayProviders(providers, merged.gateway_provider_lists, {

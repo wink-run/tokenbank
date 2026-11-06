@@ -277,6 +277,55 @@ test('多台有账户的设备都可选，空心跳和过期残留不出现', ()
   assert.deepEqual(list.map(d => d.device_id), ['mac-b', 'mac-a']);
 });
 
+test('点同步时，所选设备上还在的账户盖过本机墓碑', () => {
+  const now = Date.now();
+  const removed = noteRemovedAccountIds({}, ['payg-1', 'gone'], now - 1000);
+  const remote = {
+    user_payg_providers: [{ id: 'payg-1', provider_id: 'deepseek', models: ['deepseek-v4-flash'] }],
+    user_subscriptions: [],
+    direct_source_billing: { 'claude-code': { source_id: 'claude-code', name: 'Claude Code' } },
+  };
+  const blocked = mergeRemoteAccountConfigs(
+    { user_payg_providers: [], removed_account_ids: removed, removed_direct_ids: { 'claude-code': now - 1000 } },
+    [remote],
+  );
+  assert.equal(blocked.user_payg_providers.length, 0);
+  assert.equal(blocked.direct_source_billing['claude-code'], undefined);
+
+  const revived = mergeRemoteAccountConfigs(
+    { user_payg_providers: [], removed_account_ids: removed, removed_direct_ids: { 'claude-code': now - 1000, claude: now - 1000 } },
+    [remote],
+    { reviveRemoved: true },
+  );
+  assert.equal(revived.changed, true);
+  assert.equal(revived.user_payg_providers[0].id, 'payg-1');
+  assert.equal(revived.direct_source_billing['claude-code'].name, 'Claude Code');
+  // 拉回来的 id 清掉墓碑；对方没有的删除记录还留着
+  assert.equal(revived.removed_account_ids['payg-1'], undefined);
+  assert.ok(revived.removed_account_ids.gone);
+  assert.equal(revived.removed_direct_ids['claude-code'], undefined);
+  assert.ok(revived.removed_direct_ids.claude);
+});
+
+test('只有刊例价的设备不出现在同步列表', () => {
+  const now = Date.parse('2026-11-06T05:00:00Z');
+  const list = selectSyncableDevices([
+    {
+      device_id: 'pricing-only',
+      online: true,
+      last_seen: '2026-11-06T04:00:00Z',
+      accounts_config: { provider_pricing_overrides: { deepseek: { m: { input: 1 } } }, removed_account_ids: { a: 1 } },
+    },
+    {
+      device_id: 'with-accounts',
+      online: true,
+      last_seen: '2026-11-06T04:00:00Z',
+      accounts_config: { user_payg_providers: [{ id: 'p1', provider_id: 'deepseek' }] },
+    },
+  ], 'me', { now });
+  assert.deepEqual(list.map(d => d.device_id), ['with-accounts']);
+});
+
 test('本机删除墓碑阻止已删账户从远端残留复活', () => {
   const now = Date.now();
   const removed = noteRemovedAccountIds({}, 'test', now - 1000);

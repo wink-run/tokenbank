@@ -219,16 +219,12 @@ function selectRemoteAccountConfigs(devices = [], myId = '', opts = {}) {
   return pool.map((d) => d.accounts_config);
 }
 
-/** 有账户 / 供给源可以合并。仅有「同步密钥」开关不算，避免空心跳占掉名额。 */
+/** 有订阅 / 按量 / 直连账户可合并。只有刊例价或密钥开关时，点同步只会显示「已经一致」。 */
 function hasSyncableAccounts(cfg) {
   if (!cfg || typeof cfg !== 'object') return false;
   if ((cfg.user_subscriptions || []).length) return true;
   if ((cfg.user_payg_providers || []).length) return true;
   if (Object.keys(cfg.direct_source_billing || {}).length) return true;
-  if ((cfg.gateway_providers || []).length) return true;
-  if (Object.keys(cfg.provider_pricing_overrides || {}).length) return true;
-  if (Object.keys(cfg.source_template_overrides || {}).length) return true;
-  if (Object.keys(cfg.custom_source_templates || {}).length) return true;
   return false;
 }
 
@@ -431,6 +427,7 @@ function buildAccountsConfig(accounts = {}, providers = [], opts = {}) {
 /**
  * 把其他终端的 accounts_config 并入本机快照。
  * 同 id 以本机为准，只追加缺失账户并补齐模型；已删除（墓碑）的 id 不复活。
+ * reviveRemoved：用户点了同步，所选设备上还在的账户盖过本机墓碑。
  * 返回 count 供界面提示。
  */
 function mergeRemoteAccountConfigs(local = {}, remotes = [], opts = {}) {
@@ -454,6 +451,15 @@ function mergeRemoteAccountConfigs(local = {}, remotes = [], opts = {}) {
   }
   const blockedAccountIds = new Set(Object.keys(removedAccounts));
   const blockedDirectIds = new Set(Object.keys(removedDirect));
+  // 手动同步：对方当前还挂着的账户允许写回，并在合并后清掉对应墓碑
+  if (opts.reviveRemoved) {
+    for (const raw of remoteList) {
+      if (!raw || typeof raw !== 'object') continue;
+      for (const row of raw.user_subscriptions || []) if (row && row.id) blockedAccountIds.delete(row.id);
+      for (const row of raw.user_payg_providers || []) if (row && row.id) blockedAccountIds.delete(row.id);
+      for (const id of Object.keys(raw.direct_source_billing || {})) blockedDirectIds.delete(id);
+    }
+  }
 
   const gatewayLists = [];
   for (const raw of remoteList) {
