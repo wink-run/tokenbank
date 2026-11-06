@@ -92,34 +92,48 @@ def _keep_partial_on_disconnect(msg: dict, ctx: dict) -> dict:
     return merged
 
 
+def _task_worker(ctx: dict):
+    """任务当前挂在哪台设备上。重连后续跑会换成新连接。"""
+    box = ctx.get("worker_box") if isinstance(ctx, dict) else None
+    if isinstance(box, dict) and box.get("worker") is not None:
+        return box["worker"]
+    return ctx.get("worker") if isinstance(ctx, dict) else None
+
+
 async def _iter_agent_messages(ctx: dict):
     """读队列：进度原样吐出；终态若声明还有文件，就再等一帧再结束。
 
     文件帧丢失或连接随大包断开时，已经入队的正文仍然按原状态返回。
     超时且没有任何终态时产出 None，由调用方退款。
+    断线后续跑会把 clock.deadline_at 往后推，等待期间不要提前判超时。
     """
     q = ctx["queue"]
-    worker = ctx["worker"]
     task_id = ctx["task_id"]
-    deadline = time.time() + float(ctx["timeout_sec"])
+    if not isinstance(ctx.get("clock"), dict):
+        ctx["clock"] = {"deadline_at": time.time() + float(ctx["timeout_sec"])}
+    elif not ctx["clock"].get("deadline_at"):
+        ctx["clock"]["deadline_at"] = time.time() + float(ctx["timeout_sec"])
     held = None
     file_deadline = None
 
     def _release(msg: dict) -> dict:
-        worker.pending_agents.pop(task_id, None)
+        owner = _task_worker(ctx)
+        if owner is not None:
+            owner.pending_agents.pop(task_id, None)
         out = dict(msg)
         out.pop("artifacts_follow", None)
         return out
 
     while True:
         now = time.time()
+        deadline = float(ctx["clock"]["deadline_at"])
         limit = file_deadline if held is not None and file_deadline is not None else deadline
         if now >= limit:
             break
         try:
             msg = await asyncio.wait_for(q.get(), timeout=max(0.1, limit - now))
         except asyncio.TimeoutError:
-            break
+            continue
         if not isinstance(msg, dict):
             continue
         kind = msg.get("type")
@@ -252,6 +266,26 @@ async def _finalize_agent_result(
     return done
 
 
+async def _release_share_turn(task_id: str, output: str) -> None:
+    """这轮任务结束就放开分享里的输入，避免别人一直被挡住。"""
+    try:
+        await db.release_share_turn_for_task(task_id, output)
+    except Exception:
+        logger.exception("[agent_task] release share turn failed task_id=%s", task_id)
+
+
+async def _remember_share_cli_session(share_id: str, result: dict) -> None:
+    """把这一轮的 CLI 会话记在分享上，下一个人接着聊时才能 --resume。"""
+    sid = str((result or {}).get("cli_session_id") or "").strip()[:80]
+    share = str(share_id or "").strip()
+    if not sid or not share:
+        return
+    try:
+        await db.set_share_cli_session(share, sid)
+    except Exception:
+        logger.exception("[agent_task] save cli session failed share=%s", share)
+
+
 def consumer_isolation_key(
     consumer_user_id: Optional[int],
     *,
@@ -266,6 +300,47 @@ def consumer_isolation_key(
     return f"g{digest}"
 
 
+def _share_has_assistant(share: dict) -> bool:
+    """这条分享里已经有过助手回复，下一句就是在接着聊。"""
+    try:
+        data = json.loads(share.get("messages") or "[]")
+    except Exception:
+        return False
+    if not isinstance(data, list):
+        return False
+    for item in data:
+        if not isinstance(item, dict) or item.get("role") != "assistant":
+            continue
+        if str(item.get("content") or "").strip():
+            return True
+        parts = item.get("parts")
+        if isinstance(parts, list) and parts:
+            return True
+    return False
+
+
+def share_session_binding(share: Optional[dict], speaker_key: str) -> dict:
+    """同一条分享接着聊时，沿用发起人的工作目录和 CLI 会话。
+
+    按当前发言人另开会话会丢掉已经生成的文件和上一轮上下文。
+    """
+    if not isinstance(share, dict):
+        return {"consumer_key": speaker_key, "continue_session": False, "cli_session_id": ""}
+    owner = share.get("user_id")
+    try:
+        key = f"u{int(owner)}" if owner is not None else speaker_key
+    except (TypeError, ValueError):
+        key = speaker_key
+    sid = str(share.get("cli_session_id") or "").strip()[:80]
+    # 还没记下 session id 时，用工作目录里的最近一次会话续上
+    continue_session = bool(sid) or _share_has_assistant(share)
+    return {
+        "consumer_key": key,
+        "continue_session": continue_session,
+        "cli_session_id": sid,
+    }
+
+
 async def _prepare_agent_task(
     *,
     assistant_id: str,
@@ -277,6 +352,7 @@ async def _prepare_agent_task(
     guest_ip: Optional[str] = None,
     images: Optional[list] = None,
     files: Optional[list] = None,
+    share_id: Optional[str] = None,
 ) -> tuple[Optional[dict], Optional[dict]]:
     """预检 + 下发。成功返回 (ctx, None)；失败返回 (None, error_dict)。"""
     from web_public import (
@@ -302,6 +378,18 @@ async def _prepare_agent_task(
 
     guest = consumer_user_id is None
     consumer_key = consumer_isolation_key(consumer_user_id, guest_ip=guest_ip)
+    # 分享里的下一句必须回到发起人那条会话，不能按当前发言人新开
+    continue_session = False
+    cli_session_id = ""
+    bound_share = (share_id or "").strip()[:40]
+    if bound_share:
+        share = await db.get_agent_chat_share(bound_share)
+        if not share or str(share.get("assistant_id") or "") != aid:
+            return None, {"ok": False, "error": "share not found", "status": "rejected"}
+        binding = share_session_binding(share, consumer_key)
+        consumer_key = binding["consumer_key"]
+        continue_session = binding["continue_session"]
+        cli_session_id = binding["cli_session_id"]
     if not guest:
         user = await db.get_user_by_id(consumer_user_id)
         if not user or float(user["credits_balance"] or 0) < AGENT_TASK_CREDITS:
@@ -328,12 +416,26 @@ async def _prepare_agent_task(
     worker = workers[0]
     task_id = f"at-{uuid.uuid4().hex[:12]}"
     q: asyncio.Queue = asyncio.Queue()
+    timeout_sec = max(30, (timeout_ms or AGENT_TASK_TIMEOUT_SEC * 1000) / 1000)
+    # 重连后续跑要换到新连接上，完成和退款都读这个盒子
+    worker_box = {"worker": worker}
+    clock = {"deadline_at": time.time() + timeout_sec}
     worker.pending_agents[task_id] = {
         "queue": q,
         "assistant_id": aid,
         "dispatch_time": time.time(),
         "consumer_user_id": consumer_user_id,
         "consumer_key": consumer_key,
+        "prompt": text[:50_000],
+        "timeout_ms": int(timeout_sec * 1000),
+        "continue_session": bool(continue_session),
+        "cli_session_id": cli_session_id or "",
+        "images": img_list or None,
+        "files": file_list or None,
+        "share_id": bound_share,
+        "partial_output": "",
+        "worker_box": worker_box,
+        "clock": clock,
     }
     worker.active_requests += 1
 
@@ -356,7 +458,6 @@ async def _prepare_agent_task(
                 "credits_required": AGENT_TASK_CREDITS,
             }
 
-    timeout_sec = max(30, (timeout_ms or AGENT_TASK_TIMEOUT_SEC * 1000) / 1000)
     try:
         await worker.send({
             "type": "agent_task",
@@ -367,6 +468,8 @@ async def _prepare_agent_task(
             # 出租方按调用方隔离 CLI session / 工作目录，避免多用户互相影响
             "consumer_key": consumer_key,
             "consumer_user_id": consumer_user_id,
+            "continue_session": continue_session or None,
+            "cli_session_id": cli_session_id or None,
             "images": img_list or None,
             "files": file_list or None,
         })
@@ -400,7 +503,10 @@ async def _prepare_agent_task(
         "guest": guest,
         "consumer_user_id": consumer_user_id,
         "consumer_key": consumer_key,
+        "share_id": bound_share,
         "timeout_sec": timeout_sec,
+        "worker_box": worker_box,
+        "clock": clock,
     }, None
 
 
@@ -450,18 +556,55 @@ async def cancel_agent_task(task_id: str, consumer_user_id: Optional[int]) -> bo
             })
         logger.info("[agent_task] cancelled task_id=%s user=%s", task_id, consumer_user_id)
         return True
-    return False
+    # 出租方正在重启，任务还挂在暂存里，同样可以停
+    entry = pool.find_parked_agent(task_id)
+    if not entry:
+        return False
+    if entry.get("consumer_user_id") != consumer_user_id:
+        return False
+    if entry.get("cancel_settled"):
+        return True
+    entry["cancel_settled"] = True
+    pool.pop_parked_agent(task_id)
+    owner = entry.get("consumer_user_id")
+    if owner is not None:
+        await db.award_credits(
+            user_id=owner,
+            delta=AGENT_TASK_CREDITS,
+            type_="refund",
+            model_name=f"agent:{entry.get('assistant_id') or ''}",
+            tokens=0,
+            base_credits=AGENT_TASK_CREDITS,
+            multiplier=1.0,
+            note=f"agent_task cancelled refund task_id={task_id}",
+        )
+    q = entry.get("queue")
+    if q is not None:
+        await q.put({
+            "type": "agent_task_result",
+            "task_id": task_id,
+            "status": "cancelled",
+            "error": "cancelled",
+            "output": "",
+            "cancel_settled": True,
+        })
+    logger.info("[agent_task] cancelled parked task_id=%s user=%s", task_id, consumer_user_id)
+    return True
 
 
 async def _refund_timeout(ctx: dict) -> dict:
     task_id = ctx["task_id"]
     aid = ctx["aid"]
-    worker = ctx["worker"]
+    worker = _task_worker(ctx)
     guest = ctx["guest"]
     consumer_user_id = ctx["consumer_user_id"]
     timeout_sec = ctx["timeout_sec"]
-    worker.pending_agents.pop(task_id, None)
-    worker.active_requests = max(0, worker.active_requests - 1)
+    removed = worker.pending_agents.pop(task_id, None) if worker is not None else None
+    # 还在等重连时，任务不在旧连接上，要从暂存里拿掉，避免退款后又被续跑
+    if removed is None:
+        pool.pop_parked_agent(task_id)
+    if worker is not None:
+        worker.active_requests = max(0, worker.active_requests - 1)
     if not guest:
         await db.award_credits(
             user_id=consumer_user_id,
@@ -473,7 +616,8 @@ async def _refund_timeout(ctx: dict) -> dict:
             multiplier=1.0,
             note=f"agent_task timeout refund task_id={task_id}",
         )
-    worker.record_agent_complete(aid, False)
+    if worker is not None:
+        worker.record_agent_complete(aid, False)
     partial = str(ctx.get("partial_output") or "")
     return {
         "ok": False,
@@ -496,6 +640,7 @@ async def handle_agent_task(
     guest_ip: Optional[str] = None,
     images: Optional[list] = None,
     files: Optional[list] = None,
+    share_id: Optional[str] = None,
 ) -> dict:
     """选 worker → 预扣积分 → 下发 → 等待终态结果；失败退款。"""
     ctx, err = await _prepare_agent_task(
@@ -508,8 +653,12 @@ async def handle_agent_task(
         guest_ip=guest_ip,
         images=images,
         files=files,
+        share_id=share_id,
     )
     if err:
+        if guest_ip and err.get("status") == "rejected":
+            from web_public import release_guest_trial
+            release_guest_trial(guest_ip)
         return err
     assert ctx is not None
     try:
@@ -518,17 +667,18 @@ async def handle_agent_task(
                 return await _refund_timeout(ctx)
             if msg.get("type") == "agent_task_progress":
                 continue  # 非流式忽略过程事件
+            await _remember_share_cli_session(ctx.get("share_id") or "", msg)
             return await _finalize_agent_result(
                 result=msg,
                 task_id=ctx["task_id"],
                 aid=ctx["aid"],
-                worker=ctx["worker"],
+                worker=_task_worker(ctx),
                 guest=ctx["guest"],
                 consumer_user_id=ctx["consumer_user_id"],
             )
         return await _refund_timeout(ctx)
     except Exception as e:
-        worker = ctx["worker"]
+        worker = _task_worker(ctx)
         task_id = ctx["task_id"]
         aid = ctx["aid"]
         guest = ctx["guest"]
@@ -607,6 +757,7 @@ async def _pump_agent_feed(ctx: dict, guest: bool) -> None:
             if msg is None:
                 final = await _refund_timeout(ctx)
                 _publish_agent_feed(task_id, {**final, "event": "error", "guest": guest, "need_login_to_continue": guest})
+                await _release_share_turn(task_id, final.get("output") or "")
                 return
             if msg.get("type") == "agent_task_progress":
                 _publish_agent_feed(task_id, {
@@ -618,21 +769,23 @@ async def _pump_agent_feed(ctx: dict, guest: bool) -> None:
                     "parts": _public_progress_parts(msg.get("parts")),
                 })
                 continue
+            await _remember_share_cli_session(ctx.get("share_id") or "", msg)
             final = await _finalize_agent_result(
                 result=msg,
                 task_id=task_id,
                 aid=ctx["aid"],
-                worker=ctx["worker"],
+                worker=_task_worker(ctx),
                 guest=ctx["guest"],
                 consumer_user_id=ctx["consumer_user_id"],
             )
             ev = "done" if final.get("ok") else "error"
             _publish_agent_feed(task_id, {**final, "event": ev, "guest": guest, "need_login_to_continue": guest})
+            await _release_share_turn(task_id, final.get("output") or "")
             return
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        worker = ctx["worker"]
+        worker = _task_worker(ctx)
         aid = ctx["aid"]
         guest_flag = ctx["guest"]
         consumer_user_id = ctx["consumer_user_id"]
@@ -651,6 +804,7 @@ async def _pump_agent_feed(ctx: dict, guest: bool) -> None:
             )
         worker.record_agent_complete(aid, False)
         logger.error("[agent_task] stream error task_id=%s: %s", task_id, e)
+        await _release_share_turn(task_id, "")
         _publish_agent_feed(task_id, {
             "event": "error",
             "ok": False,
@@ -674,24 +828,57 @@ def start_agent_feed(ctx: dict, guest: bool) -> None:
 
 
 async def iter_agent_feed_sse(task_id: str) -> AsyncIterator[str]:
-    """从已有事件接上。连接断开不影响任务，下一次再从这个列表继续读。"""
+    """从已有事件接上。连接断开不影响任务，下一次再从这个列表继续读。
+
+    进度是全文快照，发布时会盖掉最后一帧而不是追加。已经读过这一格的连接
+    必须看到被盖掉后的新对象，否则工具调用发生了，页面却一直停在第一段思考。
+    """
     feed = _AGENT_FEEDS.get(str(task_id or "").strip())
     if not feed:
         return
     cursor = 0
+    seen_progress = None
     while True:
         events = feed["events"]
         while cursor < len(events):
             ev = events[cursor]
+            last = cursor == len(events) - 1
+            if ev.get("event") == "progress" and last:
+                if ev is not seen_progress:
+                    seen_progress = ev
+                    yield _sse(ev)
+                break
             cursor += 1
+            if ev.get("event") == "progress":
+                if ev is not seen_progress:
+                    seen_progress = ev
+                    yield _sse(ev)
+                continue
             yield _sse(ev)
             if ev.get("event") in ("done", "error"):
                 return
+        if feed.get("finished"):
+            events = feed["events"]
+            if cursor >= len(events):
+                return
+            tail = events[-1]
+            if cursor == len(events) - 1 and tail.get("event") == "progress" and tail is seen_progress:
+                return
+        # 先清再看一眼，避免清掉刚刚写进来的那一帧
+        feed["notify"].clear()
+        events = feed["events"]
+        if cursor < len(events):
+            tail = events[-1] if events else None
+            waiting_on_same = (
+                tail
+                and cursor == len(events) - 1
+                and tail.get("event") == "progress"
+                and tail is seen_progress
+            )
+            if not waiting_on_same:
+                continue
         if feed.get("finished") and cursor >= len(feed["events"]):
             return
-        feed["notify"].clear()
-        if cursor < len(feed["events"]):
-            continue
         try:
             await asyncio.wait_for(feed["notify"].wait(), timeout=15)
         except asyncio.TimeoutError:
@@ -710,6 +897,7 @@ async def iter_agent_task_sse(
     guest_ip: Optional[str] = None,
     images: Optional[list] = None,
     files: Optional[list] = None,
+    share_id: Optional[str] = None,
 ) -> AsyncIterator[str]:
     """SSE：progress 事件推正文，done/error 收尾。页面断开后任务仍继续。"""
     ctx, err = await _prepare_agent_task(
@@ -722,8 +910,13 @@ async def iter_agent_task_sse(
         guest_ip=guest_ip,
         images=images,
         files=files,
+        share_id=share_id,
     )
     if err:
+        # 还没派到设备上：这次不算试用，避免第一条还没回复就被额度拦住
+        if guest and guest_ip and err.get("status") == "rejected":
+            from web_public import release_guest_trial
+            release_guest_trial(guest_ip)
         payload = {**err, "event": "error", "guest": guest, "need_login_to_continue": guest}
         yield _sse(payload)
         return

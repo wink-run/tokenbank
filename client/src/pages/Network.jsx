@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { getNetwork, getStats, browseCircles } from '../api/client';
 import { modelStatsForIds, normalizeNetworkPayload } from '../lib/networkModelStats';
 import { fetchServerCommunityModels } from '../lib/communityModels';
@@ -201,6 +201,11 @@ function aggregateAgentsByName(list) {
 export default function Network({ embedded = false }) {
   const { t } = useLang();
   const navigate  = useNavigate();
+  const location = useLocation();
+  // 嵌在交易页时跟交易页走；单独打开时只在网络页刷新
+  const pageActive = embedded
+    ? location.pathname === '/contribute'
+    : location.pathname === '/network';
   const [network,        setNetwork]        = useState(null);
   const [myStats,        setMyStats]        = useState(null);
   const [loading,        setLoading]        = useState(true);
@@ -210,6 +215,7 @@ export default function Network({ embedded = false }) {
   const [listTab,        setListTab]        = useState('models');
 
   useEffect(() => {
+    if (!pageActive) return undefined;
     let cancelled = false;
     async function load() {
       try {
@@ -236,9 +242,9 @@ export default function Network({ embedded = false }) {
       }
     }
     load();
-    const id = setInterval(load, 20000);
+    const id = setInterval(load, 60000);
     return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  }, [pageActive]);
 
   // 模型列表与 /v1/models 一致；节点数从 workers 聚合补充
   const modelStats = useMemo(() => {

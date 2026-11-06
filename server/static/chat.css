@@ -105,12 +105,20 @@ button{font-family:inherit}
 .uimgs img{max-width:180px;max-height:140px;border-radius:12px;object-fit:cover;display:block;border:1px solid var(--border)}
 .apart{display:block;margin:0 0 10px}
 .apart-label{display:block;font-size:11px;font-weight:650;letter-spacing:.04em;color:var(--text-muted);margin-bottom:4px}
-.apart-thinking{display:block;background:var(--bg-muted);border-radius:12px;padding:8px 12px}
-.apart-thinking .apart-body{display:block;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word;color:var(--text-2);font-size:13px;line-height:1.6}
+.apart-thinking{display:block;padding:0}
+.think-fold{background:var(--bg-muted);border:none}
+.think-fold[open] .tool-sum{display:none}
+/* 作者样式比浏览器默认更具体，不写这条的话收起后思考正文仍会整段露出来 */
+.tool-fold:not([open]) > :not(summary){display:none !important}
+.think-fold[open] .apart-body{display:block;margin:0;padding:0 12px 10px;max-height:min(50vh,420px);overflow:auto;white-space:pre-wrap;word-break:break-word;color:var(--text-2);font-size:13px;line-height:1.6}
 .apart-tool{display:block;border:1px solid var(--border);border-radius:12px;padding:0;background:var(--bg);overflow:hidden}
-.apart-tool .apart-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:12.5px;font-weight:650}
+.apart-tool .apart-name{flex-shrink:0;font-size:12.5px;font-weight:650;color:var(--text-2)}
+.tool-status{flex-shrink:0;font-size:12px;color:var(--text-muted)}
+.tool-status.err{color:var(--danger)}
+.tool-sum{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:12px;color:var(--text-muted)}
 .apart-time{margin-left:auto;font-family:var(--mono);font-size:11px;font-weight:550;color:var(--text-muted);font-variant-numeric:tabular-nums;flex-shrink:0}
 .run-time{margin-top:6px;font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.run-status{margin-top:6px;font-size:12px;color:var(--warn);font-variant-numeric:tabular-nums}
 /* 工具卡默认收起，点标题展开参数和输出 */
 .tool-fold summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 12px}
 .tool-fold summary::-webkit-details-marker{display:none}
@@ -119,6 +127,7 @@ button{font-family:inherit}
 .tool-fold:not([open]) .tool-chev::before{content:'▸'}
 .tool-fold[open] .tool-chev::before{content:'▾'}
 .apart-tool pre{margin:0;padding:0 12px 8px;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.55;max-height:160px;overflow:auto;color:var(--text-2)}
+.apart-tool pre.tool-result{color:var(--text)}
 .apart-text+.apart-text{margin-top:2px}
 .stream-caret{display:flex;margin-top:6px}
 .msg-tools{margin-top:6px;display:flex;gap:4px;opacity:0;transition:opacity .12s}
@@ -265,6 +274,7 @@ button{font-family:inherit}
 @media (max-width:640px){
   .cnav-in{padding:0 12px;gap:8px}
   .brand span,.nav-back,.who{display:none}
+  .brand .nav-title{display:inline;font-size:15px;font-weight:650;letter-spacing:-.01em}
   .cinner{padding:0 14px}
   .chead .cinner{padding-top:10px;padding-bottom:10px}
   .sugs{grid-template-columns:minmax(0,1fr)}

@@ -55,6 +55,51 @@ def _same_user_terminal(old, new) -> bool:
     return old_name.casefold() == new_name.casefold()
 
 
+def _terminal_key(worker) -> Optional[str]:
+    """同一账号、同一台设备的暂存键。没有设备号时用注册名。"""
+    uid = getattr(worker, "user_id", None)
+    if uid is None:
+        return None
+    dev = str(getattr(worker, "device_id", None) or "").strip()
+    if dev:
+        return f"{uid}\0{dev}"
+    name = str(getattr(worker, "name", None) or "").strip()
+    if not name or name.startswith("worker-"):
+        return None
+    return f"{uid}\0n:{name.casefold()}"
+
+
+# 出租方重启 Token Bank 的等待窗口。这段时间内上架名单和未完成任务都留着
+AGENT_RECONNECT_GRACE_SEC = 90
+# 已经开跑的任务重连后不再把原提示重发一遍，只让 CLI 从会话里接着做
+AGENT_RESUME_PROMPT = "上一次执行被中断了。请从中断处继续完成，不要重头再做。"
+
+
+def agent_resume_message(task_id: str, entry: dict) -> dict:
+    """重连后下发的续跑帧。已经产出过内容或有会话号时，用 --resume 接着做。"""
+    sid = str((entry or {}).get("cli_session_id") or "").strip()
+    partial = str((entry or {}).get("partial_output") or "").strip()
+    started = bool(sid or partial)
+    prompt = AGENT_RESUME_PROMPT if started else str((entry or {}).get("prompt") or "")
+    body = {
+        "type": "agent_task",
+        "task_id": task_id,
+        "assistant_id": (entry or {}).get("assistant_id"),
+        "prompt": prompt[:50_000],
+        "timeout_ms": int((entry or {}).get("timeout_ms") or 600_000),
+        "consumer_key": (entry or {}).get("consumer_key"),
+        "consumer_user_id": (entry or {}).get("consumer_user_id"),
+        "continue_session": True if started else ((entry or {}).get("continue_session") or None),
+        "cli_session_id": sid or None,
+    }
+    if not started:
+        if (entry or {}).get("images"):
+            body["images"] = entry["images"]
+        if (entry or {}).get("files"):
+            body["files"] = entry["files"]
+    return body
+
+
 @dataclass
 class WorkerConnection:
     ws: object
@@ -312,6 +357,11 @@ class WorkerPool:
         self._agent_hire_counts: dict[str, int] = {}
         # 节点×模型冷却：key=worker_id::model → until epoch 秒（失败下沉，成功清除）
         self._cooldowns: dict[str, float] = {}
+        # 同一台设备上次成功上报的上架名单。重启后先用这份，探测完成再覆盖
+        self._agent_cards: dict[str, list] = {}
+        # 断线后暂存的武将任务，同一台设备重连后接着跑
+        self._agent_resume: dict[str, dict] = {}
+        self._agent_resume_token: dict[str, int] = {}
 
     @staticmethod
     def _cool_key(worker_id: str, model: str) -> str:
@@ -384,6 +434,9 @@ class WorkerPool:
         ] if uid is not None else []
         if stale:
             for w in stale:
+                # 先把进行中的任务挪走，旧连接的收尾才不会把它们判失败
+                self.remember_agent_cards(w)
+                self.park_agent_tasks(w)
                 try:
                     self._workers.remove(w)
                 except ValueError:
@@ -410,6 +463,132 @@ class WorkerPool:
             self._workers.remove(worker)
         except ValueError:
             pass
+
+    def remember_agent_cards(self, worker: WorkerConnection) -> None:
+        """记下这一端当前上架的名片。空名单不覆盖，避免重启瞬间把上次的上架清掉。"""
+        key = _terminal_key(worker)
+        cards = [
+            dict(c) for c in (getattr(worker, "agents", None) or [])
+            if isinstance(c, dict) and str(c.get("id") or "").strip()
+        ]
+        if key and cards:
+            self._agent_cards[key] = cards
+
+    def restore_agent_cards(self, worker: WorkerConnection) -> bool:
+        """注册时还没探测完，先挂回这一端上次的上架名单。"""
+        if getattr(worker, "agents", None):
+            self.remember_agent_cards(worker)
+            return False
+        key = _terminal_key(worker)
+        saved = self._agent_cards.get(key) if key else None
+        if not saved:
+            return False
+        worker.agents = [dict(c) for c in saved]
+        return True
+
+    def forget_agent_cards(self, worker: WorkerConnection) -> None:
+        """这一端明确下架光了，重连不要再把旧名单挂回去。"""
+        key = _terminal_key(worker)
+        if key:
+            self._agent_cards.pop(key, None)
+
+    def park_agent_tasks(self, worker: WorkerConnection) -> Optional[dict]:
+        """断线时先留住进行中的武将任务。同一台设备在宽限内重连就接着跑。"""
+        if getattr(worker, "_agent_tasks_handed_off", False):
+            return None
+        entries = dict(getattr(worker, "pending_agents", None) or {})
+        worker.pending_agents.clear()
+        worker._agent_tasks_handed_off = True
+        self.remember_agent_cards(worker)
+        if not entries:
+            return None
+        # 等待重连的这段时间不计入任务超时
+        for entry in entries.values():
+            clock = entry.get("clock") if isinstance(entry, dict) else None
+            if isinstance(clock, dict) and clock.get("deadline_at"):
+                clock["deadline_at"] = float(clock["deadline_at"]) + AGENT_RECONNECT_GRACE_SEC
+        key = _terminal_key(worker)
+        if not key:
+            return {"orphan": entries}
+        token = int(self._agent_resume_token.get(key, 0)) + 1
+        self._agent_resume_token[key] = token
+        self._agent_resume[key] = {"entries": entries, "token": token}
+        self._arm_agent_resume_expiry(key, token)
+        return {"key": key, "token": token}
+
+    def adopt_parked_agent_tasks(self, worker: WorkerConnection) -> list:
+        """重连后把暂存任务交回这台设备。返回 [(task_id, entry), ...]。"""
+        key = _terminal_key(worker)
+        if not key:
+            return []
+        parked = self._agent_resume.get(key)
+        if not parked or parked.get("token") != self._agent_resume_token.get(key):
+            return []
+        self._agent_resume.pop(key, None)
+        adopted = []
+        for tid, entry in list((parked.get("entries") or {}).items()):
+            if not isinstance(entry, dict) or entry.get("cancel_settled"):
+                continue
+            box = entry.get("worker_box")
+            if isinstance(box, dict):
+                box["worker"] = worker
+            worker.pending_agents[tid] = entry
+            worker.active_requests = int(getattr(worker, "active_requests", 0) or 0) + 1
+            adopted.append((tid, entry))
+        return adopted
+
+    def expire_parked_agent_tasks(self, key: str, token: int) -> dict:
+        """宽限过了还没连回来，把这些任务交回去判失败。"""
+        parked = self._agent_resume.get(key)
+        if not parked or parked.get("token") != token:
+            return {}
+        self._agent_resume.pop(key, None)
+        return dict(parked.get("entries") or {})
+
+    def find_parked_agent(self, task_id: str):
+        for parked in self._agent_resume.values():
+            entry = (parked.get("entries") or {}).get(task_id)
+            if entry:
+                return entry
+        return None
+
+    def pop_parked_agent(self, task_id: str):
+        for key, parked in list(self._agent_resume.items()):
+            entries = parked.get("entries") or {}
+            if task_id not in entries:
+                continue
+            entry = entries.pop(task_id)
+            if not entries:
+                self._agent_resume.pop(key, None)
+            return entry
+        return None
+
+    def _arm_agent_resume_expiry(self, key: str, token: int) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self._expire_agent_resume(key, token))
+
+    async def _expire_agent_resume(self, key: str, token: int) -> None:
+        await asyncio.sleep(AGENT_RECONNECT_GRACE_SEC)
+        entries = self.expire_parked_agent_tasks(key, token)
+        for tid, entry in entries.items():
+            if not isinstance(entry, dict) or entry.get("cancel_settled"):
+                continue
+            q = entry.get("queue")
+            if q is None:
+                continue
+            try:
+                await q.put({
+                    "type": "agent_task_result",
+                    "task_id": tid,
+                    "status": "failed",
+                    "error": "worker disconnected",
+                    "output": str(entry.get("partial_output") or ""),
+                })
+            except Exception:
+                logger.exception("[worker_pool] expire parked agent failed task_id=%s", tid)
 
     def sync_virtual(self, agents: list[dict]) -> None:
         """从数据库 agent 列表重建虚拟 Worker 列表，立即生效。"""

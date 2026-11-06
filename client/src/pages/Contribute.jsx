@@ -1613,6 +1613,81 @@ function CommunityApiExample({ assistantId, owner, hired, t }) {
   );
 }
 
+/** 已进行时长：m:ss，超过一小时再带上小时。 */
+function fmtTaskElapsed(ms) {
+  const sec = Math.max(0, Math.floor(Number(ms) / 1000));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  const h = Math.floor(m / 60);
+  if (h > 0) return `${h}:${String(m % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/** 上架页：本机正在为雇佣方执行的智能体任务。浏览器里没有这份列表。 */
+function LiveRentals({ pageActive, onCount }) {
+  const { t } = useLang();
+  const [tasks, setTasks] = useState([]);
+  const [now, setNow] = useState(() => Date.now());
+  const supported = typeof window !== 'undefined' && !!window.electronAPI?.agent?.listContributeTasks;
+
+  useEffect(() => {
+    onCount?.(tasks.length);
+  }, [tasks.length, onCount]);
+
+  useEffect(() => {
+    if (!supported) return undefined;
+    let cancelled = false;
+    window.electronAPI.agent.listContributeTasks()
+      .then((r) => { if (!cancelled) setTasks(Array.isArray(r?.tasks) ? r.tasks : []); })
+      .catch(() => {});
+    const off = window.electronAPI.agent.onContributeTasks?.((list) => {
+      if (!cancelled) setTasks(Array.isArray(list) ? list : []);
+    });
+    return () => { cancelled = true; off?.(); };
+  }, [supported]);
+
+  useEffect(() => {
+    if (!pageActive || tasks.length === 0) return undefined;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [pageActive, tasks.length]);
+
+  if (!supported) return null;
+
+  return (
+    <section className={`${LIB_LIST_CLS} p-4 space-y-2`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-zinc-700 dark:text-zinc-200">{t('contribute.liveTasks')}</span>
+        {tasks.length > 0 && (
+          <span className="text-[11px] tabular-nums text-zinc-400">{tasks.length}</span>
+        )}
+      </div>
+      <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('contribute.liveTasksHint')}</p>
+      {tasks.length === 0 ? (
+        <p className="text-xs text-zinc-400 dark:text-zinc-500">{t('contribute.liveTasksEmpty')}</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {tasks.map((task) => (
+            <li key={task.id} className="rounded-lg border border-zinc-200/80 dark:border-white/[0.08] bg-white/60 dark:bg-zinc-900/40 px-3 py-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xs font-medium text-zinc-800 dark:text-zinc-100 truncate">{task.name || task.assistantId}</span>
+                <span className="shrink-0 text-[10px] text-green-600 dark:text-green-400">{t('contribute.liveTaskRunning')}</span>
+                <span className="ml-auto shrink-0 text-[10px] tabular-nums text-zinc-400">
+                  {fmtTaskElapsed(now - Number(task.startedAt || now))}
+                </span>
+              </div>
+              {task.prompt && (
+                <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 truncate">{task.prompt}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 /** 运行时展示名 */
 function runtimeLabel(rt) {
   const map = { 'claude-code': 'Claude Code', codex: 'Codex', cursor: 'Cursor', 'kimi-code': 'Kimi Code', workbuddy: 'WorkBuddy', gemini: 'Gemini CLI' };
@@ -1631,6 +1706,7 @@ export default function Contribute() {
   const [agentsRefreshKey, setAgentsRefreshKey] = useState(0);
   const logRef = useRef(null);
   const location = useLocation();
+  const pageActive = location.pathname === '/contribute';
   const [tab, setTab] = useState(() => {
     try { return localStorage.getItem('tokenbank.trade.tab') || 'hire'; } catch { return 'hire'; }
   });
@@ -1640,6 +1716,7 @@ export default function Contribute() {
   const [focusAgent, setFocusAgent] = useState(null);
   const [circlesView, setCirclesView] = useState('mine');
   const [circleResult, setCircleResult] = useState(null);
+  const [liveTaskCount, setLiveTaskCount] = useState(0);
 
   useEffect(() => {
     Promise.all([listMyCircles(), listJoinedCircles()])
@@ -1685,8 +1762,8 @@ export default function Contribute() {
       return unsub;
     }
 
-    // Docker / CLI：轮询 admin-api
-    if (!useAgentPolling()) return undefined;
+    // Docker / CLI：只在交易页轮询 admin-api
+    if (!pageActive || !useAgentPolling()) return undefined;
     let cancelled = false;
     async function poll() {
       try {
@@ -1700,33 +1777,35 @@ export default function Contribute() {
     poll();
     const id = setInterval(poll, 2000);
     return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  }, [pageActive]);
 
   useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [logs]);
 
   useEffect(() => {
+    if (!pageActive) return undefined;
     function poll() {
       getStats().then(r => {
         setStats(r.data);
       }).catch(() => {});
     }
     poll();
-    const id = setInterval(poll, 15000);
+    const id = setInterval(poll, 60000);
     return () => clearInterval(id);
-  }, [lang]);
+  }, [lang, pageActive]);
 
   useEffect(() => {
+    if (!pageActive) return undefined;
     function loadSummary() {
       getContributeSummary().then(r => setSummary(r.data)).catch(() => {});
     }
     loadSummary();
-    const id = setInterval(loadSummary, 30000);
+    const id = setInterval(loadSummary, 60000);
     return () => clearInterval(id);
-  }, []);
+  }, [pageActive]);
 
   // KeepAlive 下只挂载一次：登录就绪后拉取，并定时刷新，避免首次失败后一直「暂无」
   useEffect(() => {
-    if (!user?.id) return undefined;
+    if (!pageActive || !user?.id) return undefined;
     let cancelled = false;
     function loadSettlements() {
       getSettlements()
@@ -1739,12 +1818,12 @@ export default function Contribute() {
         });
     }
     loadSettlements();
-    const id = setInterval(loadSettlements, 30000);
+    const id = setInterval(loadSettlements, 60000);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [user?.id]);
+  }, [pageActive, user?.id]);
 
   async function handleStart() {
     setAgentError('');
@@ -1776,7 +1855,7 @@ export default function Contribute() {
 
   const TABS = [
     { id: 'hire', label: t('contribute.tab.hire') },
-    { id: 'supply', label: t('contribute.tab.supply') },
+    { id: 'supply', label: t('contribute.tab.supply'), count: liveTaskCount || null },
     { id: 'circles', label: t('contribute.tab.circles'), count: myCircles?.length || null },
     { id: 'earnings', label: t('contribute.tab.earnings'), count: settlements.length || null },
     { id: 'network', label: t('contribute.tab.network'), icon: '🌐' },
@@ -1847,6 +1926,7 @@ export default function Contribute() {
         </div>
 
         <div className={tab === 'supply' ? 'space-y-2' : 'hidden'}>
+          <LiveRentals pageActive={pageActive && tab === 'supply'} onCount={setLiveTaskCount} />
           <ContributionConfigCard
             onStart={handleStart}
             onStop={handleStop}

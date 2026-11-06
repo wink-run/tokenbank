@@ -67,7 +67,7 @@ import LlmSessionHistoryPanel from '../components/LlmSessionHistoryPanel';
 import LocalFilePreviewHost from '../components/LocalFilePreview';
 import { StreamMarkdownContent } from '../components/RichMediaContent';
 import { openLocalPath } from '../lib/local-path';
-import { saveAgentSessionSnapshot, saveLlmSessionSnapshot, listAgentSessionSnapshots, listLlmSessionSnapshots, findAgentSessionForContinue } from '../lib/debug-session-history';
+import { saveAgentSessionSnapshot, saveLlmSessionSnapshot, listAgentSessionSnapshots, listLlmSessionSnapshots, findAgentSessionForContinue, historySnapshotMatchesOpenSession, isAgentHistoryTaskHidden } from '../lib/debug-session-history';
 import {
   B64_OMITTED, persistImageList, resolveImageList, serializeImageSrc, isImageRef,
   collectImageRefIds, deleteUnreferencedImageIds, fileMarker,
@@ -1196,6 +1196,28 @@ export default function Debug() {
     applyHistorySnapshot(execKey, snapshot);
   }
 
+  /** 删掉的历史正是当前窗口时，清掉气泡。不归档，否则刚删的会话会写回去。 */
+  function forgetOpenSessionIfDeleted(item) {
+    const execKey = agentSessionKey(selectedAgent);
+    const sess = getStoreSession(execKey);
+    if (!historySnapshotMatchesOpenSession(item, sess)) return;
+    const keepDir = normalizeWorkingDir(
+      sess.sessionWorkingDir || agentWorkingDir || loadAgentWorkingDir(),
+    );
+    const wipe = () => {
+      clearSessionTaskState(execKey);
+      if (keepDir) patchStoreSession(execKey, { sessionWorkingDir: keepDir });
+      syncSessionToState(execKey);
+    };
+    if (sess.executing || sess.currentTask) {
+      wipe();
+      // 停止会把 cli 会话号写回，清完再抹一次
+      cancelAgent().finally(wipe);
+      return;
+    }
+    wipe();
+  }
+
   const panel = panels.main;
   const { streamMode, imageMode, imageRatio, imageResolution } = panel;
   const activeLane = panel[panelLaneKey(imageMode)] || defaultLane();
@@ -1411,9 +1433,10 @@ export default function Debug() {
       }
 
       if (!window.electronAPI?.agent?.listRecentTasks) return;
-      const res = await window.electronAPI.agent.listRecentTasks({ agentId: syncKey, limit: 1 });
+      const res = await window.electronAPI.agent.listRecentTasks({ agentId: syncKey, limit: 8 });
       if (!res.success || !res.tasks?.length) return;
-      const recent = res.tasks[0];
+      const recent = res.tasks.find(task => task?.id && !isAgentHistoryTaskHidden(task.id));
+      if (!recent) return;
       mergeTaskIntoStore(recent);
       syncSessionToStateRef.current?.(syncKey);
     } catch (err) {
@@ -3928,6 +3951,7 @@ export default function Debug() {
         agentLabel={isHubMode ? t('debug.agent.hubLabel', { name: mainAgent?.name || '' }) : selectedAgent?.name}
         listAgentId={isHubMode ? mainAgent?.id : selectedAgent?.id}
         onRestore={restoreHistorySession}
+        onDeleted={forgetOpenSessionIfDeleted}
       />
 
       {/* 全屏预览挂到 body；须 electron-no-drag，否则顶部拖拽条会吞掉关闭点击 */}

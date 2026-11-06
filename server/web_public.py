@@ -49,6 +49,19 @@ def guest_trial_allowed(ip: str, *, now: float | None = None, limit: int = GUEST
     return True
 
 
+def release_guest_trial(ip: str) -> None:
+    """任务没真正开始就失败时，退回刚扣的一次额度。"""
+    key = (ip or "unknown").strip() or "unknown"
+    hits = _guest_hits.get(key)
+    if not hits:
+        return
+    hits.pop()
+    if hits:
+        _guest_hits[key] = hits
+    else:
+        _guest_hits.pop(key, None)
+
+
 def validate_guest_web_chat_messages(messages: list) -> None:
     """访客仅允许单轮：一条 user 消息，无历史。"""
     if len(messages) != 1 or messages[0].get("role") != "user":

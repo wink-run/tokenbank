@@ -5,6 +5,7 @@ import { serializeImageSrc } from './debug-image-store.js';
 
 const STORAGE_KEY = 'tokenbank.debug.agentSessions';
 const LLM_STORAGE_KEY = 'tokenbank.debug.llmSessions';
+const HIDDEN_TASKS_KEY = 'tokenbank.debug.hiddenAgentTasks';
 const MAX_PER_AGENT = 40;
 const MAX_LLM = 40;
 const LLM_CHAT_MAX = 200;
@@ -507,6 +508,58 @@ export function deleteAgentSessionSnapshot(id) {
   const store = readStore();
   store.items = store.items.filter(it => it.id !== id);
   writeStore(store);
+}
+
+function readHiddenTaskIds() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(HIDDEN_TASKS_KEY) || '[]');
+    return new Set(Array.isArray(raw) ? raw.map(id => String(id)) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** 从历史里删掉的任务。数据库里的单轮记录没有本地快照，靠这份名单不再出现。 */
+export function hideAgentHistoryTasks(taskIds) {
+  const incoming = (taskIds || []).map(id => String(id || '').trim()).filter(Boolean);
+  if (!incoming.length) return;
+  const cur = [...readHiddenTaskIds(), ...incoming];
+  const seen = new Set();
+  const kept = [];
+  for (let i = cur.length - 1; i >= 0 && kept.length < 400; i -= 1) {
+    if (seen.has(cur[i])) continue;
+    seen.add(cur[i]);
+    kept.push(cur[i]);
+  }
+  kept.reverse();
+  try { localStorage.setItem(HIDDEN_TASKS_KEY, JSON.stringify(kept)); } catch { /* ignore */ }
+}
+
+export function isAgentHistoryTaskHidden(taskId) {
+  const id = String(taskId || '').trim();
+  if (!id) return false;
+  return readHiddenTaskIds().has(id);
+}
+
+/** 这条历史是不是当前窗口正在看的那场。只认线程键或同一 task。 */
+export function historySnapshotMatchesOpenSession(item, sess) {
+  if (!item || !sess) return false;
+  const thread = String(sess.historyThreadId || '').trim();
+  const key = String(item.sessionKey || '').trim();
+  if (thread && key && thread === key) return true;
+
+  const savedIds = new Set(
+    (item.conversationTurns || [])
+      .map(t => String(t?.taskId || '').trim())
+      .filter(Boolean),
+  );
+  if (!savedIds.size) return false;
+  const openIds = (sess.conversationTurns || [])
+    .map(t => String(t?.taskId || '').trim())
+    .filter(Boolean);
+  const live = String(sess.currentTask?.id || '').trim();
+  if (live) openIds.push(live);
+  return openIds.some(id => savedIds.has(id));
 }
 
 /** 保存 LLM Playground 会话（有用户消息时） */

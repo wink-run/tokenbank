@@ -21,6 +21,7 @@ const {
   validateAssistantEligible,
   isContributedAppId,
   contributedAppRuntime,
+  RENTABLE_APPS,
 } = require('./contribute-assistants');
 const {
   resolveConsumerKey,
@@ -32,6 +33,8 @@ const {
 // 云端任务号 → 本机执行器任务，供中途暂停时杀掉 CLI
 const liveAgentTasks = new Map();
 const cancelledCloudTasks = new Set();
+// 正在为雇佣方执行的任务，贡献页用来展示。只留展示字段，不放正文
+const liveContributeTasks = new Map();
 
 // 贡献者 worker 回传上游错误时，把上游的限流/配额重置时刻从响应头(Retry-After / *-ratelimit-*-reset)
 // 解析出来、规范成 " (reset at <ISO+00:00>)" 追加到错误文本——这些头在 p2p 多跳中会丢，但错误文本
@@ -50,6 +53,30 @@ let ws = null;
 let running = false;
 let _onLog = null;
 let _onStatus = null;
+let _onTasks = null;
+
+/** 出租任务在贡献页上显示的名字：本机应用用 CLI 名，智能体用资源名。 */
+function contributeTaskName(assistantId) {
+  const runtime = contributedAppRuntime(assistantId);
+  if (runtime) return RENTABLE_APPS[runtime] || runtime;
+  try {
+    const resourceManager = require('./resource-manager');
+    if (typeof resourceManager.init === 'function') resourceManager.init();
+    const list = resourceManager.listResources?.({ type: 'assistant' }) || [];
+    const hit = list.find((r) => r && r.id === assistantId);
+    if (hit) return String(hit.display_name || hit.name || assistantId);
+  } catch { /* 名字解析失败就用 id */ }
+  return String(assistantId || '');
+}
+
+function listContributeTasks() {
+  return [...liveContributeTasks.values()].map((task) => ({ ...task }));
+}
+
+function publishContributeTasks() {
+  _onTasks?.(listContributeTasks());
+}
+
 /** 主动重连时忽略 close 触发的自动重连，避免双连接 */
 let _skipAutoReconnect = false;
 /** 断线后退避，避免云端一抖动就每 5 秒打一次 */
@@ -742,6 +769,8 @@ async function handleAgentTask(msg, cfg) {
   let trackedTaskId = null;
   let textAcc = '';
   let lastProgressAt = 0;
+  // 进程一拿到 CLI 会话号就上报，出租方重启后续跑才能 --resume
+  let knownCliSession = String(msg.cli_session_id || '').trim();
   // 分段记录：后一句另起一段，不盖掉前一句；思考和工具各自成段
   const parts = [];
 
@@ -847,6 +876,7 @@ async function handleAgentTask(msg, cfg) {
       task_id: taskId,
       text: String(textAcc || '').slice(0, 200_000),
       parts: publicParts(),
+      cli_session_id: knownCliSession || undefined,
       ...extra,
     });
   }
@@ -875,8 +905,25 @@ async function handleAgentTask(msg, cfg) {
     }
   };
 
+  const onCliSession = (ev) => {
+    if (!trackedTaskId || !ev || ev.taskId !== trackedTaskId) return;
+    const sid = String(ev.cliSessionId || '').trim();
+    if (!sid || sid === knownCliSession) return;
+    knownCliSession = sid;
+    pushProgress({ force: true });
+  };
+
   executor.on('task:step', onStep);
+  executor.on('task:cliSession', onCliSession);
   try {
+    liveContributeTasks.set(taskId, {
+      id: taskId,
+      assistantId,
+      name: contributeTaskName(assistantId),
+      prompt: prompt.replace(/\s+/g, ' ').slice(0, 160),
+      startedAt: started,
+    });
+    publishContributeTasks();
     // 社区任务本轮附图 / 文件（data URL）→ executor 落盘
     const attachImages = Array.isArray(msg.images) ? msg.images : [];
     const attachFiles = Array.isArray(msg.files) ? msg.files : [];
@@ -888,8 +935,9 @@ async function handleAgentTask(msg, cfg) {
       clientId: 'contribute',
       sessionKey,
       workingDir,
-      // 接单一律新开 CLI 会话；多轮上下文由调用方在 prompt 中携带
-      continueSession: false,
+      // 分享续聊带回上一轮 CLI 会话；没有 id 时用该工作目录最近一次（-c）
+      continueSession: !!msg.continue_session,
+      cliSessionId: String(msg.cli_session_id || '').trim() || undefined,
       images: attachImages.length ? attachImages : undefined,
       files: attachFiles.length ? attachFiles : undefined,
     });
@@ -960,6 +1008,7 @@ async function handleAgentTask(msg, cfg) {
     textAcc = finalText;
 
     const ok = status?.status === 'completed';
+    const cliSessionId = String(status?.result?.cliSessionId || '').trim();
     const finalBody = String(textAcc || output || '');
     // 工作目录里本轮写出的图片和文件，回传给网页展示或下载
     let artifacts = [];
@@ -987,6 +1036,7 @@ async function handleAgentTask(msg, cfg) {
       output: finalBody.slice(0, 200_000),
       error: ok ? null : (status?.error || status?.result?.output || 'failed'),
       usage: { duration_ms: Date.now() - started },
+      cli_session_id: cliSessionId || undefined,
       artifacts: inlineArtifacts || undefined,
       artifacts_follow: inlineArtifacts ? undefined : (artifacts.length ? true : undefined),
     });
@@ -1012,8 +1062,10 @@ async function handleAgentTask(msg, cfg) {
     });
   } finally {
     executor.off('task:step', onStep);
+    executor.off('task:cliSession', onCliSession);
     liveAgentTasks.delete(taskId);
     cancelledCloudTasks.delete(taskId);
+    if (liveContributeTasks.delete(taskId)) publishContributeTasks();
   }
 }
 
@@ -1071,13 +1123,11 @@ function connect(cfg) {
         log('[agent] agents: (none — contribute list empty or filtered)');
       }
       if (thisSocket.readyState === WebSocket.OPEN) {
-        thisSocket.send(JSON.stringify({ type: 'agents_update', agents }));
+        // agents_ready：这是探测完的真实勾选。失败时不发空名单，避免把上次上架清掉
+        thisSocket.send(JSON.stringify({ type: 'agents_update', agents, agents_ready: true }));
       }
     }).catch((e) => {
       log(`[agent] agents card build failed: ${e.message}`);
-      if (thisSocket.readyState === WebSocket.OPEN) {
-        thisSocket.send(JSON.stringify({ type: 'agents_update', agents: [] }));
-      }
     });
     if (!cachedIp) {
       fetchPublicIp().then((ip) => {
@@ -1165,6 +1215,12 @@ function connect(cfg) {
     }
 
     if (msg.type === 'agent_task') {
+      const cloudId = String(msg.task_id || '').trim();
+      // 连接抖了一下但本机还在跑：不要再开一个 CLI，原来的进程会从新连接把进度送回去
+      if (cloudId && liveAgentTasks.has(cloudId)) {
+        log(`[agent] task ${cloudId} still running locally, skip redispatch`);
+        return;
+      }
       activeRequests++;
       try {
         await handleAgentTask(msg, liveCfg);
@@ -1209,10 +1265,11 @@ function reconnectWithLatestConfig() {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-function start({ onLog, onStatus } = {}) {
+function start({ onLog, onStatus, onTasks } = {}) {
   console.log('[agent-worker] start called, running=', running);
   if (onLog) _onLog = onLog;
   if (onStatus) _onStatus = onStatus;
+  if (onTasks) _onTasks = onTasks;
 
   // 已在跑：热重载配置（否则新勾选的武将不会出现在社区列表）
   if (running) {
@@ -1260,4 +1317,7 @@ function stop() {
 
 function isRunning() { return running; }
 
-module.exports = { start, stop, isRunning, getStats, resetSuffixFromHeaders, reconnectWithLatestConfig };
+module.exports = {
+  start, stop, isRunning, getStats, resetSuffixFromHeaders, reconnectWithLatestConfig,
+  listContributeTasks,
+};

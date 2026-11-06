@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom';
 import {
   deleteAgentSessionSnapshot,
   formatSessionTime,
+  hideAgentHistoryTasks,
+  isAgentHistoryTaskHidden,
   listAgentSessionSnapshots,
   saveAgentSessionSnapshot,
 } from '../lib/debug-session-history';
@@ -52,6 +54,7 @@ export default function AgentSessionHistoryPanel({
   agentLabel,
   listAgentId,
   onRestore,
+  onDeleted,
 }) {
   const { t } = useLang();
   const [localItems, setLocalItems] = useState([]);
@@ -85,7 +88,7 @@ export default function AgentSessionHistoryPanel({
       const orphans = [];
       for (const task of res.tasks) {
         if (!taskMatchesSessionKey(task, agentKey)) continue;
-        if (localTaskIds.has(task.id)) continue;
+        if (isAgentHistoryTaskHidden(task.id) || localTaskIds.has(task.id)) continue;
 
         // 每次循环用最新本地列表，便于同会话连续并入多条 DB 任务
         locals = listAgentSessionSnapshots(agentKey);
@@ -201,11 +204,24 @@ export default function AgentSessionHistoryPanel({
     }
   }
 
+  function taskIdsOf(item) {
+    const ids = (item?.conversationTurns || []).map(t => t?.taskId).filter(Boolean);
+    if (item?.taskId) ids.push(item.taskId);
+    return ids;
+  }
+
   function handleDelete(e, item) {
     e.stopPropagation();
-    if (item.source !== 'local') return;
-    deleteAgentSessionSnapshot(item.id);
-    refreshLocal();
+    // 数据库里的单轮任务没有本地快照，记下 id 才不会下次又冒出来
+    hideAgentHistoryTasks(taskIdsOf(item));
+    if (item.source === 'local') {
+      deleteAgentSessionSnapshot(item.id);
+      refreshLocal();
+    } else {
+      setOrphanDbItems(prev => prev.filter(x => x.id !== item.id));
+    }
+    // 删的是当前窗口这场时，对话区也清掉，避免历史没了气泡还在
+    onDeleted?.(item);
   }
 
   if (!open) return null;
@@ -275,16 +291,14 @@ export default function AgentSessionHistoryPanel({
                             : ''}
                         </p>
                       </div>
-                      {item.source === 'local' && (
-                        <button
-                          type="button"
-                          title={t('debug.history.delete')}
-                          onClick={e => handleDelete(e, item)}
-                          className="opacity-0 group-hover:opacity-100 shrink-0 text-zinc-400 hover:text-red-500 text-xs px-1"
-                        >
-                          {t('debug.history.delete')}
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        title={t('debug.history.delete')}
+                        onClick={e => handleDelete(e, item)}
+                        className="shrink-0 text-zinc-400 hover:text-red-500 text-xs px-1"
+                      >
+                        {t('debug.history.delete')}
+                      </button>
                     </div>
                   </div>
                 </li>

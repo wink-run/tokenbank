@@ -550,6 +550,9 @@ export default function Resources() {
   const idleAiAbortRef = useRef(null);
   const projectMenuRef = useRef(null);
   const bootstrappedRef = useRef(false);
+  // 社区目录同步代数：后完成的服务端结果不能被更早的本地读取盖掉
+  const catalogFetchGen = useRef(0);
+  const catalogAppliedGen = useRef(0);
 
   // 搜索防抖：避免每键触发全量扫描/加载
   useEffect(() => {
@@ -575,6 +578,7 @@ export default function Resources() {
       // 内置智能体默认纳管（幂等）
       try { await window.electronAPI.resource.ensureBuiltinAssistants?.(); } catch { /* ignore */ }
       // 全量拉取，搜索/类型在前端筛，避免每次筛选触发 IPC
+      const catalogGenAtStart = catalogFetchGen.current;
       const [catRes, resRes, agentRes, asstBindRes] = await Promise.all([
         window.electronAPI.resource.listCatalog({}),
         window.electronAPI.resource.listResources({}),
@@ -582,8 +586,12 @@ export default function Resources() {
         // Skill 卡片「智能体依赖」标记：始终拉全量智能体（不受当前类型筛选）
         window.electronAPI.resource.listResources({ type: 'assistant' }),
       ]);
-      if (catRes.success) setCatalog(catRes.items || []);
-      else setError(catRes.error || t('resources.loadFailed'));
+      if (catRes.success) {
+        // 服务端刷新已写入更新的结果时，不再用这次本地缓存覆盖
+        if (catalogAppliedGen.current <= catalogGenAtStart) setCatalog(catRes.items || []);
+      } else {
+        setError(catRes.error || t('resources.loadFailed'));
+      }
       if (resRes.success) setResources(resRes.resources || []);
       if (asstBindRes?.success) setAssistantsForBind(asstBindRes.resources || []);
       if (agentRes.success) {
@@ -883,6 +891,30 @@ export default function Resources() {
     return () => { alive = false; };
   }, [loadAll]);
 
+  /** 从服务端拉最新社区目录再刷列表。页面被缓存，切 tab 不会自己更新。 */
+  const refreshCommunityCatalog = useCallback(async () => {
+    const gen = ++catalogFetchGen.current;
+    try {
+      await window.electronAPI?.resource?.syncCommunityCatalog?.();
+    } catch { /* 离线时仍读本地缓存 */ }
+    if (gen !== catalogFetchGen.current) return;
+    try {
+      const catRes = await window.electronAPI?.resource?.listCatalog?.({});
+      if (gen !== catalogFetchGen.current) return;
+      if (catRes?.success) {
+        catalogAppliedGen.current = gen;
+        setCatalog(catRes.items || []);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // 从其它页切回来时重新拉社区目录（keep-alive 不会卸载，否则列表停在进来时的缓存）
+  useEffect(() => {
+    if (!pageActive) return undefined;
+    refreshCommunityCatalog();
+    return undefined;
+  }, [pageActive, refreshCommunityCatalog]);
+
   // Esc 关闭编辑 / 清理模态（忙碌中不可关）
   useEffect(() => {
     if (!editorOpen && !cleanupOpen) return undefined;
@@ -977,6 +1009,8 @@ export default function Resources() {
     setViewTab(tab);
     setSelectedKey(null);
     saveViewTab(tab);
+    // 再点「发现」也要拉一次，已停在该 tab 时页面不会重新挂载
+    if (tab === 'recommend') refreshCommunityCatalog();
   }
 
   function changeTypeFilter(type) {
@@ -3322,6 +3356,7 @@ export default function Resources() {
                 onClick={() => {
                   changeTypeFilter(opt.id);
                   if (opt.id !== 'prompt') setPromptKindFilter('');
+                  refreshCommunityCatalog();
                 }}
                 className={`tb-press text-xs px-2.5 py-1 rounded-md transition-colors ${
                   typeFilter === opt.id

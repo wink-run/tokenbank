@@ -5151,7 +5151,7 @@ export default function Gateway() {
     } catch {}
   }, [user]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async ({ models = true } = {}) => {
     const [s, st, lg] = await Promise.all([
       getGateway().status(),
       getGateway().getDailyStats(),
@@ -5164,7 +5164,8 @@ export default function Gateway() {
       const agent = await window.electronAPI?.agent?.taskStats?.();
       if (agent?.success) setAgentStats(agent.stats);
     } catch { /* 桌面端未挂上时保持空 */ }
-    loadAvailableModels();
+    // 模型列表很大，状态轮询不要每次都带上
+    if (models) loadAvailableModels();
   }, [loadAvailableModels]);
 
   const loadSceneData = useCallback(async () => {
@@ -5192,18 +5193,21 @@ export default function Gateway() {
   }, [user]);
 
   useEffect(() => {
+    // 页面被缓存，离开网关后不再打状态和模型接口
+    if (gwLocation.pathname !== '/gateway') return undefined;
     refresh();
     loadSceneData();
-    // 状态/统计 5s 刷新（含模型列表，以便供给源开关变更后下拉及时更新）
-    const statsId = setInterval(refresh, 5000);
-    return () => { clearInterval(statsId); };
-  }, [refresh, loadSceneData]);
+    const statsId = setInterval(() => { refresh({ models: false }); }, 15000);
+    const modelsId = setInterval(loadAvailableModels, 60000);
+    return () => { clearInterval(statsId); clearInterval(modelsId); };
+  }, [gwLocation.pathname, refresh, loadSceneData, loadAvailableModels]);
 
   useEffect(() => {
+    if (gwLocation.pathname !== '/gateway') return undefined;
     loadNetwork();
-    const netId = setInterval(loadNetwork, 30000);
+    const netId = setInterval(loadNetwork, 60000);
     return () => { clearInterval(netId); };
-  }, [loadNetwork]);
+  }, [gwLocation.pathname, loadNetwork]);
 
   // ── Computed stats ──────────────────────────────────────────────────────────
 

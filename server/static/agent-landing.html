@@ -19,7 +19,7 @@
 <div id="app" class="chat-app" v-cloak>
   <nav class="cnav">
     <div class="cnav-in">
-      <a class="brand" href="/agents"><img src="/static/logo.svg" alt="Token Bank"><span>Token Bank</span></a>
+      <a class="brand" href="/agents"><img src="/static/logo.svg" alt="Token Bank"><span class="nav-title">{{ T.navTitle }}</span></a>
       <a class="nav-back" href="/agents" @click="backToTools">{{ T.backTools }}</a>
       <div class="nav-right">
         <span v-if="loggedIn && profile" class="credit">💎 {{ Number(profile.credits_balance || 0).toFixed(1) }}</span>
@@ -83,7 +83,6 @@
           <div class="id-sub">
             <span><span class="dot" :class="{ off: agentOffline }"></span>&nbsp; {{ agentOffline ? T.offline : T.online }}</span>
             <template v-if="agent.owner_nickname"><span class="sep">·</span><a :href="'/u/' + encodeURIComponent(agent.owner_nickname)">@{{ agent.owner_nickname }}</a></template>
-            <template v-if="agent.runtime"><span class="sep">·</span><span>{{ agent.runtime }}</span></template>
             <span class="sep">·</span><span>{{ T.creditsPerTask.replace('{n}', String(creditsPerTask)) }}</span>
             <template v-if="agent.hire_count"><span class="sep">·</span><span>🔥 {{ T.hires.replace('{n}', String(agent.hire_count)) }}</span></template>
           </div>
@@ -159,19 +158,28 @@
               <template v-if="m.parts && m.parts.length">
                 <div v-for="(p, pi) in m.parts" :key="pi" class="apart" :class="'apart-' + p.type">
                   <template v-if="p.type === 'thinking'">
-                    <div class="apart-label">{{ T.thinkingLabel }}</div>
-                    <div class="apart-body">{{ p.text }}</div>
+                    <!-- 和工具条一样：默认一行，展开后才是全文 -->
+                    <details class="tool-fold think-fold">
+                      <summary>
+                        <span class="tool-chev" aria-hidden="true"></span>
+                        <span class="apart-name">{{ T.thinkingLabel }}</span>
+                        <span class="tool-sum" :title="p.text">{{ thinkLine(p.text) }}</span>
+                      </summary>
+                      <div class="apart-body">{{ p.text }}</div>
+                    </details>
                   </template>
                   <template v-else-if="p.type === 'tool'">
-                    <!-- 工具执行默认收起，只留名称和耗时 -->
+                    <!-- 默认收起。标题行对齐桌面：友好名、状态、一行命令或路径 -->
                     <details class="tool-fold">
                       <summary>
                         <span class="tool-chev" aria-hidden="true"></span>
-                        <span class="apart-label">{{ T.toolLabel }}</span>
-                        <span class="apart-name">{{ p.name }}</span>
+                        <span class="apart-name">{{ toolFriendly(p.name) }}</span>
+                        <span class="tool-status" :class="{ err: p.error, live: !p.done && m.pending }">{{ toolStatus(p, m) }}</span>
+                        <span v-if="toolSummary(p.detail)" class="tool-sum" :title="toolSummary(p.detail)">{{ toolSummary(p.detail) }}</span>
                         <span v-if="toolElapsed(p, m)" class="apart-time">{{ toolElapsed(p, m) }}</span>
                       </summary>
                       <pre v-if="p.detail">{{ p.detail }}</pre>
+                      <pre v-if="p.result" class="tool-result">{{ p.result }}</pre>
                     </details>
                   </template>
                   <div v-else class="md-body" v-html="renderRich(p.text, m.artifacts)"></div>
@@ -180,7 +188,8 @@
               <div v-else-if="m.content && m.content !== T.thinking" class="md-body" v-html="renderRich(m.content, m.artifacts)"></div>
               <span v-if="m.pending && !(m.parts && m.parts.length) && (!m.content || m.content === T.thinking)" class="typing"><i></i><i></i><i></i></span>
               <span v-else-if="m.pending" class="typing stream-caret"><i></i><i></i><i></i></span>
-              <div v-if="runLabel(m)" class="run-time">{{ runLabel(m) }}</div>
+              <div v-if="activityLabel(m)" class="run-status">{{ activityLabel(m) }}</div>
+              <div v-if="m.pending && runLabel(m)" class="run-time">{{ runLabel(m) }}</div>
               <div v-if="m.artifacts && m.artifacts.length" class="afiles">
                 <figure v-for="(f, j) in m.artifacts" :key="j" class="afig">
                   <img v-if="f.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)$/i.test(f.name || '')" :src="f.url || f.dataUrl" :alt="f.name">
@@ -189,6 +198,7 @@
                   <button v-else type="button" class="afile" @click="downloadArtifact(f)">{{ f.name }}</button>
                 </figure>
               </div>
+              <div v-if="!m.pending && runLabel(m)" class="run-time">{{ runLabel(m) }}</div>
               <div v-if="!m.pending && answerOf(m)" class="msg-tools">
                 <button type="button" class="mini" @click="copyMsg(m, $event)">{{ T.copy }}</button>
               </div>
@@ -320,7 +330,7 @@ createApp({
     const i18n = {
       zh: {
         loading: '加载中…', unavailable: '无法访问此智能体', backHome: '返回首页',
-        backNetwork: '← 社区网络', backTools: '← 智能体',
+        backNetwork: '← 社区网络', backTools: '← 智能体', navTitle: 'TokenBank 智能体',
         noDesc: '暂无简介', online: '在线', offline: '离线', publicShare: '全球分享', circleShare: '圈子分享',
         creditsPerTask: '每次 {n} 积分', promptPh: '输入消息，或添加图片和文件，Shift+Enter 发送…',
         send: '发送', running: '思考中…', needLogin: '圈子分享仅成员可见；全球分享未登录可试一轮。',
@@ -336,7 +346,14 @@ createApp({
         attachSize: '附件过大',
         chatHint: '未登录可试一轮', chatEmpty: '发送一条消息试用；可粘贴图片；登录后可多轮追问。',
         clear: '清空对话', thinking: '…', thinkingLabel: '思考', toolLabel: '工具', streaming: '生成中…', toolRunning: '调用工具：{name}',
+        toolDone: '已完成', toolBusy: '执行中', toolFailed: '失败',
+        toolNames: {
+          bash: '执行命令', shell: '执行命令', read: '读取文件', write: '写入文件', edit: '编辑文件',
+          multiedit: '批量编辑', grep: '搜索内容', glob: '查找文件', ls: '列出目录',
+          webfetch: '抓取网页', websearch: '网页搜索', skill: 'Skill',
+        },
         runningFor: '已运行 {t}', ranFor: '用时 {t}',
+        noProgress: '执行较慢，暂时没有新进度',
         pause: '暂停', paused: '已暂停',
         autoContinue: '上一次执行超时了，请从中断处继续，不要重头开始。',
         timeoutStopped: '已自动续跑两次，仍超时。再发一条消息可以继续。',
@@ -351,7 +368,7 @@ createApp({
         historyDelete: '删除', historyDeleteConfirm: '删除这条对话？分享链接也会失效。', historyDeleteFail: '删除失败',
         historyBy: '{name} 发起',
         sharedContinue: '大家的发言按时间接在同一条对话里，直接发消息就能接着聊。', shareMissing: '分享不存在或已失效',
-        turnWait: '{name} 正在让智能体回复，这轮结束后才能接着说。谁先发出去，谁算下一轮。', someone: '有人',
+        turnWait: '请稍等，{name}还在说话。', someone: '有人',
         myChat: '我的对话', sharedChat: '分享的对话', sharedBy: '{name}的对话', emptyThread: '暂无内容',
         shareOffline: '这个智能体暂时不在线，现在不能对话，历史记录仍可查看。',
         copy: '复制', copied: '已复制', attach: '添加附件', hires: '{n} 次雇佣',
@@ -368,7 +385,7 @@ createApp({
       },
       en: {
         loading: 'Loading…', unavailable: 'Agent unavailable', backHome: 'Home',
-        backNetwork: '← Network', backTools: '← Agents',
+        backNetwork: '← Network', backTools: '← Agents', navTitle: 'TokenBank Agents',
         noDesc: 'No description', online: 'Online', offline: 'Offline', publicShare: 'Global', circleShare: 'Circle',
         creditsPerTask: '{n} credits / turn', promptPh: 'Message, or add an image or file. Shift+Enter to send…',
         send: 'Send', running: 'Thinking…', needLogin: 'Circle agents are members-only. Public agents: one free guest turn.',
@@ -384,7 +401,14 @@ createApp({
         attachSize: 'Attachment too large',
         chatHint: 'One free guest turn', chatEmpty: 'Try one message (paste images OK); sign in for multi-turn chat.',
         clear: 'Clear', thinking: '…', thinkingLabel: 'Thinking', toolLabel: 'Tool', streaming: 'Generating…', toolRunning: 'Tool: {name}',
+        toolDone: 'Done', toolBusy: 'Running', toolFailed: 'Failed',
+        toolNames: {
+          bash: 'Run command', shell: 'Run command', read: 'Read file', write: 'Write file', edit: 'Edit file',
+          multiedit: 'Multi-edit', grep: 'Search content', glob: 'Find files', ls: 'List directory',
+          webfetch: 'Fetch web', websearch: 'Web search', skill: 'Skill',
+        },
         runningFor: 'Running {t}', ranFor: '{t}',
+        noProgress: 'Slow, no new progress yet',
         pause: 'Pause', paused: 'Paused',
         autoContinue: 'The previous run timed out. Continue from where it stopped. Do not start over.',
         timeoutStopped: 'Auto-continue stopped after two timeouts. Send another message to go on.',
@@ -399,7 +423,7 @@ createApp({
         historyDelete: 'Delete', historyDeleteConfirm: 'Delete this chat? The share link will stop working.', historyDeleteFail: 'Could not delete',
         historyBy: 'Started by {name}',
         sharedContinue: 'Everyone’s messages stay in one timeline. Send a message to continue.', shareMissing: 'This share is missing',
-        turnWait: '{name} is waiting on the agent. You can send after this turn. First send wins the next turn.', someone: 'Someone',
+        turnWait: 'Please wait, {name} is still talking.', someone: 'someone',
         myChat: 'My chat', sharedChat: 'Shared chat', sharedBy: "{name}'s chat", emptyThread: 'Empty',
         shareOffline: 'This agent is offline. You can read past chats, but not send new ones.',
         copy: 'Copy', copied: 'Copied', attach: 'Add attachment', hires: '{n} hires',
@@ -543,6 +567,9 @@ createApp({
         if (hit) {
           if (!hit.author && row.author) hit.author = row.author
           if (!messageAt(hit)) hit.at = row.at
+          if (!hit.durationMs && row.durationMs) hit.durationMs = row.durationMs
+          if (!hit.startedAt && row.startedAt) hit.startedAt = row.startedAt
+          if (!hit.finishedAt && row.finishedAt) hit.finishedAt = row.finishedAt
           return
         }
         into.push(row)
@@ -584,10 +611,12 @@ createApp({
         if (p.type === 'tool') {
           const startedAt = Number(p.startedAt) || 0
           const finishedAt = Number(p.finishedAt) || 0
+          const result = String(p.result || '').slice(0, 4000)
           out.push({
             type: 'tool',
             name: String(p.name || 'tool').slice(0, 80),
             detail: String(p.detail || '').slice(0, 4000),
+            ...(result ? { result } : {}),
             done: !!p.done,
             ...(startedAt ? { startedAt } : {}),
             ...(finishedAt ? { finishedAt } : {}),
@@ -649,12 +678,61 @@ createApp({
       })
     }
     function runLabel(m) {
-      if (!m || !m.startedAt) return ''
+      if (!m) return ''
       const live = !!m.pending
-      const end = live ? nowTick.value : Number(m.finishedAt || 0)
-      if (!end) return ''
-      const text = formatElapsed(end - m.startedAt)
-      return (live ? T.value.runningFor : T.value.ranFor).replace('{t}', text)
+      if (live) {
+        if (!m.startedAt) return ''
+        return T.value.runningFor.replace('{t}', formatElapsed(nowTick.value - m.startedAt))
+      }
+      const ms = Number(m.durationMs) || (m.startedAt && m.finishedAt ? m.finishedAt - m.startedAt : 0)
+      if (!ms) return ''
+      return T.value.ranFor.replace('{t}', formatElapsed(ms))
+    }
+    // 跑了很久却没有新分段时，把当前工具或「没有进度」写出来
+    function activityLabel(m) {
+      if (!m || !m.pending) return ''
+      const now = nowTick.value
+      const parts = Array.isArray(m.parts) ? m.parts : []
+      const tool = [...parts].reverse().find(p => p && p.type === 'tool' && !p.done)
+      const since = Number(m.progressAt) || Number(m.startedAt) || now
+      const quiet = now - since >= 20000
+      const bits = []
+      if (tool && tool.name) bits.push(T.value.toolRunning.replace('{name}', tool.name))
+      if (quiet) bits.push(T.value.noProgress)
+      return bits.join(' · ')
+    }
+    // 工具条和桌面执行日志一样：友好名、状态、一行命令或路径
+    function thinkLine(text) {
+      const lines = String(text || '').split(/\n/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean)
+      return lines.length ? lines[lines.length - 1] : ''
+    }
+    function toolFriendly(name) {
+      const key = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+      const names = T.value.toolNames || {}
+      return names[key] || String(name || T.value.toolLabel)
+    }
+    function toolSummary(detail) {
+      const text = String(detail || '').trim()
+      if (!text || text === '(无参数)') return ''
+      try {
+        const obj = JSON.parse(text)
+        if (obj && typeof obj === 'object') {
+          if (typeof obj.command === 'string') return obj.command.replace(/\s+/g, ' ').trim()
+          if (typeof obj.file_path === 'string') return obj.file_path
+          if (typeof obj.path === 'string' && obj.pattern) return obj.pattern + ' @ ' + obj.path
+          if (typeof obj.pattern === 'string') return obj.pattern
+          if (typeof obj.glob === 'string') return obj.glob
+          if (typeof obj.description === 'string') return obj.description
+          if (typeof obj.skill === 'string') return obj.skill
+        }
+      } catch { /* 不是 JSON 就原文压成一行 */ }
+      return text.replace(/\s+/g, ' ')
+    }
+    function toolStatus(p, m) {
+      if (!p) return ''
+      if (p.error) return T.value.toolFailed
+      if (!p.done && m && m.pending) return T.value.toolBusy
+      return T.value.toolDone
     }
     function toolElapsed(p, m) {
       if (!p || p.type !== 'tool' || !p.startedAt) return ''
@@ -666,6 +744,7 @@ createApp({
     function sealTimes(row) {
       if (!row || row.role !== 'assistant' || row.pending) return
       if (!row.finishedAt) row.finishedAt = Date.now()
+      if (row.startedAt && !row.durationMs) row.durationMs = Math.max(0, row.finishedAt - row.startedAt)
       if (!Array.isArray(row.parts)) return
       for (const p of row.parts) {
         if (p && p.type === 'tool' && p.startedAt && !p.finishedAt) p.finishedAt = row.finishedAt
@@ -872,6 +951,7 @@ createApp({
             files: m.role === 'user' && Array.isArray(m.files) ? m.files.map(f => ({ name: String((f && f.name) || 'file').slice(0, 120) })).slice(0, 4) : undefined,
             startedAt: Number(m.startedAt) || undefined,
             finishedAt: Number(m.finishedAt) || undefined,
+            durationMs: Number(m.durationMs) || undefined,
             at: Number(m.at) || undefined,
             author: m.role === 'user' && m.author ? String(m.author).slice(0, 40) : undefined,
             shared: m.shared ? true : undefined,
@@ -889,6 +969,7 @@ createApp({
           files: m.files && m.files.length ? m.files : undefined,
           startedAt: m.startedAt,
           finishedAt: m.finishedAt,
+          durationMs: m.durationMs,
           at: m.at || undefined,
           author: m.author || undefined,
           shared: m.shared || undefined,
@@ -943,6 +1024,7 @@ createApp({
             files: Array.isArray(m.files) ? m.files.map(f => ({ name: String((f && f.name) || 'file').slice(0, 120) })).slice(0, 4) : undefined,
             startedAt: Number(m.startedAt) || undefined,
             finishedAt: Number(m.finishedAt) || undefined,
+            durationMs: Number(m.durationMs) || undefined,
             at: Number(m.at) || undefined,
             author: m.role === 'user' && m.author ? String(m.author).slice(0, 40) : undefined,
             shared: !!m.shared,
@@ -1085,10 +1167,13 @@ createApp({
         }
         // 接口只带标题。已经点开过的正文留在本地，刷新列表不必重下
         const kept = new Map(historyItems.value.filter(h => h && h.id && Array.isArray(h.messages)).map(h => [h.id, h.messages]))
-        historyItems.value = data.chats.slice(0, 5).map(h => {
+        const serverIds = new Set(data.chats.map(h => h && h.id))
+        // 第一条刚发出、服务端还没写完时，别被这次刷新冲掉
+        const pendingLocal = historyItems.value.filter(h => h && h.preview && !serverIds.has(h.id) && (String(h.id).indexOf('new-') === 0 || h.id === relayShareId.value))
+        historyItems.value = pendingLocal.concat(data.chats.slice(0, 5).map(h => {
           if (!h || !kept.has(h.id)) return h
           return { ...h, messages: kept.get(h.id) }
-        })
+        })).slice(0, 5)
         historyCurrent.value = null
         // 列表刚拉下来时，正在看的这场以页面上的内容为准
         if (relayShareId.value) syncHistoryTranscript(relayShareId.value)
@@ -1103,18 +1188,50 @@ createApp({
     }
     let sessionPromise = null
     // 刚建的对话先插进左侧列表，接口回来后再换成正式 id
-    function showFreshHistory(id) {
+    function showFreshHistory(id, preview) {
       const now = new Date().toISOString()
+      const title = String(preview || '').replace(/\s+/g, ' ').trim().slice(0, 42)
       const item = {
         id,
         role: 'owner',
         author: currentUserLabel.value || '',
-        preview: '',
+        preview: title,
         created_at: now,
         updated_at: now,
         messages: [],
       }
       historyItems.value = [item, ...historyItems.value.filter(h => h && h.id !== id)].slice(0, 5)
+    }
+    // 用户发出这场的第一条时就在左侧占一条，不必等回复结束
+    function ensureListedChat(previewText) {
+      if (!getToken()) return
+      const preview = String(previewText || '').replace(/\s+/g, ' ').trim().slice(0, 42)
+      const sid = relayShareId.value
+      if (sid) {
+        if (!historyItems.value.some(h => h && h.id === sid)) showFreshHistory(sid, preview)
+        else if (preview) {
+          historyItems.value = historyItems.value.map(h => {
+            if (!h || h.id !== sid || h.preview) return h
+            return { ...h, preview }
+          })
+        }
+        return
+      }
+      const temp = historyItems.value.find(h => h && String(h.id).indexOf('new-') === 0)
+      const tempId = temp ? temp.id : ('new-' + Date.now())
+      if (!temp) showFreshHistory(tempId, preview)
+      else if (preview && !temp.preview) {
+        historyItems.value = historyItems.value.map(h => h && h.id === tempId && !h.preview ? { ...h, preview } : h)
+      }
+      ensureChatSession().then((nid) => {
+        if (!nid) {
+          if (!firstUserLine(messages.value)) {
+            historyItems.value = historyItems.value.filter(h => !h || h.id !== tempId)
+          }
+          return
+        }
+        historyItems.value = historyItems.value.map(h => h && h.id === tempId ? { ...h, id: nid, preview: h.preview || preview } : h)
+      }).catch(() => {})
     }
     // 一场对话只建一条记录。已经有 id 就接着写，不再另存一份。allowEmpty 用于点「新对话」
     async function ensureChatSession(allowEmpty) {
@@ -1333,6 +1450,16 @@ createApp({
       try { return JSON.parse(data) } catch { return null }
     }
     let publishedTurnTask = ''
+    let finishedForeignTask = ''
+    // 这轮智能体已经说完，输入不要再被挡住；同一轮的轮询也不要再锁上
+    function releaseForeignTurn(taskId) {
+      const id = String(taskId || '').trim()
+      if (id) finishedForeignTask = id
+      const live = foreignTurn.value
+      if (!live) return
+      if (id && live.taskId && live.taskId !== id) return
+      foreignTurn.value = null
+    }
     let sharePollTimer = null
     let turnWatchAbort = null
     let watchingTask = ''
@@ -1377,6 +1504,9 @@ createApp({
               const text = String(ev.output || ev.result || ev.text || ev.message || row.content || '')
               if (text) row.content = text
               row.pending = false
+              row.liveTurn = false
+              sealTimes(row)
+              releaseForeignTurn(id)
             }
           }
         }
@@ -1441,6 +1571,10 @@ createApp({
           return
         }
         const hadLive = messages.value.some(m => m && m.liveTurn) || !!foreignTurn.value
+        if (turn && turn.task_id && turn.task_id === finishedForeignTask) {
+          foreignTurn.value = null
+          return
+        }
         if (turn && (turn.text || turn.task_id)) {
           holdingTurn.value = false
           if (transcriptKey(kept) !== before) {
@@ -1611,6 +1745,7 @@ createApp({
           files: Array.isArray(m.files) ? m.files.map(f => ({ name: String((f && f.name) || 'file').slice(0, 120) })).slice(0, 4) : undefined,
           startedAt: Number(m.startedAt) || undefined,
           finishedAt: Number(m.finishedAt) || undefined,
+          durationMs: Number(m.durationMs) || undefined,
           at: Number(m.at) || undefined,
           author: m.role === 'user' && m.author ? String(m.author).slice(0, 40) : undefined,
           shared: !!m.shared,
@@ -1964,9 +2099,11 @@ createApp({
         row.pending = pending
       }
       const dropStreamTurn = () => {
-        if (messages.value[asstIdx]?.role === 'assistant') messages.value.splice(asstIdx, 1)
-        const last = messages.value[messages.value.length - 1]
-        if (last?.role === 'user') messages.value.pop()
+        // 只撤掉还没开始的空回复。用户那句留下，刷新后也能看见自己发过什么
+        const row = messages.value[asstIdx]
+        if (!row || row.role !== 'assistant') return
+        if (answerOf(row).trim() || row.taskId) return
+        messages.value.splice(asstIdx, 1)
       }
       const reader = r.body.getReader()
       const decoder = new TextDecoder()
@@ -2015,10 +2152,13 @@ createApp({
               row.parts = withToolTimes(row.parts, parts)
               row.content = answerOf(row)
               row.pending = true
+              row.progressAt = Date.now()
             } else {
               const body = String(ev.text || '')
-              if (body) setAssistant(mergeStreamText(row?.content, body), { pending: true })
-              else if (ev.tool && row) {
+              if (body) {
+                setAssistant(mergeStreamText(row?.content, body), { pending: true })
+                if (row) row.progressAt = Date.now()
+              } else if (ev.tool && row) {
                 const name = String(ev.tool)
                 const partsNow = cleanParts(row.parts) || []
                 const last = partsNow[partsNow.length - 1]
@@ -2029,6 +2169,7 @@ createApp({
                 }
                 row.parts = partsNow
                 row.pending = true
+                row.progressAt = Date.now()
               }
             }
             await scrollChat()
@@ -2092,9 +2233,10 @@ createApp({
               } else if (!isGuest) {
                 err.value = T.value.timeoutStopped
               } else {
-                err.value = String(ev.error || ev.status || 'timeout')
+                err.value = text ? T.value.timeoutStopped : T.value.disconnectedContinue
               }
-              if (isGuest) guestUsed.value = true
+              // 还没有正文就不锁试用，这条可以再发
+              if (isGuest && text) guestUsed.value = true
               return finish(true)
             }
             finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
@@ -2151,9 +2293,16 @@ createApp({
               if (row?.content) row.content = rewriteShown(row.content, arts)
             } else {
               err.value = String(msg)
+              const rowNow = messages.value[asstIdx]
+              // 任务已经失败，不要再按「还在跑」去续上
+              if (rowNow) {
+                rowNow.pending = false
+                rowNow.taskId = undefined
+              }
               dropStreamTurn()
             }
-            if (finalGuest) guestUsed.value = true
+            const kept = answerOf(messages.value[asstIdx]).trim()
+            if (finalGuest && kept && messages.value[asstIdx]?.role === 'assistant') guestUsed.value = true
             return finish(true)
           }
         }
@@ -2184,14 +2333,19 @@ createApp({
           return
         }
         const outcome = await readAgentSse(r, idx, !getToken())
-        if (!outcome.stopped && messages.value[idx]) {
-          messages.value[idx].pending = false
-          messages.value[idx].taskId = undefined
+        const resumed = messages.value[idx]
+        if (!outcome.stopped && resumed && resumed.role === 'assistant') {
+          resumed.pending = false
+          resumed.taskId = undefined
+          sealTimes(resumed)
         }
-        if ((outcome.finalOk && !outcome.nextAuto) || (messages.value[idx]?.interrupted && !outcome.nextAuto)) {
+        if ((outcome.finalOk && !outcome.nextAuto) || (resumed?.interrupted && !outcome.nextAuto)) {
           await endRelayTurn(true)
         }
-        if (!getToken() && outcome.finalGuest) guestUsed.value = true
+        // 访客只有真正拿到回复才结束试用，中途失败仍可再发
+        if (!getToken() && outcome.finalGuest && resumed?.role === 'assistant' && answerOf(resumed).trim()) {
+          guestUsed.value = true
+        }
         if (outcome.nextAuto && getToken()) {
           prompt.value = outcome.nextAuto
           resumeBusy = false
@@ -2271,8 +2425,11 @@ createApp({
         }
       }
       const history = messages.value.slice()
-      // 访客单轮不带历史；登录后压缩多轮上下文
-      const apiPrompt = isGuest ? text : buildPromptWithHistory(history, text || displayText)
+      // 分享里的下一句要带上已有对话。访客单独试用仍只发这一句
+      const shareContinue = !!relayShareId.value && String(relayShareId.value).indexOf('new-') !== 0
+      const apiPrompt = (!isGuest || shareContinue)
+        ? buildPromptWithHistory(history, text || displayText)
+        : text
       const attachUrls = imageItems.map(p => p.dataUrl)
       messages.value.push({
         role: 'user',
@@ -2282,13 +2439,9 @@ createApp({
         images: attachUrls.length ? attachUrls.slice() : undefined,
         files: fileItems.length ? fileItems.map(p => ({ name: p.name || 'file' })) : undefined,
       })
-      // 新对话的第一条马上写进左侧标题，后面的发言不再改它
-      if (relayShareId.value) {
-        const sid = relayShareId.value
-        const preview = firstUserLine(messages.value)
-        historyItems.value = historyItems.value.map(h => h && h.id === sid ? { ...h, preview: preview || h.preview } : h)
-      }
-      messages.value.push({ role: 'assistant', content: '', pending: true, startedAt: Date.now() })
+      // 第一条发出去就出现在左侧，标题用这句话；后面的发言不再改它
+      ensureListedChat(firstUserLine(messages.value) || displayText)
+      messages.value.push({ role: 'assistant', content: '', pending: true, startedAt: Date.now(), progressAt: Date.now() })
       const asstIdx = messages.value.length - 1
       prompt.value = ''
       pendingImages.value = []
@@ -2310,11 +2463,11 @@ createApp({
         row.pending = pending
       }
       const dropTurn = () => {
-        // 去掉本轮 assistant + user，并把抢到的轮次让出去
-        if (messages.value[asstIdx]?.role === 'assistant') messages.value.splice(asstIdx, 1)
-        const last = messages.value[messages.value.length - 1]
-        if (last?.role === 'user' && last.content === displayText) messages.value.pop()
-        endRelayTurn(false)
+        // 请求没跑起来时只撤掉空的助手气泡。用户刚发出的那句留下
+        const row = messages.value[asstIdx]
+        const started = !!(row && row.role === 'assistant' && (answerOf(row).trim() || row.taskId))
+        if (row?.role === 'assistant' && !started) messages.value.splice(asstIdx, 1)
+        if (!started) endRelayTurn(false)
       }
 
       try {
@@ -2335,6 +2488,7 @@ createApp({
         if (fileItems.length) {
           body.files = fileItems.map(p => ({ dataUrl: p.dataUrl, name: p.name || 'file' }))
         }
+        if (shareContinue) body.share_id = relayShareId.value
         const r = await fetch('/api/agent-tasks', {
           method: 'POST',
           headers,
@@ -2349,14 +2503,14 @@ createApp({
           try { data = await r.json() } catch { data = null }
           if (r.status === 401) {
             if (!isGuest) logout()
-            err.value = (typeof data?.detail === 'string' ? data.detail : '') || (isGuest ? T.value.loginToContinue : T.value.needLogin)
+            err.value = isGuest ? T.value.loginToContinue : ((typeof data?.detail === 'string' ? data.detail : '') || T.value.needLogin)
             if (isGuest) guestUsed.value = true
             dropTurn()
             return
           }
           if (r.status === 429) {
-            guestUsed.value = true
-            err.value = (typeof data?.detail === 'string' ? data.detail : '') || T.value.loginToContinue
+            if (isGuest) guestUsed.value = true
+            err.value = isGuest ? T.value.loginToContinue : ((typeof data?.detail === 'string' ? data.detail : '') || T.value.loginToContinue)
             dropTurn()
             return
           }
@@ -2376,12 +2530,19 @@ createApp({
         nextAuto = outcome.nextAuto || ''
         if (outcome.stopped) return
 
-        if (!finalOk && !messages.value[asstIdx]?.interrupted && !(messages.value[asstIdx]?.content || '').trim()) {
-          err.value = 'empty response'
+        if (!finalOk && !messages.value[asstIdx]?.interrupted && !answerOf(messages.value[asstIdx]).trim()) {
+          const row = messages.value[asstIdx]
+          // 任务已经在跑，只是这条连接先断了：留下消息，回来接着收
+          if (row?.taskId) {
+            row.pending = true
+            return
+          }
+          err.value = T.value.disconnectedContinue
           dropTurn()
           return
         }
         if (messages.value[asstIdx]) messages.value[asstIdx].pending = false
+        sealTimes(messages.value[asstIdx])
         if ((finalOk && !nextAuto) || (messages.value[asstIdx]?.interrupted && !nextAuto)) {
           await endRelayTurn(true)
           if (!isGuest) {
@@ -2389,7 +2550,8 @@ createApp({
             loadHistory()
           }
         }
-        if (finalGuest) guestUsed.value = true
+        // 这一轮已经有回复，试用才算用过
+        if (finalGuest && answerOf(messages.value[asstIdx]).trim()) guestUsed.value = true
         if (!isGuest) await fetchProfile()
         await scrollChat()
       } catch (e) {
@@ -2429,8 +2591,7 @@ createApp({
           return
         }
         dropTurn()
-        endRelayTurn(false)
-        err.value = e?.message || 'Network error'
+        err.value = T.value.disconnectedContinue
       } finally {
         const row = messages.value[asstIdx]
         const resumeId = !stopRequested && row?.pending && row?.taskId && document.visibilityState === 'visible'
@@ -2521,7 +2682,7 @@ createApp({
 
     return {
       authOpen, openAuth, composerEl, fileEl, agentName, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor, appIcon,
-      runLabel, toolElapsed,
+      runLabel, toolElapsed, toolFriendly, toolSummary, toolStatus, thinkLine,
       renderRich, onChatClick, onImgOver, onImgOut, onImgHide, copyMsg, answerOf, downloadArtifact, isVideoFile,
       lang, T, toggleLang, backToTools, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,

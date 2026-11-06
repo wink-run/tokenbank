@@ -411,6 +411,7 @@ async def _migrate_agent_chat_shares() -> None:
             ("turn_task_id", "TEXT"),
             ("turn_started_at", "TIMESTAMPTZ"),
             ("updated_at", "TIMESTAMPTZ"),
+            ("cli_session_id", "TEXT"),
         ):
             try:
                 await db.execute(f"ALTER TABLE agent_chat_shares ADD COLUMN {col} {decl}")
@@ -662,12 +663,26 @@ async def create_agent_chat_share(assistant_id: str, messages_json: str, user_id
     return share_id
 
 
+async def set_share_cli_session(share_id: str, cli_session_id: str) -> None:
+    """记下这条分享正在用的 CLI 会话，下一次接话才能续上。"""
+    sid = str(cli_session_id or "").strip()[:80]
+    safe = str(share_id or "").strip()
+    if not safe or not sid:
+        return
+    async with connect() as db:
+        await db.execute(
+            "UPDATE agent_chat_shares SET cli_session_id=? WHERE id=?",
+            (sid, safe),
+        )
+        await db.commit()
+
+
 async def get_agent_chat_share(share_id: str) -> Optional[dict]:
     # 智能体已过存活期时，分享链接也一并失效
     await prune_public_agent_cards()
     async with connect() as db:
         async with db.execute(
-            """SELECT s.id, s.assistant_id, s.messages, s.created_at,
+            """SELECT s.id, s.assistant_id, s.user_id, s.messages, s.created_at, s.cli_session_id,
                       s.turn_token, s.turn_author, s.turn_text, s.turn_at, s.turn_task_id, s.turn_started_at,
                       u.nickname AS author_nickname, u.email AS author_email
                FROM agent_chat_shares s
@@ -810,6 +825,59 @@ async def claim_share_turn(share_id: str, token: str, author: str, text: str, sp
         )
         await db.commit()
     return cur.rowcount > 0
+
+
+async def release_share_turn_for_task(task_id: str, output: str = "") -> None:
+    """智能体这轮已经结束就放开输入，并把这句回复写入分享。
+
+    不再干等发起方的页面来交还发言权。
+    """
+    import json as _json
+
+    from agent_chat_share import append_share_turns
+
+    task_id = str(task_id or "").strip()
+    if not task_id:
+        return
+    async with connect() as db:
+        async with db.execute(
+            """SELECT id, messages, turn_text, turn_author, turn_at
+               FROM agent_chat_shares WHERE turn_task_id=?""",
+            (task_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return
+        row = dict(row)
+        try:
+            existing = _json.loads(row.get("messages") or "[]")
+        except Exception:
+            existing = []
+        if not isinstance(existing, list):
+            existing = []
+        tail = []
+        spoken = str(row.get("turn_text") or "").strip()
+        if spoken:
+            user = {"role": "user", "content": spoken[:80_000]}
+            author = str(row.get("turn_author") or "").strip()[:40]
+            if author:
+                user["author"] = author
+            if isinstance(row.get("turn_at"), (int, float)) and row["turn_at"] > 0:
+                user["at"] = int(row["turn_at"])
+            tail.append(user)
+        answer = str(output or "").strip()
+        if answer:
+            tail.append({"role": "assistant", "content": answer[:80_000]})
+        merged = append_share_turns(existing, tail) if tail else existing
+        blob = _json.dumps(merged, ensure_ascii=False)
+        preview = _preview_from_messages_json(blob)
+        await db.execute(
+            f"""UPDATE agent_chat_shares
+                SET messages=?, preview=?, updated_at=NOW(), {_clear_turn_sql()}
+                WHERE id=? AND turn_task_id=?""",
+            (blob, preview, row["id"], task_id),
+        )
+        await db.commit()
 
 
 async def set_share_turn_task(share_id: str, token: str, task_id: str) -> bool:

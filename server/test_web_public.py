@@ -5,6 +5,7 @@ from web_public import (
     extract_assistant_text,
     aggregate_sharer_profile,
     guest_trial_allowed,
+    release_guest_trial,
     validate_guest_web_chat_messages,
     _guest_hits,
 )
@@ -61,6 +62,11 @@ def test_guest_one_turn_and_rate_limit():
     assert guest_trial_allowed("10.0.0.2", now=1002.0, limit=2) is True
     # 窗口滑出后恢复
     assert guest_trial_allowed("10.0.0.1", now=1000.0 + 3601.0, limit=2) is True
+    # 没跑起来的那次要退回，下一次仍算第一条
+    assert guest_trial_allowed("10.0.0.3", now=5.0, limit=1) is True
+    assert guest_trial_allowed("10.0.0.3", now=6.0, limit=1) is False
+    release_guest_trial("10.0.0.3")
+    assert guest_trial_allowed("10.0.0.3", now=7.0, limit=1) is True
 
 
 def test_validate_web_chat_multimodal_and_agent_images():

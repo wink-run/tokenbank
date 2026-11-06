@@ -1371,11 +1371,13 @@ function P2PNetworkCard({ provider, onUpdate, onPersistEnabled, cooldowns = [], 
     } finally { setLoading(false); }
   }, []);
 
+  const cardLocation = useLocation();
   useEffect(() => {
+    if (cardLocation.pathname !== '/providers') return undefined;
     loadNetwork();
-    const id = setInterval(loadNetwork, 15000);
+    const id = setInterval(loadNetwork, 60000);
     return () => clearInterval(id);
-  }, [loadNetwork]);
+  }, [loadNetwork, cardLocation.pathname]);
 
   // 与 /v1/models 一致；节点数从 workers 补充
   const modelStats = React.useMemo(() => {
@@ -4594,14 +4596,15 @@ export default function Providers() {
     } catch { /* 网关未就绪 */ }
   }, []);
 
-  // 个人源延迟：5s 轮询 + 落账事件 + 页签重新可见时刷新（与网关页统计同源）
+  // 个人源延迟：当前页 30s 拉一次，离开后停
   useEffect(() => {
+    if (provLocation.pathname !== '/providers') return undefined;
     loadPersonalLatency();
-    const id = setInterval(loadPersonalLatency, 5000);
+    const id = setInterval(loadPersonalLatency, 30000);
     const onVis = () => { if (document.visibilityState === 'visible') loadPersonalLatency(); };
     document.addEventListener('visibilitychange', onVis);
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis); };
-  }, [loadPersonalLatency]);
+  }, [loadPersonalLatency, provLocation.pathname]);
 
   useEffect(() => {
     if (!isElectron() || !window.electronAPI?.localStats?.onChanged) return undefined;
@@ -4882,10 +4885,11 @@ export default function Providers() {
     } catch { /* ignore */ }
   }, []);
   useEffect(() => {
+    if (provLocation.pathname !== '/providers') return undefined;
     loadCooldowns();
-    const id = setInterval(loadCooldowns, 10000);
+    const id = setInterval(loadCooldowns, 30000);
     return () => clearInterval(id);
-  }, [loadCooldowns]);
+  }, [loadCooldowns, provLocation.pathname]);
   const cooldownMaps = useMemo(() => {
     const byProv = {}, byAgent = {};
     for (const c of cooldowns) {

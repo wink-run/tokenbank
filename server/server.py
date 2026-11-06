@@ -48,6 +48,7 @@ from tools_router import router as tools_router
 from worker_pool import (
     pool, WorkerConnection, worker_model_names, default_ttft_ms, worker_sharer,
     normalize_agent_cards, owner_label_from_user, shared_agent_display_name, bare_agent_name,
+    agent_resume_message,
 )
 from geo_ip import client_ip_from_ws, resolve_client_ip, resolve_ip_geo, virtual_worker_geo
 from contrib_display import apply_contrib_display
@@ -684,6 +685,31 @@ async def _remember_worker_agents(worker) -> None:
         logger.warning("remember public agents failed: %s", e)
 
 
+async def _resume_parked_agent_tasks(worker) -> None:
+    """同一台设备重连后，把重启前没跑完的任务用原来的会话接着下发。"""
+    adopted = pool.adopt_parked_agent_tasks(worker)
+    for tid, entry in adopted:
+        try:
+            await worker.send(agent_resume_message(tid, entry))
+            logger.info(
+                "[agent_task] resume after reconnect task_id=%s worker=%s",
+                tid, getattr(worker, "worker_id", ""),
+            )
+        except Exception:
+            logger.exception("[agent_task] resume send failed task_id=%s", tid)
+            worker.pending_agents.pop(tid, None)
+            worker.active_requests = max(0, getattr(worker, "active_requests", 1) - 1)
+            q = entry.get("queue") if isinstance(entry, dict) else None
+            if q is not None:
+                await q.put({
+                    "type": "agent_task_result",
+                    "task_id": tid,
+                    "status": "failed",
+                    "error": "worker disconnected",
+                    "output": str(entry.get("partial_output") or ""),
+                })
+
+
 async def _public_agent_card(assistant_id: str):
     """上架中的公开智能体。圈子里的、或已过保留期的不给介绍页。"""
     aid = (assistant_id or "").strip()
@@ -1084,6 +1110,8 @@ class AgentTaskBody(BaseModel):
     images: Optional[list] = None
     # 普通附件：[{dataUrl, name?}]，data:*;base64,…
     files: Optional[list] = None
+    # 分享里接着聊。服务端据此回到发起人的会话，而不是按当前发言人新开
+    share_id: Optional[str] = None
 
 
 @app.post("/api/agent-tasks")
@@ -1108,8 +1136,9 @@ async def create_agent_task(
         text = (body.prompt or "").strip()
         if not text and not task_images and not task_files:
             raise HTTPException(400, "prompt required")
-        # 访客禁止带历史（前端多轮会包装 Conversation so far）
-        if text.startswith("Conversation so far:"):
+        # 访客禁止带历史（前端多轮会包装 Conversation so far）。
+        # 分享里的下一句除外：上下文在发起人的会话里，不能当成新开一轮。
+        if text.startswith("Conversation so far:") and not (body.share_id or "").strip():
             raise HTTPException(401, "guest trial: one turn only — sign in to continue")
         if not guest_trial_allowed(_client_ip(request)):
             raise HTTPException(429, "guest trial limit reached — sign in to continue")
@@ -1128,6 +1157,7 @@ async def create_agent_task(
             guest_ip=guest_ip,
             images=task_images or None,
             files=task_files or None,
+            share_id=body.share_id,
         )
         return StreamingResponse(
             gen,
@@ -1149,6 +1179,7 @@ async def create_agent_task(
         guest_ip=guest_ip,
         images=task_images or None,
         files=task_files or None,
+        share_id=body.share_id,
     )
     if not result.get("ok"):
         status = result.get("status") or "failed"
@@ -1686,6 +1717,11 @@ async def worker_ws(ws: WebSocket):
             client_ip=client_ip,
         )
         pool.add(worker)
+        # 旧连接收进暂存时会记下上架名单。空 register 先挂回这份，探测完再按真实勾选覆盖
+        if not worker.agents:
+            pool.restore_agent_cards(worker)
+        else:
+            pool.remember_agent_cards(worker)
         await _remember_worker_agents(worker)
 
         async def _geo_worker(w: WorkerConnection) -> None:
@@ -1700,6 +1736,7 @@ async def worker_ws(ws: WebSocket):
 
         asyncio.create_task(_geo_worker(worker))
         await ws.send_text(json.dumps({"type": "registered", "worker_id": worker_id}))
+        await _resume_parked_agent_tasks(worker)
         logger.info(
             "[worker/ws] online peer=%s worker_id=%s name=%s user_id=%s models=%s agents=%s",
             peer,
@@ -1758,9 +1795,19 @@ async def worker_ws(ws: WebSocket):
 
             # 注册后补齐/刷新智能体名片（客户端先秒回 register，再异步探测 CLI）
             if kind == "agents_update":
-                worker.agents = normalize_agent_cards(
+                # 空名单且没声明探测完成：多半是重启瞬间，保留这一端上次的上架
+                ready = bool(msg.get("agents_ready"))
+                incoming = normalize_agent_cards(
                     msg.get("agents"), owner_nickname=getattr(worker, "owner_nickname", None) or "",
                 )
+                if incoming or ready:
+                    worker.agents = incoming
+                    if incoming:
+                        pool.remember_agent_cards(worker)
+                    else:
+                        pool.forget_agent_cards(worker)
+                elif not worker.agents:
+                    pool.restore_agent_cards(worker)
                 await _remember_worker_agents(worker)
                 logger.info(
                     "[worker/ws] agents_update worker_id=%s agents=%s",
@@ -1774,6 +1821,19 @@ async def worker_ws(ws: WebSocket):
                 task_id = msg.get("task_id")
                 entry = worker.pending_agents.get(task_id) if task_id else None
                 if entry and entry.get("queue") is not None:
+                    # 会话号和正文先记下，进程重启后续跑才能 --resume
+                    sid = str(msg.get("cli_session_id") or "").strip()[:80]
+                    if sid and sid != entry.get("cli_session_id"):
+                        entry["cli_session_id"] = sid
+                        share = str(entry.get("share_id") or "").strip()
+                        if share:
+                            try:
+                                await db.set_share_cli_session(share, sid)
+                            except Exception:
+                                logger.warning("[agent_task] save cli session failed share=%s", share)
+                    text = str(msg.get("text") or "")
+                    if text:
+                        entry["partial_output"] = text[:200_000]
                     await entry["queue"].put(msg)
                 continue
 
@@ -1869,14 +1929,20 @@ async def worker_ws(ws: WebSocket):
             for entry in worker.pending.values():
                 await entry["queue"].put(("error", "worker disconnected"))
             worker.pending.clear()
-            for tid, entry in list(worker.pending_agents.items()):
-                await entry["queue"].put({
+            # 武将任务先留一个重连窗口。同一台设备重启后还能接上，过了窗口再判失败
+            parked = pool.park_agent_tasks(worker)
+            orphan = (parked or {}).get("orphan") or {}
+            for tid, entry in orphan.items():
+                q = entry.get("queue") if isinstance(entry, dict) else None
+                if q is None:
+                    continue
+                await q.put({
                     "type": "agent_task_result",
                     "task_id": tid,
                     "status": "failed",
                     "error": "worker disconnected",
+                    "output": str(entry.get("partial_output") or ""),
                 })
-            worker.pending_agents.clear()
             logger.info(
                 "[worker/ws] offline peer=%s worker_id=%s name=%s",
                 peer,

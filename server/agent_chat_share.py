@@ -95,6 +95,9 @@ def normalize_share_messages(raw) -> list:
             msg["startedAt"] = int(started)
         if isinstance(finished, (int, float)) and finished > 0:
             msg["finishedAt"] = int(finished)
+        duration = item.get("durationMs")
+        if isinstance(duration, (int, float)) and duration > 0:
+            msg["durationMs"] = int(duration)
         if isinstance(spoken, (int, float)) and spoken > 0:
             msg["at"] = int(spoken)
         if msg["content"].strip() or msg.get("parts") or msg.get("artifacts") or msg.get("images") or msg.get("files"):
@@ -167,7 +170,12 @@ def append_share_turns(existing, incoming) -> list:
     """把后来的人接上的发言补进同一条分享，已有的句子不重复。"""
     merged = normalize_share_messages(existing)
     for msg in normalize_share_messages(incoming):
-        if any(_same_turn(old, msg) for old in merged):
+        hit = next((old for old in merged if _same_turn(old, msg)), None)
+        if hit:
+            # 后写入的一方如果带了本轮耗时，补到已经落库的同一句上
+            for key in ("startedAt", "finishedAt", "durationMs"):
+                if msg.get(key) and not hit.get(key):
+                    hit[key] = msg[key]
             continue
         merged.append(msg)
     ordered = list(enumerate(merged))

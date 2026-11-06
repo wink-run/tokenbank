@@ -27,6 +27,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     start: () => ipcRenderer.invoke('agent:start'),
     stop: () => ipcRenderer.invoke('agent:stop'),
     getStatus: () => ipcRenderer.invoke('agent:status'),
+    // 本机正在为雇佣方执行的智能体任务
+    listContributeTasks: () => ipcRenderer.invoke('agent:listContributeTasks'),
+    onContributeTasks: (cb) => {
+      const handler = (_e, tasks) => cb(Array.isArray(tasks) ? tasks : []);
+      ipcRenderer.on('agent:contributeTasks', handler);
+      return () => ipcRenderer.removeListener('agent:contributeTasks', handler);
+    },
     onStatus: (cb) => {
       const handler = (_e, data) => cb(data);
       ipcRenderer.on('agent:status', handler);

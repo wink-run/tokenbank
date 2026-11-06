@@ -244,6 +244,34 @@ test('list 时合并旧版每轮重复残留', () => {
   assert.equal(list[0].id, 'h3');
 });
 
+test('删过的任务记在名单里，不再算可见', () => {
+  global.localStorage = mockLocalStorage();
+  assert.equal(H.isAgentHistoryTaskHidden('task-1'), false);
+  H.hideAgentHistoryTasks(['task-1', '']);
+  assert.equal(H.isAgentHistoryTaskHidden('task-1'), true);
+  assert.equal(H.isAgentHistoryTaskHidden('task-2'), false);
+});
+
+test('删除匹配只认当前线程或同一 task', () => {
+  const item = {
+    sessionKey: 'task:t1',
+    conversationTurns: [{ user: '画一张', taskId: 't1' }, { user: '再来一张', taskId: 't2' }],
+  };
+  assert.equal(H.historySnapshotMatchesOpenSession(item, {
+    historyThreadId: 'task:t1',
+    conversationTurns: [{ user: '画一张', taskId: 't1' }],
+  }), true);
+  assert.equal(H.historySnapshotMatchesOpenSession(item, {
+    historyThreadId: 'new:other',
+    conversationTurns: [{ user: '水墨故宫', taskId: 'other' }],
+  }), false);
+  assert.equal(H.historySnapshotMatchesOpenSession(item, {
+    historyThreadId: 'new:live',
+    conversationTurns: [{ user: '画一张', taskId: 't9' }],
+    currentTask: { id: 't2' },
+  }), true);
+});
+
 test('LLM 会话保留 tbimg 引用，丢掉裸 base64', () => {
   global.localStorage = mockLocalStorage();
   H.saveLlmSessionSnapshot({

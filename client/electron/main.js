@@ -1792,6 +1792,7 @@ function startAgent() {
       safeSend('agent:status', status);
       updateTrayMenu();
     },
+    onTasks: (tasks) => safeSend('agent:contributeTasks', tasks),
   });
   updateTrayMenu();
 }
@@ -2844,6 +2845,7 @@ function registerIPC() {
   ipcMain.handle('agent:start',   () => { startAgent(); return { running: agent.isRunning() }; });
   ipcMain.handle('agent:stop',    () => { stopAgent();  return { running: false }; });
   ipcMain.handle('agent:status',  () => ({ running: agent.isRunning() }));
+  ipcMain.handle('agent:listContributeTasks', () => ({ tasks: agent.listContributeTasks() }));
   ipcMain.handle('agent:getLogs', () => [..._agentLogBuf]);
   ipcMain.handle('config:read',  () => readAgentConfig());
   ipcMain.handle('config:write', (_e, cfg) => { writeAgentConfig(cfg); return { ok: true }; });
