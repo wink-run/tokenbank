@@ -641,6 +641,7 @@ async def handle_agent_task(
     images: Optional[list] = None,
     files: Optional[list] = None,
     share_id: Optional[str] = None,
+    app_id: Optional[str] = None,
 ) -> dict:
     """选 worker → 预扣积分 → 下发 → 等待终态结果；失败退款。
     
@@ -707,7 +708,7 @@ async def handle_agent_task(
             }
 
     # 调用 worker 的本地 Gateway
-    # 发起方：非流式请求通常是API调用，默认用 "api"
+    # 发起方由调用者显式传递，不推断
     try:
         gateway_response = await invoke_worker_gateway(
             worker=worker,
@@ -715,7 +716,7 @@ async def handle_agent_task(
             path="/v1/agent/responses",
             body=gateway_body,
             timeout_sec=(timeout_ms or AGENT_TASK_TIMEOUT_SEC * 1000) // 1000,
-            initiator="api",  # 非流式 → API调用
+            initiator=app_id,  # 调用方显式传递
         )
 
         # 转换 Gateway 响应为云端格式
@@ -993,6 +994,7 @@ async def iter_agent_task_sse(
     images: Optional[list] = None,
     files: Optional[list] = None,
     share_id: Optional[str] = None,
+    app_id: Optional[str] = None,
 ) -> AsyncIterator[str]:
     """SSE：progress 事件推正文，done/error 收尾。
     
@@ -1074,7 +1076,7 @@ async def iter_agent_task_sse(
     yield _sse({"event": "started", "task_id": task_id})
 
     # 流式调用 worker 的本地 Gateway
-    # 发起方：流式请求通常是网页聊天，用 "web-chat"
+    # 发起方由调用者显式传递，不推断
     accumulated_text = ""
     success = False
     try:
@@ -1084,7 +1086,7 @@ async def iter_agent_task_sse(
             path="/v1/agent/responses",
             body=gateway_body,
             timeout_sec=(timeout_ms or AGENT_TASK_TIMEOUT_SEC * 1000) // 1000,
-            initiator="web-chat",  # 流式 → 网页聊天
+            initiator=app_id,  # 调用方显式传递
         ):
             event_name = gateway_event.get("event")
             event_data = gateway_event.get("data", {})

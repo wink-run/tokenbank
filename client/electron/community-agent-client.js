@@ -297,7 +297,7 @@ async function resolveCommunityOwner(assistantId, owner) {
  * 远程雇佣执行。stream 为 true 才向云端要 SSE，进度经 onProgress 吐出；否则等整段结果。
  * @returns {Promise<object>}
  */
-async function runCommunityAgentTask({ assistantId, prompt, owner, timeoutMs, images, files, stream, onProgress } = {}) {
+async function runCommunityAgentTask({ assistantId, prompt, owner, timeoutMs, images, files, stream, onProgress, appId } = {}) {
   const { base, token } = resolveCloudAuth();
   if (!base) throw new Error('未配置 Token Bank 服务地址');
   if (!token) throw new Error('请先登录并启用转发 Key（与模型社区源同一套 cloud_config.token）');
@@ -307,6 +307,8 @@ async function runCommunityAgentTask({ assistantId, prompt, owner, timeoutMs, im
   const who = await resolveCommunityOwner(aid, owner);
   // stream 开关：打开才向云端要 SSE，否则等整段结果
   const wantStream = !!stream;
+  // 发起方标识：调用方显式传递（不从 stream 推断）
+  const caller = String(appId || '').trim();
   const taskBody = {
     assistant_id: aid,
     prompt: text,
@@ -315,6 +317,7 @@ async function runCommunityAgentTask({ assistantId, prompt, owner, timeoutMs, im
     images: Array.isArray(images) && images.length ? images : undefined,
     files: Array.isArray(files) && files.length ? files : undefined,
     ...(wantStream ? { stream: true } : {}),
+    ...(caller ? { app_id: caller } : {}),
   };
   const waitMs = timeoutMs || 620_000;
   const data = wantStream
