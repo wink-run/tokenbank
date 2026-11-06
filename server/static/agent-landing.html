@@ -88,7 +88,7 @@
           </div>
         </div>
         <div class="head-actions">
-          <button v-if="messages.length" type="button" class="nbtn" :disabled="running || shareBusy" @click="shareChat" :title="T.share">
+          <button v-if="messages.length" type="button" class="nbtn" :disabled="shareBusy" @click="shareChat" :title="T.share">
             <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 5H5.5A1.5 1.5 0 0 0 4 6.5v8A1.5 1.5 0 0 0 5.5 16h8a1.5 1.5 0 0 0 1.5-1.5V12" stroke-linecap="round"/><path d="M11 4h5v5M16 4 9.5 10.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>{{ shareCopied ? T.shared : T.share }}</span>
           </button>
           <button v-if="messages.length" type="button" class="nbtn" :disabled="running" @click="clearChat" :title="T.newChat">
@@ -1343,14 +1343,24 @@ createApp({
         historyItems.value = historyItems.value.map(h => h && h.id === tempId ? { ...h, id: nid, preview: h.preview || preview } : h)
       }).catch(() => {})
     }
+    // 正在回答的那句先不写入分享正文，别人打开链接靠这一轮的实时回复看到它
+    function settledShareMessages() {
+      const list = messages.value.filter(m => m && !m.liveTurn && !m.pending)
+      const answering = messages.value.some(m => m && m.role === 'assistant' && m.pending && !m.liveTurn)
+      if (!answering) return list
+      const last = list[list.length - 1]
+      if (last && last.role === 'user') list.pop()
+      return list
+    }
     // 一场对话只建一条记录。已经有 id 就接着写，不再另存一份。allowEmpty 用于点「新对话」
     async function ensureChatSession(allowEmpty) {
       if (relayShareId.value) return relayShareId.value
       if (!getToken()) return ''
       if (sessionPromise) return sessionPromise
       const aid = agent.value?.id || assistantIdFromPath()
-      const snapshot = serializeChat(messages.value.filter(m => m && !m.pending && !m.liveTurn))
-      if (!aid || (!snapshot.length && !allowEmpty)) return ''
+      const snapshot = serializeChat(settledShareMessages())
+      const openTurn = messages.value.some(m => m && m.role === 'assistant' && m.pending && !m.liveTurn)
+      if (!aid || (!snapshot.length && !allowEmpty && !openTurn)) return ''
       sessionPromise = (async () => {
         const { r, data } = await fetchJson('/api/agent-chats/shares', {
           method: 'POST',
@@ -1384,7 +1394,7 @@ createApp({
       // 点的就是正在看的这场：页面内容已经是这份记录，不用旧快照覆盖
       if (picked.id === relayShareId.value && messages.value.length) {
         if (window.matchMedia('(max-width: 640px)').matches) histOpen.value = false
-        await scrollChat()
+        await scrollChat(true)
         return
       }
       // 列表没有正文。只在点开时拉这一条，避免一进页就下载全部对话
@@ -1417,10 +1427,10 @@ createApp({
       startShareWatch()
       // 手机上选完就收回列表，把画面留给对话
       if (window.matchMedia('(max-width: 640px)').matches) histOpen.value = false
-      await scrollChat()
+      await scrollChat(true)
     }
 
-    // 打开时贴在最新一条；用户往上翻之后就不再拽回去
+    // 打开或刚发出时贴在最新一条；用户往上翻之后，后面的输出不再拽回去
     let stickToBottom = true
     function pinChatBottom() {
       const el = chatEl.value
@@ -1430,10 +1440,26 @@ createApp({
       el.scrollTop = el.scrollHeight
       el.style.scrollBehavior = prev
     }
-    async function scrollChat() {
+    // force 只用于打开对话、切换历史、自己刚发出。流式更新不能把人从历史里拉下来
+    async function scrollChat(force) {
+      if (force) stickToBottom = true
       await nextTick()
-      stickToBottom = true
-      pinChatBottom()
+      if (force || stickToBottom) pinChatBottom()
+    }
+    function followChat() {
+      const el = chatEl.value
+      if (!stickToBottom || !el) return
+      const top = el.scrollTop
+      nextTick(() => {
+        const box = chatEl.value
+        if (!box) return
+        // 这一拍里用户已经往上翻了，就留在他正在看的位置
+        if (box.scrollTop + 4 < top) {
+          stickToBottom = false
+          return
+        }
+        pinChatBottom()
+      })
     }
     function onChatScroll() {
       const el = chatEl.value
@@ -1441,7 +1467,7 @@ createApp({
       onImgHide()
     }
     function onChatMedia() {
-      if (stickToBottom) pinChatBottom()
+      if (stickToBottom) followChat()
     }
 
     function readSavedChat(aid) {
@@ -1548,7 +1574,7 @@ createApp({
         messages.value.push({ role: 'assistant', content: '', pending: true, liveTurn: true, shared: true, startedAt: live.at })
       }
       watchForeignStream(live.taskId)
-      if (stickToBottom) scrollChat()
+      if (stickToBottom) followChat()
     }
     function readSseBlock(block) {
       const data = String(block || '').split('\n')
@@ -1608,7 +1634,7 @@ createApp({
                 row.content = String(ev.text)
               }
               row.pending = true
-              if (stickToBottom) scrollChat()
+              if (stickToBottom) followChat()
             } else if (ev.event === 'done' || ev.event === 'error') {
               const text = String(ev.output || ev.result || ev.text || ev.message || row.content || '')
               if (text) row.content = text
@@ -1641,6 +1667,33 @@ createApp({
       historyItems.value = historyItems.value.map(h => {
         if (!h || h.id !== sid) return h
         return { ...h, messages: snapshot, preview: preview || h.preview }
+      })
+    }
+    // 轮询只改已有气泡或在末尾补句。整表换成新对象会让图片和正文重新加载，并把视口拽到底
+    function adoptKept(kept, keepLive) {
+      const live = keepLive ? messages.value.filter(m => m && m.liveTurn) : []
+      const base = messages.value.filter(m => m && !m.liveTurn)
+      const sameBase = kept.length === base.length && kept.every((row, i) => row === base[i])
+      const liveGone = !keepLive && messages.value.some(m => m && m.liveTurn)
+      if (sameBase && !liveGone) {
+        followChat()
+        return
+      }
+      const el = chatEl.value
+      const top = el ? el.scrollTop : 0
+      const stick = stickToBottom
+      messages.value = kept.concat(live)
+      nextTick(() => {
+        const box = chatEl.value
+        if (!box) return
+        if (stick) {
+          pinChatBottom()
+          return
+        }
+        const prev = box.style.scrollBehavior
+        box.style.scrollBehavior = 'auto'
+        box.scrollTop = top
+        box.style.scrollBehavior = prev
       })
     }
     async function pollShareTurn() {
@@ -1688,7 +1741,7 @@ createApp({
           holdingTurn.value = false
           if (transcriptKey(kept) !== before) {
             if (sid) screenShareId = sid
-            messages.value = sortMessages(loadChatHistoryFrom(kept))
+            adoptKept(kept, true)
             saveChatHistory(aid, messages.value)
           }
           showForeignTurn(turn)
@@ -1699,9 +1752,8 @@ createApp({
         try { turnWatchAbort?.abort() } catch { /* 这轮已经结束 */ }
         if (!hadLive && transcriptKey(kept) === before) return
         if (sid) screenShareId = sid
-        messages.value = sortMessages(loadChatHistoryFrom(kept))
+        adoptKept(kept, false)
         saveChatHistory(aid, messages.value)
-        if (stickToBottom) scrollChat()
       } finally {
         pollBusy = false
         // 切走之后补拉当前这一条，不要把上一条的结果写进来
@@ -1754,6 +1806,19 @@ createApp({
         })
       } catch { publishedTurnTask = '' }
     }
+    async function appendOpenShareTail() {
+      const sid = relayShareId.value
+      if (!sid) return
+      const tail = serializeChat(messages.value.filter(m => m && !m.pending && !m.liveTurn).slice(-2))
+      if (!tail.length) return
+      try {
+        await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '/messages', {
+          method: 'POST',
+          auth: !!getToken(),
+          body: JSON.stringify({ messages: tail }),
+        })
+      } catch { /* 链接已经在，这一轮补不上就等下次打开 */ }
+    }
     async function endRelayTurn(commit) {
       const sid = boundTurnShare || relayShareId.value
       if (!sid || !holdingTurn.value) return
@@ -1773,7 +1838,22 @@ createApp({
         // 用云端写回的发言时间盖掉本机时钟
         if (r.ok && stillHere && data && Array.isArray(data.messages) && data.messages.length) {
           absorbShare(messages.value, data)
+          const el = chatEl.value
+          const top = el ? el.scrollTop : 0
+          const stick = stickToBottom
           messages.value = sortMessages(messages.value)
+          nextTick(() => {
+            const box = chatEl.value
+            if (!box) return
+            if (stick) {
+              pinChatBottom()
+              return
+            }
+            const prev = box.style.scrollBehavior
+            box.style.scrollBehavior = 'auto'
+            box.scrollTop = top
+            box.style.scrollBehavior = prev
+          })
         }
         if (commit && stillHere) syncHistoryTranscript(sid)
       } catch { /* 锁过期后别人也能重新抢 */ }
@@ -1867,7 +1947,7 @@ createApp({
         }))
     }
     async function shareChat() {
-      if (shareBusy.value || running.value || !messages.value.length) return
+      if (shareBusy.value || !messages.value.length) return
       const aid = agent.value?.id || assistantIdFromPath()
       if (!aid) return
       shareBusy.value = true
@@ -1883,6 +1963,17 @@ createApp({
         if (!id) {
           err.value = T.value.shareFail
           return
+        }
+        // 还在生成时就把这一轮挂上，别人打开链接能看到正在写的回复
+        if (running.value && !holdingTurn.value) {
+          const lastUser = [...messages.value].reverse().find(m => m && m.role === 'user' && !m.liveTurn)
+          if (lastUser) {
+            const claimed = await claimRelayTurn(String(lastUser.content || ''), id)
+            if (claimed !== false) {
+              if (!boundTurnShare) boundTurnShare = id
+              if (activeTaskId.value) publishTurnTask(activeTaskId.value)
+            }
+          }
         }
         err.value = ''
         shareCopied.value = true
@@ -2087,7 +2178,7 @@ createApp({
         loading.value = false
         // 加载骨架卸掉后对话区才挂上，这时才能滚到内容底部
         if (agent.value && getToken()) loadHistory()
-        if (agent.value) await scrollChat()
+        if (agent.value) await scrollChat(true)
         const last = messages.value[messages.value.length - 1]
         if (last && last.pending && last.taskId) {
           if (agent.value?.offline) last.pending = false
@@ -2286,7 +2377,7 @@ createApp({
                 row.progressAt = Date.now()
               }
             }
-            await scrollChat()
+            followChat()
             continue
           }
           if (ev.event === 'done') {
@@ -2570,7 +2661,7 @@ createApp({
       runSettle = new Promise((resolve) => { resolveSettle = resolve })
       // 本轮若超时，finally 之后用这句话自动再开一轮
       let nextAuto = ''
-      await scrollChat()
+      await scrollChat(true)
 
       const setAssistant = (content, { pending = true } = {}) => {
         const row = messages.value[asstIdx]
@@ -2660,8 +2751,11 @@ createApp({
         if (messages.value[asstIdx]) messages.value[asstIdx].pending = false
         sealTimes(messages.value[asstIdx])
         if ((finalOk && !nextAuto) || (messages.value[asstIdx]?.interrupted && !nextAuto)) {
+          const heldTurn = holdingTurn.value
           await endRelayTurn(true)
           if (!isGuest) {
+            // 运行中分享时如果没抢到发言权，收尾仍把这一轮补进同一条链接
+            if (relayShareId.value && !heldTurn) await appendOpenShareTail()
             await ensureChatSession()
             loadHistory()
           }
@@ -2669,7 +2763,7 @@ createApp({
         // 这一轮已经有回复，试用才算用过
         if (finalGuest && answerOf(messages.value[asstIdx]).trim()) guestUsed.value = true
         if (!isGuest) await fetchProfile()
-        await scrollChat()
+        followChat()
       } catch (e) {
         if (stopRequested) {
           freezePartial(asstIdx)

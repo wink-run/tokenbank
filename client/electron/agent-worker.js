@@ -98,11 +98,11 @@ function sessionIdForRunningTask(localId) {
   } catch { return ''; }
 }
 
-/** Claude 把工作目录编成 ~/.claude/projects 下的一层目录名。 */
+/** Claude 把工作目录编成 ~/.claude/projects 下的一层目录名。点号也会变成横线。 */
 function claudeProjectDir(workingDir) {
-  const abs = path.resolve(workingDir).replace(/\\/g, '/');
-  const slug = abs.replace(/^\//, '').replace(/\//g, '-');
-  return path.join(os.homedir(), '.claude', 'projects', `-${slug}`);
+  const abs = path.resolve(workingDir);
+  const slug = abs.replace(/[^a-zA-Z0-9]/g, '-');
+  return path.join(os.homedir(), '.claude', 'projects', slug);
 }
 
 /** 目录里最新的一份会话文件，文件名即 session id。 */
@@ -146,11 +146,13 @@ function resolveContributeTrace(taskId) {
   const task = liveContributeTasks.get(String(taskId || ''));
   if (!task) return { error: 'task_gone' };
   const localId = liveAgentTasks.get(task.id);
-  const runtime = task.runtime || contributeTaskRuntime(task.assistantId);
+  let runtime = task.runtime || contributeTaskRuntime(task.assistantId);
   let sid = String(task.cliSessionId || '').trim() || sessionIdForRunningTask(localId);
   if (!sid) sid = findSessionByWorkspace(runtime, task.workingDir);
-  if (sid && sid !== task.cliSessionId) {
-    patchContributeTask(task.id, { cliSessionId: sid, runtime: runtime || task.runtime || '' });
+  // 会话文件在 Claude 的项目目录里，运行时没记上时也按 claude-code 打开
+  if (!runtime && sid) runtime = 'claude-code';
+  if (sid && (sid !== task.cliSessionId || runtime !== task.runtime)) {
+    patchContributeTask(task.id, { cliSessionId: sid, runtime });
   }
   if (!sid || !runtime) return { error: 'no_session' };
   return { agentId: runtime, sessionId: sid };
