@@ -742,6 +742,28 @@ async def list_agent_chat_history(assistant_id: str, viewer_id: int, limit: int 
     return [dict(row) for row in rows]
 
 
+async def delete_owned_agent_chat(share_id: str, user_id: int) -> bool:
+    """只删自己发起的对话。参与者删不掉，别人的记录也不暴露。"""
+    safe = str(share_id or "").strip()
+    if not safe or not user_id:
+        return False
+    async with connect() as db:
+        async with db.execute(
+            "SELECT user_id FROM agent_chat_shares WHERE id=?",
+            (safe,),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row or int(dict(row).get("user_id") or 0) != int(user_id):
+            return False
+        await db.execute("DELETE FROM agent_chat_share_members WHERE share_id=?", (safe,))
+        await db.execute(
+            "DELETE FROM agent_chat_shares WHERE id=? AND user_id=?",
+            (safe, int(user_id)),
+        )
+        await db.commit()
+    return True
+
+
 async def replace_agent_chat_share_messages(share_id: str, messages_json: str) -> None:
     preview = _preview_from_messages_json(messages_json)
     async with connect() as db:

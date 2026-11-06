@@ -149,24 +149,25 @@ function findResumeMergeIndex(items, agentKey, turns, workingDir) {
 }
 
 /**
- * 续聊碎片合并：同 cliSessionId，或同工作目录下「单轮新条」并回最近会话。
- * 避免内存轮次丢失后按新 taskId 另开一条。
- * opts.disallowDirMerge：用户刚点「新会话」时禁止仅按目录合并。
+ * 续聊碎片合并：同一场 CLI 续跑，或同一条 task 补进已有会话。
+ * 不按工作目录合并。新开会话即使还在同一目录，也是另一条。
+ * explicitKey 已定时，不并进另一条 sessionKey。
  */
-function findContinuationMergeIndex(items, agentKey, turns, workingDir, cliSessionId, opts = {}) {
+function findContinuationMergeIndex(items, agentKey, turns, cliSessionId, explicitKey = '') {
   if (!turns?.length) return -1;
   const sid = String(cliSessionId || '').trim();
-  const dir = normalizeHistoryDir(workingDir);
+  const threadKey = String(explicitKey || '').trim();
   const turnIds = new Set(turns.map((t) => t?.taskId).filter(Boolean));
 
-  // 1) 同 CLI session —— 最强信号（--resume 续跑）
-  if (sid) {
-    const byCli = items.findIndex((it) => (
-      it?.agentKey === agentKey
-      && String(it.cliSessionId || '').trim() === sid
-      && (it.conversationTurns || []).length > 0
-      && !turnsAreSameThread(it.conversationTurns, turns)
-    ));
+  // 1) 同 CLI session，且不是用户另开的一条会话
+  if (sid && !threadKey.startsWith('new:')) {
+    const byCli = items.findIndex((it) => {
+      if (!it || it.agentKey !== agentKey) return false;
+      if (String(it.cliSessionId || '').trim() !== sid) return false;
+      if (!(it.conversationTurns || []).length) return false;
+      if (turnsAreSameThread(it.conversationTurns, turns)) return false;
+      return true;
+    });
     if (byCli >= 0) return byCli;
   }
 
@@ -181,25 +182,7 @@ function findContinuationMergeIndex(items, agentKey, turns, workingDir, cliSessi
     if (byTask >= 0) return byTask;
   }
 
-  // 3) 单轮/双轮碎片 + 同工作目录 → 并入最近多轮会话（新会话窗口内跳过）
-  if (opts.disallowDirMerge || turns.length > 2) return -1;
-  let bestIdx = -1;
-  let bestAt = 0;
-  for (let i = 0; i < items.length; i += 1) {
-    const it = items[i];
-    if (!it || it.agentKey !== agentKey) continue;
-    const prev = it.conversationTurns || [];
-    if (prev.length < 2) continue;
-    if (turnsAreSameThread(prev, turns) || turnsAreSameThread(turns, prev)) continue;
-    const itDir = normalizeHistoryDir(it.sessionWorkingDir);
-    if (!dir || !itDir || dir !== itDir) continue;
-    const at = it.savedAt || 0;
-    if (at >= bestAt) {
-      bestAt = at;
-      bestIdx = i;
-    }
-  }
-  return bestIdx;
+  return -1;
 }
 
 /** 合并续跑碎片：按 taskId 去重后，再按时间戳排成时间线 */
@@ -321,8 +304,8 @@ export function saveAgentSessionSnapshot(agentKey, snapshot = {}) {
       ),
     );
   }
-  // 中断后续跑若内存轮次被清空，首轮变成「继续」——并回最近一条同 Agent 历史，勿新开会话
-  if (existingIdx < 0) {
+  // 中断后续跑若内存轮次被清空，首轮变成「继续」。已指定新会话键时不并回旧条。
+  if (existingIdx < 0 && !String(snapshot.historyThreadId || '').startsWith('new:')) {
     const resumeIdx = findResumeMergeIndex(store.items, agentKey, turns, workingDir);
     if (resumeIdx >= 0) {
       existingIdx = resumeIdx;
@@ -346,9 +329,8 @@ export function saveAgentSessionSnapshot(agentKey, snapshot = {}) {
       store.items,
       agentKey,
       turns,
-      workingDir,
       snapshot.cliSessionId,
-      { disallowDirMerge: !!snapshot.disallowDirMerge },
+      sessionKey,
     );
     if (contIdx >= 0) {
       existingIdx = contIdx;
@@ -428,36 +410,24 @@ export function saveAgentSessionSnapshot(agentKey, snapshot = {}) {
   return entry;
 }
 
-/** 合并同线程重复历史（修复旧版「每轮一条」残留） */
+/** 合并同线程重复历史。不同 sessionKey 的会话即使同目录也不并。 */
 function dedupeAgentItems(items = []) {
   const sorted = items.slice().sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
   const kept = [];
-  const DIR_HEAL_MS = 2 * 60 * 60 * 1000; // 2h 内同目录单轮碎片并回多轮
   for (const it of sorted) {
     const key = it.sessionKey || resolveAgentHistorySessionKey(it);
     const sid = String(it.cliSessionId || '').trim();
-    const dir = normalizeHistoryDir(it.sessionWorkingDir);
-    const itTurns = it.conversationTurns || [];
     const dupIdx = kept.findIndex((k) => {
       if (k.agentKey !== it.agentKey) return false;
       const kKey = k.sessionKey || resolveAgentHistorySessionKey(k);
+      // 用户另开的会话有自己的键，不能因为同目录或同 CLI id 并回去
+      if (key && kKey && key !== kKey) return false;
       if (key && kKey && key === kKey) return true;
       const kSid = String(k.cliSessionId || '').trim();
-      if (sid && kSid && sid === kSid) return true;
+      if (sid && kSid && sid === kSid && !(key && kKey)) return true;
       if (turnsAreSameThread(it.conversationTurns, k.conversationTurns)
         || turnsAreSameThread(k.conversationTurns, it.conversationTurns)) {
         return true;
-      }
-      // 治愈已拆开的同目录碎片：短时间内单轮 ↔ 多轮，或两个单轮先捏合
-      const kDir = normalizeHistoryDir(k.sessionWorkingDir);
-      const kTurns = k.conversationTurns || [];
-      if (dir && kDir && dir === kDir) {
-        const near = Math.abs((it.savedAt || 0) - (k.savedAt || 0)) <= DIR_HEAL_MS;
-        if (near && itTurns.length <= 2 && kTurns.length <= 2) return true;
-        if (near && ((itTurns.length <= 2 && kTurns.length >= 2)
-          || (kTurns.length <= 2 && itTurns.length >= 2))) {
-          return true;
-        }
       }
       return false;
     });
@@ -510,34 +480,19 @@ export function listAgentSessionSnapshots(agentKey) {
 }
 
 /**
- * 续跑前查找应附着的本地历史（同 CLI session 或同工作目录最近一条）。
- * 供内存轮次被清空时回填，避免新开一条。
+ * 内存轮次被清空时，只按 CLI session 找回同一场。
+ * 同目录的其他会话不回填，避免新开的对话粘到上一条。
  */
-export function findAgentSessionForContinue(agentKey, { workingDir = '', cliSessionId = '' } = {}) {
+export function findAgentSessionForContinue(agentKey, { cliSessionId = '' } = {}) {
   if (!agentKey) return null;
-  const list = listAgentSessionSnapshots(agentKey);
-  if (!list.length) return null;
   const sid = String(cliSessionId || '').trim();
-  if (sid) {
-    const byCli = list
-      .filter((it) => String(it.cliSessionId || '').trim() === sid)
-      // 同 CLI 下优先多轮完整会话
-      .sort((a, b) => (b.conversationTurns?.length || 0) - (a.conversationTurns?.length || 0)
-        || (b.savedAt || 0) - (a.savedAt || 0));
-    if (byCli[0]?.conversationTurns?.length) return byCli[0];
-  }
-  const dir = normalizeHistoryDir(workingDir);
-  if (dir) {
-    const byDir = list
-      .filter((it) => normalizeHistoryDir(it.sessionWorkingDir) === dir)
-      .sort((a, b) => (b.conversationTurns?.length || 0) - (a.conversationTurns?.length || 0)
-        || (b.savedAt || 0) - (a.savedAt || 0));
-    if (byDir[0]?.conversationTurns?.length) return byDir[0];
-  }
-  // 无目录线索时：仍优先多轮，避免回填到拆开的单轮碎片
-  const ranked = list.slice().sort((a, b) => (b.conversationTurns?.length || 0) - (a.conversationTurns?.length || 0)
-    || (b.savedAt || 0) - (a.savedAt || 0));
-  return ranked[0]?.conversationTurns?.length ? ranked[0] : null;
+  if (!sid) return null;
+  const list = listAgentSessionSnapshots(agentKey);
+  const byCli = list
+    .filter((it) => String(it.cliSessionId || '').trim() === sid)
+    .sort((a, b) => (b.conversationTurns?.length || 0) - (a.conversationTurns?.length || 0)
+      || (b.savedAt || 0) - (a.savedAt || 0));
+  return byCli[0]?.conversationTurns?.length ? byCli[0] : null;
 }
 
 /** 读取单条历史快照 */

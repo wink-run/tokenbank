@@ -249,6 +249,8 @@ button{font-family:inherit}
 .hist-time{flex-shrink:0;font-size:11px;color:var(--text-faint);line-height:1.4;padding-top:1px}
 .hist-meta,.hist-note{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted);line-height:1.4}
 .hist-role{padding:1px 6px;border-radius:999px;background:var(--bg-muted);color:var(--text-muted)}
+.hist-del{margin-left:auto;width:18px;height:18px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:14px;line-height:1}
+.hist-item:hover .hist-del,.hist-del:hover{color:#b91c1c;background:#fef2f2}
 .hist-item.on .hist-role.mine{background:var(--text);color:#fff}
 .hist-role.joined{background:#eef2ff;color:#3730a3}
 .hist-empty{padding:18px 12px;color:var(--text-muted);font-size:13px;line-height:1.5}

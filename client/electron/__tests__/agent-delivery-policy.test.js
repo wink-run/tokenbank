@@ -7,9 +7,17 @@ const {
   withDeliveryPolicyPrompt,
   withClaudeDeliverySystemArgs,
 } = require('../agent-delivery-policy');
-const { buildClaudeCodeArgs } = require('../agent-executor');
+const agentExecutor = require('../agent-executor');
+const { buildClaudeCodeArgs } = agentExecutor;
 const { buildAssistantLaunch } = require('../resource-assistant');
 const mcpManager = require('../mcp-manager');
+
+test('内置 CLI id 直接认出，不因列表缓存报未知', async () => {
+  assert.equal(agentExecutor.canonicalBuiltinAgentId('claude-code'), 'claude-code');
+  assert.equal(agentExecutor.canonicalBuiltinAgentId('app:claude-code'), 'claude-code');
+  assert.equal(agentExecutor.canonicalBuiltinAgentId('community:claude-code@ada'), '');
+  assert.equal(await agentExecutor.resolveAgentId('claude-code'), 'claude-code');
+});
 
 test('DELIVERY_POLICY forbids paste-script and internal cache paths', () => {
   assert.ok(DELIVERY_POLICY.includes('一键保存'));
@@ -31,12 +39,12 @@ test('withClaudeDeliverySystemArgs appends system prompt', () => {
   assert.ok(String(args[i + 1]).includes('【Token Bank 产物交付】'));
 });
 
-test('buildClaudeCodeArgs injects delivery policy', () => {
-  const args = buildClaudeCodeArgs('hello');
-  assert.ok(args.includes('--append-system-prompt'));
-  const i = args.indexOf('--append-system-prompt');
-  assert.ok(String(args[i + 1]).includes('产物交付'));
-  assert.ok(!String(args[i + 1]).includes('【Token Bank 出租】'));
+test('本地 Claude 启动不附产物交付规则', () => {
+  const args = buildClaudeCodeArgs('写首诗');
+  assert.equal(args[args.length - 1], '写首诗');
+  assert.ok(!args.includes('--append-system-prompt'));
+  assert.ok(!args.join('\n').includes('产物交付'));
+  assert.ok(!args.join('\n').includes('【Token Bank 出租】'));
 });
 
 test('rental definition tells the agent it is hired out', () => {
@@ -56,17 +64,26 @@ test('rental definition tells the agent it is hired out', () => {
   assert.ok(cursor[0].includes('【Token Bank 出租】'));
   assert.ok(cursor[0].indexOf('【Token Bank 出租】') > cursor[0].indexOf('【Token Bank 产物交付】'));
   assert.equal(applyRentalDefinition(cursor)[0], cursor[0]);
+
+  // 本地参数里没有落盘规则时，出租接单仍要补上
+  const plain = applyRentalDefinition(['写首诗']);
+  assert.ok(plain[0].includes('产物交付'));
+  assert.ok(plain[0].includes('【Token Bank 出租】'));
+  assert.ok(plain[0].includes('写首诗'));
 });
 
-test('buildAssistantLaunch injects policy for claude and codex', () => {
+test('本地智能体默认不附产物交付规则', () => {
   const cc = buildAssistantLaunch('claude-code', 'soul text');
   const idx = cc.claudeExtraArgs.indexOf('--append-system-prompt');
   assert.ok(String(cc.claudeExtraArgs[idx + 1]).includes('soul text'));
-  assert.ok(String(cc.claudeExtraArgs[idx + 1]).includes('产物交付'));
+  assert.ok(!String(cc.claudeExtraArgs[idx + 1]).includes('产物交付'));
 
   const cx = buildAssistantLaunch('codex', 'soul text');
   assert.ok(cx.promptPrefix.includes('soul text'));
-  assert.ok(cx.promptPrefix.includes('产物交付'));
+  assert.ok(!cx.promptPrefix.includes('产物交付'));
+
+  const opted = buildAssistantLaunch('codex', 'soul text', '', { includeDelivery: true });
+  assert.ok(opted.promptPrefix.includes('产物交付'));
 });
 
 test('buildAssistantLaunch: 画像分析可关闭产物落盘规则', () => {
@@ -80,9 +97,10 @@ test('buildAssistantLaunch: 画像分析可关闭产物落盘规则', () => {
   assert.ok(!cx.promptPrefix.includes('产物交付'));
 });
 
-test('orchestrator system includes delivery policy', () => {
-  const { DELIVERY_POLICY: pol } = require('../agent-delivery-policy');
-  assert.ok(pol.includes('直接写入'));
+test('本地聚合入口不附产物交付规则', () => {
+  const { ORCHESTRATOR_SYSTEM } = require('../mcp-manager');
+  assert.ok(!ORCHESTRATOR_SYSTEM.includes('产物交付'));
+  assert.ok(!ORCHESTRATOR_SYSTEM.includes('一键保存'));
   assert.ok(typeof mcpManager.buildOrchestratorLaunch === 'function');
 });
 

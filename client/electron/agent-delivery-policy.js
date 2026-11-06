@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * Claude Code / Codex 共用：可交付产物必须由 Agent 直接落盘，
- * 禁止让用户粘贴依赖 Codex 内部 cache 的「一键保存」超长脚本。
+ * 只给出租接单用：雇佣方不在这台电脑前，成品必须落在工作目录里由平台转交。
+ * 本机游乐场 / 本地智能体不要加这段，否则普通问答也会被写成文件。
  */
 const DELIVERY_POLICY = [
   '【Token Bank 产物交付】',
@@ -25,25 +25,30 @@ const RENTAL_CONTEXT = [
   '平台会把工作目录里的成品交给雇佣方。',
 ].join('\n');
 
-/** 出租接单时写进系统提示。已有则不重复加。 */
+/** 出租接单才需要落盘规则，并接上「不能报本机路径」。已有则不重复加。 */
+function withRentalHandoff(text) {
+  let body = String(text || '');
+  if (!body.includes('【Token Bank 产物交付】')) {
+    body = body.trim() ? `${body}\n\n${DELIVERY_POLICY}` : DELIVERY_POLICY;
+  }
+  if (!body.includes('【Token Bank 出租】')) {
+    body = `${body}\n\n${RENTAL_CONTEXT}`;
+  }
+  return body;
+}
+
+/** 出租接单时写进系统提示或用户 prompt。已有则不重复加。 */
 function applyRentalDefinition(args = []) {
   const out = [...args];
   const idx = out.indexOf('--append-system-prompt');
   if (idx >= 0 && typeof out[idx + 1] === 'string') {
-    if (!out[idx + 1].includes('【Token Bank 出租】')) {
-      out[idx + 1] = `${out[idx + 1]}\n\n${RENTAL_CONTEXT}`;
-    }
+    out[idx + 1] = withRentalHandoff(out[idx + 1]);
     return out;
   }
   for (let i = out.length - 1; i >= 0; i -= 1) {
     const text = out[i];
     if (typeof text !== 'string' || !text.trim() || text.startsWith('-')) continue;
-    if (text.includes('【Token Bank 出租】')) return out;
-    if (text.includes(DELIVERY_POLICY)) {
-      out[i] = text.replace(DELIVERY_POLICY, `${DELIVERY_POLICY}\n\n${RENTAL_CONTEXT}`);
-    } else {
-      out[i] = `${RENTAL_CONTEXT}\n\n${text}`;
-    }
+    out[i] = withRentalHandoff(text);
     return out;
   }
   return out;

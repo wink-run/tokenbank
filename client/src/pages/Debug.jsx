@@ -1144,15 +1144,11 @@ export default function Debug() {
     if (!key) return;
     const sess = getStoreSession(key);
     if (!sess.conversationTurns?.length) return;
-    // 「新会话」后短时间内勿按工作目录并回旧条
-    const disallowDirMerge = !!(sess.skipHistoryRecover
-      && Date.now() - sess.skipHistoryRecover < 120_000);
     saveAgentSessionSnapshot(key, {
       conversationTurns: sess.conversationTurns,
       sessionWorkingDir: sess.sessionWorkingDir,
       cliSessionId: sess.cliSessionId,
       historyThreadId: sess.historyThreadId,
-      disallowDirMerge,
     });
   }
 

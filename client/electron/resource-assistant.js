@@ -150,12 +150,12 @@ function resolveAssistantContext(config, resourceManager) {
 /**
  * 生成底层 CLI Agent 的启动参数
  * @param {object} [opts]
- * @param {boolean} [opts.includeDelivery=true] 是否附带产物落盘规则（画像分析等纯 JSON 任务可关）
+ * @param {boolean} [opts.includeDelivery=false] 是否附带产物落盘规则。本地默认关；仅显式打开时加
  * @returns {{ runtimeAgentId: string, claudeExtraArgs?: string[], promptPrefix?: string }}
  */
 function buildAssistantLaunch(runtimeAgentId, systemText, model, opts = {}) {
   const { DELIVERY_POLICY, withClaudeDeliverySystemArgs } = require('./agent-delivery-policy');
-  const includeDelivery = opts.includeDelivery !== false;
+  const includeDelivery = opts.includeDelivery === true;
   const soul = String(systemText || '').trim();
   // soul +（可选）产物落盘规则
   let system = soul;

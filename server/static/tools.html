@@ -164,6 +164,9 @@ a { color: inherit; text-decoration: none; }
           <button v-for="scene in scenes" :key="scene.value" type="button" @click="selectedScene = scene.value; loadTools()" :class="['ag-chip', { on: selectedScene === scene.value }]">{{ sceneLabel(scene) }}</button>
         </div>
       </div>
+      <!-- 首屏名片。脚本加载后换成同一套卡片，不再另排文字链接 -->
+      <div v-if="!hydrated" class="ag-grid"><!--AGENT_CARDS--></div>
+      <template v-else>
       <div v-if="loading" class="loading">{{ T.loading }}</div>
       <div v-else-if="!tools.length" class="empty">{{ T.empty }}</div>
       <div v-else class="ag-grid">
@@ -192,6 +195,7 @@ a { color: inherit; text-decoration: none; }
           </div>
         </a>
       </div>
+      </template>
     </main>
   </div>
 
@@ -317,6 +321,7 @@ createApp({
       selectedScene: '',
       searchQuery: '',
       loading: false,
+      hydrated: false,
       currentTool: null,
       currentTask: null,
       processing: false,
@@ -392,7 +397,8 @@ createApp({
       this.loadToolDetail(tool.id);
     },
     async loadTools() {
-      this.loading = true;
+      // 首屏已经有名片时不闪「加载中」，数据到了再换上可筛选的同一套卡片
+      if (this.hydrated) this.loading = true;
       try {
         const params = new URLSearchParams();
         if (this.selectedScene) params.append('scene', this.selectedScene);
@@ -405,6 +411,7 @@ createApp({
         console.error('Failed to load tools:', error);
         this.tools = [];
       } finally {
+        this.hydrated = true;
         this.loading = false;
       }
     },

@@ -129,78 +129,68 @@ test('同 cliSessionId 的跟聊碎片应合并', () => {
   assert.match(list[0].title, /白板动画/);
 });
 
-test('同工作目录的单轮碎片应并入多轮会话', () => {
+test('同目录的新会话不并进已有多轮', () => {
   global.localStorage = mockLocalStorage();
-  H.saveAgentSessionSnapshot('community:video', {
+  H.saveAgentSessionSnapshot('claude-code', {
     conversationTurns: [
-      { user: '根据文章生成白板动画', taskId: 'a1' },
+      { user: 'hi', taskId: 'a1' },
       { user: '二', taskId: 'a2' },
-      { user: '三', taskId: 'a3' },
     ],
-    sessionWorkingDir: '/tmp/proj',
+    sessionWorkingDir: '/Users/wink/code/demo',
+    historyThreadId: 'task:a1',
   });
-  H.saveAgentSessionSnapshot('community:video', {
-    conversationTurns: [{ user: '视频增加字幕及关键要点文字', taskId: 'b1' }],
-    sessionWorkingDir: '/tmp/proj',
+  H.saveAgentSessionSnapshot('claude-code', {
+    conversationTurns: [{ user: '我是谁', taskId: 'b1' }],
+    sessionWorkingDir: '/Users/wink/code/demo',
+    historyThreadId: 'new:sess_fresh',
   });
-  const list = H.listAgentSessionSnapshots('community:video');
-  assert.equal(list.length, 1);
-  assert.ok(list[0].turnCount >= 4);
-  assert.match(list[0].title, /白板动画/);
+  const list = H.listAgentSessionSnapshots('claude-code');
+  assert.equal(list.length, 2);
+  assert.ok(list.some((it) => it.title === '我是谁' && it.turnCount === 1));
+  assert.ok(list.some((it) => it.sessionKey === 'task:a1' && it.turnCount === 2));
 });
 
-test('findAgentSessionForContinue 按目录命中', () => {
+test('findAgentSessionForContinue 只认 CLI session，同目录不算', () => {
   global.localStorage = mockLocalStorage();
   H.saveAgentSessionSnapshot('claude-code', {
     conversationTurns: [{ user: '写代码', taskId: 'x1' }],
     sessionWorkingDir: '/tmp/code',
     cliSessionId: 'cli-x',
   });
-  const hit = H.findAgentSessionForContinue('claude-code', { workingDir: '/tmp/code/' });
+  assert.equal(H.findAgentSessionForContinue('claude-code', { workingDir: '/tmp/code/' }), null);
+  const hit = H.findAgentSessionForContinue('claude-code', { cliSessionId: 'cli-x' });
   assert.ok(hit);
   assert.equal(hit.cliSessionId, 'cli-x');
 });
 
-test('list 时治愈同目录短时拆开的单轮碎片', () => {
+test('list 时同目录的不同会话保持分开', () => {
   global.localStorage = mockLocalStorage();
   const now = Date.now();
   const raw = {
     version: 1,
     items: [
       {
-        id: 'h1', agentKey: 'community:video', title: 'skil中的这支笔里的江哥去掉',
-        savedAt: now, turnCount: 1, sessionWorkingDir: '/tmp/vid',
-        conversationTurns: [{ user: 'skil中的这支笔里的江哥去掉', taskId: 'f1', timestamp: now }],
+        id: 'h1', agentKey: 'claude-code', title: '我是谁',
+        savedAt: now, turnCount: 1, sessionWorkingDir: '/tmp/demo',
+        sessionKey: 'new:sess_1',
+        conversationTurns: [{ user: '我是谁', taskId: 'f1', timestamp: now }],
       },
       {
-        id: 'h2', agentKey: 'community:video', title: '视频增加字幕',
-        savedAt: now - 1000, turnCount: 1, sessionWorkingDir: '/tmp/vid',
-        conversationTurns: [{ user: '视频增加字幕', taskId: 'f2', timestamp: now - 1000 }],
-      },
-      {
-        id: 'h3', agentKey: 'community:video', title: '根据文章生成白板动画',
-        savedAt: now - 120000, turnCount: 5, sessionWorkingDir: '/tmp/vid',
+        id: 'h2', agentKey: 'claude-code', title: 'hi',
+        savedAt: now - 1000, turnCount: 2, sessionWorkingDir: '/tmp/demo',
         sessionKey: 'task:orig1',
         conversationTurns: [
-          { user: '根据文章生成白板动画', taskId: 'orig1', timestamp: now - 120000 },
-          { user: '二', taskId: 'a2', timestamp: now - 100000 },
-          { user: '三', taskId: 'a3', timestamp: now - 80000 },
-          { user: '四', taskId: 'a4', timestamp: now - 60000 },
-          { user: '五', taskId: 'a5', timestamp: now - 40000 },
+          { user: 'hi', taskId: 'orig1', timestamp: now - 2000 },
+          { user: '二', taskId: 'a2', timestamp: now - 1000 },
         ],
       },
     ],
   };
   localStorage.setItem('tokenbank.debug.agentSessions', JSON.stringify(raw));
-  const list = H.listAgentSessionSnapshots('community:video');
-  assert.equal(list.length, 1);
-  assert.ok(list[0].turnCount >= 7);
-  assert.match(list[0].title, /白板动画/);
-  // 时间线顺序：原稿 → … → 字幕 → 去江哥
-  const users = list[0].conversationTurns.map((t) => t.user);
-  assert.equal(users[0], '根据文章生成白板动画');
-  assert.equal(users[users.length - 2], '视频增加字幕');
-  assert.equal(users[users.length - 1], 'skil中的这支笔里的江哥去掉');
+  const list = H.listAgentSessionSnapshots('claude-code');
+  assert.equal(list.length, 2);
+  assert.ok(list.some((it) => it.sessionKey === 'new:sess_1'));
+  assert.ok(list.some((it) => it.sessionKey === 'task:orig1' && it.turnCount === 2));
 });
 
 test('合并碎片后按 timestamp 纠正乱序', () => {

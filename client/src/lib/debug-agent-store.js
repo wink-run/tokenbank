@@ -592,7 +592,8 @@ export function clearSessionTaskState(sessionKey) {
     delegations: {},
     conversationTurns: [],
     cliSessionId: null,
-    historyThreadId: null,
+    // 新开会话立刻有自己的键，后续归档不会并进上一条
+    historyThreadId: `new:${instanceId}`,
     sessionWorkingDir: '',
     skipHistoryRecover: Date.now(),
     sessionInstanceId: instanceId,

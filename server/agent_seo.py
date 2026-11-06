@@ -80,21 +80,11 @@ def render_agent_intro(card: dict, related: list | None = None) -> str:
     bits.append(_esc(status))
 
     related_html = ""
-    items = []
-    for other in related or []:
-        oid = str((other or {}).get("id") or "").strip()
-        if not oid or oid == aid:
-            continue
-        items.append(
-            f'<li><a href="{_esc(agent_intro_path(oid))}">{_esc(_name(other))}</a></li>'
-        )
-        if len(items) >= 8:
-            break
-    if items:
+    others = render_agent_cards(related, skip_id=aid, limit=8)
+    if others:
         related_html = (
-            '<section class="more"><h2>其他上架智能体</h2><ul>'
-            + "".join(items)
-            + "</ul></section>"
+            '<section class="more"><h2>其他上架智能体</h2>'
+            f'<div class="ag-grid">{others}</div></section>'
         )
 
     owner_row = ""
@@ -140,9 +130,19 @@ h1{{margin-top:14px;font-size:40px;letter-spacing:-.03em;line-height:1.15}}
 .prose a{{color:#18181b}}
 .cta{{display:inline-flex;margin-top:26px;padding:12px 18px;border-radius:12px;background:#18181b;color:#fff;text-decoration:none;font-weight:650}}
 .more{{margin-top:48px;padding-top:22px;border-top:1px solid #e4e4e7}}
-.more h2{{font-size:15px;color:#71717a;font-weight:650}}
-.more ul{{display:flex;flex-wrap:wrap;gap:8px 14px;list-style:none;margin-top:12px}}
-.more a{{font-size:14px}}
+.more h2{{font-size:15px;color:#71717a;font-weight:650;margin-bottom:14px}}
+.ag-grid{{display:grid;grid-template-columns:1fr;gap:12px}}
+.ag-card{{background:#fff;border:1px solid #e4e4e7;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:10px;text-decoration:none;color:inherit}}
+.ag-h{{display:flex;align-items:center;gap:12px;min-width:0}}
+.ag-av{{width:48px;height:48px;border-radius:14px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:20px;flex-shrink:0}}
+.ag-name{{font-weight:700;font-size:16px;letter-spacing:-.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.ag-meta{{margin-top:2px;font-size:13px;color:#a1a1aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.ag-desc{{font-size:14px;color:#71717a;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}}
+.ag-foot{{display:flex;align-items:center;gap:8px;margin-top:auto;padding-top:10px;border-top:1px solid #f4f4f5;font-size:13px;color:#71717a}}
+.ag-dot{{width:8px;height:8px;border-radius:50%;display:inline-block}}
+.ag-dot.ok{{background:#16a34a}}
+.ag-dot.off{{background:#d4d4d8}}
+.ag-go{{margin-left:auto;font-weight:650;color:#18181b}}
 </style>
 </head>
 <body>
@@ -166,30 +166,60 @@ h1{{margin-top:14px;font-size:40px;letter-spacing:-.03em;line-height:1.15}}
 """
 
 
-def render_agent_index_links(agents: list | None) -> str:
-    """广场页底部的文字链接。爬虫不跑脚本也能发现每个介绍页。"""
+_AVATAR_COLORS = ("#0a0a0a", "#7c3aed", "#2563eb", "#047857", "#b45309", "#be123c")
+
+
+def _avatar_color(name: str) -> str:
+    """和广场页 avatarColor 同一套取色，服务端卡片和前端卡片对得上。"""
+    n = 0
+    for ch in name or "?":
+        n = (n + ord(ch)) % len(_AVATAR_COLORS)
+    return _AVATAR_COLORS[n]
+
+
+def render_agent_cards(agents: list | None, skip_id: str = "", limit: int = 50) -> str:
+    """广场上的同一张名片。链接指向介绍页，不另做一排文字链接。"""
     items = []
     seen = set()
+    skip = str(skip_id or "").strip()
     for card in agents or []:
         if not isinstance(card, dict):
             continue
         aid = str(card.get("id") or "").strip()
-        if not aid or aid in seen:
+        if not aid or aid in seen or aid == skip:
             continue
         seen.add(aid)
-        items.append(f'<li><a href="{_esc(agent_intro_path(aid))}">{_esc(_name(card))}</a></li>')
-        if len(items) >= 200:
+        name = _name(card)
+        owner = str(card.get("owner_nickname") or "").strip()
+        runtime = str(card.get("runtime") or "").strip()
+        meta = []
+        if owner:
+            meta.append("@" + owner)
+        if runtime:
+            meta.append(runtime)
+        desc = " ".join(str(card.get("description") or "").split())
+        online = True if "online" not in card else bool(card.get("online"))
+        state = "在线" if online else "离线"
+        action = "去使用" if online else "记录"
+        dot = "ok" if online else "off"
+        initial = _esc(name[:1] or "?")
+        items.append(
+            f'<a class="ag-card" href="{_esc(agent_intro_path(aid))}">'
+            '<div class="ag-h">'
+            f'<span class="ag-av" style="background:{_avatar_color(name)}">{initial}</span>'
+            '<div style="min-width:0;flex:1">'
+            f'<div class="ag-name">{_esc(name)}</div>'
+            f'<div class="ag-meta">{_esc(" · ".join(meta))}</div>'
+            "</div></div>"
+            f'<p class="ag-desc">{_esc(desc)}</p>'
+            '<div class="ag-foot">'
+            f'<i class="ag-dot {dot}"></i><span>{state}</span>'
+            f'<span class="ag-go">{action}</span>'
+            "</div></a>"
+        )
+        if len(items) >= limit:
             break
-    if not items:
-        return ""
-    return (
-        '<section class="ag-index" style="max-width:1200px;margin:0 auto;padding:8px 24px 56px;'
-        'font-family:Inter,-apple-system,sans-serif">'
-        '<h2 style="font-size:14px;color:#71717a;font-weight:650">上架智能体</h2>'
-        '<ul style="display:flex;flex-wrap:wrap;gap:8px 16px;list-style:none;padding:0;margin:12px 0 0">'
-        + "".join(items)
-        + "</ul></section>"
-    )
+    return "".join(items)
 
 
 def render_sitemap(agents: list | None) -> str:

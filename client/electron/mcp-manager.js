@@ -12,7 +12,6 @@ try { shim = require('./shim-installer'); } catch { /* optional in CLI */ }
 const { getCatalogItem, listCatalogItems, listCatalogGrouped, MCP_CATEGORY_GROUPS } = require('./mcp-catalog');
 const { clearExecRestrictions, mcpStdioFromLauncher } = require('./host-exec');
 
-const { DELIVERY_POLICY } = require('./agent-delivery-policy');
 const { formatOrchestratorCapabilityHint } = require('./tb-capabilities');
 
 /** 编排层系统提示（Claude / Codex 共用） */
@@ -42,10 +41,7 @@ const ORCHESTRATOR_SYSTEM = [
   '【效率与表达】',
   '- 简单单域任务：list → 一次派发 → 短汇总；不要为流程而流程。',
   '- 禁止把「分析」写成冗长独白；对用户可见回复以最终交付为主，过程点到为止。',
-  '- PPT/文件等产物：要求子 Agent 或自身直接写入工作目录，禁止让用户粘贴一键保存脚本。',
   formatOrchestratorCapabilityHint(),
-  '',
-  DELIVERY_POLICY,
 ].join('\n');
 
 /** 支持 MCP 编排的主 Agent */

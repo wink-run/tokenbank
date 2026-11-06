@@ -132,6 +132,7 @@
             <span class="hist-meta">
               <span class="hist-role" :class="h.role === 'owner' ? 'mine' : 'joined'">{{ h.role === 'owner' ? T.historyMine : T.historyJoined }}</span>
               <span v-if="h.role !== 'owner' && h.author">{{ historyBy(h) }}</span>
+              <span v-if="h.role === 'owner'" class="hist-del" role="button" :title="T.historyDelete" @click.stop="deleteHistory(h)">×</span>
             </span>
           </button>
         </template>
@@ -347,6 +348,7 @@ createApp({
         historyLogin: '登录后查看你发起或参与的对话。',
         historyEmpty: '还没有你发起或参与的对话', historyHint: '',
         historyMine: '我发起', historyJoined: '我参与',
+        historyDelete: '删除', historyDeleteConfirm: '删除这条对话？分享链接也会失效。', historyDeleteFail: '删除失败',
         historyBy: '{name} 发起',
         sharedContinue: '大家的发言按时间接在同一条对话里，直接发消息就能接着聊。', shareMissing: '分享不存在或已失效',
         turnWait: '{name} 正在让智能体回复，这轮结束后才能接着说。谁先发出去，谁算下一轮。', someone: '有人',
@@ -394,6 +396,7 @@ createApp({
         historyLogin: 'Sign in to see chats you started or joined.',
         historyEmpty: 'No chats you started or joined', historyHint: '',
         historyMine: 'Started', historyJoined: 'Joined',
+        historyDelete: 'Delete', historyDeleteConfirm: 'Delete this chat? The share link will stop working.', historyDeleteFail: 'Could not delete',
         historyBy: 'Started by {name}',
         sharedContinue: 'Everyone’s messages stay in one timeline. Send a message to continue.', shareMissing: 'This share is missing',
         turnWait: '{name} is waiting on the agent. You can send after this turn. First send wins the next turn.', someone: 'Someone',
@@ -1022,6 +1025,46 @@ createApp({
     }
     function historyBy(h) {
       return T.value.historyBy.replace('{name}', (h && h.author) || T.value.someone)
+    }
+    // 删掉自己发起的一场。正在打开的话，对话区也一起清掉
+    function forgetHistory(id) {
+      historyItems.value = historyItems.value.filter(h => h && h.id !== id)
+      if (relayShareId.value !== id) return
+      viewGen += 1
+      stopShareWatch()
+      detachedChat.value = false
+      relayShareId.value = ''
+      screenShareId = ''
+      boundTurnShare = ''
+      fromShare.value = false
+      foreignTurn.value = null
+      holdingTurn.value = false
+      messages.value = []
+      pendingImages.value = []
+      err.value = ''
+      const aid = agent.value?.id || assistantIdFromPath()
+      if (aid) saveChatHistory(aid, [])
+    }
+    async function deleteHistory(item) {
+      if (!item || item.role !== 'owner') return
+      const id = String(item.id || '')
+      if (!id) return
+      if (running.value && relayShareId.value === id) return
+      if (!window.confirm(T.value.historyDeleteConfirm)) return
+      if (id.indexOf('new-') === 0) {
+        forgetHistory(id)
+        return
+      }
+      try {
+        const { r } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(id), { method: 'DELETE', auth: true })
+        if (!r.ok) {
+          err.value = T.value.historyDeleteFail
+          return
+        }
+        forgetHistory(id)
+      } catch {
+        err.value = T.value.historyDeleteFail
+      }
     }
     // 最近 5 条：发起人和登录后接过话的人都能看到完整记录
     async function loadHistory() {
@@ -2484,7 +2527,7 @@ createApp({
       loggedIn, profile, currentUserLabel, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,
       sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, fromShare, shareReadOnly, shareTurnLocked, turnLockText, agentOffline, renderMarkdown, onComposerPaste, removePendingImage,
-      historyLoading, historyItems, historyCurrent, histOpen, selectHistory, historyWhen, historyBy, relayShareId,
+      historyLoading, historyItems, historyCurrent, histOpen, selectHistory, deleteHistory, historyWhen, historyBy, relayShareId,
     }
   },
 }).mount('#app')

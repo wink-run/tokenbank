@@ -305,11 +305,7 @@ const {
   hasAssistantEnableProjection,
   resolveAssistantDisplayRuntime,
 } = require('./resource-assistant');
-const {
-  withDeliveryPolicyPrompt,
-  withClaudeDeliverySystemArgs,
-  applyRentalDefinition,
-} = require('./agent-delivery-policy');
+const { applyRentalDefinition } = require('./agent-delivery-policy');
 
 /**
  * Cursor Agent 无交互参数（对齐 Tutti：解析 cursor-agent / agent 二进制；
@@ -333,7 +329,7 @@ function buildCursorAgentArgs(prompt, {
   }
   const mdl = String(model || '').trim();
   if (mdl) args.push('--model', mdl);
-  args.push(withDeliveryPolicyPrompt(prompt));
+  args.push(prompt);
   return args;
 }
 
@@ -366,8 +362,7 @@ const AGENT_CLI = {
         if (sid) base.push(sid);
         else base.push('--last');
       }
-      // PPT 等产物须直接落盘，禁止让用户粘贴内部 cache 脚本
-      base.push(withDeliveryPolicyPrompt(prompt));
+      base.push(prompt);
       return base;
     },
     capabilities: ['code', 'chat', 'edit'],
@@ -402,7 +397,7 @@ const AGENT_CLI = {
         if (sid) args.push('--session', sid);
         else args.push('--continue');
       }
-      args.push('--', withDeliveryPolicyPrompt(prompt));
+      args.push('--', prompt);
       return args;
     },
     capabilities: ['code', 'chat', 'edit', 'terminal'],
@@ -426,8 +421,20 @@ function buildKimiCodeArgs(prompt, {
   const mdl = String(model || '').trim();
   if (mdl) args.push('-m', mdl);
   // -p <prompt> 为值参，须放在 flag 之后
-  args.push('-p', withDeliveryPolicyPrompt(prompt));
+  args.push('-p', prompt);
   return args;
+}
+
+/** 内置 CLI 的 id。app:claude-code 这类出租应用 id 也归到同一个 CLI。 */
+function canonicalBuiltinAgentId(agentId) {
+  const raw = String(agentId || '').trim();
+  if (!raw) return '';
+  if (AGENT_CLI[raw]) return raw;
+  const lower = raw.toLowerCase();
+  if (AGENT_CLI[lower]) return lower;
+  const stripped = lower.replace(/^app:/, '');
+  if (stripped !== lower && AGENT_CLI[stripped]) return stripped;
+  return '';
 }
 
 /** Agent 列表探测缓存（避免每次进 Debug 都 spawn CLI） */
@@ -467,7 +474,7 @@ function buildClaudeStreamFlags({ multimodalInput = false } = {}) {
 function buildClaudeCodeArgs(prompt, { continueSession, cliSessionId, multimodalInput } = {}) {
   const args = [
     ...buildClaudeContinueArgs({ continueSession, cliSessionId }),
-    ...withClaudeDeliverySystemArgs(buildClaudeStreamFlags({ multimodalInput: !!multimodalInput })),
+    ...buildClaudeStreamFlags({ multimodalInput: !!multimodalInput }),
   ];
   // 多模态：prompt 走 stdin，不再作为 argv 尾参
   if (!multimodalInput) args.push(prompt);
@@ -578,6 +585,10 @@ class AgentExecutor extends EventEmitter {
   async resolveAgentId(agentId) {
     const raw = String(agentId || '').trim();
     if (!raw) throw new Error('缺少 agent_id');
+
+    // 内置 CLI（claude-code 等）不依赖列表缓存。缓存里暂时没有时也不应报未知。
+    const builtin = canonicalBuiltinAgentId(raw);
+    if (builtin) return builtin;
 
     const {
       isCommunityAgentId,
@@ -842,9 +853,8 @@ class AgentExecutor extends EventEmitter {
     }
 
     const systemText = resolveAssistantContext(config, resourceManager);
-    // 画像分析只出 JSON，不附产物落盘规则，避免与分析提示词抢上下文
-    const includeDelivery = resource.name !== 'resource-portrait';
-    const launch = buildAssistantLaunch(runtimeAgentId, systemText, config.model, { includeDelivery });
+    // 本地智能体直接回答，不附产物落盘规则（出租接单另加）
+    const launch = buildAssistantLaunch(runtimeAgentId, systemText, config.model);
 
     return {
       agentId: runtimeAgentId,
@@ -2297,6 +2307,7 @@ class AgentExecutor extends EventEmitter {
 }
 
 module.exports = new AgentExecutor();
+module.exports.canonicalBuiltinAgentId = canonicalBuiltinAgentId;
 module.exports.invalidateAgentListCache = invalidateAgentListCache;
 module.exports.buildClaudeCodeArgs = buildClaudeCodeArgs;
 module.exports.buildClaudeContinueArgs = buildClaudeContinueArgs;

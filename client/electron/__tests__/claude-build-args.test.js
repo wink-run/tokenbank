@@ -50,10 +50,9 @@ test('buildClaudeCodeArgs streams instead of sync json', () => {
   const args = buildClaudeCodeArgs('hello', { continueSession: false });
   assert.ok(args.includes('--output-format'));
   assert.ok(args.includes('stream-json'));
-  assert.ok(args.includes('--append-system-prompt'));
+  assert.ok(!args.includes('--append-system-prompt'));
   assert.equal(args[args.length - 1], 'hello');
-  const i = args.indexOf('--append-system-prompt');
-  assert.ok(String(args[i + 1]).includes('产物交付'));
+  assert.ok(!args.join('\n').includes('产物交付'));
 });
 
 test('buildClaudeCodeArgs multimodal omits argv prompt (stdin carries images)', () => {
@@ -65,7 +64,7 @@ test('buildClaudeCodeArgs multimodal omits argv prompt (stdin carries images)', 
 test('buildClaudeCodeArgs includes resume before print flags', () => {
   const args = buildClaudeCodeArgs('hello', { continueSession: true, cliSessionId: VALID_SID });
   assert.deepEqual(args.slice(0, 2), ['--resume', VALID_SID]);
-  assert.ok(args.includes('--append-system-prompt'));
+  assert.ok(!args.includes('--append-system-prompt'));
   assert.equal(args[args.length - 1], 'hello');
 });
 

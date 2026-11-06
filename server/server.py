@@ -276,18 +276,16 @@ async def privacy_policy():
 
 @app.get("/agents")
 async def agents_hub_page():
-    """公开智能体主页。底部带上每个介绍页的链接，方便收录。"""
-    from agent_seo import render_agent_index_links
+    """公开智能体主页。首屏直接放名片，脚本接管后还是这一套卡片。"""
+    from agent_seo import render_agent_cards
 
     html = open("static/tools.html", encoding="utf-8").read()
     try:
         agents = await _list_public_agents()
     except Exception as e:
-        logger.warning("agent index links failed: %s", e)
+        logger.warning("agent index cards failed: %s", e)
         agents = []
-    block = render_agent_index_links(agents)
-    if block:
-        html = html.replace("</body>", block + "</body>", 1)
+    html = html.replace("<!--AGENT_CARDS-->", render_agent_cards(agents), 1)
     return HTMLResponse(html, headers={"Cache-Control": "public, max-age=60"})
 
 
@@ -1302,6 +1300,19 @@ async def list_agent_chat_history_route(
             "updated_at": updated.isoformat() if hasattr(updated, "isoformat") else updated,
         })
     return {"chats": chats}
+
+
+@app.delete("/api/agent-chats/shares/{share_id}")
+async def delete_agent_chat_share_route(
+    share_id: str,
+    uid: int = Depends(auth_api_key_or_jwt),
+):
+    """发起人删除自己的对话。不是发起人时当作不存在。"""
+    safe = _share_id_or_404(share_id)
+    ok = await db.delete_owned_agent_chat(safe, int(uid))
+    if not ok:
+        raise HTTPException(404, "share not found")
+    return {"ok": True}
 
 
 def _public_share_turn(row: dict, hold_token: str = "") -> Optional[dict]:
