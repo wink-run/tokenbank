@@ -1154,18 +1154,22 @@ async def iter_agent_task_sse(
                 success = True
                 gateway_status = event_data.get("status", "completed")
                 
-                # 提取输出文本
-                output_text = ""
-                output_list = event_data.get("output", [])
-                if isinstance(output_list, list) and output_list:
-                    first_msg = output_list[0]
-                    if isinstance(first_msg, dict):
-                        content = first_msg.get("content", [])
-                        if isinstance(content, list):
-                            for item in content:
-                                if isinstance(item, dict) and item.get("type") == "output_text":
-                                    output_text = str(item.get("text", ""))
-                                    break
+                # 提取输出文本：优先使用流式累积的 accumulated_text（来自 delta 事件）
+                # 只有当它为空时才从 completed 事件的 output 字段提取（非流式响应场景）
+                output_text = accumulated_text
+                
+                if not output_text:
+                    # 非流式响应：从 completed 事件的 output 提取
+                    output_list = event_data.get("output", [])
+                    if isinstance(output_list, list) and output_list:
+                        first_msg = output_list[0]
+                        if isinstance(first_msg, dict):
+                            content = first_msg.get("content", [])
+                            if isinstance(content, list):
+                                for item in content:
+                                    if isinstance(item, dict) and item.get("type") == "output_text":
+                                        output_text = str(item.get("text", ""))
+                                        break
 
                 # 结息给出租方
                 if gateway_status == "completed" and worker.user_id:
