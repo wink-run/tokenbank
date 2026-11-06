@@ -201,12 +201,10 @@
                   <button v-else type="button" class="afile" @click="downloadArtifact(f)">{{ f.name }}</button>
                 </figure>
               </div>
-              <div v-if="!m.pending && (messageClock(m) || runLabel(m))" class="run-time">
-                <span v-if="messageClock(m)">{{ messageClock(m) }}</span>
-                <span v-if="runLabel(m)">{{ runLabel(m) }}</span>
-              </div>
-              <div v-if="!m.pending && answerOf(m)" class="msg-tools">
-                <button type="button" class="mini" @click="copyMsg(m, $event)">{{ T.copy }}</button>
+              <div v-if="!m.pending && (answerOf(m) || messageClock(m) || runLabel(m))" class="msg-tools">
+                <button v-if="answerOf(m)" type="button" class="mini" @click="copyMsg(m, $event)">{{ T.copy }}</button>
+                <span v-if="messageClock(m)" class="tool-meta">{{ messageClock(m) }}</span>
+                <span v-if="runLabel(m)" class="tool-meta">{{ runLabel(m) }}</span>
               </div>
             </div>
           </template>
@@ -777,8 +775,10 @@ createApp({
     }
     function messageClock(m) {
       if (!m) return ''
-      // 进行中还没有发言时间，先显示开始时刻；落盘后各端都显示同一份 at
-      const t = Number(m.at) || (m.pending ? Number(m.startedAt) || 0 : 0)
+      // 助手旁边显示这一轮的开始时间。还没记下开始时刻时，用云端的发言时间
+      const t = m.role === 'assistant'
+        ? (Number(m.startedAt) || Number(m.at) || 0)
+        : (Number(m.at) || 0)
       if (!t) return ''
       const d = new Date(t)
       if (Number.isNaN(d.getTime())) return ''
@@ -793,7 +793,12 @@ createApp({
         if (!m.startedAt) return ''
         return T.value.runningFor.replace('{t}', formatElapsed(nowTick.value - m.startedAt))
       }
-      const ms = Number(m.durationMs) || (m.startedAt && m.finishedAt ? m.finishedAt - m.startedAt : 0)
+      const started = Number(m.startedAt) || 0
+      const finished = Number(m.finishedAt) || 0
+      const spoken = Number(m.at) || 0
+      const ms = Number(m.durationMs)
+        || (started && finished ? finished - started : 0)
+        || (started && spoken > started ? spoken - started : 0)
       if (!ms) return ''
       return T.value.ranFor.replace('{t}', formatElapsed(ms))
     }

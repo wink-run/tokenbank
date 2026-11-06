@@ -131,8 +131,10 @@ button{font-family:inherit}
 .apart-tool pre.tool-result{color:var(--text)}
 .apart-text+.apart-text{margin-top:2px}
 .stream-caret{display:flex;margin-top:6px}
-.msg-tools{margin-top:6px;display:flex;gap:4px;opacity:0;transition:opacity .12s}
-.msg.assistant:hover .msg-tools{opacity:1}
+.msg-tools{margin-top:6px;display:flex;align-items:center;gap:8px}
+.msg-tools .mini{opacity:0;transition:opacity .12s}
+.msg.assistant:hover .msg-tools .mini{opacity:1}
+.tool-meta{font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums}
 .mini{border:none;background:transparent;color:var(--text-muted);font-size:12px;padding:3px 7px;border-radius:7px;cursor:pointer}
 .mini:hover{background:var(--bg-muted);color:var(--text)}
 
@@ -286,7 +288,7 @@ button{font-family:inherit}
   .chead .cinner{padding-top:10px;padding-bottom:10px}
   .sugs{grid-template-columns:minmax(0,1fr)}
   .msg.user .uside{max-width:88%}
-  .msg-tools{opacity:1}
+  .msg-tools .mini{opacity:1}
   .head-actions .nbtn span{display:none}
 }
 
