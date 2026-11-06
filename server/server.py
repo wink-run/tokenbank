@@ -1840,6 +1840,12 @@ async def worker_ws(ws: WebSocket):
                 )
                 continue
 
+            # Gateway 响应消息：路由到等待的队列
+            if kind in ("gateway_response", "gateway_sse", "gateway_stream_end"):
+                from gateway_over_websocket import handle_worker_gateway_message
+                handle_worker_gateway_message(worker, msg)
+                continue
+
             # 武将任务进度：不摘 pending，供 HTTP SSE 转发
             if kind == "agent_task_progress":
                 task_id = msg.get("task_id")

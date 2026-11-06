@@ -642,63 +642,158 @@ async def handle_agent_task(
     files: Optional[list] = None,
     share_id: Optional[str] = None,
 ) -> dict:
-    """选 worker → 预扣积分 → 下发 → 等待终态结果；失败退款。"""
-    ctx, err = await _prepare_agent_task(
-        assistant_id=assistant_id,
-        prompt=prompt,
-        consumer_user_id=consumer_user_id,
-        worker_id=worker_id,
-        owner=owner,
-        timeout_ms=timeout_ms,
-        guest_ip=guest_ip,
-        images=images,
-        files=files,
-        share_id=share_id,
+    """选 worker → 预扣积分 → 下发 → 等待终态结果；失败退款。
+    
+    外部接口保持不变；内部通过 Gateway-over-WebSocket 调用 worker 本地 Gateway。
+    """
+    from gateway_over_websocket import invoke_worker_gateway
+
+    # 构建 Gateway 请求
+    harness_id = f"community:{assistant_id}"
+    if owner:
+        harness_id = f"{harness_id}@{owner}"
+    
+    gateway_body = {
+        "input": prompt,
+        "metadata": {
+            "harness_id": harness_id,
+        },
+    }
+
+    # 选择 worker
+    guest = consumer_user_id is None
+    if not guest:
+        user = await db.get_user_by_id(consumer_user_id)
+        if not user or float(user["credits_balance"] or 0) < AGENT_TASK_CREDITS:
+            return {
+                "ok": False,
+                "error": "Insufficient credits",
+                "status": "rejected",
+                "credits_required": AGENT_TASK_CREDITS,
+            }
+        circles = set(await db.get_user_circle_ids(consumer_user_id))
+    else:
+        circles = set()
+
+    workers = pool.pick_agent_workers(
+        assistant_id, user_circle_ids=circles, worker_id=worker_id, owner=owner,
     )
-    if err:
-        if guest_ip and err.get("status") == "rejected":
-            from web_public import release_guest_trial
-            release_guest_trial(guest_ip)
-        return err
-    assert ctx is not None
+    if not workers:
+        return {
+            "ok": False,
+            "error": "该智能体当前无在线节点",
+            "status": "rejected",
+        }
+
+    worker = workers[0]
+    task_id = f"at-{uuid.uuid4().hex[:12]}"
+
+    # 扣除积分
+    if not guest:
+        ok_deduct, bal = await db.deduct_credits(
+            consumer_user_id,
+            AGENT_TASK_CREDITS,
+            model_name=f"agent:{assistant_id}",
+            tokens=0,
+            tier="p2p",
+        )
+        if not ok_deduct:
+            return {
+                "ok": False,
+                "error": "Insufficient credits",
+                "status": "rejected",
+                "balance": bal,
+                "credits_required": AGENT_TASK_CREDITS,
+            }
+
+    # 调用 worker 的本地 Gateway
+    # 发起方：非流式请求通常是API调用，默认用 "api"
     try:
-        async for msg in _iter_agent_messages(ctx):
-            if msg is None:
-                return await _refund_timeout(ctx)
-            if msg.get("type") == "agent_task_progress":
-                continue  # 非流式忽略过程事件
-            await _remember_share_cli_session(ctx.get("share_id") or "", msg)
-            return await _finalize_agent_result(
-                result=msg,
-                task_id=ctx["task_id"],
-                aid=ctx["aid"],
-                worker=_task_worker(ctx),
-                guest=ctx["guest"],
-                consumer_user_id=ctx["consumer_user_id"],
+        gateway_response = await invoke_worker_gateway(
+            worker=worker,
+            method="POST",
+            path="/v1/agent/responses",
+            body=gateway_body,
+            timeout_sec=(timeout_ms or AGENT_TASK_TIMEOUT_SEC * 1000) // 1000,
+            initiator="api",  # 非流式 → API调用
+        )
+
+        # 转换 Gateway 响应为云端格式
+        status = gateway_response.get("status", "failed")
+        success = status == "completed"
+        
+        # 提取输出文本
+        output_text = ""
+        output_list = gateway_response.get("output", [])
+        if isinstance(output_list, list) and output_list:
+            first_msg = output_list[0]
+            if isinstance(first_msg, dict):
+                content = first_msg.get("content", [])
+                if isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, dict) and item.get("type") == "output_text":
+                            output_text = str(item.get("text", ""))
+                            break
+
+        if success and worker.user_id:
+            # 结息给出租方
+            await db.award_credits(
+                user_id=worker.user_id,
+                delta=AGENT_TASK_CREDITS,
+                type_="contribute",
+                model_name=f"agent:{assistant_id}",
+                tokens=0,
+                base_credits=AGENT_TASK_CREDITS,
+                multiplier=1.0,
+                note=f"agent_task kind=agent task_id={task_id} worker={worker.worker_id}",
             )
-        return await _refund_timeout(ctx)
+        elif not success and not guest:
+            # 失败退款给调用方
+            await db.award_credits(
+                user_id=consumer_user_id,
+                delta=AGENT_TASK_CREDITS,
+                type_="refund",
+                model_name=f"agent:{assistant_id}",
+                tokens=0,
+                base_credits=AGENT_TASK_CREDITS,
+                multiplier=1.0,
+                note=f"agent_task failed refund task_id={task_id}",
+            )
+
+        result = {
+            "ok": success,
+            "task_id": task_id,
+            "status": status,
+            "output": output_text[:200_000],
+            "usage": gateway_response.get("usage") or {},
+            "credits_charged": AGENT_TASK_CREDITS if success else 0,
+            "credits_refunded": 0 if success or guest else AGENT_TASK_CREDITS,
+        }
+        
+        return result
+
     except Exception as e:
-        worker = _task_worker(ctx)
-        task_id = ctx["task_id"]
-        aid = ctx["aid"]
-        guest = ctx["guest"]
-        consumer_user_id = ctx["consumer_user_id"]
-        worker.pending_agents.pop(task_id, None)
-        worker.active_requests = max(0, worker.active_requests - 1)
+        # 失败退款
         if not guest:
             await db.award_credits(
                 user_id=consumer_user_id,
                 delta=AGENT_TASK_CREDITS,
                 type_="refund",
-                model_name=f"agent:{aid}",
+                model_name=f"agent:{assistant_id}",
                 tokens=0,
                 base_credits=AGENT_TASK_CREDITS,
                 multiplier=1.0,
                 note=f"agent_task error refund task_id={task_id}",
             )
-        worker.record_agent_complete(aid, False)
+        
         logger.error("[agent_task] error task_id=%s: %s", task_id, e)
-        return {"ok": False, "task_id": task_id, "status": "failed", "error": str(e)}
+        return {
+            "ok": False,
+            "task_id": task_id,
+            "status": "failed",
+            "error": str(e),
+            "credits_refunded": 0 if guest else AGENT_TASK_CREDITS,
+        }
 
 
 # 网页刷新或切页会断开 SSE，任务本身继续跑。事件留在这里，页面回来后从同一条流接上。
@@ -899,29 +994,231 @@ async def iter_agent_task_sse(
     files: Optional[list] = None,
     share_id: Optional[str] = None,
 ) -> AsyncIterator[str]:
-    """SSE：progress 事件推正文，done/error 收尾。页面断开后任务仍继续。"""
-    ctx, err = await _prepare_agent_task(
-        assistant_id=assistant_id,
-        prompt=prompt,
-        consumer_user_id=consumer_user_id,
-        worker_id=worker_id,
-        owner=owner,
-        timeout_ms=timeout_ms,
-        guest_ip=guest_ip,
-        images=images,
-        files=files,
-        share_id=share_id,
+    """SSE：progress 事件推正文，done/error 收尾。
+    
+    内部通过 Gateway-over-WebSocket 流式调用 worker 本地 Gateway。
+    """
+    from gateway_over_websocket import invoke_worker_gateway_stream
+
+    # 构建 Gateway 请求
+    harness_id = f"community:{assistant_id}"
+    if owner:
+        harness_id = f"{harness_id}@{owner}"
+    
+    gateway_body = {
+        "input": prompt,
+        "metadata": {
+            "harness_id": harness_id,
+        },
+    }
+
+    # 选择 worker
+    is_guest = consumer_user_id is None
+    if not is_guest:
+        user = await db.get_user_by_id(consumer_user_id)
+        if not user or float(user["credits_balance"] or 0) < AGENT_TASK_CREDITS:
+            payload = {
+                "event": "error",
+                "ok": False,
+                "error": "Insufficient credits",
+                "status": "rejected",
+                "guest": is_guest,
+                "need_login_to_continue": is_guest,
+            }
+            yield _sse(payload)
+            return
+        circles = set(await db.get_user_circle_ids(consumer_user_id))
+    else:
+        circles = set()
+
+    workers = pool.pick_agent_workers(
+        assistant_id, user_circle_ids=circles, worker_id=worker_id, owner=owner,
     )
-    if err:
-        # 还没派到设备上：这次不算试用，避免第一条还没回复就被额度拦住
-        if guest and guest_ip and err.get("status") == "rejected":
-            from web_public import release_guest_trial
-            release_guest_trial(guest_ip)
-        payload = {**err, "event": "error", "guest": guest, "need_login_to_continue": guest}
+    if not workers:
+        payload = {
+            "event": "error",
+            "ok": False,
+            "error": "该智能体当前无在线节点",
+            "status": "rejected",
+            "guest": is_guest,
+            "need_login_to_continue": is_guest,
+        }
         yield _sse(payload)
         return
 
-    assert ctx is not None
-    start_agent_feed(ctx, guest)
-    async for chunk in iter_agent_feed_sse(ctx["task_id"]):
-        yield chunk
+    worker = workers[0]
+    task_id = f"at-{uuid.uuid4().hex[:12]}"
+
+    # 扣除积分
+    if not is_guest:
+        ok_deduct, bal = await db.deduct_credits(
+            consumer_user_id,
+            AGENT_TASK_CREDITS,
+            model_name=f"agent:{assistant_id}",
+            tokens=0,
+            tier="p2p",
+        )
+        if not ok_deduct:
+            payload = {
+                "event": "error",
+                "ok": False,
+                "error": "Insufficient credits",
+                "status": "rejected",
+                "guest": is_guest,
+                "need_login_to_continue": is_guest,
+            }
+            yield _sse(payload)
+            return
+
+    # 发送 started 事件
+    yield _sse({"event": "started", "task_id": task_id})
+
+    # 流式调用 worker 的本地 Gateway
+    # 发起方：流式请求通常是网页聊天，用 "web-chat"
+    accumulated_text = ""
+    success = False
+    try:
+        async for gateway_event in invoke_worker_gateway_stream(
+            worker=worker,
+            method="POST",
+            path="/v1/agent/responses",
+            body=gateway_body,
+            timeout_sec=(timeout_ms or AGENT_TASK_TIMEOUT_SEC * 1000) // 1000,
+            initiator="web-chat",  # 流式 → 网页聊天
+        ):
+            event_name = gateway_event.get("event")
+            event_data = gateway_event.get("data", {})
+
+            if event_name == "response.output_text.delta":
+                # Delta: 累积文本
+                delta = event_data.get("delta", "")
+                accumulated_text += delta
+                yield _sse({
+                    "event": "progress",
+                    "task_id": task_id,
+                    "text": accumulated_text[:200_000],
+                    "parts": [{"type": "text", "text": accumulated_text[:80_000]}],
+                })
+            
+            elif event_name == "response.output_text.snapshot":
+                # Snapshot: 替换文本
+                accumulated_text = event_data.get("text", "")
+                yield _sse({
+                    "event": "progress",
+                    "task_id": task_id,
+                    "text": accumulated_text[:200_000],
+                    "parts": [{"type": "text", "text": accumulated_text[:80_000]}],
+                })
+            
+            elif event_name == "response.tool":
+                # 工具调用
+                tool_name = event_data.get("tool", "")
+                yield _sse({
+                    "event": "progress",
+                    "task_id": task_id,
+                    "text": accumulated_text[:200_000],
+                    "tool": tool_name,
+                    "parts": [{"type": "tool", "name": tool_name}],
+                })
+            
+            elif event_name == "response.completed":
+                # 完成
+                success = True
+                gateway_status = event_data.get("status", "completed")
+                
+                # 提取输出文本
+                output_text = ""
+                output_list = event_data.get("output", [])
+                if isinstance(output_list, list) and output_list:
+                    first_msg = output_list[0]
+                    if isinstance(first_msg, dict):
+                        content = first_msg.get("content", [])
+                        if isinstance(content, list):
+                            for item in content:
+                                if isinstance(item, dict) and item.get("type") == "output_text":
+                                    output_text = str(item.get("text", ""))
+                                    break
+
+                # 结息给出租方
+                if gateway_status == "completed" and worker.user_id:
+                    await db.award_credits(
+                        user_id=worker.user_id,
+                        delta=AGENT_TASK_CREDITS,
+                        type_="contribute",
+                        model_name=f"agent:{assistant_id}",
+                        tokens=0,
+                        base_credits=AGENT_TASK_CREDITS,
+                        multiplier=1.0,
+                        note=f"agent_task kind=agent task_id={task_id} worker={worker.worker_id}",
+                    )
+
+                yield _sse({
+                    "event": "done",
+                    "ok": True,
+                    "task_id": task_id,
+                    "status": gateway_status,
+                    "output": output_text[:200_000],
+                    "usage": event_data.get("usage") or {},
+                    "credits_charged": AGENT_TASK_CREDITS,
+                    "guest": is_guest,
+                    "need_login_to_continue": is_guest,
+                })
+                return
+            
+            elif event_name == "error":
+                # 错误
+                error_msg = event_data.get("error", {}).get("message", "unknown error")
+                
+                # 失败退款
+                if not is_guest:
+                    await db.award_credits(
+                        user_id=consumer_user_id,
+                        delta=AGENT_TASK_CREDITS,
+                        type_="refund",
+                        model_name=f"agent:{assistant_id}",
+                        tokens=0,
+                        base_credits=AGENT_TASK_CREDITS,
+                        multiplier=1.0,
+                        note=f"agent_task failed refund task_id={task_id}",
+                    )
+                
+                yield _sse({
+                    "event": "error",
+                    "ok": False,
+                    "task_id": task_id,
+                    "status": "failed",
+                    "error": error_msg,
+                    "output": accumulated_text[:200_000],
+                    "credits_refunded": 0 if is_guest else AGENT_TASK_CREDITS,
+                    "guest": is_guest,
+                    "need_login_to_continue": is_guest,
+                })
+                return
+
+    except Exception as e:
+        logger.error("[agent_task] stream error task_id=%s: %s", task_id, e)
+        
+        # 失败退款
+        if not is_guest:
+            await db.award_credits(
+                user_id=consumer_user_id,
+                delta=AGENT_TASK_CREDITS,
+                type_="refund",
+                model_name=f"agent:{assistant_id}",
+                tokens=0,
+                base_credits=AGENT_TASK_CREDITS,
+                multiplier=1.0,
+                note=f"agent_task error refund task_id={task_id}",
+            )
+        
+        yield _sse({
+            "event": "error",
+            "ok": False,
+            "task_id": task_id,
+            "status": "failed",
+            "error": str(e),
+            "output": accumulated_text[:200_000],
+            "credits_refunded": 0 if is_guest else AGENT_TASK_CREDITS,
+            "guest": is_guest,
+            "need_login_to_continue": is_guest,
+        })

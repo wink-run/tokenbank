@@ -62,6 +62,17 @@ function harnessIdFromBody(body) {
 }
 
 /**
+ * 提取发起方标识（类似模型网关的 app_id）。
+ * 用于统计和日志，区分不同来源的调用（网页聊天、API、直接调用等）。
+ */
+function initiatorFromBody(body) {
+  const meta = body?.metadata && typeof body.metadata === 'object' ? body.metadata : {};
+  // 支持 app_id 或 source，优先 app_id（与模型网关对齐）
+  const initiator = String(meta.app_id || meta.source || '').trim();
+  return initiator || 'direct'; // 默认 'direct' 表示直接调用
+}
+
+/**
  * 把一步输出收成 SSE 事件。快照只发新增片段；整段被替换时发 snapshot。
  * @returns {{ prev: string, event: string|null, data: object|null }}
  */
@@ -187,10 +198,15 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
 
     const prompt = inputText(body.input);
     const harnessId = harnessIdFromBody(body);
+    const initiator = initiatorFromBody(body);
+    
     if (!prompt || !harnessId) {
       sendJson(res, 400, { error: { message: 'input and metadata.harness_id are required', type: 'invalid_request_error' } });
       return true;
     }
+    
+    // 记录发起方到日志（类似模型网关的应用归因）
+    console.log(`[agent-http] POST /v1/agent/responses harness=${harnessId} initiator=${initiator}`);
 
     let continueSession = false;
     let cliSessionId = '';
@@ -208,6 +224,8 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
       workingDir: typeof body.metadata?.working_dir === 'string' ? body.metadata.working_dir : undefined,
       // 只有请求显式打开 stream 才边收边推
       stream: !!body.stream,
+      // 发起方标识（用于统计和日志）
+      initiator,
     });
 
     let detachStream = () => {};
