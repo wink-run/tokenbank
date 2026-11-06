@@ -649,19 +649,7 @@ async def handle_agent_task(
     """
     from gateway_over_websocket import invoke_worker_gateway
 
-    # 构建 Gateway 请求
-    harness_id = f"community:{assistant_id}"
-    if owner:
-        harness_id = f"{harness_id}@{owner}"
-    
-    gateway_body = {
-        "input": prompt,
-        "metadata": {
-            "harness_id": harness_id,
-        },
-    }
-
-    # 选择 worker
+    # 选择 worker（先选，再根据 worker 决定 harness_id 格式）
     guest = consumer_user_id is None
     if not guest:
         user = await db.get_user_by_id(consumer_user_id)
@@ -688,6 +676,31 @@ async def handle_agent_task(
 
     worker = workers[0]
     task_id = f"at-{uuid.uuid4().hex[:12]}"
+    
+    # 判断该 worker 是否本地拥有此 assistant（在其 agents 列表中）
+    # 若是，使用本地 harness_id（assistant_id），避免客户端把它当作远程社区智能体再次回云端
+    # 否则用 community: 格式（真正的远程雇佣场景）
+    worker_has_local = any(
+        isinstance(c, dict) and c.get("id") == assistant_id
+        for c in (getattr(worker, "agents", None) or [])
+    )
+    
+    if worker_has_local:
+        # 本地智能体：直接用 assistant_id 作为 harness_id
+        harness_id = assistant_id
+    else:
+        # 远程社区智能体：使用 community: 格式
+        harness_id = f"community:{assistant_id}"
+        if owner:
+            harness_id = f"{harness_id}@{owner}"
+    
+    # 构建 Gateway 请求
+    gateway_body = {
+        "input": prompt,
+        "metadata": {
+            "harness_id": harness_id,
+        },
+    }
 
     # 扣除积分
     if not guest:
@@ -1002,19 +1015,7 @@ async def iter_agent_task_sse(
     """
     from gateway_over_websocket import invoke_worker_gateway_stream
 
-    # 构建 Gateway 请求
-    harness_id = f"community:{assistant_id}"
-    if owner:
-        harness_id = f"{harness_id}@{owner}"
-    
-    gateway_body = {
-        "input": prompt,
-        "metadata": {
-            "harness_id": harness_id,
-        },
-    }
-
-    # 选择 worker
+    # 选择 worker（先选，再根据 worker 决定 harness_id 格式）
     is_guest = consumer_user_id is None
     if not is_guest:
         user = await db.get_user_by_id(consumer_user_id)
@@ -1050,6 +1051,31 @@ async def iter_agent_task_sse(
 
     worker = workers[0]
     task_id = f"at-{uuid.uuid4().hex[:12]}"
+    
+    # 判断该 worker 是否本地拥有此 assistant（在其 agents 列表中）
+    # 若是，使用本地 harness_id（assistant_id），避免客户端把它当作远程社区智能体再次回云端
+    # 否则用 community: 格式（真正的远程雇佣场景）
+    worker_has_local = any(
+        isinstance(c, dict) and c.get("id") == assistant_id
+        for c in (getattr(worker, "agents", None) or [])
+    )
+    
+    if worker_has_local:
+        # 本地智能体：直接用 assistant_id 作为 harness_id
+        harness_id = assistant_id
+    else:
+        # 远程社区智能体：使用 community: 格式
+        harness_id = f"community:{assistant_id}"
+        if owner:
+            harness_id = f"{harness_id}@{owner}"
+    
+    # 构建 Gateway 请求
+    gateway_body = {
+        "input": prompt,
+        "metadata": {
+            "harness_id": harness_id,
+        },
+    }
 
     # 扣除积分
     if not is_guest:
