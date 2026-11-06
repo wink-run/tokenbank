@@ -20,12 +20,13 @@ import { avatarColor } from '../components/UserAvatar';
 import {
   mergeRemoteAccountConfigs,
   mergeGatewayProviders,
-  selectRemoteAccountConfigs,
+  selectSyncableDevices,
   noteRemovedAccountIds,
   noteRemovedDirectIds,
   referencedGatewayIds,
 } from '../lib/account-config-sync';
 import { alignSyncAccountSecretsFromCloud } from '../lib/sync-account-secrets';
+import { formatDeviceSubtitle, formatDeviceTitle } from '../lib/device-display';
 import UsageMeter, { UsageInline, usageProviderForDirect } from '../components/UsageMeter';
 
 /** Ollama 本地实例不校验 API Key。与 shared/provider-test.js 一致，不引 CJS，避免渲染进程白屏。 */
@@ -65,6 +66,15 @@ function bindingUsesSource(routeId, ids, names, lower, allRoutes) {
   const scene = (allRoutes || []).find(r => r && (r.model_key === id || r.id === id));
   if (scene) return collectRouteSteps(scene).some(st => stepUsesSource(st, ids, names, lower));
   return stepUsesSource({ model: id }, ids, names, lower);
+}
+
+/** 设备上可合并的账户条数，选择弹窗里给用户看规模 */
+function countSyncAccounts(cfg) {
+  const c = cfg && typeof cfg === 'object' ? cfg : {};
+  const direct = c.direct_source_billing && typeof c.direct_source_billing === 'object'
+    ? Object.keys(c.direct_source_billing).length
+    : 0;
+  return (c.user_subscriptions || []).length + (c.user_payg_providers || []).length + direct;
 }
 
 /** 对方账户配置里关联的供给源 id */
@@ -3706,6 +3716,8 @@ export default function Providers() {
   const [refreshingModels, setRefreshingModels] = useState(false);
   const [accountSyncing, setAccountSyncing] = useState(false);
   const [accountSyncHint, setAccountSyncHint] = useState('');
+  // 多台可同步设备时先让用户选一台，避免把所有端并在一起
+  const [syncDeviceChoices, setSyncDeviceChoices] = useState(null);
   // 设置页「同步账户密钥」，默认关。KeepAlive 下从设置返回要重新读。
   const [syncAccountSecrets, setSyncAccountSecrets] = useState(false);
   const [credModalKey, setCredModalKey] = useState(null);        // 添加实例后弹出的凭证配置弹窗（source key）
@@ -3894,8 +3906,88 @@ export default function Providers() {
     return '';
   }
 
-  // 从其他终端心跳上报的账户配置合并进本机（不含 Key；同 id 以本机为准）
-  // 只采信在线/近期设备，并尊重删除墓碑，避免离线残留把已删账户（如 test）拉回来
+  // 所选终端的账户配置合并进本机（同 id 以本机为准，并尊重删除墓碑）
+  async function applyRemoteAccountSync(chosen) {
+    const remotes = (chosen || []).map((d) => d.accounts_config).filter(Boolean);
+    const local = accountsData || await loadUserAccounts({ localOnly: true });
+    const cfg = await getConfig().read().catch(() => ({}));
+    // 其它终端若已关掉，这次同步也按关掉处理，不写入密钥
+    const shared = await alignSyncAccountSecretsFromCloud(cfg);
+    const includeSecrets = !!shared.value;
+    setSyncAccountSecrets(includeSecrets);
+    const merged = mergeRemoteAccountConfigs(local, remotes, { includeSecrets });
+    // 用当前列表计算，避免在 setState 里写副作用（Strict Mode 会跑两次）
+    const allowedGw = referencedGatewayIds(merged);
+    const gw = mergeGatewayProviders(providers, merged.gateway_provider_lists, {
+      includeSecrets,
+      allowedIds: allowedGw,
+    });
+    const remoteIds = new Set();
+    for (const remote of remotes) {
+      for (const id of gatewayIdsFromSyncedConfig(remote)) {
+        if (allowedGw.has(id)) remoteIds.add(id);
+      }
+    }
+    // 同步进来的源默认打开，再测一次连通性，结果写回 test_verified
+    const nextProviders = gw.providers.map(p => ({ ...p }));
+    // 开关关闭时，密钥保持同步前的本机值（空的不要被对方填上）
+    if (!includeSecrets) {
+      const before = new Map((providers || []).filter(p => p && p.id).map(p => [p.id, p]));
+      for (const p of nextProviders) {
+        const prev = before.get(p.id);
+        p.token = prev?.token || '';
+        p.credentials = prev?.credentials ?? null;
+        if (prev?.auth_type) p.auth_type = prev.auth_type;
+      }
+    }
+    let providersChanged = gw.changed;
+    const toTest = [];
+    for (const p of nextProviders) {
+      if (!p || !remoteIds.has(p.id) || p.type === 'p2p') continue;
+      if (p.enabled === false) {
+        p.enabled = true;
+        providersChanged = true;
+      }
+      if (providerReadyToTest(p)) toTest.push(p);
+    }
+    for (const p of toTest) {
+      try {
+        const result = await testProvider({ ...p, token: isOllamaProvider(p) ? '' : p.token });
+        const ok = !!result?.ok;
+        if (p.test_verified !== ok) {
+          p.test_verified = ok;
+          providersChanged = true;
+        }
+      } catch {
+        if (p.test_verified !== false) {
+          p.test_verified = false;
+          providersChanged = true;
+        }
+      }
+    }
+    if (providersChanged) setProviders(nextProviders);
+    if (!merged.changed && !providersChanged) {
+      setAccountSyncHint(t('psrc.model.syncSame'));
+      return;
+    }
+    if (merged.changed) {
+      await saveAccountsPatch({
+        user_subscriptions: merged.user_subscriptions,
+        user_payg_providers: merged.user_payg_providers,
+        provider_pricing_overrides: merged.provider_pricing_overrides,
+        direct_source_billing: merged.direct_source_billing,
+        source_template_overrides: merged.source_template_overrides,
+        custom_source_templates: merged.custom_source_templates,
+        removed_account_ids: merged.removed_account_ids,
+        removed_direct_ids: merged.removed_direct_ids,
+      });
+    }
+    const n = merged.count || (providersChanged ? 1 : 0);
+    const guide = includeSecrets ? t('psrc.model.syncKeyHintOn') : t('psrc.model.syncKeyHint');
+    setAccountSyncHint(`${t('psrc.model.syncDone', { n })} ${guide}`);
+  }
+
+  // 点「同步」：有多台可同步设备时先弹出选择，只有一台则直接合并
   async function syncAccountsFromOtherDevices() {
     if (accountSyncing) return;
     setAccountSyncing(true);
@@ -3904,83 +3996,30 @@ export default function Providers() {
       const inv = await getInventoryStats(1);
       const devices = inv?.data?.devices || [];
       const myId = await resolveLocalDeviceId();
-      const remotes = selectRemoteAccountConfigs(devices, myId);
-      const local = accountsData || await loadUserAccounts({ localOnly: true });
-      const cfg = await getConfig().read().catch(() => ({}));
-      // 其它终端若已关掉，这次同步也按关掉处理，不写入密钥
-      const shared = await alignSyncAccountSecretsFromCloud(cfg);
-      const includeSecrets = !!shared.value;
-      setSyncAccountSecrets(includeSecrets);
-      const merged = mergeRemoteAccountConfigs(local, remotes, { includeSecrets });
-      // 用当前列表计算，避免在 setState 里写副作用（Strict Mode 会跑两次）
-      const allowedGw = referencedGatewayIds(merged);
-      const gw = mergeGatewayProviders(providers, merged.gateway_provider_lists, {
-        includeSecrets,
-        allowedIds: allowedGw,
-      });
-      const remoteIds = new Set();
-      for (const remote of remotes) {
-        for (const id of gatewayIdsFromSyncedConfig(remote)) {
-          if (allowedGw.has(id)) remoteIds.add(id);
-        }
-      }
-      // 同步进来的源默认打开，再测一次连通性，结果写回 test_verified
-      const nextProviders = gw.providers.map(p => ({ ...p }));
-      // 开关关闭时，密钥保持同步前的本机值（空的不要被对方填上）
-      if (!includeSecrets) {
-        const before = new Map((providers || []).filter(p => p && p.id).map(p => [p.id, p]));
-        for (const p of nextProviders) {
-          const prev = before.get(p.id);
-          p.token = prev?.token || '';
-          p.credentials = prev?.credentials ?? null;
-          if (prev?.auth_type) p.auth_type = prev.auth_type;
-        }
-      }
-      let providersChanged = gw.changed;
-      const toTest = [];
-      for (const p of nextProviders) {
-        if (!p || !remoteIds.has(p.id) || p.type === 'p2p') continue;
-        if (p.enabled === false) {
-          p.enabled = true;
-          providersChanged = true;
-        }
-        if (providerReadyToTest(p)) toTest.push(p);
-      }
-      for (const p of toTest) {
-        try {
-          const result = await testProvider({ ...p, token: isOllamaProvider(p) ? '' : p.token });
-          const ok = !!result?.ok;
-          if (p.test_verified !== ok) {
-            p.test_verified = ok;
-            providersChanged = true;
-          }
-        } catch {
-          if (p.test_verified !== false) {
-            p.test_verified = false;
-            providersChanged = true;
-          }
-        }
-      }
-      if (providersChanged) setProviders(nextProviders);
-      if (!merged.changed && !providersChanged) {
+      const choices = selectSyncableDevices(devices, myId);
+      if (choices.length === 0) {
         setAccountSyncHint(t('psrc.model.syncEmpty'));
         return;
       }
-      if (merged.changed) {
-        await saveAccountsPatch({
-          user_subscriptions: merged.user_subscriptions,
-          user_payg_providers: merged.user_payg_providers,
-          provider_pricing_overrides: merged.provider_pricing_overrides,
-          direct_source_billing: merged.direct_source_billing,
-          source_template_overrides: merged.source_template_overrides,
-          custom_source_templates: merged.custom_source_templates,
-          removed_account_ids: merged.removed_account_ids,
-          removed_direct_ids: merged.removed_direct_ids,
-        });
+      if (choices.length > 1) {
+        setSyncDeviceChoices(choices);
+        return;
       }
-      const n = merged.count || (providersChanged ? 1 : 0);
-      const guide = includeSecrets ? t('psrc.model.syncKeyHintOn') : t('psrc.model.syncKeyHint');
-      setAccountSyncHint(`${t('psrc.model.syncDone', { n })} ${guide}`);
+      await applyRemoteAccountSync(choices);
+    } catch {
+      setAccountSyncHint(t('psrc.model.syncFail'));
+    } finally {
+      setAccountSyncing(false);
+    }
+  }
+
+  async function syncChosenDevice(device) {
+    if (!device || accountSyncing) return;
+    setSyncDeviceChoices(null);
+    setAccountSyncing(true);
+    setAccountSyncHint('');
+    try {
+      await applyRemoteAccountSync([device]);
     } catch {
       setAccountSyncHint(t('psrc.model.syncFail'));
     } finally {
@@ -5447,6 +5486,44 @@ export default function Providers() {
         </div>
       </section>
       </>
+
+      {syncDeviceChoices && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setSyncDeviceChoices(null)}>
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-700 w-full max-w-md p-5 space-y-3 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{t('psrc.model.syncPickTitle')}</h3>
+            <p className="text-[11px] text-zinc-400">{t('psrc.model.syncPickHint')}</p>
+            <ul className="space-y-2">
+              {syncDeviceChoices.map((d) => {
+                const id = String(d.device_id || '');
+                const shortId = id.length > 8 ? id.slice(-8) : id;
+                return (
+                  <li key={id}>
+                    <button type="button" onClick={() => syncChosenDevice(d)}
+                      className="tb-soft-tile w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${d.online ? 'bg-green-500' : 'bg-zinc-400'}`} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">{formatDeviceTitle(d)}</span>
+                        <span className="block text-[11px] text-zinc-400 truncate">
+                          {d.online ? t('profile.online') : t('profile.offline')}
+                          {formatDeviceSubtitle(d) ? ` · ${formatDeviceSubtitle(d)}` : ''}
+                          {shortId ? ` · ${shortId}` : ''}
+                        </span>
+                      </span>
+                      <span className="text-[11px] text-zinc-500 shrink-0">{t('psrc.model.syncPickCount', { n: countSyncAccounts(d.accounts_config) })}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="flex justify-end">
+              <button type="button" onClick={() => setSyncDeviceChoices(null)}
+                className="text-xs px-3 py-1.5 rounded-lg text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                {t('psrc.cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 添加实例后：凭证配置弹窗（复用 ProviderCard 的 API key / OAuth 配置，含 Claude 粘 code）*/}
       {credModalKey && (() => {

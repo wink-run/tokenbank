@@ -217,6 +217,44 @@ export function selectRemoteAccountConfigs(devices = [], myId = '', opts = {}) {
   return pool.map((d) => d.accounts_config);
 }
 
+/** 有账户 / 供给源可以合并。仅有「同步密钥」开关不算，避免空心跳占掉名额。 */
+export function hasSyncableAccounts(cfg) {
+  if (!cfg || typeof cfg !== 'object') return false;
+  if ((cfg.user_subscriptions || []).length) return true;
+  if ((cfg.user_payg_providers || []).length) return true;
+  if (Object.keys(cfg.direct_source_billing || {}).length) return true;
+  if ((cfg.gateway_providers || []).length) return true;
+  if (Object.keys(cfg.provider_pricing_overrides || {}).length) return true;
+  if (Object.keys(cfg.source_template_overrides || {}).length) return true;
+  if (Object.keys(cfg.custom_source_templates || {}).length) return true;
+  return false;
+}
+
+function deviceSeenRecently(device, now, staleMs) {
+  if (device && device.online) return true;
+  const seen = parseLastSeenMs(device && device.last_seen);
+  return seen > 0 && (now - seen) <= staleMs;
+}
+
+/**
+ * 可让用户挑选的其他终端。
+ * 在线和 7 天内见过的离线设备都保留，多台时由用户选一台，而不是只合并当前在线的那份。
+ */
+export function selectSyncableDevices(devices = [], myId = '', opts = {}) {
+  const now = Number(opts.now) || Date.now();
+  const staleMs = Number(opts.staleMs) > 0 ? Number(opts.staleMs) : STALE_DEVICE_MS;
+  const others = (Array.isArray(devices) ? devices : []).filter((d) => (
+    d && d.device_id && (!myId || d.device_id !== myId)
+    && hasSyncableAccounts(d.accounts_config)
+    && deviceSeenRecently(d, now, staleMs)
+  ));
+  return others.slice().sort((a, b) => {
+    const online = (b.online ? 1 : 0) - (a.online ? 1 : 0);
+    if (online) return online;
+    return parseLastSeenMs(b.last_seen) - parseLastSeenMs(a.last_seen);
+  });
+}
+
 /** 账户行：同 id 保留本机，并补上对方多出来的模型；没有的 id 整行追加（墓碑 id 不追加） */
 function mergeRows(localList, remoteList, countRef, includeSecrets, blockedIds) {
   const out = (Array.isArray(localList) ? localList : []).map(x => (

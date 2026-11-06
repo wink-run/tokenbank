@@ -8,6 +8,7 @@ const {
   mergeGatewayProviders,
   pickSyncAccountSecrets,
   selectRemoteAccountConfigs,
+  selectSyncableDevices,
   noteRemovedAccountIds,
   hasAccountsConfigPayload,
 } = require('../../shared/account-config-sync');
@@ -234,6 +235,46 @@ test('优先采信在线设备，忽略过期离线残留里的幽灵账户', ()
   ], 'me', { now });
   assert.equal(offlineOnly.length, 1);
   assert.equal(offlineOnly[0].user_payg_providers[0].id, 'p1');
+});
+
+test('多台有账户的设备都可选，空心跳和过期残留不出现', () => {
+  const now = Date.parse('2026-11-02T06:00:00Z');
+  const devices = [
+    {
+      device_id: 'me',
+      online: true,
+      accounts_config: { user_subscriptions: [{ id: 'local' }] },
+    },
+    {
+      device_id: 'online-empty',
+      online: true,
+      name: '空的',
+      last_seen: '2026-11-02T05:59:00Z',
+      accounts_config: { sync_account_secrets: true, user_subscriptions: [], user_payg_providers: [] },
+    },
+    {
+      device_id: 'mac-a',
+      online: false,
+      name: 'Mac A',
+      last_seen: '2026-11-01T12:00:00Z',
+      accounts_config: { user_payg_providers: [{ id: 'p1', provider_id: 'deepseek' }] },
+    },
+    {
+      device_id: 'mac-b',
+      online: true,
+      name: 'Mac B',
+      last_seen: '2026-11-02T05:50:00Z',
+      accounts_config: { user_subscriptions: [{ id: 'claude' }] },
+    },
+    {
+      device_id: 'ghost',
+      online: false,
+      last_seen: '2026-09-01T00:00:00Z',
+      accounts_config: { user_subscriptions: [{ id: 'test' }] },
+    },
+  ];
+  const list = selectSyncableDevices(devices, 'me', { now });
+  assert.deepEqual(list.map(d => d.device_id), ['mac-b', 'mac-a']);
 });
 
 test('本机删除墓碑阻止已删账户从远端残留复活', () => {
