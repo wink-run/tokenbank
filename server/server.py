@@ -1112,6 +1112,9 @@ class AgentTaskBody(BaseModel):
     files: Optional[list] = None
     # 分享里接着聊。服务端据此回到发起人的会话，而不是按当前发言人新开
     share_id: Optional[str] = None
+    # 发起方标识（类似模型网关的 app_id）。调用方显式传递，不由服务端推断。
+    app_id: Optional[str] = None
+    source: Optional[str] = None  # 兼容 metadata.source
 
 
 @app.post("/api/agent-tasks")
@@ -1144,6 +1147,9 @@ async def create_agent_task(
             raise HTTPException(429, "guest trial limit reached — sign in to continue")
 
     guest_ip = _client_ip(request) if guest else None
+    # 发起方标识：优先 app_id，否则 source，均未提供时保持 None（Gateway用默认值 "direct"）
+    initiator = (body.app_id or body.source or "").strip() or None
+    
     if body.stream:
         from dispatch_agent import iter_agent_task_sse
         gen = iter_agent_task_sse(
@@ -1158,6 +1164,7 @@ async def create_agent_task(
             images=task_images or None,
             files=task_files or None,
             share_id=body.share_id,
+            app_id=initiator,
         )
         return StreamingResponse(
             gen,
@@ -1180,6 +1187,7 @@ async def create_agent_task(
         images=task_images or None,
         files=task_files or None,
         share_id=body.share_id,
+        app_id=initiator,
     )
     if not result.get("ok"):
         status = result.get("status") or "failed"
@@ -1838,6 +1846,12 @@ async def worker_ws(ws: WebSocket):
                     worker.worker_id,
                     [a.get("display_name") or a.get("id") for a in worker.agents],
                 )
+                continue
+
+            # Gateway 响应消息：路由到等待的队列
+            if kind in ("gateway_response", "gateway_sse", "gateway_stream_end"):
+                from gateway_over_websocket import handle_worker_gateway_message
+                handle_worker_gateway_message(worker, msg)
                 continue
 
             # 武将任务进度：不摘 pending，供 HTTP SSE 转发

@@ -896,6 +896,8 @@ class AgentExecutor extends EventEmitter {
         sessionInstanceId: options.sessionInstanceId || null,
         // 社区接单标记：本机游乐场列表/事件应忽略
         clientId: options.clientId || null,
+        // 发起方标识（类似模型网关的 app_id）
+        initiator: options.initiator || null,
       }),
       Date.now(),
     );

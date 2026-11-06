@@ -2693,6 +2693,7 @@ createApp({
           prompt: apiPrompt,
           worker_id: agent.value.worker_id || undefined,
           stream: true,
+          app_id: 'web-chat',  // 网页聊天UI（类似模型网关的发起应用）
         }
         if (imageItems.length) {
           body.images = imageItems.map(p => ({ dataUrl: p.dataUrl, name: p.name || 'image' }))

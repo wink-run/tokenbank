@@ -826,6 +826,136 @@ async function collectAgentCardsForRegister(cfg) {
 }
 
 /** 处理社区派发的武将任务（支持过程中推送 agent_task_progress） */
+/**
+ * 处理云端发来的 Gateway HTTP 请求。
+ * 调用本地 agent-http.js 处理器，将响应通过 WebSocket 返回。
+ */
+async function handleGatewayRequest(msg) {
+  const requestId = String(msg.request_id || '').trim();
+  const method = String(msg.method || '').trim();
+  const reqPath = String(msg.path || '').trim();
+  const body = msg.body || {};
+
+  if (!requestId) {
+    log('[agent] gateway_request missing request_id');
+    return;
+  }
+
+  log(`[agent] gateway_request ${requestId} ${method} ${reqPath}`);
+
+  try {
+    const agentHttp = require('./agent-http');
+    
+    // 模拟 HTTP request 对象
+    const mockReq = {
+      method,
+      url: reqPath,
+      headers: msg.headers || {},
+      ...require('stream').Readable.from([JSON.stringify(body)]),
+    };
+
+    // 模拟 HTTP response 对象
+    let statusCode = 200;
+    let responseHeaders = {};
+    let responseChunks = [];
+    let isStreaming = false;
+    let streamEnded = false;
+
+    const mockRes = {
+      writeHead(status, headers) {
+        statusCode = status;
+        responseHeaders = headers || {};
+        isStreaming = (responseHeaders['Content-Type'] || '').includes('text/event-stream');
+      },
+      write(chunk) {
+        if (isStreaming && !streamEnded) {
+          // SSE 流式响应：逐块发送
+          const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+          const lines = text.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              const event = line.slice(7).trim();
+              const nextData = lines[lines.indexOf(line) + 1];
+              if (nextData && nextData.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(nextData.slice(6));
+                  send({
+                    type: 'gateway_sse',
+                    request_id: requestId,
+                    event,
+                    data,
+                  });
+                } catch { /* 忽略解析失败的块 */ }
+              }
+            }
+          }
+        } else {
+          responseChunks.push(chunk);
+        }
+      },
+      end(chunk) {
+        if (chunk) responseChunks.push(chunk);
+        streamEnded = true;
+        
+        if (!isStreaming) {
+          // 非流式响应：一次性返回完整body
+          const responseBody = Buffer.concat(
+            responseChunks.map(c => typeof c === 'string' ? Buffer.from(c) : c)
+          ).toString('utf8');
+          
+          let parsedBody = null;
+          try {
+            parsedBody = responseBody ? JSON.parse(responseBody) : null;
+          } catch {
+            parsedBody = { error: { message: responseBody } };
+          }
+
+          send({
+            type: 'gateway_response',
+            request_id: requestId,
+            status: statusCode,
+            headers: responseHeaders,
+            body: parsedBody,
+          });
+        } else {
+          // 流式响应结束
+          send({
+            type: 'gateway_stream_end',
+            request_id: requestId,
+          });
+        }
+      },
+      writableEnded: false,
+    };
+
+    // 调用本地 agent-http 处理器
+    const handled = await agentHttp.handle(mockReq, mockRes, {
+      method,
+      cleanPath: reqPath,
+      knownKey: () => true, // WebSocket 已认证
+    });
+
+    if (!handled) {
+      send({
+        type: 'gateway_response',
+        request_id: requestId,
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+        body: { error: { message: 'not found', type: 'invalid_request_error' } },
+      });
+    }
+  } catch (err) {
+    log(`[agent] gateway_request error: ${err.message}`);
+    send({
+      type: 'gateway_response',
+      request_id: requestId,
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+      body: { error: { message: err.message, type: 'internal_error' } },
+    });
+  }
+}
+
 async function handleAgentTask(msg, cfg) {
   const taskId = String(msg.task_id || msg.req_id || '').trim();
   const assistantId = String(msg.assistant_id || '').trim();
@@ -1322,6 +1452,18 @@ function connect(cfg) {
       }
     }
 
+    // Gateway HTTP 请求：通过 WebSocket 隧道调用本地 agent-http.js
+    if (msg.type === 'gateway_request') {
+      activeRequests++;
+      try {
+        await handleGatewayRequest(msg);
+      } finally {
+        activeRequests = Math.max(0, activeRequests - 1);
+      }
+      return;
+    }
+
+    // 保留旧的 agent_task 消息处理以兼容旧版本客户端
     if (msg.type === 'agent_task') {
       const cloudId = String(msg.task_id || '').trim();
       // 连接抖了一下但本机还在跑：不要再开一个 CLI，原来的进程会从新连接把进度送回去
