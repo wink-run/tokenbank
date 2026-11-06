@@ -2,7 +2,8 @@
 
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseAgentRoute, inputText, harnessIdFromBody, taskToResponse, outputStreamEvent } = require('../agent-http');
+const { Readable } = require('stream');
+const { parseAgentRoute, inputText, harnessIdFromBody, taskToResponse, outputStreamEvent, handle } = require('../agent-http');
 
 describe('agent-http', () => {
   test('路径和模型补全分开', () => {
@@ -45,5 +46,59 @@ describe('agent-http', () => {
     const replaced = outputStreamEvent(more.prev, { stepType: 'output', content: '另一段' });
     assert.equal(replaced.event, 'response.output_text.snapshot');
     assert.equal(replaced.data.text, '另一段');
+  });
+
+  test('WebSocket已认证时无需Authorization头', async () => {
+    // 模拟经WebSocket转发的请求：无Authorization头，但提供knownKey
+    const mockReq = Readable.from([Buffer.from(JSON.stringify({ input: 'test', metadata: { harness_id: 'pi' } }))]);
+    mockReq.method = 'POST';
+    mockReq.url = '/v1/agent/responses';
+    mockReq.headers = {}; // 无 Authorization
+
+    let statusCode = null;
+    let responseBody = null;
+    const mockRes = {
+      writeHead(status) { statusCode = status; },
+      write(chunk) { responseBody = chunk; },
+      end(chunk) { if (chunk) responseBody = chunk; },
+    };
+
+    // knownKey: () => true 表示WebSocket已认证，应允许通过
+    const handled = await handle(mockReq, mockRes, {
+      method: 'POST',
+      cleanPath: '/v1/agent/responses',
+      knownKey: () => true,
+    });
+
+    // 应该被处理（不是401），实际执行会失败因为没有真正的executor，但不应该在鉴权步骤被拒绝
+    assert.equal(handled, true);
+    // 如果是401，说明鉴权逻辑有问题
+    assert.notEqual(statusCode, 401, 'WebSocket已认证请求不应返回401');
+  });
+
+  test('无Authorization且无knownKey时应401', async () => {
+    const mockReq = Readable.from([Buffer.from(JSON.stringify({ input: 'test', metadata: { harness_id: 'pi' } }))]);
+    mockReq.method = 'POST';
+    mockReq.url = '/v1/agent/responses';
+    mockReq.headers = {}; // 无 Authorization
+
+    let statusCode = null;
+    let responseBody = null;
+    const mockRes = {
+      writeHead(status) { statusCode = status; },
+      write() {},
+      end(chunk) { if (chunk) responseBody = chunk; },
+    };
+
+    // 无knownKey，应严格检查密钥
+    const handled = await handle(mockReq, mockRes, {
+      method: 'POST',
+      cleanPath: '/v1/agent/responses',
+    });
+
+    assert.equal(handled, true);
+    assert.equal(statusCode, 401);
+    const body = JSON.parse(responseBody);
+    assert.equal(body.error.message, 'invalid api key');
   });
 });
