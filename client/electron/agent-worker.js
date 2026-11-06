@@ -845,14 +845,13 @@ async function handleGatewayRequest(msg) {
 
   try {
     const agentHttp = require('./agent-http');
+    const { Readable } = require('stream');
     
-    // 模拟 HTTP request 对象
-    const mockReq = {
-      method,
-      url: reqPath,
-      headers: msg.headers || {},
-      ...require('stream').Readable.from([JSON.stringify(body)]),
-    };
+    // 模拟 HTTP request 对象（必须是真正的 Readable，且 readBody 需要 Buffer 块）
+    const mockReq = Readable.from([Buffer.from(JSON.stringify(body))]);
+    mockReq.method = method;
+    mockReq.url = reqPath;
+    mockReq.headers = msg.headers || {};
 
     // 模拟 HTTP response 对象
     let statusCode = 200;
