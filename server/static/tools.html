@@ -380,13 +380,14 @@ createApp({
       for (let i = 0; i < s.length; i++) n = (n + s.charCodeAt(i)) % palette.length;
       return palette[n];
     },
-    // 出租智能体进对话页；平台条目仍打开详情
+    // 出租智能体先进介绍页；平台条目仍打开详情
     cardHref(tool) {
-      if (tool && tool.source === 'network' && tool.try_url) return tool.try_url;
+      const aid = tool && (tool.assistant_id || '');
+      if (tool && tool.source === 'network' && aid) return '/agents/' + encodeURIComponent(aid);
       return '/tools/' + encodeURIComponent(tool && tool.id || '');
     },
     onCardClick(tool, e) {
-      if (tool && tool.source === 'network' && tool.try_url) return;
+      if (tool && tool.source === 'network' && tool.assistant_id) return;
       e.preventDefault();
       this.loadToolDetail(tool.id);
     },
