@@ -155,7 +155,13 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
   if (!route) return false;
 
   const key = callerKey(req);
-  if (!key || (typeof knownKey === 'function' && !knownKey(key))) {
+  // 鉴权：若提供了 knownKey 函数（WebSocket已认证），优先用它；否则检查密钥
+  if (typeof knownKey === 'function') {
+    if (!knownKey(key)) {
+      sendJson(res, 401, { error: { message: 'invalid api key', type: 'auth_error' } });
+      return true;
+    }
+  } else if (!key) {
     sendJson(res, 401, { error: { message: 'invalid api key', type: 'auth_error' } });
     return true;
   }
