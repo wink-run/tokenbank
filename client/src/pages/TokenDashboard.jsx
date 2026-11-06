@@ -574,6 +574,10 @@ function DevicesSection() {
               </div>
               <div className="flex items-center gap-2 mt-0.5">
                 <span className="text-xs text-zinc-400 truncate">{formatLegacyPlatform(d.platform)}</span>
+                {/* 标出设备 id，两台同名 Mac 才能对上是不是同一条记录 */}
+                <span className="text-[10px] font-mono text-zinc-400 truncate">
+                  {(d.device_ids?.length ? d.device_ids : [d.device_id]).filter(Boolean).join(' · ')}
+                </span>
                 {(d.today_calls > 0 || d.today_errors > 0) && (
                   <span className="text-xs text-zinc-400 shrink-0">
                     {t('profile.todayCalls', { n: d.today_calls })}
