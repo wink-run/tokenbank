@@ -844,105 +844,119 @@ async function handleGatewayRequest(msg) {
   log(`[agent] gateway_request ${requestId} ${method} ${reqPath}`);
 
   try {
-    const agentHttp = require('./agent-http');
-    const { Readable } = require('stream');
-    
-    // 模拟 HTTP request 对象（必须是真正的 Readable，且 readBody 需要 Buffer 块）
-    const mockReq = Readable.from([Buffer.from(JSON.stringify(body))]);
-    mockReq.method = method;
-    mockReq.url = reqPath;
-    mockReq.headers = msg.headers || {};
+    // 通过 HTTP loopback 调用本地 Gateway，确保与真实 HTTP 调用完全等价
+    // （不再使用 mockReq/mockRes 进程内模拟，避免 SSE 解析不一致和输出丢失）
+    const http = require('http');
+    const localGateway = require('./local-gateway');
+    const gatewayPort = localGateway.port() || 11430;
+    const gatewayOrigin = `http://127.0.0.1:${gatewayPort}`;
 
-    // 模拟 HTTP response 对象
-    let statusCode = 200;
-    let responseHeaders = {};
-    let responseChunks = [];
-    let isStreaming = false;
-    let streamEnded = false;
+    // 获取本地密钥用于认证（loopback 调用需要有效密钥）
+    const localKey = localGateway.getAgentApiKey && localGateway.getAgentApiKey();
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(msg.headers || {}),
+    };
+    if (localKey) {
+      headers['Authorization'] = `Bearer ${localKey}`;
+    }
 
-    const mockRes = {
-      writeHead(status, headers) {
-        statusCode = status;
-        responseHeaders = headers || {};
-        isStreaming = (responseHeaders['Content-Type'] || '').includes('text/event-stream');
+    const requestBody = JSON.stringify(body);
+    const options = {
+      hostname: '127.0.0.1',
+      port: gatewayPort,
+      path: reqPath,
+      method: method,
+      headers: {
+        ...headers,
+        'Content-Length': Buffer.byteLength(requestBody),
       },
-      write(chunk) {
-        if (isStreaming && !streamEnded) {
-          // SSE 流式响应：逐块发送
-          const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-          const lines = text.split('\n');
-          for (const line of lines) {
-            if (line.startsWith('event: ')) {
-              const event = line.slice(7).trim();
-              const nextData = lines[lines.indexOf(line) + 1];
-              if (nextData && nextData.startsWith('data: ')) {
-                try {
-                  const data = JSON.parse(nextData.slice(6));
-                  send({
-                    type: 'gateway_sse',
-                    request_id: requestId,
-                    event,
-                    data,
-                  });
-                } catch { /* 忽略解析失败的块 */ }
+    };
+
+    const req = http.request(options, (res) => {
+      const isStreaming = (res.headers['content-type'] || '').includes('text/event-stream');
+      let buffer = '';
+
+      res.on('data', (chunk) => {
+        if (isStreaming) {
+          // SSE 流式响应：解析事件
+          buffer += chunk.toString('utf8');
+          const lines = buffer.split('\n\n');
+          // 保留最后一个可能不完整的块
+          buffer = lines.pop() || '';
+
+          for (const block of lines) {
+            if (!block.trim()) continue;
+            
+            let event = '';
+            let data = '';
+            for (const line of block.split('\n')) {
+              if (line.startsWith('event: ')) {
+                event = line.slice(7).trim();
+              } else if (line.startsWith('data: ')) {
+                data = line.slice(6);
+              }
+            }
+
+            if (event && data) {
+              try {
+                send({
+                  type: 'gateway_sse',
+                  request_id: requestId,
+                  event,
+                  data: JSON.parse(data),
+                });
+              } catch (e) {
+                log(`[agent] SSE parse error: ${e.message}`);
               }
             }
           }
         } else {
-          responseChunks.push(chunk);
+          // 非流式响应：累积
+          buffer += chunk.toString('utf8');
         }
-      },
-      end(chunk) {
-        if (chunk) responseChunks.push(chunk);
-        streamEnded = true;
-        
-        if (!isStreaming) {
-          // 非流式响应：一次性返回完整body
-          const responseBody = Buffer.concat(
-            responseChunks.map(c => typeof c === 'string' ? Buffer.from(c) : c)
-          ).toString('utf8');
-          
-          let parsedBody = null;
-          try {
-            parsedBody = responseBody ? JSON.parse(responseBody) : null;
-          } catch {
-            parsedBody = { error: { message: responseBody } };
-          }
+      });
 
-          send({
-            type: 'gateway_response',
-            request_id: requestId,
-            status: statusCode,
-            headers: responseHeaders,
-            body: parsedBody,
-          });
-        } else {
+      res.on('end', () => {
+        if (isStreaming) {
           // 流式响应结束
           send({
             type: 'gateway_stream_end',
             request_id: requestId,
           });
-        }
-      },
-      writableEnded: false,
-    };
+        } else {
+          // 非流式响应：返回完整body
+          let parsedBody = null;
+          try {
+            parsedBody = buffer ? JSON.parse(buffer) : null;
+          } catch {
+            parsedBody = { error: { message: buffer } };
+          }
 
-    // 调用本地 agent-http 处理器
-    const handled = await agentHttp.handle(mockReq, mockRes, {
-      method,
-      cleanPath: reqPath,
-      knownKey: () => true, // WebSocket 已认证
+          send({
+            type: 'gateway_response',
+            request_id: requestId,
+            status: res.statusCode,
+            headers: res.headers,
+            body: parsedBody,
+          });
+        }
+      });
     });
 
-    if (!handled) {
+    req.on('error', (err) => {
+      log(`[agent] gateway_request HTTP error: ${err.message}`);
       send({
         type: 'gateway_response',
         request_id: requestId,
-        status: 404,
+        status: 500,
         headers: { 'Content-Type': 'application/json' },
-        body: { error: { message: 'not found', type: 'invalid_request_error' } },
+        body: { error: { message: err.message, type: 'connection_error' } },
       });
-    }
+    });
+
+    req.write(requestBody);
+    req.end();
   } catch (err) {
     log(`[agent] gateway_request error: ${err.message}`);
     send({
