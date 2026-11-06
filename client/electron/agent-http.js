@@ -114,6 +114,12 @@ function taskToResponse(task) {
       : [],
   };
   if (created && done && done >= created) response.usage = { duration_ms: done - created };
+  
+  // 携带产物（图片、文件等），供服务端改写本地路径为可访问URL
+  if (task?.result?.artifacts) {
+    response.artifacts = task.result.artifacts;
+  }
+  
   return response;
 }
 

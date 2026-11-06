@@ -778,11 +778,15 @@ async def handle_agent_task(
                 note=f"agent_task failed refund task_id={task_id}",
             )
 
+        # 处理产物：上传图片/文件，改写本地路径为可访问URL
+        raw_artifacts = gateway_response.get("artifacts")
+        processed_output, public_arts = _apply_artifacts(task_id, output_text, raw_artifacts)
+        
         result = {
             "ok": success,
             "task_id": task_id,
             "status": status,
-            "output": output_text[:200_000],
+            "output": processed_output[:200_000],
             "usage": gateway_response.get("usage") or {},
             "credits_charged": AGENT_TASK_CREDITS if success else 0,
             "credits_refunded": 0 if success or guest else AGENT_TASK_CREDITS,
@@ -792,6 +796,9 @@ async def handle_agent_task(
         response_id = gateway_response.get("id")
         if response_id:
             result["response_id"] = response_id
+        
+        if public_arts:
+            result["artifacts"] = public_arts
         
         return result
 
@@ -1169,21 +1176,25 @@ async def iter_agent_task_sse(
                 gateway_status = event_data.get("status", "completed")
                 
                 # 提取输出文本：优先使用流式累积的 accumulated_text（来自 delta 事件）
-                # 只有当它为空时才从 completed 事件的 output 字段提取（非流式响应场景）
+                # 但如果 completed.output 更长（工具调用后生成的文本可能没发delta），使用它
                 output_text = accumulated_text
                 
-                if not output_text:
-                    # 非流式响应：从 completed 事件的 output 提取
-                    output_list = event_data.get("output", [])
-                    if isinstance(output_list, list) and output_list:
-                        first_msg = output_list[0]
-                        if isinstance(first_msg, dict):
-                            content = first_msg.get("content", [])
-                            if isinstance(content, list):
-                                for item in content:
-                                    if isinstance(item, dict) and item.get("type") == "output_text":
-                                        output_text = str(item.get("text", ""))
-                                        break
+                # 始终检查 completed 事件的 output
+                output_from_completed = ""
+                output_list = event_data.get("output", [])
+                if isinstance(output_list, list) and output_list:
+                    first_msg = output_list[0]
+                    if isinstance(first_msg, dict):
+                        content = first_msg.get("content", [])
+                        if isinstance(content, list):
+                            for item in content:
+                                if isinstance(item, dict) and item.get("type") == "output_text":
+                                    output_from_completed = str(item.get("text", ""))
+                                    break
+                
+                # 使用更长的那个（completed可能包含工具调用后生成的额外文本）
+                if len(output_from_completed) > len(output_text):
+                    output_text = output_from_completed
 
                 # 结息给出租方
                 if gateway_status == "completed" and worker.user_id:
@@ -1201,12 +1212,16 @@ async def iter_agent_task_sse(
                 # 提取 response_id（用于多轮对话续session）
                 response_id = event_data.get("id")
                 
+                # 处理产物：上传图片/文件，改写本地路径为可访问URL
+                raw_artifacts = event_data.get("artifacts")
+                processed_output, public_arts = _apply_artifacts(task_id, output_text, raw_artifacts)
+                
                 done_payload = {
                     "event": "done",
                     "ok": True,
                     "task_id": task_id,
                     "status": gateway_status,
-                    "output": output_text[:200_000],
+                    "output": processed_output[:200_000],
                     "usage": event_data.get("usage") or {},
                     "credits_charged": AGENT_TASK_CREDITS,
                     "guest": is_guest,
@@ -1214,6 +1229,8 @@ async def iter_agent_task_sse(
                 }
                 if response_id:
                     done_payload["response_id"] = response_id
+                if public_arts:
+                    done_payload["artifacts"] = public_arts
                 
                 yield _sse(done_payload)
                 return
