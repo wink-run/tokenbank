@@ -1384,11 +1384,39 @@ class AgentExecutor extends EventEmitter {
     let orchestratorCleanup = null;
 
     try {
-      // 已雇佣社区智能体：远程派发，勿走本地 CLI
-      const { isCommunityAgentId } = require('./hired-community-agents');
+      // 社区智能体格式：检查本机是否有对应的 assistant（雇佣的本机智能体或自己发布的）
+      const { isCommunityAgentId, parseCommunityAgentId } = require('./hired-community-agents');
       if (isCommunityAgentId(agentId)) {
-        await this._runCommunityTaskForExecute(taskId, agentId, prompt, options);
-        return;
+        const parsed = parseCommunityAgentId(agentId);
+        const localAssistantId = parsed?.assistant_id;
+        
+        // 尝试解析为本地 assistant（若本机有，则直接本地执行，避免通过云端循环）
+        if (localAssistantId) {
+          try {
+            const { agentId: effectiveAgentId } = this._resolveAssistant(localAssistantId);
+            const cfg = AGENT_CLI[effectiveAgentId];
+            const launch = this._resolveLaunchSpec(effectiveAgentId);
+            
+            // 本机有此 assistant 且已安装 CLI：用本地 harness 执行
+            if (cfg && launch?.executable) {
+              console.log(`[agent-executor] community agent ${agentId} found locally as ${localAssistantId}, executing locally`);
+              agentId = localAssistantId;
+              // 继续本地执行流程（不 return）
+            } else {
+              // 本机无此 assistant：远程派发
+              await this._runCommunityTaskForExecute(taskId, agentId, prompt, options);
+              return;
+            }
+          } catch {
+            // 解析失败或本机无此 assistant：远程派发
+            await this._runCommunityTaskForExecute(taskId, agentId, prompt, options);
+            return;
+          }
+        } else {
+          // 无法解析 assistant_id：远程派发
+          await this._runCommunityTaskForExecute(taskId, agentId, prompt, options);
+          return;
+        }
       }
 
       // 本地 CLI：附图落盘；Claude 走多模态 stdin，其它 Agent 拼路径进 prompt
