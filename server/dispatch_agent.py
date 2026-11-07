@@ -717,6 +717,12 @@ async def handle_agent_task(
         },
     }
     
+    # 附件：图片和文件（data URL格式）
+    if images:
+        gateway_body["images"] = images
+    if files:
+        gateway_body["files"] = files
+    
     if previous_response_id:
         gateway_body["previous_response_id"] = previous_response_id
 
@@ -1125,6 +1131,12 @@ async def iter_agent_task_sse(
             "consumer_key": consumer_key,
         },
     }
+    
+    # 附件：图片和文件（data URL格式）
+    if images:
+        gateway_body["images"] = images
+    if files:
+        gateway_body["files"] = files
     
     # 多轮对话：续上之前的 session（如果提供了 previous_response_id）
     if previous_response_id:
