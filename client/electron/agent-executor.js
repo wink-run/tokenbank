@@ -1597,6 +1597,7 @@ class AgentExecutor extends EventEmitter {
           success: result.success,
           summary: result.summary,
           stderr: result.stderr,
+          artifacts: result.artifacts || [],
           files: result.files,
           stepCount: result.stepCount,
           cliSessionId: result.cliSessionId,
@@ -1899,12 +1900,22 @@ class AgentExecutor extends EventEmitter {
               console.warn('[AgentExecutor] recordModifiedFiles failed:', e.message);
             }
 
+            // 收集工作目录中的产物（图片、文件）
+            let artifacts = [];
+            try {
+              const { collectWorkspaceArtifacts } = require('./contribute-session');
+              artifacts = collectWorkspaceArtifacts(workingDir, stdout, Date.now() - 300000);
+            } catch (e) {
+              console.warn('[AgentExecutor] collectWorkspaceArtifacts failed:', e.message);
+            }
+
             resolve({
               success: true,
               output: stdout,
               summary: summarizeAgentStdout(stdout, gatewayAgentId),
               stderr,
               files: [],
+              artifacts,
               stepCount: stepCounter,
               cliSessionId: cliSid,
             });
