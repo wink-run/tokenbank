@@ -2411,7 +2411,8 @@ createApp({
               }
               if (arts.length) row.artifacts = arts
             }
-            continue
+            // 完成：调用finish保存结果到数据库
+            return finish(true)
           }
           if (ev.event === 'error') {
             if (ev.status === 'cancelled' || ev.error === 'cancelled' || stopRequested) {

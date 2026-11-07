@@ -225,6 +225,10 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
       return true;
     }
     
+    // 附件：图片和文件（data URL格式）
+    const attachImages = Array.isArray(body.images) ? body.images : [];
+    const attachFiles = Array.isArray(body.files) ? body.files : [];
+    
     // 记录发起方到日志（类似模型网关的应用归因）
     console.log(`[agent-http] POST /v1/agent/responses harness=${harnessId} initiator=${initiator}`);
 
@@ -405,6 +409,9 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
       initiator,
       // 雇佣调用才收集产物
       collectArtifacts,
+      // 附件：图片和文件
+      images: attachImages.length ? attachImages : undefined,
+      files: attachFiles.length ? attachFiles : undefined,
     });
 
     let detachStream = () => {};
