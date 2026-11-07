@@ -697,11 +697,23 @@ async def handle_agent_task(
             harness_id = f"{harness_id}@{owner}"
     
     # 构建 Gateway 请求
+    # 构建consumer_key用于隔离工作目录
+    consumer_key = None
+    if consumer_user_id:
+        consumer_key = f"u{consumer_user_id}"
+    elif guest_ip:
+        # 游客用IP哈希作为consumer_key
+        import hashlib
+        h = hashlib.sha256(guest_ip.encode()).hexdigest()[:12]
+        consumer_key = f"g{h}"
+    
     gateway_body = {
         "input": prompt,
         "metadata": {
             "harness_id": harness_id,
             "call_context": call_context,
+            "assistant_id": assistant_id,
+            "consumer_key": consumer_key,
         },
     }
     
@@ -1094,11 +1106,23 @@ async def iter_agent_task_sse(
             harness_id = f"{harness_id}@{owner}"
     
     # 构建 Gateway 请求
+    # 构建consumer_key用于隔离工作目录
+    consumer_key = None
+    if consumer_user_id:
+        consumer_key = f"u{consumer_user_id}"
+    elif guest_ip:
+        # 游客用IP哈希作为consumer_key
+        import hashlib
+        h = hashlib.sha256(guest_ip.encode()).hexdigest()[:12]
+        consumer_key = f"g{h}"
+    
     gateway_body = {
         "input": prompt,
         "metadata": {
             "harness_id": harness_id,
             "call_context": call_context,
+            "assistant_id": assistant_id,
+            "consumer_key": consumer_key,
         },
     }
     

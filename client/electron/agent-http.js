@@ -234,10 +234,26 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
     const callContext = String(body.call_context || body.metadata?.call_context || 'local').trim().toLowerCase();
     const collectArtifacts = callContext === 'hired';
     
+    // 为雇佣调用创建隔离的工作目录
+    let workingDir = typeof body.metadata?.working_dir === 'string' ? body.metadata.working_dir : undefined;
+    if (!workingDir && collectArtifacts) {
+      // hired调用：使用contribute workspace隔离目录
+      const assistantId = body.metadata?.assistant_id;
+      const consumerKey = body.metadata?.consumer_key;
+      if (assistantId && consumerKey) {
+        try {
+          const { ensureContributeWorkspace } = require('./contribute-session');
+          workingDir = ensureContributeWorkspace(assistantId, consumerKey);
+        } catch (e) {
+          console.warn('[agent-http] ensureContributeWorkspace failed:', e.message);
+        }
+      }
+    }
+    
     const { taskId } = await executor.execute(harnessId, prompt, {
       continueSession,
       cliSessionId: cliSessionId || undefined,
-      workingDir: typeof body.metadata?.working_dir === 'string' ? body.metadata.working_dir : undefined,
+      workingDir,
       // 只有请求显式打开 stream 才边收边推
       stream: !!body.stream,
       // 发起方标识（用于统计和日志）
