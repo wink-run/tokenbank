@@ -228,6 +228,23 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
     // 记录发起方到日志（类似模型网关的应用归因）
     console.log(`[agent-http] POST /v1/agent/responses harness=${harnessId} initiator=${initiator}`);
 
+    // 调用上下文：hired=雇佣调用（收集产物），local=本机调用（不收集）
+    // 必须先定义callContext，后续授权验证会用到
+    const callContext = String(body.call_context || body.metadata?.call_context || 'local').trim().toLowerCase();
+    
+    // hired调用必须提供assistant_id和consumer_key
+    const currentAssistantId = body.metadata?.assistant_id;
+    const currentConsumerKey = body.metadata?.consumer_key;
+    if (callContext === 'hired' && (!currentAssistantId || !currentConsumerKey)) {
+      sendJson(res, 400, { 
+        error: { 
+          message: 'hired context requires metadata.assistant_id and metadata.consumer_key', 
+          type: 'invalid_request_error' 
+        } 
+      });
+      return true;
+    }
+
     let continueSession = false;
     let cliSessionId = '';
     let workspaceSessionId = '';
@@ -241,26 +258,49 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
         const prevConsumerKey = prevContext?.consumerKey;
         const prevCallContext = prevContext?.callContext;
         
-        const currentAssistantId = body.metadata?.assistant_id;
-        const currentConsumerKey = body.metadata?.consumer_key;
-        
         // 验证1: assistant_id必须匹配（公共智能体标识，但必须是同一个）
         if (prevAssistantId && currentAssistantId && prevAssistantId !== currentAssistantId) {
-          console.warn(`[agent-http] 拒绝续用其他assistant的会话: prev=${prevAssistantId}, current=${currentAssistantId}`);
-          // 不使用prev的session信息，当作新会话
+          console.warn(`[agent-http] 拒绝续用其他assistant的会话: prev=${prevAssistantId}, current=${currentAssistantId}, prev_response=${body.previous_response_id}`);
+          sendJson(res, 403, { 
+            error: { 
+              message: 'Cannot resume session from different assistant', 
+              type: 'permission_error' 
+            } 
+          });
+          return true;
         }
         // 验证2: consumer_key必须匹配（用户身份，不能跨用户）
         else if (prevConsumerKey && currentConsumerKey && prevConsumerKey !== currentConsumerKey) {
-          console.warn(`[agent-http] 拒绝续用其他consumer的会话: prev=${prevConsumerKey}, current=${currentConsumerKey}`);
-          // 明确拒绝：游客IP变化不能作为绕过理由
+          console.warn(`[agent-http] 拒绝续用其他consumer的会话: prev=${prevConsumerKey}, current=${currentConsumerKey}, prev_response=${body.previous_response_id}`);
+          sendJson(res, 403, { 
+            error: { 
+              message: 'Cannot resume session from different consumer', 
+              type: 'permission_error' 
+            } 
+          });
+          return true;
         }
         // 验证3: call_context必须匹配（hired不能用local会话，反之亦然）
         else if (prevCallContext && prevCallContext !== callContext) {
-          console.warn(`[agent-http] 拒绝跨context续用会话: prev=${prevCallContext}, current=${callContext}`);
+          console.warn(`[agent-http] 拒绝跨context续用会话: prev=${prevCallContext}, current=${callContext}, prev_response=${body.previous_response_id}`);
+          sendJson(res, 403, { 
+            error: { 
+              message: `Cannot resume ${prevCallContext} session in ${callContext} context`, 
+              type: 'permission_error' 
+            } 
+          });
+          return true;
         }
         // 验证4: 旧数据缺失授权信息时拒绝（防止利用旧任务绕过）
         else if (!prevAssistantId || !prevConsumerKey || !prevCallContext) {
-          console.warn(`[agent-http] 旧任务缺失授权信息，拒绝续用: assistantId=${!!prevAssistantId}, consumerKey=${!!prevConsumerKey}, callContext=${!!prevCallContext}`);
+          console.warn(`[agent-http] 旧任务缺失授权信息，拒绝续用: assistantId=${!!prevAssistantId}, consumerKey=${!!prevConsumerKey}, callContext=${!!prevCallContext}, prev_response=${body.previous_response_id}`);
+          sendJson(res, 403, { 
+            error: { 
+              message: 'Previous session missing authorization context', 
+              type: 'permission_error' 
+            } 
+          });
+          return true;
         }
         // 全部验证通过：允许续用
         else {
@@ -270,11 +310,16 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
         }
       } catch (e) {
         console.warn(`[agent-http] previous_response_id查询失败: ${e.message}`);
+        // previous_response_id不存在或查询失败，返回400而不是静默作为新会话
+        sendJson(res, 400, { 
+          error: { 
+            message: `Previous response not found: ${e.message}`, 
+            type: 'invalid_request_error' 
+          } 
+        });
+        return true;
       }
     }
-
-    // 调用上下文：hired=雇佣调用（收集产物），local=本机调用（不收集）
-    const callContext = String(body.call_context || body.metadata?.call_context || 'local').trim().toLowerCase();
     const collectArtifacts = callContext === 'hired';
     
     // 工作目录策略：
