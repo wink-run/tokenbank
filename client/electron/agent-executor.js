@@ -1912,8 +1912,14 @@ class AgentExecutor extends EventEmitter {
             if (collectArtifacts) {
               try {
                 const { collectWorkspaceArtifacts } = require('./contribute-session');
-                const taskStartTime = running?.started_at || (Date.now() - 300000);
+                // 放宽时间窗口到10分钟，避免时钟偏差导致文件被过滤
+                const taskStartTime = running?.started_at || (Date.now() - 600000);
                 artifacts = collectWorkspaceArtifacts(workingDir, stdout, taskStartTime);
+                if (artifacts.length > 0) {
+                  console.log(`[AgentExecutor] collected ${artifacts.length} artifacts for task ${taskId}`);
+                } else {
+                  console.log(`[AgentExecutor] no artifacts collected for task ${taskId}, workingDir=${workingDir}, outputLength=${stdout.length}`);
+                }
               } catch (e) {
                 console.warn('[AgentExecutor] collectWorkspaceArtifacts failed:', e.message);
               }
