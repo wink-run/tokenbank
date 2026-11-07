@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 /**
- * 附件端到端测试：图片/文件从HTTP body → executor → 落盘 → agent可读
+ * 附件JS模块测试：图片/文件从HTTP body → executor → 落盘 → agent可读
+ * 
+ * **测试边界说明**：
+ * - 入口：直接调用agent-http handler（Node.js HTTP server）
+ * - 范围：agent-http.js + agent-executor.js + fake CLI
+ * - 未覆盖：Python dispatch_agent.py的images/files传递
+ * - 未覆盖：浏览器上传 → 云端 → Gateway的完整链路
  * 
  * 验证：
  * 1. agent-http解析body.images/files
  * 2. executor调用materializeAttachedImages/Files
  * 3. 文件落盘到工作目录
  * 4. agent进程可读取
- * 5. 多轮对话附件持久化
+ * 5. local也支持输入附件（仅输出产物不收集）
  */
 
 const fs = require('fs');
@@ -357,12 +363,12 @@ async function runTests() {
     }
     console.log('');
     
-    // ========== 测试4: local不落盘附件 ==========
-    console.log('测试4: local调用不应落盘（无附件传递）');
+    // ========== 测试4: local也支持输入附件 ==========
+    console.log('测试4: local也接收输入附件（仅输出产物不收集）');
     
     const resp4 = await callAgentHttp(port, {
       harness_id: 'claude-code',
-      input: '查看目录',
+      input: '查看当前目录',
       metadata: {
         call_context: 'local',
       },
@@ -372,11 +378,40 @@ async function runTests() {
     if (resp4.status === 200) {
       const task4 = await waitForTask(resp4.body.id);
       const output = task4.result?.summary || task4.result?.output || '';
+      const workDir = task4.context?.workingDir;
+      console.log(`  local工作目录: ${workDir}`);
       console.log(`  local输出: ${output.slice(0, 300)}`);
       
-      // local模式应该在默认目录，不应该有测试附件（png/txt）
-      const noTestFiles = !/\.png|\.txt|image-|test\.txt|mixed\.txt/i.test(output);
-      addTest('local不落盘附件', noTestFiles);
+      // 检查工作目录是否有图片文件
+      if (workDir && fs.existsSync(workDir)) {
+        function listAll(dir) {
+          const result = [];
+          const items = fs.readdirSync(dir);
+          for (const item of items) {
+            const fullPath = path.join(dir, item);
+            try {
+              const stat = fs.statSync(fullPath);
+              if (stat.isFile()) {
+                result.push(item);
+              } else if (stat.isDirectory()) {
+                result.push(...listAll(fullPath).map(f => path.join(item, f)));
+              }
+            } catch {}
+          }
+          return result;
+        }
+        const allFiles = listAll(workDir);
+        console.log(`  local工作目录文件: ${allFiles.join(', ')}`);
+        const hasImage = allFiles.some(f => /\.png$/i.test(f));
+        addTest('local接收输入附件', hasImage);
+      } else {
+        console.log(`  local工作目录不存在或未记录`);
+        addTest('local接收输入附件', false);
+      }
+      
+      // local不收集输出产物
+      const artifacts = task4.result?.artifacts || [];
+      addTest('local不收集输出产物', artifacts.length === 0);
     }
     console.log('');
     

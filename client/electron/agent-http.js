@@ -409,9 +409,9 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
       initiator,
       // 雇佣调用才收集产物
       collectArtifacts,
-      // 附件：图片和文件（仅hired传递，local不处理）
-      images: (callContext === 'hired' && attachImages.length) ? attachImages : undefined,
-      files: (callContext === 'hired' && attachFiles.length) ? attachFiles : undefined,
+      // 附件：图片和文件（输入附件local也支持，仅输出产物区分）
+      images: attachImages.length ? attachImages : undefined,
+      files: attachFiles.length ? attachFiles : undefined,
     });
 
     let detachStream = () => {};
