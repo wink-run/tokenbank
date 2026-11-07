@@ -156,7 +156,7 @@
             <div v-else class="av sm" :style="{ background: avatarColor(agentName) }">{{ agentName.slice(0, 1).toUpperCase() }}</div>
             <div class="abody">
               <template v-if="m.parts && m.parts.length">
-                <div v-for="(p, pi) in m.parts" :key="pi" class="apart" :class="'apart-' + p.type">
+                <div v-for="(p, pi) in viewParts(m)" :key="pi" class="apart" :class="p.type === 'tools' ? 'apart-tool' : ('apart-' + p.type)">
                   <template v-if="p.type === 'thinking'">
                     <!-- 和工具条一样：默认一行，展开后才是全文 -->
                     <details class="tool-fold think-fold">
@@ -168,18 +168,26 @@
                       <div class="apart-body">{{ p.text }}</div>
                     </details>
                   </template>
-                  <template v-else-if="p.type === 'tool'">
-                    <!-- 默认收起。标题行对齐桌面：友好名、状态、一行命令或路径 -->
+                  <template v-else-if="p.type === 'tools'">
+                    <!-- 一次回复里的多次调用收成一条，展开后再看每一次 -->
                     <details class="tool-fold">
                       <summary>
                         <span class="tool-chev" aria-hidden="true"></span>
-                        <span class="apart-name">{{ toolFriendly(p.name) }}</span>
-                        <span class="tool-status" :class="{ err: p.error, live: !p.done && m.pending }">{{ toolStatus(p, m) }}</span>
-                        <span v-if="toolSummary(p.detail)" class="tool-sum" :title="toolSummary(p.detail)">{{ toolSummary(p.detail) }}</span>
-                        <span v-if="toolElapsed(p, m)" class="apart-time">{{ toolElapsed(p, m) }}</span>
+                        <span class="apart-name">{{ toolGroupTitle(p.items) }}</span>
+                        <span class="tool-status" :class="toolGroupClass(p.items, m)">{{ toolGroupStatus(p.items, m) }}</span>
+                        <span v-if="toolGroupHint(p.items)" class="tool-sum" :title="toolGroupHint(p.items)">{{ toolGroupHint(p.items) }}</span>
+                        <span v-if="toolGroupElapsed(p.items, m)" class="apart-time">{{ toolGroupElapsed(p.items, m) }}</span>
                       </summary>
-                      <pre v-if="p.detail">{{ p.detail }}</pre>
-                      <pre v-if="p.result" class="tool-result">{{ p.result }}</pre>
+                      <div v-for="(t, ti) in p.items" :key="ti" class="tool-item">
+                        <div v-if="p.items.length > 1" class="tool-item-h">
+                          <span class="apart-name">{{ toolFriendly(t.name) }}</span>
+                          <span class="tool-status" :class="{ err: t.error, live: !t.done && m.pending }">{{ toolStatus(t, m) }}</span>
+                          <span v-if="toolSummary(t.detail)" class="tool-sum" :title="toolSummary(t.detail)">{{ toolSummary(t.detail) }}</span>
+                          <span v-if="toolElapsed(t, m)" class="apart-time">{{ toolElapsed(t, m) }}</span>
+                        </div>
+                        <pre v-if="t.detail">{{ t.detail }}</pre>
+                        <pre v-if="t.result" class="tool-result">{{ t.result }}</pre>
+                      </div>
                     </details>
                   </template>
                   <div v-else class="md-body" v-html="renderRich(p.text, m.artifacts)"></div>
@@ -357,7 +365,7 @@ createApp({
         attachSize: '附件过大',
         chatHint: '未登录可试一轮', chatEmpty: '发送一条消息试用；可粘贴图片；登录后可多轮追问。',
         clear: '清空对话', thinking: '…', thinkingLabel: '思考', toolLabel: '工具', streaming: '生成中…', toolRunning: '调用工具：{name}',
-        toolDone: '已完成', toolBusy: '执行中', toolFailed: '失败',
+        toolDone: '已完成', toolBusy: '执行中', toolFailed: '失败', toolsCount: '{n} 个工具',
         toolNames: {
           bash: '执行命令', shell: '执行命令', read: '读取文件', write: '写入文件', edit: '编辑文件',
           multiedit: '批量编辑', grep: '搜索内容', glob: '查找文件', ls: '列出目录',
@@ -412,7 +420,7 @@ createApp({
         attachSize: 'Attachment too large',
         chatHint: 'One free guest turn', chatEmpty: 'Try one message (paste images OK); sign in for multi-turn chat.',
         clear: 'Clear', thinking: '…', thinkingLabel: 'Thinking', toolLabel: 'Tool', streaming: 'Generating…', toolRunning: 'Tool: {name}',
-        toolDone: 'Done', toolBusy: 'Running', toolFailed: 'Failed',
+        toolDone: 'Done', toolBusy: 'Running', toolFailed: 'Failed', toolsCount: '{n} tools',
         toolNames: {
           bash: 'Run command', shell: 'Run command', read: 'Read file', write: 'Write file', edit: 'Edit file',
           multiedit: 'Multi-edit', grep: 'Search content', glob: 'Find files', ls: 'List directory',
@@ -564,6 +572,62 @@ createApp({
       if (arts(a) !== arts(b)) return false
       return true
     }
+    // 刷新时本地留着带工具的回复，云端还有任务结束时写的纯正文。相邻的这两条是同一句
+    function replyText(m) {
+      const parts = Array.isArray(m && m.parts) ? m.parts : []
+      const fromParts = parts.filter(p => p && p.type === 'text' && String(p.text || '').trim()).map(p => String(p.text).trim()).join('\n')
+      return String(fromParts || (m && m.content) || '').trim()
+    }
+    function hasReplyParts(m) {
+      return Array.isArray(m && m.parts) && m.parts.some(p => p && (p.type === 'tool' || p.type === 'text' || p.type === 'thinking'))
+    }
+    function isPlainTwin(a, b) {
+      if (!a || !b || a.role !== 'assistant' || b.role !== 'assistant') return false
+      // 只合并紧挨着的「带工具」和「纯正文」。两句都没有工具时保持原样
+      return hasReplyParts(a) !== hasReplyParts(b)
+    }
+    function keepRichReply(a, b) {
+      const rich = hasReplyParts(b) ? b : a
+      const other = rich === a ? b : a
+      const extra = String(other.content || '').trim()
+      const shown = replyText(rich)
+      if (extra && extra !== shown && !shown.includes(extra) && !extra.includes(shown)) {
+        rich.content = shown ? `${shown}\n\n${extra}` : extra
+        const parts = Array.isArray(rich.parts) ? rich.parts.slice() : []
+        parts.push({ type: 'text', text: extra })
+        rich.parts = parts
+      }
+      if ((!rich.artifacts || !rich.artifacts.length) && other.artifacts && other.artifacts.length) rich.artifacts = other.artifacts
+      if (!rich.at && other.at) rich.at = other.at
+      if (!rich.startedAt && other.startedAt) rich.startedAt = other.startedAt
+      if (!rich.finishedAt && other.finishedAt) rich.finishedAt = other.finishedAt
+      if (!rich.durationMs && other.durationMs) rich.durationMs = other.durationMs
+      if (!String(rich.content || '').trim() && other.content) rich.content = other.content
+      return rich
+    }
+    function foldPlainReplies(list) {
+      const out = []
+      for (const m of list || []) {
+        const prev = out[out.length - 1]
+        if (prev && isPlainTwin(prev, m)) {
+          out[out.length - 1] = keepRichReply(prev, m)
+          continue
+        }
+        // 同一句用户被写了两遍：前面是纯正文，后面是带工具的回复
+        const plain = out.length >= 2 ? out[out.length - 2] : null
+        const firstUser = out.length >= 3 ? out[out.length - 3] : null
+        const sameUser = firstUser && prev && firstUser.role === 'user' && prev.role === 'user'
+          && String(firstUser.content || '').trim() === String(prev.content || '').trim()
+          && (!firstUser.author || !prev.author || firstUser.author === prev.author)
+        if (sameUser && m && plain && m.role === 'assistant' && plain.role === 'assistant' && isPlainTwin(plain, m)) {
+          out.pop()
+          out[out.length - 1] = keepRichReply(plain, m)
+          continue
+        }
+        out.push(m)
+      }
+      return out
+    }
     // 排在所有用户发言前面的回复，是被时间戳甩上去的，按顺序放回各自的提问后面
     function placeRepliesAfterUsers(list) {
       const lead = []
@@ -670,6 +734,10 @@ createApp({
         }
         into.push(row)
       })
+      const folded = foldPlainReplies(into)
+      if (folded.length !== into.length) {
+        into.splice(0, into.length, ...folded)
+      }
     }
     // 上一版按人拆开的本地记录，摊回同一条历史
     function flattenThreadStore(aid) {
@@ -849,6 +917,60 @@ createApp({
       if (p.error) return T.value.toolFailed
       if (!p.done && m && m.pending) return T.value.toolBusy
       return T.value.toolDone
+    }
+    // 一条回复里的工具调用合成一块，正文仍留在原来的位置
+    function viewParts(m) {
+      const parts = Array.isArray(m && m.parts) ? m.parts : []
+      const tools = parts.filter(p => p && p.type === 'tool')
+      let placed = false
+      const out = []
+      for (const p of parts) {
+        if (!p || p.type !== 'tool') {
+          out.push(p)
+          continue
+        }
+        if (!placed) {
+          out.push({ type: 'tools', items: tools })
+          placed = true
+        }
+      }
+      return out
+    }
+    function toolGroupTitle(items) {
+      const list = Array.isArray(items) ? items : []
+      if (list.length === 1) return toolFriendly(list[0].name)
+      return String(T.value.toolsCount || '{n}').replace('{n}', String(list.length))
+    }
+    function toolGroupStatus(items, m) {
+      const list = Array.isArray(items) ? items : []
+      if (list.some(p => p && p.error)) return T.value.toolFailed
+      if (m && m.pending && list.some(p => p && !p.done)) return T.value.toolBusy
+      return T.value.toolDone
+    }
+    function toolGroupClass(items, m) {
+      const list = Array.isArray(items) ? items : []
+      return {
+        err: list.some(p => p && p.error),
+        live: !!(m && m.pending) && list.some(p => p && !p.done),
+      }
+    }
+    function toolGroupHint(items) {
+      const list = Array.isArray(items) ? items : []
+      const live = [...list].reverse().find(p => p && !p.done)
+      const pick = live || list[list.length - 1]
+      if (!pick) return ''
+      return toolSummary(pick.detail) || (list.length > 1 ? toolFriendly(pick.name) : '')
+    }
+    function toolGroupElapsed(items, m) {
+      const list = Array.isArray(items) ? items : []
+      const starts = list.map(p => Number(p && p.startedAt) || 0).filter(Boolean)
+      if (!starts.length) return ''
+      const start = Math.min(...starts)
+      const live = !!(m && m.pending) && list.some(p => p && !p.done)
+      const fins = list.map(p => Number(p && p.finishedAt) || 0).filter(Boolean)
+      const end = live ? nowTick.value : (fins.length ? Math.max(...fins) : Number(m && m.finishedAt) || 0)
+      if (!end) return ''
+      return formatElapsed(end - start)
     }
     function toolElapsed(p, m) {
       if (!p || p.type !== 'tool' || !p.startedAt) return ''
@@ -1950,7 +2072,7 @@ createApp({
     }
     function loadChatHistoryFrom(list) {
       const raw = Array.isArray(list) ? list : []
-      return raw
+      const mapped = raw
         .filter(m => m && (m.role === 'user' || m.role === 'assistant') && (String(m.content || '').trim() || (Array.isArray(m.parts) && m.parts.length) || (Array.isArray(m.artifacts) && m.artifacts.length) || (m.pending && m.taskId)))
         .map(m => ({
           role: m.role,
@@ -1968,6 +2090,7 @@ createApp({
           shared: !!m.shared,
           interrupted: !!m.interrupted,
         }))
+      return foldPlainReplies(mapped)
     }
     async function shareChat() {
       if (shareBusy.value || !messages.value.length) return
@@ -2936,6 +3059,7 @@ createApp({
     return {
       authOpen, openAuth, composerEl, fileEl, agentName, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor, appIcon,
       runLabel, messageClock, activityLabel, toolElapsed, toolFriendly, toolSummary, toolStatus, thinkLine,
+      viewParts, toolGroupTitle, toolGroupStatus, toolGroupClass, toolGroupHint, toolGroupElapsed,
       renderRich, onChatClick, onImgOver, onImgOut, onImgHide, copyMsg, answerOf, downloadArtifact, isVideoFile,
       lang, T, toggleLang, backToTools, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, chatPeople, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,

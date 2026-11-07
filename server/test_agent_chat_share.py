@@ -121,6 +121,43 @@ def test_history_keeps_one_snapshot_per_chat():
     assert [c["id"] for c in kept] == ["blank", "blank2", "other"]
 
 
+def test_plain_release_is_replaced_by_tool_reply():
+    from agent_chat_share import append_share_turns
+    # 任务结束时先写入纯正文，页面随后交来带工具的同一句
+    base = [
+        {"role": "user", "content": "查一下", "author": "adam", "at": 1000},
+        {"role": "assistant", "content": "结果是 42", "at": 1100},
+    ]
+    richer = [
+        {"role": "user", "content": "查一下", "author": "adam", "at": 1000},
+        {
+            "role": "assistant",
+            "content": "结果是 42",
+            "at": 9999,
+            "parts": [
+                {"type": "tool", "name": "Bash", "detail": "echo 42", "done": True},
+                {"type": "text", "text": "结果是 42"},
+            ],
+        },
+    ]
+    out = append_share_turns(base, richer, now_ms=90_000, user_at=90_000)
+    assert [m["role"] for m in out] == ["user", "assistant"]
+    assert out[1]["at"] == 1100
+    assert out[1]["parts"][0]["type"] == "tool"
+    # 正文不完全一样时也不再追加第二条
+    other = [
+        {"role": "user", "content": "查一下", "author": "adam"},
+        {
+            "role": "assistant",
+            "content": "工具跑完了",
+            "parts": [{"type": "tool", "name": "Bash", "detail": "echo", "done": True}],
+        },
+    ]
+    folded = append_share_turns(base, other, now_ms=90_000)
+    assert [m["content"] for m in folded] == ["查一下", "工具跑完了"]
+    assert folded[0]["at"] == 1000
+
+
 def test_share_drops_empty_chat():
     assert normalize_share_messages([]) == []
     assert normalize_share_messages([{"role": "assistant", "content": "  "}]) == []

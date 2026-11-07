@@ -175,6 +175,27 @@ def _turn_sig(msg: dict) -> tuple:
     )
 
 
+def _same_user(a: dict | None, b: dict | None) -> bool:
+    if not a or not b or a.get("role") != "user" or b.get("role") != "user":
+        return False
+    return _turn_sig(a) == _turn_sig(b)
+
+
+def _last_user(messages: list) -> dict | None:
+    for msg in reversed(messages or []):
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            return msg
+    return None
+
+
+def _plain_reply_replaced_by(old: dict, new: dict) -> bool:
+    """服务端先记下纯正文，页面随后带上工具分段。这是同一句，不是新的一条。"""
+    if old.get("role") != "assistant" or new.get("role") != "assistant":
+        return False
+    # 只有「纯正文」被「带分段」换掉。两句都没有工具时仍是先后两轮
+    return not old.get("parts") and bool(new.get("parts"))
+
+
 def _suffix_overlap(merged: list, fresh: list) -> int:
     """incoming 开头有几句已经在云端末尾。重放同一轮时不再写一遍。"""
     limit = min(len(merged), len(fresh))
@@ -193,13 +214,45 @@ def append_share_turns(existing, incoming, now_ms: int | None = None, user_at: i
     fresh = normalize_share_messages(incoming)
     overlap = _suffix_overlap(merged, fresh)
     for old, msg in zip(merged[-overlap:] if overlap else [], fresh[:overlap]):
-        # 重放的同一句：只补耗时，不改云端已经记下的发言时间
+        # 重放的同一句：只补耗时和工具分段，不改云端已经记下的发言时间
         for key in ("startedAt", "finishedAt", "durationMs"):
             if msg.get(key) and not old.get(key):
                 old[key] = msg[key]
+        if msg.get("parts") and not old.get("parts"):
+            old["parts"] = msg["parts"]
+        if msg.get("artifacts") and not old.get("artifacts"):
+            old["artifacts"] = msg["artifacts"]
+    pending = fresh[overlap:]
+    # 纯正文在云端末尾，页面这次带来同一句用户消息和带工具的回复
+    richer = None
+    consumed = 0
+    if (
+        len(pending) >= 2
+        and _plain_reply_replaced_by(merged[-1] if merged else {}, pending[1])
+        and _same_user(_last_user(merged[:-1]) if merged else None, pending[0])
+    ):
+        richer = pending[1]
+        consumed = 2
+    elif (
+        pending
+        and merged
+        and _plain_reply_replaced_by(merged[-1], pending[0])
+        and _same_user(_last_user(merged[:-1]), _last_user(fresh[:overlap]))
+    ):
+        richer = pending[0]
+        consumed = 1
+    if richer is not None and merged:
+        # 发言时间留云端那份，丢掉页面后来盖上的时钟
+        if merged[-1].get("at"):
+            richer["at"] = merged[-1]["at"]
+        for key in ("startedAt", "finishedAt", "durationMs"):
+            if merged[-1].get(key) and not richer.get(key):
+                richer[key] = merged[-1][key]
+        merged[-1] = richer
+        pending = pending[consumed:]
     now = int(now_ms if now_ms is not None else time.time() * 1000)
     spoken_user = int(user_at) if isinstance(user_at, (int, float)) and user_at > 0 else 0
-    for msg in fresh[overlap:]:
+    for msg in pending:
         # 端上带来的 at 丢掉，改由云端盖时间
         msg.pop("at", None)
         if msg.get("role") == "user" and spoken_user:

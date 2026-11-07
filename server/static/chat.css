@@ -127,6 +127,8 @@ button{font-family:inherit}
 .tool-chev{width:10px;flex-shrink:0;color:var(--text-muted);font-size:10px;line-height:1}
 .tool-fold:not([open]) .tool-chev::before{content:'▸'}
 .tool-fold[open] .tool-chev::before{content:'▾'}
+.tool-item + .tool-item{border-top:1px solid var(--border)}
+.tool-item-h{display:flex;align-items:center;gap:8px;padding:8px 12px 4px}
 .apart-tool pre{margin:0;padding:0 12px 8px;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.55;max-height:160px;overflow:auto;color:var(--text-2)}
 .apart-tool pre.tool-result{color:var(--text)}
 .apart-text+.apart-text{margin-top:2px}
