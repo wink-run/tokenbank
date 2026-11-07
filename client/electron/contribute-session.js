@@ -253,9 +253,9 @@ function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
     pushFile(item.real, false);
   }
   
-  // 临时调试日志
+  // 调试日志（不含正文）
   if (mentioned.length > 0 || recent.length > 0 || picked.length > 0) {
-    console.log(`[collectWorkspaceArtifacts] mentioned=${mentioned.length}, recent=${recent.length}, picked=${picked.length}, startedAt=${startedAt}, textLen=${text.length}`);
+    console.log(`[collectWorkspaceArtifacts] mentioned=${mentioned.length}, recent=${recent.length}, picked=${picked.length}, startedAt=${startedAt}`);
   }
   
   return picked;
