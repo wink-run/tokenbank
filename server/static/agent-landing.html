@@ -139,7 +139,7 @@
       </div>
     </aside>
 
-    <div class="cscroll" ref="chatEl" @click="onChatClick" @mouseover="onImgOver" @mouseout="onImgOut" @scroll="onChatScroll" @load.capture="onChatMedia" @loadedmetadata.capture="onChatMedia">
+    <div class="cscroll" ref="chatEl" @click="onChatClick" @mouseover="onImgOver" @mouseout="onImgOut" @scroll="onChatScroll" @wheel="onChatWheel" @touchstart="onChatTouchStart" @touchmove="onChatTouchMove" @load.capture="onChatMedia" @loadedmetadata.capture="onChatMedia">
       <div class="cinner">
         <div v-if="!messages.length" class="empty">
           <div v-if="appIcon" class="av lg brand"><img :src="appIcon" alt=""></div>
@@ -1654,8 +1654,12 @@ createApp({
       if (force || stickToBottom) pinChatBottom()
     }
     function followChat() {
-      // 只认用户自己滚走。内容变高不算离开底部，否则贴底的人会停在半截
-      if (!stickToBottom) return
+      const el = chatEl.value
+      // 已经离开底部就不要在状态更新时再拉回去
+      if (!el || !stickToBottom || leftBottom(el)) {
+        if (el && leftBottom(el)) stickToBottom = false
+        return
+      }
       nextTick(() => {
         if (!stickToBottom) return
         pinChatBottom()
@@ -1666,6 +1670,18 @@ createApp({
       const el = chatEl.value
       if (el) stickToBottom = !leftBottom(el)
       onImgHide()
+    }
+    function onChatWheel(e) {
+      if (e && e.deltaY < 0) stickToBottom = false
+    }
+    let touchY = 0
+    function onChatTouchStart(e) {
+      touchY = e.touches && e.touches[0] ? e.touches[0].clientY : 0
+    }
+    function onChatTouchMove(e) {
+      const y = e.touches && e.touches[0] ? e.touches[0].clientY : 0
+      if (y > touchY + 8) stickToBottom = false
+      touchY = y
     }
     function onChatMedia() {
       if (stickToBottom) followChat()
@@ -3129,7 +3145,7 @@ createApp({
       authOpen, openAuth, composerEl, fileEl, agentName, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor, appIcon,
       runLabel, messageClock, activityLabel, toolElapsed, toolFriendly, toolSummary, toolStatus, thinkLine,
       viewParts, toolGroupTitle, toolGroupStatus, toolGroupClass, toolGroupHint, toolGroupElapsed, currentTool, hiddenAnswer,
-      renderRich, onChatClick, onImgOver, onImgOut, onImgHide, copyMsg, answerOf, downloadArtifact, isVideoFile,
+      renderRich, onChatClick, onImgOver, onImgOut, onImgHide, onChatScroll, onChatWheel, onChatTouchStart, onChatTouchMove, copyMsg, answerOf, downloadArtifact, isVideoFile,
       lang, T, toggleLang, backToTools, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, chatPeople, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,
