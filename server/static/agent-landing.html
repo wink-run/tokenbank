@@ -156,8 +156,8 @@
             <div v-else class="av sm" :style="{ background: avatarColor(agentName) }">{{ agentName.slice(0, 1).toUpperCase() }}</div>
             <div class="abody">
               <template v-if="m.parts && m.parts.length">
-                <div v-for="(p, pi) in m.parts" :key="pi" class="apart" :class="'apart-' + p.type">
-                  <template v-if="p.type === 'thinking'">
+                <template v-for="(p, pi) in m.parts" :key="pi">
+                  <div v-if="p.type === 'thinking'" class="apart apart-thinking">
                     <!-- 和工具条一样：默认一行，展开后才是全文 -->
                     <details class="tool-fold think-fold">
                       <summary>
@@ -167,23 +167,17 @@
                       </summary>
                       <div class="apart-body">{{ p.text }}</div>
                     </details>
-                  </template>
-                  <template v-else-if="p.type === 'tool'">
-                    <!-- 默认收起。标题行对齐桌面：友好名、状态、一行命令或路径 -->
-                    <details class="tool-fold">
-                      <summary>
-                        <span class="tool-chev" aria-hidden="true"></span>
-                        <span class="apart-name">{{ toolFriendly(p.name) }}</span>
-                        <span class="tool-status" :class="{ err: p.error, live: !p.done && m.pending }">{{ toolStatus(p, m) }}</span>
-                        <span v-if="toolSummary(p.detail)" class="tool-sum" :title="toolSummary(p.detail)">{{ toolSummary(p.detail) }}</span>
-                        <span v-if="toolElapsed(p, m)" class="apart-time">{{ toolElapsed(p, m) }}</span>
-                      </summary>
-                      <pre v-if="p.detail">{{ p.detail }}</pre>
-                      <pre v-if="p.result" class="tool-result">{{ p.result }}</pre>
-                    </details>
-                  </template>
-                  <div v-else class="md-body" v-html="renderRich(p.text, m.artifacts)"></div>
-                </div>
+                  </div>
+                  <!-- 工具只在执行中留一行。结束后不渲染，计时也跟着停 -->
+                  <div v-else-if="p.type === 'tool' && isCurrentTool(m, p)" class="tool-live">
+                    <span>{{ T.toolRunning.replace('{name}', toolFriendly(p.name)) }}</span>
+                    <span v-if="toolSummary(p.detail)" class="tool-sum" :title="toolSummary(p.detail)">{{ toolSummary(p.detail) }}</span>
+                    <span v-if="toolElapsed(p, m)" class="apart-time">{{ toolElapsed(p, m) }}</span>
+                  </div>
+                  <div v-else-if="p.type !== 'tool'" class="apart" :class="'apart-' + p.type">
+                    <div class="md-body" v-html="renderRich(p.text, m.artifacts)"></div>
+                  </div>
+                </template>
               </template>
               <div v-else-if="m.content && m.content !== T.thinking" class="md-body" v-html="renderRich(m.content, m.artifacts)"></div>
               <span v-if="m.pending && !(m.parts && m.parts.length) && (!m.content || m.content === T.thinking)" class="typing"><i></i><i></i><i></i></span>
@@ -708,12 +702,18 @@ createApp({
           const startedAt = Number(p.startedAt) || 0
           const finishedAt = Number(p.finishedAt) || 0
           const result = String(p.result || '').slice(0, 4000)
+          // 服务端用 status=completed 表示工具已经返回。没转成 done 的话，这一行会一直计时
+          const status = String(p.status || '').toLowerCase()
+          const done = !!p.done || status === 'completed' || status === 'complete' || status === 'done' || status === 'error' || status === 'failed'
+          const error = !!p.error || status === 'error' || status === 'failed'
           out.push({
             type: 'tool',
             name: String(p.name || 'tool').slice(0, 80),
             detail: String(p.detail || '').slice(0, 4000),
+            ...(p.id ? { id: String(p.id).slice(0, 120) } : {}),
             ...(result ? { result } : {}),
-            done: !!p.done,
+            done,
+            ...(error ? { error: true } : {}),
             ...(startedAt ? { startedAt } : {}),
             ...(finishedAt ? { finishedAt } : {}),
           })
@@ -827,18 +827,25 @@ createApp({
       if (!ms) return ''
       return T.value.ranFor.replace('{t}', formatElapsed(ms))
     }
-    // 跑了很久却没有新分段时，把当前工具或「没有进度」写出来
+    // 正在执行的工具只留最后一条。结束后不再显示，避免和正文状态各说各的
+    function isCurrentTool(m, p) {
+      if (!m || !m.pending || !p || p.type !== 'tool' || p.done) return false
+      const parts = Array.isArray(m.parts) ? m.parts : []
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const item = parts[i]
+        if (item && item.type === 'tool' && !item.done) return item === p
+      }
+      return false
+    }
+    // 工具自己有一行。这里只在整轮很久没有新输出时提示，不再把已经结束的工具说成还在跑
     function activityLabel(m) {
       if (!m || !m.pending) return ''
-      const now = nowTick.value
       const parts = Array.isArray(m.parts) ? m.parts : []
-      const tool = [...parts].reverse().find(p => p && p.type === 'tool' && !p.done)
+      if (parts.some(p => p && p.type === 'tool' && !p.done)) return ''
+      const now = nowTick.value
       const since = Number(m.progressAt) || Number(m.startedAt) || now
-      const quiet = now - since >= 20000
-      const bits = []
-      if (tool && tool.name) bits.push(T.value.toolRunning.replace('{name}', tool.name))
-      if (quiet) bits.push(T.value.noProgress)
-      return bits.join(' · ')
+      if (now - since < 20000) return ''
+      return T.value.noProgress
     }
     // 工具条和桌面执行日志一样：友好名、状态、一行命令或路径
     function thinkLine(text) {
@@ -1687,6 +1694,7 @@ createApp({
                 row.content = String(ev.text)
               }
               row.pending = true
+              row.progressAt = Date.now()
               if (stickToBottom) followChat()
             } else if (ev.event === 'done' || ev.event === 'error') {
               const text = String(ev.output || ev.result || ev.text || ev.message || row.content || '')
@@ -2979,7 +2987,7 @@ createApp({
 
     return {
       authOpen, openAuth, composerEl, fileEl, agentName, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor, appIcon,
-      runLabel, messageClock, activityLabel, toolElapsed, toolFriendly, toolSummary, toolStatus, thinkLine,
+      runLabel, messageClock, activityLabel, isCurrentTool, toolElapsed, toolFriendly, toolSummary, toolStatus, thinkLine,
       renderRich, onChatClick, onImgOver, onImgOut, onImgHide, copyMsg, answerOf, downloadArtifact, isVideoFile,
       lang, T, toggleLang, backToTools, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, chatPeople, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,

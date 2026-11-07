@@ -33,6 +33,23 @@ def _sse(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def _progress_tool_part(name, tool_id=None, detail="", result="", status="running") -> dict:
+    """网页上的工具行。结束态带 done，否则工具已经返回，页面仍会一直计时。"""
+    part = {"type": "tool", "name": str(name or "tool")[:80]}
+    if tool_id:
+        part["id"] = str(tool_id)[:120]
+    if detail:
+        part["detail"] = str(detail)[:4000]
+    if result:
+        part["result"] = str(result)[:4000]
+    st = str(status or "running").strip().lower()
+    if st in ("completed", "complete", "done", "error", "failed"):
+        part["done"] = True
+    if st in ("error", "failed"):
+        part["error"] = True
+    return part
+
+
 def _public_progress_parts(raw) -> list:
     """网页对话用的分段：正文 / 思考 / 工具。丢掉未知字段，限制长度。"""
     out = []
@@ -51,9 +68,11 @@ def _public_progress_parts(raw) -> list:
             result = str(item.get("result") or "")
             if result:
                 tool["result"] = result[:4000]
-            if item.get("done"):
+            status = str(item.get("status") or "").strip().lower()
+            # 有的进度只带 status，不带 done。漏了的话网页会把已经返回的工具继续计时
+            if item.get("done") or status in ("completed", "complete", "done", "error", "failed"):
                 tool["done"] = True
-            if item.get("error"):
+            if item.get("error") or status in ("error", "failed"):
                 tool["error"] = True
             out.append(tool)
             continue
@@ -1187,15 +1206,13 @@ async def _pump_gateway_stream_to_feed(
                     from agent_safety import sanitize_paths_in_output
                     session_root = event_data.get("metadata", {}).get("session_root")
                     
-                    tool_part = {"type": "tool", "name": tool_name}
-                    if tool_id:
-                        tool_part["id"] = tool_id
-                    if detail:
-                        tool_part["detail"] = sanitize_paths_in_output(detail, session_root=session_root)
-                    if result:
-                        tool_part["result"] = sanitize_paths_in_output(result, session_root=session_root)
-                    if status:
-                        tool_part["status"] = status
+                    tool_part = _progress_tool_part(
+                        tool_name,
+                        tool_id,
+                        sanitize_paths_in_output(detail, session_root=session_root) if detail else "",
+                        sanitize_paths_in_output(result, session_root=session_root) if result else "",
+                        status,
+                    )
                     
                     # 按id/name更新（不是替换整个列表）
                     parts_accumulator["tools"][tool_key] = tool_part
@@ -1217,15 +1234,7 @@ async def _pump_gateway_stream_to_feed(
                         "parts": parts,
                     }
                 else:
-                    tool_part = {"type": "tool", "name": tool_name}
-                    if tool_id:
-                        tool_part["id"] = tool_id
-                    if detail:
-                        tool_part["detail"] = detail
-                    if result:
-                        tool_part["result"] = result
-                    if status:
-                        tool_part["status"] = status
+                    tool_part = _progress_tool_part(tool_name, tool_id, detail, result, status)
                     
                     # 按id/name更新
                     parts_accumulator["tools"][tool_key] = tool_part
@@ -1742,15 +1751,7 @@ async def iter_agent_task_sse(
                 result = event_data.get("result", "")
                 status = event_data.get("status", "running")
                 
-                tool_part = {"type": "tool", "name": tool_name}
-                if tool_id:
-                    tool_part["id"] = tool_id
-                if detail:
-                    tool_part["detail"] = detail
-                if result:
-                    tool_part["result"] = result
-                if status:
-                    tool_part["status"] = status
+                tool_part = _progress_tool_part(tool_name, tool_id, detail, result, status)
                 
                 progress_event = {
                     "event": "progress",

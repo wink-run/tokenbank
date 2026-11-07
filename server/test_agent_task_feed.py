@@ -4,6 +4,8 @@ import asyncio
 from dispatch_agent import (
     _AGENT_FEEDS,
     _ensure_agent_feed,
+    _progress_tool_part,
+    _public_progress_parts,
     _publish_agent_feed,
     iter_agent_feed_sse,
     share_session_binding,
@@ -107,3 +109,16 @@ def test_share_followup_keeps_owner_session():
 
     own = share_session_binding(None, "u3")
     assert own == {"consumer_key": "u3", "continue_session": False, "cli_session_id": ""}
+
+
+def test_tool_part_done_stops_when_status_completed():
+    running = _progress_tool_part("Bash", "tu1", "ls", "", "running")
+    assert running.get("done") is not True
+    done = _progress_tool_part("Bash", "tu1", "ls", "ok", "completed")
+    assert done["done"] is True
+    assert "error" not in done
+    failed = _progress_tool_part("Bash", "tu1", "", "no", "error")
+    assert failed["done"] is True and failed["error"] is True
+    # 旧进度只带 status 时，公开分段也要标成结束
+    parts = _public_progress_parts([{"type": "tool", "name": "Bash", "status": "completed"}])
+    assert parts[0]["done"] is True
