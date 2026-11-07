@@ -234,10 +234,46 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
     if (body.previous_response_id) {
       try {
         const prev = await executor.getTaskStatus(body.previous_response_id);
-        cliSessionId = prev?.result?.cliSessionId || '';
-        workspaceSessionId = prev?.result?.workspaceSessionId || '';
-        continueSession = true;
-      } catch { /* 找不到上一轮就当新任务 */ }
+        
+        // 安全检查：续会话必须匹配assistant和consumer归属
+        const prevContext = prev?.context ? JSON.parse(prev.context) : {};
+        const prevAssistantId = prevContext?.assistantId || prev?.agent_id;
+        const currentAssistantId = body.metadata?.assistant_id;
+        
+        // hired调用：必须验证assistant和consumer归属
+        if (callContext === 'hired') {
+          const currentConsumerKey = body.metadata?.consumer_key;
+          
+          // 从prev context获取consumer归属（如果记录了）
+          // 否则从workspaceSessionId路径反推
+          let prevMatches = false;
+          if (prevAssistantId && currentAssistantId && currentConsumerKey) {
+            // 验证assistant必须匹配
+            if (prevAssistantId !== currentAssistantId) {
+              console.warn(`[agent-http] 拒绝续用其他assistant的会话: prev=${prevAssistantId}, current=${currentAssistantId}`);
+            } else {
+              // assistant匹配，允许续用
+              prevMatches = true;
+            }
+          }
+          
+          if (!prevMatches) {
+            console.warn(`[agent-http] previous_response_id权限不匹配，当作新会话`);
+            // 不使用prev的session信息，当作新会话
+          } else {
+            cliSessionId = prev?.result?.cliSessionId || '';
+            workspaceSessionId = prev?.result?.workspaceSessionId || '';
+            continueSession = true;
+          }
+        } else {
+          // local调用：允许（本地agent自主）
+          cliSessionId = prev?.result?.cliSessionId || '';
+          workspaceSessionId = prev?.result?.workspaceSessionId || '';
+          continueSession = true;
+        }
+      } catch (e) {
+        console.warn(`[agent-http] previous_response_id查询失败: ${e.message}`);
+      }
     }
 
     // 调用上下文：hired=雇佣调用（收集产物），local=本机调用（不收集）
@@ -280,7 +316,7 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
             workingDir = sessionDir;
           }
           
-          // 验证explicitDir（如果提供）必须在contribute workspace内
+          // 验证explicitDir（如果提供）必须在当前sessionDir内（防止访问其他会话）
           if (explicitDir) {
             let explicitReal;
             try {
@@ -289,14 +325,15 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
               console.warn(`[agent-http] hired explicitDir不存在: ${explicitDir}`);
             }
             if (explicitReal) {
-              const rel = path.relative(baseDir, explicitReal);
+              // 必须在当前会话目录内，不能访问其他会话
+              const rel = path.relative(workingDir, explicitReal);
               const contained = rel && !rel.startsWith('..') && !path.isAbsolute(rel);
               if (contained) {
-                // 显式目录在contribute workspace内，允许（如子目录）
+                // 显式目录在当前会话目录内，允许（如子目录）
                 workingDir = explicitReal;
               } else {
-                console.warn(`[agent-http] hired拒绝workspace外目录: ${explicitDir} (base: ${baseDir})`);
-                // 保持默认sessionDir，拒绝逃逸
+                console.warn(`[agent-http] hired拒绝会话外目录: ${explicitDir} (session: ${workingDir})`);
+                // 保持默认sessionDir，拒绝访问其他会话
               }
             }
           }
@@ -315,6 +352,8 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
       workingDir,
       // 会话级目录标识（供续会话复用）
       workspaceSessionId: workspaceSessionId || undefined,
+      // 记录assistant归属（供续会话权限验证）
+      assistantId: body.metadata?.assistant_id || undefined,
       // 只有请求显式打开 stream 才边收边推
       stream: !!body.stream,
       // 发起方标识（用于统计和日志）
