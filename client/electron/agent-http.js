@@ -230,6 +230,10 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
       } catch { /* 找不到上一轮就当新任务 */ }
     }
 
+    // 调用上下文：hired=雇佣调用（收集产物），local=本机调用（不收集）
+    const callContext = String(body.call_context || body.metadata?.call_context || 'local').trim().toLowerCase();
+    const collectArtifacts = callContext === 'hired';
+    
     const { taskId } = await executor.execute(harnessId, prompt, {
       continueSession,
       cliSessionId: cliSessionId || undefined,
@@ -238,6 +242,8 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
       stream: !!body.stream,
       // 发起方标识（用于统计和日志）
       initiator,
+      // 雇佣调用才收集产物
+      collectArtifacts,
     });
 
     let detachStream = () => {};

@@ -1566,6 +1566,7 @@ class AgentExecutor extends EventEmitter {
         virtualAgentId: agentId,
         gatewayAgentId: effectiveAgentId,
         sessionKey: options.sessionKey || null,
+        collectArtifacts: options.collectArtifacts || false,
       });
 
       // 停止竞态：进程退出时任务可能已被标为 cancelled，只补写 sessionId
@@ -1700,6 +1701,7 @@ class AgentExecutor extends EventEmitter {
       sessionKey = null,
       sessionInstanceId = null,
       stdinPayload = null,
+      collectArtifacts = false,
     } = options;
 
     const cliCfg = AGENT_CLI[gatewayAgentId] || {};
@@ -1900,13 +1902,15 @@ class AgentExecutor extends EventEmitter {
               console.warn('[AgentExecutor] recordModifiedFiles failed:', e.message);
             }
 
-            // 收集工作目录中的产物（图片、文件）
+            // 收集工作目录中的产物（图片、文件）- 仅雇佣/远程调用
             let artifacts = [];
-            try {
-              const { collectWorkspaceArtifacts } = require('./contribute-session');
-              artifacts = collectWorkspaceArtifacts(workingDir, stdout, Date.now() - 300000);
-            } catch (e) {
-              console.warn('[AgentExecutor] collectWorkspaceArtifacts failed:', e.message);
+            if (collectArtifacts) {
+              try {
+                const { collectWorkspaceArtifacts } = require('./contribute-session');
+                artifacts = collectWorkspaceArtifacts(workingDir, stdout, Date.now() - 300000);
+              } catch (e) {
+                console.warn('[AgentExecutor] collectWorkspaceArtifacts failed:', e.message);
+              }
             }
 
             resolve({

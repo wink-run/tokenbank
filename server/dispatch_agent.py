@@ -701,6 +701,7 @@ async def handle_agent_task(
         "input": prompt,
         "metadata": {
             "harness_id": harness_id,
+            "call_context": call_context,
         },
     }
     
@@ -1097,6 +1098,7 @@ async def iter_agent_task_sse(
         "input": prompt,
         "metadata": {
             "harness_id": harness_id,
+            "call_context": call_context,
         },
     }
     
