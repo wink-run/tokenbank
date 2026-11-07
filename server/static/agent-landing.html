@@ -2787,7 +2787,8 @@ createApp({
         const finalOk = outcome.finalOk
         const finalGuest = outcome.finalGuest
         nextAuto = outcome.nextAuto || ''
-        if (outcome.stopped) return
+        // stopped=true表示提前终止（done/error/cancelled），但done成功时仍需继续finish流程
+        if (outcome.stopped && !finalOk) return
 
         if (!finalOk && !messages.value[asstIdx]?.interrupted && !answerOf(messages.value[asstIdx]).trim()) {
           const row = messages.value[asstIdx]

@@ -86,11 +86,46 @@ async function runTest() {
     
     const page = await context.newPage();
     
+    // 在页面加载前注入全局监控代码
+    await page.addInitScript(() => {
+      window._probeLog = [];
+      window._probeData = {};
+      window._sseOutcomes = [];
+      
+      const log = (msg, data) => {
+        const entry = `[${Date.now() % 100000}] ${msg}`;
+        window._probeLog.push(entry);
+        console.log(`[PROBE] ${entry}`);
+        if (data) {
+          Object.assign(window._probeData, data);
+        }
+      };
+      
+      // 拦截fetch，记录所有请求
+      const origFetch = window.fetch;
+      window.fetch = async function(url, opts) {
+        const urlStr = typeof url === 'string' ? url : url?.toString() || '';
+        
+        if (urlStr.includes('/turn/finish')) {
+          const body = opts?.body ? JSON.parse(opts.body) : null;
+          log(`fetch /turn/finish! messages=${body?.messages?.length}`, { turnFinishCalled: true, turnFinishBody: body });
+        }
+        
+        if (urlStr.includes('/api/agent-tasks') && opts?.method === 'POST') {
+          log('POST /api/agent-tasks', { taskCreated: true });
+        }
+        
+        return origFetch.apply(this, arguments);
+      };
+      
+      log('Probe injected');
+    });
+    
     // 监听console（所有）
     page.on('console', msg => {
       const text = msg.text();
       const type = msg.type();
-      if (type === 'error' || type === 'warning' || text.includes('Error') || text.includes('fetch') || text.includes('agent-tasks') || text.includes('turn/finish') || text.includes('SSE') || text.includes('done') || text.includes('finalOk')) {
+      if (type === 'error' || type === 'warning' || text.includes('Error') || text.includes('fetch') || text.includes('agent-tasks') || text.includes('turn/finish') || text.includes('SSE') || text.includes('done') || text.includes('finalOk') || text.includes('PROBE')) {
         console.log(`  [浏览器${type}] ${text}`);
       }
     });
@@ -218,26 +253,7 @@ async function runTest() {
       }
     });
     
-    // 捕获POST /turn/finish
-    await page.route('**/turn/finish', async route => {
-      const postData = route.request().postDataJSON();
-      testResults.capturedRequests.turnFinish.push(postData);
-      
-      console.log(`\n[捕获] POST /turn/finish`);
-      console.log(`  messages: ${postData.messages?.length || 0} 条`);
-      if (postData.messages?.length > 0) {
-        const lastMsg = postData.messages[postData.messages.length - 1];
-        console.log(`  最后消息role: ${lastMsg.role}`);
-        console.log(`  content前50字: "${(lastMsg.content || '').slice(0, 50)}..."`);
-        console.log(`  artifacts: ${lastMsg.artifacts?.length || 0} items`);
-      }
-      
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ ok: true, messages: postData.messages || [] }),
-      });
-    });
+    // (turn/finish已在shares route中处理)
     
     // Mock /api/agent-chats/shares (GET) for relay mode
     await page.route('**/api/agent-chats/shares/**', async route => {
@@ -245,6 +261,21 @@ async function runTest() {
       const method = route.request().method();
       
       console.log(`  [捕获] ${method} ${url.split('?')[0]}`);
+      
+      // /turn/finish需要特殊处理（不能continue，因为后面的route不会匹配）
+      if (method === 'POST' && url.includes('/turn/finish')) {
+        const postData = route.request().postDataJSON();
+        testResults.capturedRequests.turnFinish.push(postData);
+        
+        console.log(`\n[捕获turn/finish] messages: ${postData.messages?.length || 0}`);
+        
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, messages: postData.messages || [] }),
+        });
+        return;
+      }
       
       if (method === 'GET' && url.includes('/shares/') && !url.includes('/turn/')) {
         // 动态turn状态：
@@ -368,7 +399,12 @@ async function runTest() {
     
     console.log(`  输入后状态: value="${afterInput.inputValue}", btnDisabled=${afterInput.submitDisabled}\n`);
     
-    // 点击真实发送按钮
+    // 点击真实发送按钮前开始等待/turn/finish
+    const turnFinishPromise = page.waitForRequest(
+      req => req.url().includes('/turn/finish') && req.method() === 'POST',
+      { timeout: 15000 }
+    ).catch(() => null);
+    
     const submitSelector = 'button[type="submit"], button.send';
     const submitBtn = page.locator(submitSelector).first();
     
@@ -379,71 +415,63 @@ async function runTest() {
       console.log(`  ✗ 发送按钮不可见\n`);
     }
     
-    // 立即注入详细的调试钩子到页面关键函数
-    await page.evaluate(() => {
-      window._debugLog = [];
-      const log = (msg) => {
-        window._debugLog.push(`[${Date.now() % 10000}ms] ${msg}`);
-        console.log(`[DEBUG] ${msg}`);
-      };
-      
-      // Hook sendMessage的关键步骤
-      if (typeof sendMessage !== 'undefined') {
-        const origSendMessage = sendMessage;
-        window.sendMessage = async function() {
-          log('sendMessage called');
-          return origSendMessage.apply(this, arguments);
-        };
-      }
-      
-      // Hook claimRelayTurn
-      if (typeof claimRelayTurn !== 'undefined') {
-        const origClaim = claimRelayTurn;
-        window.claimRelayTurn = async function(...args) {
-          log(`claimRelayTurn called with: ${JSON.stringify(args[0]?.slice(0, 20))}`);
-          const result = await origClaim.apply(this, args);
-          log(`claimRelayTurn returned: ${result}`);
-          return result;
-        };
-      }
-      
-      // Hook readAgentSse completion
-      if (typeof readAgentSse !== 'undefined') {
-        const origReadSse = readAgentSse;
-        window.readAgentSse = async function(...args) {
-          log('readAgentSse called');
-          const outcome = await origReadSse.apply(this, args);
-          log(`readAgentSse outcome: finalOk=${outcome?.finalOk}, stopped=${outcome?.stopped}, nextAuto=${outcome?.nextAuto}`);
-          return outcome;
-        };
-      }
-      
-      // Hook endRelayTurn
-      if (typeof endRelayTurn !== 'undefined') {
-        const origEnd = endRelayTurn;
-        window.endRelayTurn = async function(commit) {
-          log(`endRelayTurn called with commit=${commit}`);
-          return origEnd.apply(this, arguments);
-        };
-      }
-    }).catch(e => console.log(`  注入失败: ${e.message}`));
-    
     // 等待5秒让SSE完成
     await page.waitForTimeout(5000);
     
-    // 读取调试日志
-    const debugLog = await page.evaluate(() => window._debugLog || []).catch(() => []);
-    if (debugLog.length > 0) {
-      console.log(`  调试日志: ${debugLog.join('; ')}`);
+    // 读取Vue app状态和关键变量（多种方法）
+    const appState = await page.evaluate(() => {
+      try {
+        let state = { methods: [] };
+        
+        // 方法1: __vueParentComponent
+        const appEl = document.querySelector('#app');
+        if (appEl?.__vueParentComponent) {
+          const proxy = appEl.__vueParentComponent.proxy;
+          state.methods.push('__vueParentComponent');
+          state.relayShareId = proxy.relayShareId;
+          state.holdingTurn = proxy.holdingTurn;
+          state.running = proxy.running;
+          state.messages = proxy.messages?.length || 0;
+        }
+        
+        // 方法2: __vue_app__
+        if (appEl?.__vue_app__) {
+          const ctx = appEl.__vue_app__._context;
+          state.methods.push('__vue_app__');
+        }
+        
+        // 方法3: 直接从DOM读取状态线索
+        const msgs = document.querySelectorAll('.msg');
+        const lastMsg = msgs[msgs.length - 1];
+        const hasArtifact = !!document.querySelector('.artifact, img[src*="empty-room"]');
+        
+        state.domMessages = msgs.length;
+        state.domLastMsgHasArtifact = hasArtifact;
+        state.domLastMsgClass = lastMsg?.className || '';
+        
+        // 方法4: probe data
+        state.probeData = window._probeData || {};
+        state.probeLogCount = window._probeLog?.length || 0;
+        
+        return state;
+      } catch (e) {
+        return { error: e.message, stack: e.stack };
+      }
+    }).catch(e => ({ evalError: e.message }));
+    
+    console.log(`  App状态:`, JSON.stringify(appState, null, 2));
+    
+    // 读取probe日志
+    const probeLog = await page.evaluate(() => window._probeLog || []).catch(() => []);
+    if (probeLog.length > 0) {
+      console.log(`  Probe日志:`);
+      probeLog.forEach(l => console.log(`    ${l}`));
+    } else {
+      console.log(`  ⚠ 无probe日志（可能注入失败）`);
     }
     
-    // 等待/turn/finish请求（最多8秒）
-    console.log(`  等待/turn/finish调用...`);
-    const turnFinishPromise = page.waitForRequest(
-      req => req.url().includes('/turn/finish') && req.method() === 'POST',
-      { timeout: 8000 }
-    ).catch(() => null);
-    
+    // 等待之前启动的turnFinishPromise完成
+    console.log(`  等待/turn/finish调用...\n`);
     const turnFinishReq = await turnFinishPromise;
     
     // 检查页面是否还活着
