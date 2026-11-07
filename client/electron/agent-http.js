@@ -234,21 +234,47 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
     const callContext = String(body.call_context || body.metadata?.call_context || 'local').trim().toLowerCase();
     const collectArtifacts = callContext === 'hired';
     
-    // 为雇佣调用创建隔离的工作目录
+    // 工作目录策略：
+    // 1. 显式working_dir优先（无论hired/local）
+    // 2. hired默认：contribute workspace专用隔离目录
+    //    - 基础隔离：assistant + consumer
+    //    - 会话隔离：续会话时复用同一目录（通过cliSessionId）
+    //    - 新会话：创建新的会话子目录（安全增强）
+    // 3. local默认：保留executor默认（agent配置或process.cwd()）
     let workingDir = typeof body.metadata?.working_dir === 'string' ? body.metadata.working_dir : undefined;
-    if (!workingDir && collectArtifacts) {
-      // hired调用：使用contribute workspace隔离目录
+    if (!workingDir && callContext === 'hired') {
+      // 仅hired创建专用目录，local保留原配置
       const assistantId = body.metadata?.assistant_id;
       const consumerKey = body.metadata?.consumer_key;
       if (assistantId && consumerKey) {
         try {
           const { ensureContributeWorkspace } = require('./contribute-session');
-          workingDir = ensureContributeWorkspace(assistantId, consumerKey);
+          const baseDir = ensureContributeWorkspace(assistantId, consumerKey);
+          
+          // 会话级子目录：防止同消费者跨会话文件泄漏
+          if (cliSessionId && continueSession) {
+            // 续会话：使用已有会话目录
+            const path = require('path');
+            const sessionDir = path.join(baseDir, 'sessions', cliSessionId.slice(0, 12));
+            const fs = require('fs');
+            fs.mkdirSync(sessionDir, { recursive: true });
+            workingDir = sessionDir;
+          } else {
+            // 新会话：使用临时目录（任务结束后可清理）
+            // 使用时间戳避免冲突
+            const path = require('path');
+            const sessionId = `new-${Date.now()}`;
+            const sessionDir = path.join(baseDir, 'sessions', sessionId);
+            const fs = require('fs');
+            fs.mkdirSync(sessionDir, { recursive: true });
+            workingDir = sessionDir;
+          }
         } catch (e) {
           console.warn('[agent-http] ensureContributeWorkspace failed:', e.message);
         }
       }
     }
+    // local且无显式working_dir：保持undefined，让executor使用其默认逻辑
     
     const { taskId } = await executor.execute(harnessId, prompt, {
       continueSession,
