@@ -1305,13 +1305,20 @@ async def iter_agent_task_sse(
                 delta = event_data.get("delta", "")
                 accumulated_text += delta
                 
-                # hired模式：不发送完整原始文本，但发送进度指示（防止假超时/无反馈）
+                # hired模式：流式下发正文增量（边跑边推），脱敏路径
                 if call_context == "hired":
+                    from agent_safety import sanitize_paths_in_output
+                    # 提取session_root用于脱敏（如果有）
+                    session_root = event_data.get("metadata", {}).get("session_root")
+                    sanitized_text = sanitize_paths_in_output(accumulated_text[:200_000], session_root=session_root)
+                    sanitized_part = sanitize_paths_in_output(accumulated_text[:80_000], session_root=session_root)
+                    
                     progress_event = {
                         "event": "progress",
                         "task_id": task_id,
                         "status": "running",
-                        "progress_hint": f"{len(accumulated_text)} chars generated",
+                        "text": sanitized_text,
+                        "parts": [{"type": "text", "text": sanitized_part}],
                     }
                     _publish_agent_feed(task_id, progress_event)
                     yield _sse(progress_event)
@@ -1329,13 +1336,20 @@ async def iter_agent_task_sse(
                 # Snapshot: 替换文本
                 accumulated_text = event_data.get("text", "")
                 
-                # hired模式：不发送完整原始文本，但发送进度指示（防止假超时/无反馈）
+                # hired模式：流式下发正文快照（边跑边推），脱敏路径
                 if call_context == "hired":
+                    from agent_safety import sanitize_paths_in_output
+                    # 提取session_root用于脱敏（如果有）
+                    session_root = event_data.get("metadata", {}).get("session_root")
+                    sanitized_text = sanitize_paths_in_output(accumulated_text[:200_000], session_root=session_root)
+                    sanitized_part = sanitize_paths_in_output(accumulated_text[:80_000], session_root=session_root)
+                    
                     progress_event = {
                         "event": "progress",
                         "task_id": task_id,
                         "status": "running",
-                        "progress_hint": f"{len(accumulated_text)} chars generated",
+                        "text": sanitized_text,
+                        "parts": [{"type": "text", "text": sanitized_part}],
                     }
                     _publish_agent_feed(task_id, progress_event)
                     yield _sse(progress_event)
@@ -1357,14 +1371,31 @@ async def iter_agent_task_sse(
                 result = event_data.get("result", "")
                 status = event_data.get("status", "running")
                 
-                # hired模式：不发送tool详情（可能包含路径/敏感数据），但发送工具名和状态
+                # hired模式：流式下发tool parts（边跑边推），detail/result脱敏
                 if call_context == "hired":
+                    from agent_safety import sanitize_paths_in_output
+                    # 提取session_root用于脱敏（如果有）
+                    session_root = event_data.get("metadata", {}).get("session_root")
+                    
+                    tool_part = {"type": "tool", "name": tool_name}
+                    if tool_id:
+                        tool_part["id"] = tool_id
+                    if detail:
+                        tool_part["detail"] = sanitize_paths_in_output(detail, session_root=session_root)
+                    if result:
+                        tool_part["result"] = sanitize_paths_in_output(result, session_root=session_root)
+                    if status:
+                        tool_part["status"] = status
+                    
+                    sanitized_text = sanitize_paths_in_output(accumulated_text[:200_000], session_root=session_root)
+                    
                     progress_event = {
                         "event": "progress",
                         "task_id": task_id,
                         "status": "running",
+                        "text": sanitized_text,
                         "tool": tool_name,
-                        "progress_hint": f"Using tool: {tool_name}",
+                        "parts": [tool_part],
                     }
                     _publish_agent_feed(task_id, progress_event)
                     yield _sse(progress_event)
