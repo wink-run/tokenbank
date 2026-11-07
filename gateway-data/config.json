@@ -1,0 +1,240 @@
+{
+  "device_id": "dev-4b38368bf11d0f58",
+  "providers": [
+    {
+      "id": "ollama",
+      "type": "free",
+      "enabled": true,
+      "token": "",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "models": []
+    },
+    {
+      "id": "groq",
+      "type": "free",
+      "enabled": false,
+      "token": "",
+      "base_url": "https://api.groq.com/openai/v1",
+      "models": [
+        {
+          "name": "llama-3.3-70b",
+          "type": "chat"
+        },
+        {
+          "name": "llama-3.1-8b",
+          "type": "chat"
+        }
+      ],
+      "displayName": "Groq"
+    },
+    {
+      "id": "github-models",
+      "type": "free",
+      "enabled": false,
+      "token": "",
+      "base_url": "https://models.inference.ai.azure.com",
+      "models": []
+    },
+    {
+      "id": "cerebras",
+      "type": "free",
+      "enabled": false,
+      "token": "",
+      "base_url": "https://api.cerebras.ai/v1",
+      "models": []
+    },
+    {
+      "id": "nvidia",
+      "type": "free",
+      "enabled": false,
+      "token": "",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "models": []
+    },
+    {
+      "id": "mistral",
+      "type": "free",
+      "enabled": false,
+      "token": "",
+      "base_url": "https://api.mistral.ai/v1",
+      "models": []
+    },
+    {
+      "id": "openrouter",
+      "type": "free",
+      "enabled": false,
+      "token": "",
+      "base_url": "https://openrouter.ai/api/v1",
+      "models": []
+    },
+    {
+      "id": "together",
+      "type": "free",
+      "enabled": false,
+      "token": "",
+      "base_url": "https://api.together.xyz/v1",
+      "models": []
+    },
+    {
+      "id": "siliconflow",
+      "type": "free",
+      "enabled": false,
+      "token": "",
+      "base_url": "https://api.siliconflow.cn/v1",
+      "models": []
+    },
+    {
+      "id": "cohere",
+      "type": "free",
+      "enabled": false,
+      "token": "",
+      "base_url": "https://api.cohere.ai/compatibility/v1",
+      "models": []
+    },
+    {
+      "id": "tokenbank-p2p",
+      "type": "p2p",
+      "enabled": true,
+      "token": "",
+      "base_url": "",
+      "models": []
+    },
+    {
+      "id": "openai",
+      "type": "paid",
+      "enabled": false,
+      "token": "",
+      "base_url": "",
+      "models": [],
+      "displayName": "OpenAI",
+      "auth_type": "api_key",
+      "billing_type": "api-key",
+      "credentials": null,
+      "oauth_provider": ""
+    },
+    {
+      "id": "anthropic-paid",
+      "type": "paid",
+      "enabled": false,
+      "token": "",
+      "base_url": "https://api.anthropic.com/v1",
+      "models": [
+        {
+          "name": "claude-sonnet-4-5",
+          "type": "chat"
+        },
+        {
+          "name": "claude-sonnet-4",
+          "type": "chat"
+        },
+        {
+          "name": "claude-haiku-4-5",
+          "type": "chat"
+        },
+        {
+          "name": "claude-opus-4-6",
+          "type": "chat"
+        }
+      ],
+      "displayName": "Anthropic"
+    },
+    {
+      "id": "gemini",
+      "type": "paid",
+      "enabled": false,
+      "token": "",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+      "models": [
+        {
+          "name": "gemini-2.5-pro",
+          "type": "chat"
+        },
+        {
+          "name": "gemini-2.5-flash",
+          "type": "chat"
+        },
+        {
+          "name": "gemini-2.0-flash",
+          "type": "chat"
+        }
+      ],
+      "displayName": "Google Gemini"
+    },
+    {
+      "id": "github-copilot",
+      "type": "paid",
+      "enabled": false,
+      "token": "",
+      "base_url": "https://api.githubcopilot.com",
+      "models": []
+    },
+    {
+      "id": "deepseek",
+      "type": "paid",
+      "enabled": false,
+      "token": "",
+      "base_url": "https://api.deepseek.com/v1",
+      "models": []
+    },
+    {
+      "id": "xai",
+      "type": "paid",
+      "enabled": false,
+      "token": "",
+      "base_url": "https://api.x.ai/v1",
+      "models": []
+    },
+    {
+      "id": "fireworks",
+      "type": "paid",
+      "enabled": false,
+      "token": "",
+      "base_url": "https://api.fireworks.ai/inference/v1",
+      "models": []
+    },
+    {
+      "id": "custom-one-mqi4qa5a",
+      "type": "paid",
+      "enabled": false,
+      "token": "",
+      "base_url": "",
+      "models": [
+        {
+          "name": "minimax-m2.7",
+          "type": "chat"
+        },
+        {
+          "name": "vol-glm-4.7",
+          "type": "chat"
+        }
+      ],
+      "displayName": "one"
+    },
+    {
+      "id": "custom-test-mqivtc2s",
+      "type": "paid",
+      "enabled": false,
+      "token": "",
+      "base_url": "",
+      "models": [],
+      "displayName": "test"
+    },
+    {
+      "id": "volcengine",
+      "type": "paid",
+      "enabled": false,
+      "token": "",
+      "base_url": "",
+      "models": [],
+      "displayName": "火山引擎"
+    }
+  ],
+  "gateway_port": 11430,
+  "auto_launch": false,
+  "req_timeout": 60,
+  "max_concurrent": 8,
+  "log_level": "warn",
+  "retry_count": 1,
+  "health_interval": 60,
+  "keep_route_logs": true
+}

@@ -1,0 +1,254 @@
+{
+  "scene_routes": [],
+  "local_keys": [],
+  "user_subscriptions": [
+    {
+      "id": "ua-1781677266728-169g16",
+      "source_id": "cursor",
+      "agent_id": "cursor",
+      "app_name": "Cursor",
+      "app_icon": "🖱",
+      "plan_id": "cursor-pro",
+      "plan_label": "Cursor Pro",
+      "monthly_usd": 20
+    },
+    {
+      "id": "ua-1781695899875-peb4ss",
+      "source_id": "custom-claude-mqhzqiub",
+      "agent_id": null,
+      "app_name": "claude",
+      "app_icon": "🔧",
+      "plan_id": "custom",
+      "plan_label": "11",
+      "monthly_usd": 1,
+      "custom": true
+    },
+    {
+      "id": "ua-1781704799160-s16t3w",
+      "source_id": "claude",
+      "agent_id": "claude-code",
+      "app_name": "Claude Code",
+      "app_icon": "🔷",
+      "plan_id": "claude-pro",
+      "plan_label": "Claude Pro",
+      "monthly_usd": 20,
+      "subscription_to_api": true
+    },
+    {
+      "id": "ua-1781749778788-q40b4w",
+      "subscription_kind": "app",
+      "source_id": "custom-test-mqivtc2s",
+      "agent_id": null,
+      "app_name": "test",
+      "app_icon": "🔧",
+      "plan_id": "custom",
+      "plan_label": "12123",
+      "monthly_usd": 12,
+      "custom": true,
+      "subscription_to_api": true
+    },
+    {
+      "id": "ua-1781751027744-7sf1d4",
+      "subscription_kind": "api",
+      "source_id": "api-volcengine",
+      "plan_provider_id": "volcengine",
+      "agent_id": null,
+      "app_name": "火山引擎",
+      "app_icon": "🌋",
+      "plan_id": "coding-lite",
+      "plan_label": "Coding Plan Lite · 40元/月",
+      "monthly_usd": 5.71,
+      "subscription_to_api": true
+    }
+  ],
+  "user_payg_providers": [
+    {
+      "id": "ua-1781685515924-a1n24n",
+      "provider_id": "openai",
+      "label": "OpenAI",
+      "icon": "🤖",
+      "models": [
+        "gpt-4o",
+        "gpt-4o-mini",
+        "gpt-4.1",
+        "gpt-5",
+        "gpt-5-mini"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "ua-1781685708575-obv1tz",
+      "provider_id": "gemini",
+      "label": "Google Gemini",
+      "icon": "💎",
+      "models": [
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "ua-1781686059000-qd67fe",
+      "provider_id": "anthropic-paid",
+      "label": "Anthropic",
+      "icon": "🧬",
+      "models": [
+        "claude-sonnet-4-5",
+        "claude-sonnet-4",
+        "claude-haiku-4-5",
+        "claude-opus-4-6"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "ua-1781689217641-c4look",
+      "provider_id": "groq",
+      "label": "Groq",
+      "icon": "⚡",
+      "models": [
+        "llama-3.3-70b",
+        "llama-3.1-8b"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "ua-1781704286686-rs0plg",
+      "provider_id": "custom-one-mqi4qa5a",
+      "label": "one",
+      "icon": "🔧",
+      "models": [
+        "minimax-m2.7",
+        "vol-glm-4.7"
+      ],
+      "enabled": true,
+      "custom": true
+    }
+  ],
+  "provider_pricing_overrides": {
+    "custom-one-mqi4qa5a": {
+      "minimax-m2.7": {
+        "in": 1,
+        "out": 5,
+        "cacheRead": 0.1
+      },
+      "vol-glm-4.7": {
+        "in": 1,
+        "out": 5,
+        "cacheRead": 0.1
+      }
+    },
+    "custom-abcdef-mqiwv9tk": {
+      "glm-4.7-flash": {
+        "in": 10,
+        "out": 10,
+        "cacheRead": 5
+      },
+      "vol-glm-4.7": {
+        "in": 10,
+        "out": 10,
+        "cacheRead": 5
+      },
+      "abc": {
+        "in": 1,
+        "out": 5,
+        "cacheRead": 0.1
+      }
+    },
+    "custom-fsdf-mqix2s8q": {
+      "ddd": {
+        "in": 1,
+        "out": 5,
+        "cacheRead": 0.1
+      }
+    }
+  },
+  "subscription_plans": {
+    "cursor": [
+      {
+        "id": "cursor-pro",
+        "label": "Cursor Pro",
+        "monthly_usd": 20
+      },
+      {
+        "id": "cursor-ultra",
+        "label": "Cursor Ultra",
+        "monthly_usd": 200
+      }
+    ],
+    "github-copilot": [
+      {
+        "id": "copilot-pro",
+        "label": "GitHub Copilot Pro",
+        "monthly_usd": 10
+      },
+      {
+        "id": "copilot-business",
+        "label": "Copilot Business",
+        "monthly_usd": 19
+      }
+    ],
+    "anthropic-paid": [
+      {
+        "id": "claude-pro",
+        "label": "Claude Pro",
+        "monthly_usd": 20
+      },
+      {
+        "id": "max5x",
+        "label": "Claude Max (5×)",
+        "monthly_usd": 100
+      },
+      {
+        "id": "max20x",
+        "label": "Claude Max (20×)",
+        "monthly_usd": 200
+      }
+    ],
+    "gemini": [
+      {
+        "id": "gemini-advanced",
+        "label": "Gemini Advanced",
+        "monthly_usd": 20
+      },
+      {
+        "id": "google-one-ai",
+        "label": "Google One AI",
+        "monthly_usd": 20
+      }
+    ],
+    "openai": [
+      {
+        "id": "chatgpt-plus",
+        "label": "ChatGPT Plus",
+        "monthly_usd": 20
+      },
+      {
+        "id": "chatgpt-team",
+        "label": "ChatGPT Team",
+        "monthly_usd": 25
+      },
+      {
+        "id": "chatgpt-pro",
+        "label": "ChatGPT Pro",
+        "monthly_usd": 200
+      }
+    ],
+    "volcengine": [
+      {
+        "id": "coding-lite",
+        "label": "Coding Plan Lite · 40元/月",
+        "monthly_usd": 5.71
+      },
+      {
+        "id": "coding-pro",
+        "label": "Coding Plan Pro · 200元/月",
+        "monthly_usd": 28.57
+      }
+    ]
+  },
+  "cloud_config": {
+    "url": "https://tokenbank.wink.run",
+    "token": "sk-jQyowTfgssNsnTJEwBDHt0sY7RVceuTqb36h7BsMHbk"
+  }
+}
