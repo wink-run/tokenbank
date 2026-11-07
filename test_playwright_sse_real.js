@@ -86,12 +86,18 @@ async function runTest() {
     
     const page = await context.newPage();
     
-    // 监听console
+    // 监听console（所有）
     page.on('console', msg => {
       const text = msg.text();
-      if (text.includes('error') || text.includes('Error') || text.includes('fetch') || text.includes('agent-tasks')) {
-        console.log(`  [浏览器console] ${text}`);
+      const type = msg.type();
+      if (type === 'error' || type === 'warning' || text.includes('Error') || text.includes('fetch') || text.includes('agent-tasks') || text.includes('turn/finish')) {
+        console.log(`  [浏览器${type}] ${text}`);
       }
+    });
+    
+    // 监听页面错误
+    page.on('pageerror', err => {
+      console.log(`  [页面错误] ${err.message}`);
     });
     
     // 监听所有网络请求
@@ -104,9 +110,27 @@ async function runTest() {
     
     page.on('response', resp => {
       const url = resp.url();
+      const status = resp.status();
+      
       if (url.includes('agent-tasks') || url.includes('turn/finish')) {
-        console.log(`  [网络响应] ${resp.status()} ${url}`);
+        console.log(`  [网络响应] ${status} ${url}`);
       }
+      
+      // 记录所有404
+      if (status === 404) {
+        console.log(`  [404] ${url}`);
+      }
+    });
+    
+    // Mock media/agent/* (artifacts)
+    await page.route('**/media/agent/**', async route => {
+      // 返回1x1透明PNG
+      const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from(pngBase64, 'base64'),
+      });
     });
     
     // Mock APIs
@@ -156,14 +180,29 @@ async function runTest() {
         console.log(`\n[捕获] POST /api/agent-tasks`);
         console.log(`  prompt: "${postData.prompt?.slice(0, 50)}..."`);
         
-        // 返回真实SSE流
+        // 返回真实SSE流（严格按照server SSE格式）
         const taskId = 'task-test-' + Date.now();
-        const sseData = [
-          `data: {"event":"started","task_id":"${taskId}"}\n\n`,
-          `data: {"event":"progress","task_id":"${taskId}","tool":"generate_image","text":"正在生成图片..."}\n\n`,
-          `data: {"event":"progress","task_id":"${taskId}","text":"生成完成"}\n\n`,
-          `data: {"event":"done","task_id":"${taskId}","ok":true,"output":"画好了，文件在这里：\\n\\n/full/path/empty-room.png\\n\\n这是一幅1200x1500的图片。","artifacts":[{"type":"image","name":"empty-room.png","url":"/media/agent/task-test/empty-room.png","path":"/full/path/empty-room.png"}],"response_id":"resp-test-789","usage":{"input_tokens":100,"output_tokens":50}}\n\n`,
-        ].join('');
+        const sseEvents = [
+          { event: 'started', task_id: taskId },
+          { event: 'progress', task_id: taskId, tool: 'generate_image' },
+          { event: 'progress', task_id: taskId, text: '正在生成图片...' },
+          { 
+            event: 'done',
+            task_id: taskId,
+            ok: true,
+            output: '画好了，文件在这里：\n\n/full/path/empty-room.png\n\n这是一幅1200x1500的图片。',
+            artifacts: [{
+              type: 'image',
+              name: 'empty-room.png',
+              url: '/media/agent/task-test/empty-room.png',
+              path: '/full/path/empty-room.png',
+            }],
+            response_id: 'resp-test-789',
+            usage: { input_tokens: 100, output_tokens: 50 },
+          },
+        ];
+        
+        const sseData = sseEvents.map(ev => `data: ${JSON.stringify(ev)}\n\n`).join('');
         
         await route.fulfill({
           status: 200,
@@ -202,20 +241,31 @@ async function runTest() {
     
     // Mock /api/agent-chats/shares (GET) for relay mode
     await page.route('**/api/agent-chats/shares/**', async route => {
-      if (route.request().method() === 'GET') {
+      const url = route.request().url();
+      const method = route.request().method();
+      
+      console.log(`  [捕获] ${method} ${url.split('?')[0]}`);
+      
+      if (method === 'GET' && url.includes('/shares/') && !url.includes('/turn/')) {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
             id: 'test-share-123',
             assistant_id: 'test-agent',
+            author: 'Test User',
+            created_at: new Date().toISOString(),
             messages: [],
-            participants: [],
-            turn: null,
+            participants: [{
+              id: 999,
+              nickname: 'Test User',
+              role: 'owner',
+            }],
+            turn: null, // 无active turn，允许claim
           }),
         });
-      } else if (route.request().method() === 'POST' && route.request().url().includes('/turn/claim')) {
-        // Mock turn claim
+      } else if (method === 'POST' && url.includes('/turn/claim')) {
+        console.log(`  [turn/claim] 返回token`);
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -232,125 +282,132 @@ async function runTest() {
     
     console.log('测试1: 真实UI发起任务 → SSE done → /turn/finish\n');
     
-    // 加载页面
-    await page.goto(`http://localhost:${port}/a/test-agent`, { waitUntil: 'networkidle' });
+    // 加载页面（添加share参数启用relay模式）
+    await page.goto(`http://localhost:${port}/a/test-agent?share=test-share-123`, { waitUntil: 'networkidle' });
     
-    // 等待Vue app mount
+    // 等待页面加载完成（等待loading消失或agent显示）
     await page.waitForFunction(() => {
-      const el = document.getElementById('app');
-      return el && (
-        (el.__vue_app__ && el.__vue_app__._instance) ||
-        (el.__vueParentComponent && el.__vueParentComponent.proxy) ||
-        (el._vnode && el._vnode.component && el._vnode.component.proxy)
-      );
-    }, { timeout: 10000 });
+      const loading = document.querySelector('.loading');
+      const agentName = document.querySelector('.agent-name, h1');
+      return (!loading || loading.style.display === 'none') && agentName;
+    }, { timeout: 10000 }).catch(() => console.log('  ⚠ 等待页面加载超时'));
     
     await page.waitForTimeout(1000);
     
-    console.log('  ✓ Vue app已加载');
+    console.log('  ✓ 页面加载完成\n');
     
-    // 一次性获取Vue实例、设置状态并发送消息
-    const sendResult = await page.evaluate(() => {
-      // 获取Vue实例
-      const el = document.getElementById('app');
-      let vueApp = null;
+    // 检查页面实际状态
+    const pageDebug = await page.evaluate(() => {
+      const inputEl = document.querySelector('textarea, input[type="text"]');
+      const submitBtn = document.querySelector('button[type="submit"], button.send');
+      const errEl = document.querySelector('.err, .error');
       
-      const debug = {
-        elExists: !!el,
-        elKeys: el ? Object.keys(el).filter(k => k.startsWith('__') || k.startsWith('_')) : [],
+      return {
+        hasInput: !!inputEl,
+        inputValue: inputEl?.value || '',
+        inputDisabled: inputEl?.disabled,
+        hasSubmitBtn: !!submitBtn,
+        submitBtnDisabled: submitBtn?.disabled,
+        submitBtnText: submitBtn?.textContent?.trim(),
+        errText: errEl?.textContent?.trim() || '',
+        agentText: document.querySelector('.agent-name, h1')?.textContent?.trim(),
       };
-      
-      if (!el) {
-        return { success: false, error: 'app element not found', debug };
-      }
-      
-      if (el.__vue_app__) {
-        const app = el.__vue_app__;
-        const instance = app._instance;
-        if (instance && instance.proxy) {
-          vueApp = instance.proxy;
-          debug.found = '__vue_app__';
-        }
-      }
-      
-      if (!vueApp && el.__vueParentComponent && el.__vueParentComponent.proxy) {
-        vueApp = el.__vueParentComponent.proxy;
-        debug.found = '__vueParentComponent';
-      }
-      
-      if (!vueApp && el._vnode && el._vnode.component && el._vnode.component.proxy) {
-        vueApp = el._vnode.component.proxy;
-        debug.found = '_vnode.component';
-      }
-      
-      if (!vueApp) {
-        return { success: false, error: 'Vue app not found in any location', debug };
-      }
-      
-      window.app = vueApp;
-      
-      // 设置agent（如果未加载）
-      if (!vueApp.agent || !vueApp.agent.value) {
-        vueApp.agent = { value: {
-          id: 'test-agent',
-          name: 'Test Agent',
-          online: true,
-        }};
-      }
-      
-      // 设置relay模式
-      if (vueApp.relayShareId) {
-        vueApp.relayShareId.value = 'test-share-123';
-      }
-      if (vueApp.holdingTurn) {
-        vueApp.holdingTurn.value = true;
-      }
-      
-      // 设置prompt
-      if (vueApp.prompt) {
-        vueApp.prompt.value = '画一幅画';
-      }
-      
-      // 确保状态正确
-      if (vueApp.running) vueApp.running.value = false;
-      if (vueApp.loggedIn) vueApp.loggedIn.value = true;
-      if (vueApp.shareReadOnly) vueApp.shareReadOnly.value = false;
-      if (vueApp.shareTurnLocked) vueApp.shareTurnLocked.value = false;
-      
-      // 调用sendMessage
-      if (typeof vueApp.sendMessage === 'function') {
-        try {
-          vueApp.sendMessage();
-          
-          // 等待一下看是否有错误
-          setTimeout(() => {}, 100);
-          
-          return {
-            success: true,
-            state: {
-              agentId: vueApp.agent?.value?.id,
-              relayShareId: vueApp.relayShareId?.value,
-              promptValue: vueApp.prompt?.value,
-              err: vueApp.err?.value,
-              running: vueApp.running?.value,
-              shareReadOnly: vueApp.shareReadOnly?.value,
-              shareTurnLocked: vueApp.shareTurnLocked?.value,
-            }
-          };
-        } catch (e) {
-          return { success: false, error: 'sendMessage error: ' + e.message };
-        }
-      }
-      
-      return { success: false, error: 'sendMessage not found' };
     });
     
-    console.log(`  sendMessage结果: ${JSON.stringify(sendResult, null, 2)}`);
+    console.log(`  页面调试信息:`);
+    console.log(`    输入框: ${pageDebug.hasInput ? '✓' : '✗'} (disabled: ${pageDebug.inputDisabled})`);
+    console.log(`    发送按钮: ${pageDebug.hasSubmitBtn ? '✓' : '✗'} (disabled: ${pageDebug.submitBtnDisabled}, text: "${pageDebug.submitBtnText}")`);
+    console.log(`    错误提示: "${pageDebug.errText}"`);
+    console.log(`    Agent: "${pageDebug.agentText}"\n`);
     
-    addTest('页面加载', sendResult.success);
+    addTest('页面加载', pageDebug.hasInput && pageDebug.hasSubmitBtn);
     
-    // 等待SSE处理和/turn/finish调用
-    await page.waitForTimeout(2000);
+    if (!pageDebug.hasInput) {
+      console.log('  ✗ 未找到输入框，无法继续测试');
+      await page.waitForTimeout(1000);
+      return;
+    }
+    
+    // 使用真实DOM操作：定位输入框并输入
+    const inputSelector = 'textarea, input[type="text"]';
+    await page.fill(inputSelector, '画一幅画');
+    console.log(`  ✓ 输入框fill: "画一幅画"`);
+    
+    await page.waitForTimeout(200);
+    
+    // 检查输入后状态
+    const afterInput = await page.evaluate(() => {
+      const inputEl = document.querySelector('textarea, input[type="text"]');
+      const submitBtn = document.querySelector('button[type="submit"], button.send');
+      return {
+        inputValue: inputEl?.value || '',
+        submitDisabled: submitBtn?.disabled,
+      };
+    });
+    
+    console.log(`  输入后状态: value="${afterInput.inputValue}", btnDisabled=${afterInput.submitDisabled}\n`);
+    
+    // 点击真实发送按钮
+    const submitSelector = 'button[type="submit"], button.send';
+    const submitBtn = page.locator(submitSelector).first();
+    
+    if (await submitBtn.isVisible()) {
+      await submitBtn.click();
+      console.log(`  ✓ 点击发送按钮\n`);
+    } else {
+      console.log(`  ✗ 发送按钮不可见\n`);
+    }
+    
+    // 等待SSE处理（3秒足够处理done事件）
+    await page.waitForTimeout(3000);
+    
+    // 检查页面是否还活着
+    const pageAlive = await page.evaluate(() => true).catch(() => false);
+    
+    if (!pageAlive) {
+      console.log('  ✗ 页面已关闭或崩溃\n');
+      addTest('任务创建请求', false);
+      addTest('仅一次任务创建', false);
+      addTest('/turn/finish被调用', false);
+      return;
+    }
+    
+    console.log('  ✓ 页面仍然活跃\n');
+    
+    // 检查处理后状态
+    const afterTask = await page.evaluate(() => {
+      const messages = Array.from(document.querySelectorAll('.msg'));
+      const lastMsg = messages[messages.length - 1];
+      const errEl = document.querySelector('.err, .error');
+      const submitBtn = document.querySelector('button[type="submit"], button.send');
+      
+      return {
+        messageCount: messages.length,
+        lastMsgText: lastMsg?.textContent?.slice(0, 80),
+        lastMsgHasArtifact: !!lastMsg?.querySelector('img, .artifact'),
+        lastMsgClass: lastMsg?.className || '',
+        errText: errEl?.textContent?.trim() || '',
+        submitDisabled: submitBtn?.disabled,
+      };
+    }).catch(e => {
+      console.log(`  ✗ evaluate失败: ${e.message}`);
+      return null;
+    });
+    
+    if (afterTask) {
+      console.log(`  处理后状态:`);
+      console.log(`    消息数: ${afterTask.messageCount}`);
+      console.log(`    最后消息: "${afterTask.lastMsgText}..."`);
+      console.log(`    最后消息class: "${afterTask.lastMsgClass}"`);
+      console.log(`    有artifact: ${afterTask.lastMsgHasArtifact}`);
+      console.log(`    按钮disabled: ${afterTask.submitDisabled}`);
+      console.log(`    错误: "${afterTask.errText}"\n`);
+    }
+    
+    // 检查是否在relay模式且是否调用了/turn/finish
+    // /turn/finish可能在SSE完成后异步调用，再等待一下
+    await page.waitForTimeout(1000);
+    console.log(`  等待/turn/finish调用...\n`);
     
     // 验证任务创建
     const taskCreations = testResults.capturedRequests.agentTasks;
