@@ -1437,10 +1437,10 @@ async def iter_agent_task_sse(
                     from agent_safety import check_output_safety, sanitize_paths_in_output
                     
                     # 提取session_root（由worker内部传递，仅供脱敏用，不得泄露给用户）
-                    session_root = gateway_response.get("metadata", {}).get("session_root")
+                    session_root = event_data.get("metadata", {}).get("session_root")
                     # 立即从metadata中删除，防止泄露给最终用户
-                    if session_root and "metadata" in gateway_response:
-                        gateway_response["metadata"].pop("session_root", None)
+                    if session_root and "metadata" in event_data:
+                        event_data["metadata"].pop("session_root", None)
                     
                     # 1. 先检查输出文本和artifacts安全性（在上传之前）
                     output_safe, output_err = check_output_safety(
@@ -1514,7 +1514,8 @@ async def iter_agent_task_sse(
                 # hired模式：脱敏错误消息和输出（防止路径泄露）
                 if call_context == "hired":
                     from agent_safety import sanitize_paths_in_output
-                    session_root = gateway_response.get("metadata", {}).get("session_root")
+                    # error事件可能不含metadata，使用None作为session_root
+                    session_root = event_data.get("metadata", {}).get("session_root") if event_data.get("metadata") else None
                     error_msg = sanitize_paths_in_output(error_msg, session_root=session_root)
                     accumulated_text = sanitize_paths_in_output(accumulated_text, session_root=session_root)
                 
