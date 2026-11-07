@@ -1699,7 +1699,7 @@ createApp({
       const sameBase = kept.length === base.length && kept.every((row, i) => row === base[i])
       const liveGone = !keepLive && messages.value.some(m => m && m.liveTurn)
       if (sameBase && !liveGone) {
-        followChat()
+        if (stickToBottom) followChat()
         return
       }
       const el = chatEl.value
@@ -2400,7 +2400,7 @@ createApp({
                 row.progressAt = Date.now()
               }
             }
-            followChat()
+            if (stickToBottom) followChat()
             continue
           }
           if (ev.event === 'done') {
@@ -2815,7 +2815,7 @@ createApp({
         // 这一轮已经有回复，试用才算用过
         if (finalGuest && answerOf(messages.value[asstIdx]).trim()) guestUsed.value = true
         if (!isGuest) await fetchProfile()
-        followChat()
+        if (stickToBottom) followChat()
       } catch (e) {
         if (stopRequested) {
           freezePartial(asstIdx)
