@@ -55,6 +55,10 @@ let _onLog = null;
 let _onStatus = null;
 let _onTasks = null;
 
+// 内部gateway请求签名token（防止外部HTTP请求伪造hired模式）
+// 每次worker启动时生成，只有通过WS gateway_request的loopback请求才知道此token
+let internalGatewayToken = null;
+
 /** 出租任务在贡献页上显示的名字：本机应用用 CLI 名，智能体用资源名。 */
 function contributeTaskName(assistantId) {
   const runtime = contributedAppRuntime(assistantId);
@@ -860,6 +864,12 @@ async function handleGatewayRequest(msg) {
     if (localKey) {
       headers['Authorization'] = `Bearer ${localKey}`;
     }
+    
+    // 添加内部请求签名（证明此请求来自可信的WS gateway_request，不是外部HTTP）
+    // agent-http.js验证此token以信任metadata.call_context
+    if (internalGatewayToken) {
+      headers['X-Internal-Gateway-Token'] = internalGatewayToken;
+    }
 
     const requestBody = JSON.stringify(body);
     const options = {
@@ -1326,6 +1336,17 @@ function connect(cfg) {
   // 每次连接都读最新配置，避免「已在跑时改勾选武将」仍用旧 closure
   const liveCfg = loadConfig() || cfg;
   clearReconnectTimer();
+  
+  // 生成内部gateway请求签名token（每次连接时重新生成）
+  const crypto = require('crypto');
+  internalGatewayToken = crypto.randomBytes(32).toString('hex');
+  
+  // 设置到agent-http模块（让它能验证loopback请求）
+  const agentHttp = require('./agent-http');
+  if (agentHttp.setInternalGatewayToken) {
+    agentHttp.setInternalGatewayToken(internalGatewayToken);
+  }
+  
   log(`[agent] connecting → ${liveCfg.server_url}`);
   ws = new WebSocket(liveCfg.server_url, { handshakeTimeout: 20000 });
   const thisSocket = ws;

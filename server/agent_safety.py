@@ -96,21 +96,45 @@ def check_input_safety(prompt: str, files: Optional[List[dict]] = None) -> Tuple
     if files:
         import base64
         
-        # 禁止的MIME类型（可执行文件、脚本）
-        FORBIDDEN_MIMES = [
-            'application/x-executable',
-            'application/x-sharedlib',
-            'application/x-dosexec',
-            'application/x-msdownload',
-            'application/x-sh',
-            'application/x-csh',
-            'application/x-perl',
-            'application/x-python',
-            'application/x-ruby',
-        ]
+        # 明确允许的MIME类型（fail closed：未列出的拒绝）
+        # 图片：已知安全的图片格式
+        ALLOWED_IMAGE_MIMES = {
+            'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp',
+            'image/svg+xml',  # SVG需额外检查
+        }
+        
+        # 文本：可审核内容的文本格式
+        ALLOWED_TEXT_MIMES = {
+            'text/plain', 'text/csv', 'text/markdown', 'text/html',
+            'application/json', 'application/xml', 'text/xml',
+        }
+        
+        # 禁止的MIME类型（可执行、归档、不可审核）
+        FORBIDDEN_MIMES = {
+            # 可执行文件
+            'application/x-executable', 'application/x-sharedlib',
+            'application/x-dosexec', 'application/x-msdownload',
+            'application/x-sh', 'application/x-csh', 'application/x-perl',
+            'application/x-python', 'application/x-ruby',
+            # 归档和压缩（无法审核内部内容）
+            'application/zip', 'application/x-zip-compressed',
+            'application/x-tar', 'application/x-gzip', 'application/x-bzip2',
+            'application/x-7z-compressed', 'application/x-rar-compressed',
+            # 其他不可审核格式
+            'application/octet-stream',  # 通用binary
+            'application/pdf',  # PDF可能包含脚本
+        }
+        
+        # 禁止的扩展名（双重防护）
+        FORBIDDEN_EXTENSIONS = {
+            '.exe', '.sh', '.bash', '.bat', '.cmd', '.com', '.scr', '.vbs', '.ps1',
+            '.zip', '.tar', '.gz', '.bz2', '.7z', '.rar',
+            '.pdf', '.bin', '.app', '.apk', '.deb', '.rpm',
+        }
         
         for f in files:
             name = str(f.get('name', ''))
+            name_lower = name.lower()
             
             # 3a. 文件名路径穿越检查
             for pattern in _PATH_TRAVERSAL_RE:
@@ -122,46 +146,86 @@ def check_input_safety(prompt: str, files: Optional[List[dict]] = None) -> Tuple
                 if pattern.search(name):
                     return False, "File attachment attempts to access sensitive paths"
             
-            # 3c. MIME类型检查（如果有dataUrl）
+            # 3c. 文件扩展名检查
+            if any(name_lower.endswith(ext) for ext in FORBIDDEN_EXTENSIONS):
+                return False, f"File type not allowed: {name}"
+            
+            # 3d. MIME类型和内容检查（如果有dataUrl）
             data_url = f.get('dataUrl', '')
             if data_url:
+                if not data_url.startswith('data:'):
+                    return False, "Invalid data URL format"
+                
+                if ';base64,' not in data_url:
+                    return False, "Only base64-encoded attachments are supported"
+                
                 # 提取MIME type
-                if data_url.startswith('data:'):
-                    header = data_url.split(',', 1)[0]
-                    mime_type = header.replace('data:', '').split(';')[0].strip().lower()
-                    
-                    # 拒绝可执行文件
-                    if mime_type in FORBIDDEN_MIMES:
-                        return False, f"File type {mime_type} is not allowed for security reasons"
-                    
-                    # 拒绝.exe/.sh等危险扩展名（双重检查）
-                    name_lower = name.lower()
-                    if any(name_lower.endswith(ext) for ext in ['.exe', '.sh', '.bash', '.bat', '.cmd', '.com', '.scr', '.vbs', '.ps1']):
-                        return False, "Executable file attachments are not allowed"
-                    
-                    # 3d. 文本文件内容检查
-                    # 只检查可以安全解码为文本的MIME类型
-                    text_mimes = ['text/', 'application/json', 'application/xml', 'application/javascript']
-                    if any(mime_type.startswith(prefix) for prefix in text_mimes):
+                header = data_url.split(',', 1)[0]
+                mime_type = header.replace('data:', '').split(';')[0].strip().lower()
+                
+                # 明确拒绝禁止类型
+                if mime_type in FORBIDDEN_MIMES:
+                    return False, f"File type {mime_type} is not allowed for security reasons"
+                
+                # 检查是否在允许列表中
+                is_allowed_image = mime_type in ALLOWED_IMAGE_MIMES
+                is_allowed_text = mime_type in ALLOWED_TEXT_MIMES
+                
+                if not is_allowed_image and not is_allowed_text:
+                    # 未知/不在允许列表中的类型：拒绝（fail closed）
+                    return False, f"File type {mime_type} is not in the allowed list. Allowed types: images (png/jpg/gif/webp/svg), text files (txt/csv/md/html/json/xml)"
+                
+                try:
+                    # 解码base64
+                    b64_data = data_url.split(';base64,', 1)[1]
+                    content_bytes = base64.b64decode(b64_data)
+                except Exception as e:
+                    # base64解码失败：拒绝（fail closed）
+                    return False, f"Failed to decode base64 attachment: {str(e)}"
+                
+                # 3e. 图片类型：验证magic bytes（基本检查，不保证识别所有攻击）
+                if is_allowed_image:
+                    magic_bytes_ok = False
+                    if mime_type == 'image/png' and content_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+                        magic_bytes_ok = True
+                    elif mime_type in ('image/jpeg', 'image/jpg') and content_bytes[:2] == b'\xff\xd8':
+                        magic_bytes_ok = True
+                    elif mime_type == 'image/gif' and content_bytes[:6] in (b'GIF87a', b'GIF89a'):
+                        magic_bytes_ok = True
+                    elif mime_type == 'image/webp' and content_bytes[:4] == b'RIFF' and content_bytes[8:12] == b'WEBP':
+                        magic_bytes_ok = True
+                    elif mime_type == 'image/svg+xml':
+                        # SVG是XML文本，需要能解码为UTF-8
                         try:
-                            # 解码base64内容
-                            if ';base64,' in data_url:
-                                b64_data = data_url.split(';base64,', 1)[1]
-                                content_bytes = base64.b64decode(b64_data)
-                                content_text = content_bytes.decode('utf-8', errors='ignore')
-                                
-                                # 检查危险命令
-                                for pattern in _DANGEROUS_CMD_RE:
-                                    if pattern.search(content_text):
-                                        return False, "File attachment contains potentially dangerous operations"
-                                
-                                # 检查敏感路径
-                                for pattern in _SENSITIVE_PATH_RE:
-                                    if pattern.search(content_text):
-                                        return False, "File attachment contains references to sensitive paths"
+                            svg_text = content_bytes.decode('utf-8')
+                            if '<svg' in svg_text.lower():
+                                magic_bytes_ok = True
                         except Exception:
-                            # 解码失败不阻断（可能是binary data误判为text）
                             pass
+                    
+                    if not magic_bytes_ok:
+                        return False, f"Image file magic bytes do not match declared MIME type {mime_type}"
+                    
+                    # 图片内容不审核OCR/隐写（明确说明限制）
+                    # 注：不宣称识别图片中的文本秘密或隐写信息
+                
+                # 3f. 文本类型：必须能正确解码UTF-8并检查内容
+                elif is_allowed_text:
+                    try:
+                        content_text = content_bytes.decode('utf-8')
+                    except UnicodeDecodeError as e:
+                        # 声明text但无法UTF-8解码：拒绝（fail closed）
+                        return False, f"Text file declared as {mime_type} but failed UTF-8 decoding: {str(e)}"
+                    
+                    # 检查危险命令
+                    for pattern in _DANGEROUS_CMD_RE:
+                        if pattern.search(content_text):
+                            return False, "File attachment contains potentially dangerous operations"
+                    
+                    # 检查敏感路径
+                    for pattern in _SENSITIVE_PATH_RE:
+                        if pattern.search(content_text):
+                            return False, "File attachment contains references to sensitive paths"
     
     return True, None
 

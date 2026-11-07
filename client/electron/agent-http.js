@@ -3,6 +3,13 @@
 
 const crypto = require('crypto');
 
+// 内部gateway请求token（由agent-worker设置，用于验证loopback请求）
+let _internalGatewayToken = null;
+
+function setInternalGatewayToken(token) {
+  _internalGatewayToken = token;
+}
+
 const WAIT_MS = 10 * 60 * 1000;
 const idempotency = new Map();
 
@@ -244,10 +251,41 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
     console.log(`[agent-http] POST /v1/agent/responses harness=${harnessId} initiator=${initiator}`);
 
     // 调用上下文：hired=雇佣调用（收集产物），local=本机调用（不收集）
-    // 安全：只从可信metadata读取，不信任用户可控的顶层body字段（防止绕过）
-    const callContext = String(body.metadata?.call_context || 'local').trim().toLowerCase();
+    // 安全验证：metadata.call_context也可被HTTP用户伪造，必须验证请求来源
     
-    // 拒绝用户尝试通过顶层call_context绕过
+    // 1. 验证内部gateway请求token（只有WS gateway_request通过loopback才有此token）
+    const internalToken = req.headers['x-internal-gateway-token'];
+    const isInternalRequest = internalToken && internalToken === _internalGatewayToken;
+    
+    // 2. 根据请求来源决定call_context
+    let callContext;
+    const requestedContext = String(body.metadata?.call_context || 'local').trim().toLowerCase();
+    
+    if (isInternalRequest) {
+      // 内部可信请求：使用metadata.call_context（由服务端dispatch_agent.py设置）
+      callContext = requestedContext;
+      console.log(`[agent-http] Internal request, trusted call_context=${callContext}`);
+    } else {
+      // 外部HTTP请求：不可信
+      if (requestedContext === 'hired') {
+        // 外部请求试图使用hired模式：拒绝（hired必须通过服务端dispatch）
+        console.warn('[agent-http] Rejected external HTTP request attempting hired mode');
+        sendJson(res, 403, { 
+          error: { 
+            message: 'hired mode requires trusted server dispatch, not direct HTTP', 
+            type: 'permission_error' 
+          } 
+        });
+        return;
+      }
+      // 外部请求local模式或未指定：允许，强制为local
+      callContext = 'local';
+      if (requestedContext !== 'local') {
+        console.log(`[agent-http] External request, forced call_context=local (requested=${requestedContext})`);
+      }
+    }
+    
+    // 3. 拒绝用户尝试通过顶层call_context绕过（额外防御层）
     if (body.call_context && body.call_context !== body.metadata?.call_context) {
       console.warn('[agent-http] Rejected call_context override attempt in body');
       sendJson(res, 403, { 
@@ -535,4 +573,5 @@ module.exports = {
   taskToResponse,
   outputStreamEvent,
   handle,
+  setInternalGatewayToken,
 };

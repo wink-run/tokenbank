@@ -840,8 +840,11 @@ async def handle_agent_task(
         if call_context == "hired" and success:
             from .agent_safety import check_output_safety, sanitize_paths_in_output
             
-            # 提取session_root（由worker传递）
+            # 提取session_root（由worker内部传递，仅供脱敏用，不得泄露给用户）
             session_root = gateway_response.get("metadata", {}).get("session_root")
+            # 立即从metadata中删除，防止泄露给最终用户
+            if session_root and "metadata" in gateway_response:
+                gateway_response["metadata"].pop("session_root", None)
             
             # 1. 检查输出文本和artifacts安全性
             output_safe, output_err = check_output_safety(
@@ -1418,8 +1421,11 @@ async def iter_agent_task_sse(
                 if call_context == "hired" and gateway_status == "completed":
                     from .agent_safety import check_output_safety, sanitize_paths_in_output
                     
-                    # 提取session_root（由worker传递）
+                    # 提取session_root（由worker内部传递，仅供脱敏用，不得泄露给用户）
                     session_root = gateway_response.get("metadata", {}).get("session_root")
+                    # 立即从metadata中删除，防止泄露给最终用户
+                    if session_root and "metadata" in gateway_response:
+                        gateway_response["metadata"].pop("session_root", None)
                     
                     # 1. 检查输出文本和artifacts安全性
                     output_safe, output_err = check_output_safety(
