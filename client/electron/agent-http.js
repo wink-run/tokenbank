@@ -120,6 +120,14 @@ function taskToResponse(task) {
     response.artifacts = task.result.artifacts;
   }
   
+  // 会话绑定：供云端记录并用于下次续会话
+  if (task?.result?.cliSessionId) {
+    response.metadata.cli_session_id = task.result.cliSessionId;
+  }
+  if (task?.result?.workspaceSessionId) {
+    response.metadata.workspace_session_id = task.result.workspaceSessionId;
+  }
+  
   return response;
 }
 
@@ -222,10 +230,12 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
 
     let continueSession = false;
     let cliSessionId = '';
+    let workspaceSessionId = '';
     if (body.previous_response_id) {
       try {
         const prev = await executor.getTaskStatus(body.previous_response_id);
         cliSessionId = prev?.result?.cliSessionId || '';
+        workspaceSessionId = prev?.result?.workspaceSessionId || '';
         continueSession = true;
       } catch { /* 找不到上一轮就当新任务 */ }
     }
@@ -235,51 +245,76 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
     const collectArtifacts = callContext === 'hired';
     
     // 工作目录策略：
-    // 1. 显式working_dir优先（无论hired/local）
-    // 2. hired默认：contribute workspace专用隔离目录
+    // 1. hired: 强制contribute workspace（显式working_dir须在其内，防逃逸）
     //    - 基础隔离：assistant + consumer
-    //    - 会话隔离：续会话时复用同一目录（通过cliSessionId）
+    //    - 会话隔离：续会话时复用同一目录（通过workspaceSessionId）
     //    - 新会话：创建新的会话子目录（安全增强）
-    // 3. local默认：保留executor默认（agent配置或process.cwd()）
-    let workingDir = typeof body.metadata?.working_dir === 'string' ? body.metadata.working_dir : undefined;
-    if (!workingDir && callContext === 'hired') {
-      // 仅hired创建专用目录，local保留原配置
+    // 2. local: 显式working_dir优先，否则executor默认（agent配置或process.cwd()）
+    let workingDir = undefined;
+    const explicitDir = typeof body.metadata?.working_dir === 'string' ? body.metadata.working_dir : undefined;
+    if (callContext === 'hired') {
+      // hired强制contribute workspace，防止逃逸到出租者项目目录
       const assistantId = body.metadata?.assistant_id;
       const consumerKey = body.metadata?.consumer_key;
       if (assistantId && consumerKey) {
         try {
           const { ensureContributeWorkspace } = require('./contribute-session');
           const baseDir = ensureContributeWorkspace(assistantId, consumerKey);
+          const path = require('path');
+          const crypto = require('crypto');
+          const fs = require('fs');
           
           // 会话级子目录：防止同消费者跨会话文件泄漏
-          if (cliSessionId && continueSession) {
+          // - 续会话：复用workspaceSessionId确保目录一致
+          // - 新会话：生成stable sessionId（返回给云端，供下次续用）
+          if (workspaceSessionId && continueSession) {
             // 续会话：使用已有会话目录
-            const path = require('path');
-            const sessionDir = path.join(baseDir, 'sessions', cliSessionId.slice(0, 12));
-            const fs = require('fs');
+            const sessionDir = path.join(baseDir, 'sessions', workspaceSessionId);
             fs.mkdirSync(sessionDir, { recursive: true });
             workingDir = sessionDir;
           } else {
-            // 新会话：使用临时目录（任务结束后可清理）
-            // 使用时间戳避免冲突
-            const path = require('path');
-            const sessionId = `new-${Date.now()}`;
-            const sessionDir = path.join(baseDir, 'sessions', sessionId);
-            const fs = require('fs');
+            // 新会话：生成stable session ID（6字节随机，12字符hex）
+            workspaceSessionId = crypto.randomBytes(6).toString('hex');
+            const sessionDir = path.join(baseDir, 'sessions', workspaceSessionId);
             fs.mkdirSync(sessionDir, { recursive: true });
             workingDir = sessionDir;
+          }
+          
+          // 验证explicitDir（如果提供）必须在contribute workspace内
+          if (explicitDir) {
+            let explicitReal;
+            try {
+              explicitReal = fs.realpathSync(explicitDir);
+            } catch {
+              console.warn(`[agent-http] hired explicitDir不存在: ${explicitDir}`);
+            }
+            if (explicitReal) {
+              const rel = path.relative(baseDir, explicitReal);
+              const contained = rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+              if (contained) {
+                // 显式目录在contribute workspace内，允许（如子目录）
+                workingDir = explicitReal;
+              } else {
+                console.warn(`[agent-http] hired拒绝workspace外目录: ${explicitDir} (base: ${baseDir})`);
+                // 保持默认sessionDir，拒绝逃逸
+              }
+            }
           }
         } catch (e) {
           console.warn('[agent-http] ensureContributeWorkspace failed:', e.message);
         }
       }
+    } else {
+      // local: 优先explicitDir，否则undefined（executor默认）
+      workingDir = explicitDir;
     }
-    // local且无显式working_dir：保持undefined，让executor使用其默认逻辑
     
     const { taskId } = await executor.execute(harnessId, prompt, {
       continueSession,
       cliSessionId: cliSessionId || undefined,
       workingDir,
+      // 会话级目录标识（供续会话复用）
+      workspaceSessionId: workspaceSessionId || undefined,
       // 只有请求显式打开 stream 才边收边推
       stream: !!body.stream,
       // 发起方标识（用于统计和日志）

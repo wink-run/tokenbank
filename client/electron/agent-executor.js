@@ -1702,6 +1702,7 @@ class AgentExecutor extends EventEmitter {
       sessionInstanceId = null,
       stdinPayload = null,
       collectArtifacts = false,
+      workspaceSessionId = null,
     } = options;
 
     const cliCfg = AGENT_CLI[gatewayAgentId] || {};
@@ -1890,6 +1891,7 @@ class AgentExecutor extends EventEmitter {
               files: [],
               stepCount: stepCounter,
               cliSessionId: cliSid,
+              workspaceSessionId,
             });
             return;
           }
@@ -1924,6 +1926,7 @@ class AgentExecutor extends EventEmitter {
               artifacts,
               stepCount: stepCounter,
               cliSessionId: cliSid,
+              workspaceSessionId,
             });
           } else {
             const errText = execFail || formatAgentExitError(stderr, stdout, code, gatewayAgentId, signal);

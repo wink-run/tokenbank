@@ -186,6 +186,12 @@ function walkRecentFiles(dir, rootReal, startedAt, acc, depth) {
 /**
  * 收集本轮成品。正文点名的文件优先；此外带上工作目录里本轮新写出的允许类型。
  * 不读工作目录以外的路径。
+ * 
+ * 产物选择策略：
+ * 1. 正文明确提及的文件：总是收集（包括用户明确要求的package.json等）
+ * 2. 时间窗口兜底扫描：排除根目录的依赖管理文件（防止绘图任务混入npm依赖）
+ * 3. 跨轮文件：时间窗口过滤（不收集startedAt之前的文件）
+ * 4. 明确引用前轮：正文提及则可收集（同会话内文件，通过mentionedPaths）
  */
 function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
   if (!workingDir || !fs.existsSync(workingDir)) return [];
@@ -194,12 +200,24 @@ function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
 
   const picked = [];
   const seen = new Set();
+  const explicitMentions = new Set();
   let totalChars = 0;
 
-  const pushFile = (abs) => {
+  const pushFile = (abs, isExplicit = false) => {
     if (picked.length >= ARTIFACT_MAX) return;
     const info = containedFile(rootReal, abs);
     if (!info || seen.has(info.real)) return;
+    
+    // 时间窗口兜底扫描：排除根目录的依赖管理文件（除非正文明确提及）
+    if (!isExplicit) {
+      const relPath = path.relative(rootReal, info.real);
+      const inRoot = !relPath.includes(path.sep);
+      const isDependencyFile = /^(package(-lock)?\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|Gemfile\.lock|poetry\.lock|requirements\.txt)$/i.test(info.name);
+      if (inRoot && isDependencyFile) {
+        return; // 根目录依赖文件：只有正文明确提及才收集
+      }
+    }
+    
     const ext = path.extname(info.name).toLowerCase();
     const mime = ARTIFACT_MIME[ext];
     if (!mime) return;
@@ -207,6 +225,7 @@ function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
     const dataUrl = `data:${mime};base64,${fs.readFileSync(info.real).toString('base64')}`;
     if (totalChars + dataUrl.length > ARTIFACT_TOTAL_CHARS) return;
     seen.add(info.real);
+    if (isExplicit) explicitMentions.add(info.real);
     totalChars += dataUrl.length;
     const kind = mime.startsWith('image/') && ext !== '.svg' ? 'image' : 'file';
     picked.push({
@@ -219,11 +238,19 @@ function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
     });
   };
 
-  for (const p of mentionedPaths(text, rootReal)) pushFile(p);
+  // 正文明确提及：总是收集（包括package.json如果用户明确要求）
+  for (const p of mentionedPaths(text, rootReal)) {
+    pushFile(p, true);
+  }
+  
+  // 时间窗口兜底：收集新文件（排除根目录依赖）
   const recent = [];
   walkRecentFiles(rootReal, rootReal, Number(startedAt) || 0, recent, 0);
   recent.sort((a, b) => b.mtimeMs - a.mtimeMs);
-  for (const item of recent) pushFile(item.real);
+  for (const item of recent) {
+    pushFile(item.real, false);
+  }
+  
   return picked;
 }
 
