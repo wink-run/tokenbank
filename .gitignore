@@ -29,8 +29,13 @@ ENV/
 *.db
 *.sqlite
 *.sqlite3
-# Docker 网关请求记录与用量库（运行时生成）
+# Docker 网关运行时数据（勿提交；结构参考见 gateway-data/*.example 与 README）
+gateway-data/config.json
+gateway-data/local-config.json
 gateway-data/tokenbank/
+# 服务器上恢复/备份暂存目录（运维产物）
+gateway-data/_restore_staging/
+gateway-data/_pre_restore_backup_*/
 
 # 测试与类型检查
 .pytest_cache/
