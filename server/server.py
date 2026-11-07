@@ -1201,6 +1201,7 @@ async def create_agent_task(
         share_id=body.share_id,
         app_id=initiator,
         call_context=call_ctx,
+        previous_response_id=body.previous_response_id,
     )
     if not result.get("ok"):
         status = result.get("status") or "failed"
