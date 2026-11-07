@@ -1441,6 +1441,24 @@ class AgentExecutor extends EventEmitter {
       );
 
       let userPrompt = prompt;
+      
+      // 安全：hired模式注入系统级安全约束（第二层防御，纵深补充）
+      const isHired = options.callContext === 'hired';
+      if (isHired) {
+        const { buildHiredSystemPrompt } = require('./agent-safety');
+        const assistantDesc = assistant?.description || assistant?.name || 'the requested task';
+        const systemConstraints = buildHiredSystemPrompt(assistantDesc);
+        
+        // 注入为高优先级系统指令（放在用户prompt之前，标记为不可覆盖）
+        userPrompt = `<system_security_constraints>
+${systemConstraints}
+</system_security_constraints>
+
+User request:
+${userPrompt}`;
+        console.log('[AgentExecutor] Injected hired mode system constraints:', taskId);
+      }
+      
       // 非 Claude：图片路径后缀；Claude 的图在 stdin。普通文件一律给路径。
       if (imgInfo.suffix && !claudeMultimodal) userPrompt = `${userPrompt}${imgInfo.suffix}`;
       if (fileInfo.suffix) userPrompt = `${userPrompt}${fileInfo.suffix}`;
@@ -1757,6 +1775,20 @@ class AgentExecutor extends EventEmitter {
         return;
       }
       spawnEnv = sanitizeAgentSpawnEnv(spawnEnv, resolvedCwd);
+      
+      // 安全：hired模式应用严格环境限制（程序级硬规则，第一层防御）
+      const isHired = options.callContext === 'hired';
+      if (isHired) {
+        const { buildHiredSpawnOptions } = require('./agent-safety');
+        const hiredOpts = buildHiredSpawnOptions(resolvedCwd);
+        if (!hiredOpts) {
+          reject(new Error('Cannot execute in hired mode: working directory validation failed'));
+          return;
+        }
+        // 替换为受限环境（移除敏感env，设置临时HOME）
+        spawnEnv = hiredOpts.env;
+        console.log('[AgentExecutor] Applied hired mode restrictions:', taskId);
+      }
 
       const proc = spawn(executable, args, {
         cwd: resolvedCwd,

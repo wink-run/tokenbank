@@ -707,6 +707,36 @@ async def handle_agent_task(
         h = hashlib.sha256(guest_ip.encode()).hexdigest()[:12]
         consumer_key = f"g{h}"
     
+    # 安全：hired模式输入检查（程序级硬规则，第一层防御）
+    if call_context == "hired":
+        from .agent_safety import check_input_safety, ensure_checker_available
+        
+        # 1. 验证检查器可用性（fail closed）
+        checker_ok, checker_err = ensure_checker_available()
+        if not checker_ok:
+            return {
+                "ok": False,
+                "error": checker_err or "Safety checker unavailable",
+                "status": "rejected",
+            }
+        
+        # 2. 检查输入安全性
+        files_meta = []
+        if files:
+            files_meta = [{"name": f.get("name", "")} for f in files]
+        
+        is_safe, safety_err = check_input_safety(prompt, files_meta)
+        if not is_safe:
+            logger.warning(
+                "[dispatch_agent] Rejected unsafe hired input: task=%s, assistant=%s",
+                task_id, assistant_id,
+            )
+            return {
+                "ok": False,
+                "error": safety_err or "Input violates safety policy",
+                "status": "rejected",
+            }
+    
     gateway_body = {
         "input": prompt,
         "metadata": {
@@ -805,6 +835,31 @@ async def handle_agent_task(
             processed_output, public_arts = _apply_artifacts(task_id, output_text, raw_artifacts)
         else:
             processed_output, public_arts = output_text, []
+        
+        # 安全：hired模式输出检查（程序级硬规则，第一层防御）
+        if call_context == "hired" and success:
+            from .agent_safety import check_output_safety
+            
+            # 检查输出文本和artifacts安全性
+            output_safe, output_err = check_output_safety(
+                processed_output,
+                artifacts=raw_artifacts,
+                session_dir=None,  # TODO: 传递实际session目录
+            )
+            if not output_safe:
+                logger.warning(
+                    "[dispatch_agent] Blocked unsafe hired output: task=%s, assistant=%s",
+                    task_id, assistant_id,
+                )
+                # 阻断输出，返回安全错误（不包含敏感值）
+                return {
+                    "ok": False,
+                    "task_id": task_id,
+                    "status": "failed",
+                    "error": output_err or "Output violates safety policy",
+                    "credits_charged": 0,
+                    "credits_refunded": AGENT_TASK_CREDITS if not guest else 0,
+                }
         
         result = {
             "ok": success,
@@ -1122,6 +1177,42 @@ async def iter_agent_task_sse(
         h = hashlib.sha256(guest_ip.encode()).hexdigest()[:12]
         consumer_key = f"g{h}"
     
+    # 安全：hired模式输入检查（程序级硬规则，第一层防御）
+    if call_context == "hired":
+        from .agent_safety import check_input_safety, ensure_checker_available
+        
+        # 1. 验证检查器可用性（fail closed）
+        checker_ok, checker_err = ensure_checker_available()
+        if not checker_ok:
+            payload = {
+                "event": "error",
+                "ok": False,
+                "error": checker_err or "Safety checker unavailable",
+                "status": "rejected",
+            }
+            yield _sse(payload)
+            return
+        
+        # 2. 检查输入安全性
+        files_meta = []
+        if files:
+            files_meta = [{"name": f.get("name", "")} for f in files]
+        
+        is_safe, safety_err = check_input_safety(prompt, files_meta)
+        if not is_safe:
+            logger.warning(
+                "[dispatch_agent] Rejected unsafe hired input (SSE): task=%s, assistant=%s",
+                task_id, assistant_id,
+            )
+            payload = {
+                "event": "error",
+                "ok": False,
+                "error": safety_err or "Input violates safety policy",
+                "status": "rejected",
+            }
+            yield _sse(payload)
+            return
+    
     gateway_body = {
         "input": prompt,
         "metadata": {
@@ -1278,6 +1369,32 @@ async def iter_agent_task_sse(
                     processed_output, public_arts = _apply_artifacts(task_id, output_text, raw_artifacts)
                 else:
                     processed_output, public_arts = output_text, []
+                
+                # 安全：hired模式输出检查（程序级硬规则，第一层防御）
+                if call_context == "hired" and gateway_status == "completed":
+                    from .agent_safety import check_output_safety
+                    
+                    # 检查输出文本和artifacts安全性
+                    output_safe, output_err = check_output_safety(
+                        processed_output,
+                        artifacts=raw_artifacts,
+                        session_dir=None,  # TODO: 传递实际session目录
+                    )
+                    if not output_safe:
+                        logger.warning(
+                            "[dispatch_agent] Blocked unsafe hired output (SSE): task=%s, assistant=%s",
+                            task_id, assistant_id,
+                        )
+                        # 阻断输出，返回安全错误（不包含敏感值）
+                        yield _sse({
+                            "event": "error",
+                            "ok": False,
+                            "task_id": task_id,
+                            "status": "failed",
+                            "error": output_err or "Output violates safety policy",
+                            "credits_refunded": AGENT_TASK_CREDITS if not is_guest else 0,
+                        })
+                        return
                 
                 done_payload = {
                     "event": "done",

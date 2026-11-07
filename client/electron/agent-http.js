@@ -233,8 +233,20 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
     console.log(`[agent-http] POST /v1/agent/responses harness=${harnessId} initiator=${initiator}`);
 
     // 调用上下文：hired=雇佣调用（收集产物），local=本机调用（不收集）
-    // 必须先定义callContext，后续授权验证会用到
-    const callContext = String(body.call_context || body.metadata?.call_context || 'local').trim().toLowerCase();
+    // 安全：只从可信metadata读取，不信任用户可控的顶层body字段（防止绕过）
+    const callContext = String(body.metadata?.call_context || 'local').trim().toLowerCase();
+    
+    // 拒绝用户尝试通过顶层call_context绕过
+    if (body.call_context && body.call_context !== body.metadata?.call_context) {
+      console.warn('[agent-http] Rejected call_context override attempt in body');
+      sendJson(res, 403, { 
+        error: { 
+          message: 'call_context must be set by trusted dispatcher', 
+          type: 'permission_error' 
+        } 
+      });
+      return;
+    }
     
     // hired调用必须提供assistant_id和consumer_key
     const currentAssistantId = body.metadata?.assistant_id;
