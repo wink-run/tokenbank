@@ -81,24 +81,36 @@ function validateWorkingDirectory(workingDir) {
   
   // 禁止的危险目录
   const homeDir = os.homedir();
-  const forbidden = [
-    '/',
-    '/etc',
-    '/usr',
-    '/bin',
-    '/sbin',
-    '/root',
-    homeDir,
+  
+  // 1. 禁止系统关键目录
+  const systemForbidden = ['/', '/etc', '/usr', '/bin', '/sbin', '/root'];
+  for (const dir of systemForbidden) {
+    if (realPath === dir || realPath.startsWith(dir + path.sep)) {
+      return { safe: false, error: 'Working directory in system path' };
+    }
+  }
+  
+  // 2. 禁止HOME根目录本身（不禁止子目录）
+  if (realPath === homeDir) {
+    return { safe: false, error: 'Working directory cannot be HOME root' };
+  }
+  
+  // 3. 禁止HOME下的敏感子目录
+  const homeSensitive = [
     path.join(homeDir, '.ssh'),
     path.join(homeDir, '.aws'),
     path.join(homeDir, '.config'),
+    path.join(homeDir, '.gnupg'),
+    path.join(homeDir, '.docker'),
   ];
-  
-  for (const dir of forbidden) {
+  for (const dir of homeSensitive) {
     if (realPath === dir || realPath.startsWith(dir + path.sep)) {
-      return { safe: false, error: 'Working directory in forbidden path' };
+      return { safe: false, error: 'Working directory in sensitive config path' };
     }
   }
+  
+  // 4. 允许.tokenbank/contribute-workspaces（合法雇佣会话目录）
+  // 允许其他HOME子目录（但通过其他检查限制）
   
   // 必须是真实目录（防止符号链接逃逸）
   try {
