@@ -382,6 +382,84 @@ async def init_db() -> None:
     await _migrate_studio()
     await _migrate_agent_chat_shares()
     await _migrate_public_agent_cards()
+    await _migrate_agent_task_charges()
+
+
+async def _migrate_agent_task_charges() -> None:
+    """扣过积分的任务。进程重启时，还停在 running 的退回一次。"""
+    async with connect() as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS agent_task_charges (
+                task_id      TEXT PRIMARY KEY,
+                user_id      INTEGER NOT NULL,
+                assistant_id TEXT NOT NULL DEFAULT '',
+                credits      REAL NOT NULL,
+                status       TEXT NOT NULL DEFAULT 'running',
+                created_at   TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await db.commit()
+
+
+async def record_agent_task_charge(task_id: str, user_id: int, assistant_id: str, credits: float) -> None:
+    async with connect() as db:
+        await db.execute(
+            """INSERT INTO agent_task_charges(task_id, user_id, assistant_id, credits, status)
+               VALUES(?,?,?,?, 'running')
+               ON CONFLICT(task_id) DO NOTHING""",
+            (task_id, int(user_id), assistant_id or "", float(credits)),
+        )
+        await db.commit()
+
+
+async def claim_agent_task_refund(task_id: str) -> str:
+    """running 改成 refunded。没有记录算 missing，已经结过算 settled。"""
+    async with connect() as db:
+        async with db.execute(
+            "SELECT status FROM agent_task_charges WHERE task_id=?",
+            (task_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return "missing"
+        if row[0] != "running":
+            return "settled"
+        await db.execute(
+            "UPDATE agent_task_charges SET status='refunded' WHERE task_id=? AND status='running'",
+            (task_id,),
+        )
+        await db.commit()
+    return "claimed"
+
+
+async def finish_agent_task_charge(task_id: str, status: str) -> bool:
+    """只从 running 改走。返回是否真的改到了，避免结两次。"""
+    async with connect() as db:
+        async with db.execute(
+            "SELECT status FROM agent_task_charges WHERE task_id=?",
+            (task_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row or row[0] != "running":
+            return False
+        await db.execute(
+            "UPDATE agent_task_charges SET status=? WHERE task_id=? AND status='running'",
+            (status, task_id),
+        )
+        await db.commit()
+    return True
+
+
+async def list_running_agent_task_charges() -> list:
+    async with connect() as db:
+        async with db.execute(
+            "SELECT task_id, user_id, assistant_id, credits FROM agent_task_charges WHERE status='running'"
+        ) as cur:
+            rows = await cur.fetchall()
+            return [
+                {"task_id": r[0], "user_id": r[1], "assistant_id": r[2], "credits": r[3]}
+                for r in rows
+            ]
 
 
 async def _migrate_agent_chat_shares() -> None:

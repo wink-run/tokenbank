@@ -804,6 +804,8 @@ createApp({
     }
     // 跑了很久却没有新分段时，把当前工具或「没有进度」写出来
     function activityLabel(m) {
+      if (m && m.outputState === 'output_pending') return '产出还在传输'
+      if (m && m.outputState === 'output_missing') return '有文件没有交齐'
       if (!m || !m.pending) return ''
       const now = nowTick.value
       const parts = Array.isArray(m.parts) ? m.parts : []
@@ -1641,6 +1643,22 @@ createApp({
               row.pending = true
               if (stickToBottom) followChat()
             } else if (ev.event === 'done' || ev.event === 'error') {
+              const st = String(ev.status || '')
+              if (st === 'output_pending') {
+                row.pending = true
+                row.outputState = st
+                if (ev.output) row.content = String(ev.output)
+                continue
+              }
+              if (st === 'output_missing') {
+                row.pending = false
+                row.outputState = st
+                row.liveTurn = false
+                if (ev.output) row.content = String(ev.output)
+                sealTimes(row)
+                releaseForeignTurn(id)
+                continue
+              }
               const text = String(ev.output || ev.result || ev.text || ev.message || row.content || '')
               if (text) row.content = text
               row.pending = false
@@ -2386,6 +2404,22 @@ createApp({
             continue
           }
           if (ev.event === 'done') {
+            const st = String(ev.status || '')
+            if (st === 'output_pending' || st === 'output_missing') {
+              finalOk = false
+              const row = messages.value[asstIdx]
+              const arts = cleanArtifacts(ev.artifacts)
+              const out = rewriteShown(String(ev.output || ''), arts)
+              if (row) {
+                row.outputState = st
+                row.pending = st === 'output_pending'
+                if (st === 'output_missing') row.taskId = undefined
+                if (arts.length) row.artifacts = arts
+                if (out) setAssistant(out, { pending: row.pending })
+              }
+              if (st === 'output_missing') return finish(false)
+              continue
+            }
             finalOk = !!ev.ok
             finalGuest = !!(ev.guest || ev.need_login_to_continue || isGuest)
             const arts = cleanArtifacts(ev.artifacts)
@@ -2751,6 +2785,10 @@ createApp({
           }
           err.value = T.value.disconnectedContinue
           dropTurn()
+          return
+        }
+        if (messages.value[asstIdx]?.outputState === 'output_pending') {
+          messages.value[asstIdx].pending = true
           return
         }
         if (messages.value[asstIdx]) messages.value[asstIdx].pending = false

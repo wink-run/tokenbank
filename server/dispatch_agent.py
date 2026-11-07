@@ -16,10 +16,11 @@ import database as db
 from agent_artifacts import (
     public_artifacts,
     publish_agent_artifacts,
-    redact_remaining_local_paths,
     rewrite_artifact_paths,
 )
-from worker_pool import pool
+from agent_boundary import redact_hired_text, reject_hired_input, resolve_call_context
+from agent_output import settle_output, should_award_contributor, should_charge
+from worker_pool import pool, worker_owner_id
 
 logger = logging.getLogger("server")
 
@@ -33,8 +34,19 @@ def _sse(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def _public_progress_parts(raw) -> list:
-    """网页对话用的分段：正文 / 思考 / 工具。丢掉未知字段，限制长度。"""
+def _visible_text(text: str, call_context: str) -> str:
+    """雇佣才抹路径和密钥。本人的正文保持原样。"""
+    if call_context == "hired":
+        return redact_hired_text(text)
+    return str(text or "")
+
+
+def _public_progress_parts(raw, call_context: str = "owner") -> list:
+    """网页对话用的分段：正文 / 思考 / 工具。丢掉未知字段，限制长度。
+
+    雇佣的正文留到终态，避免密钥先出现在增量里。工具状态照常推。
+    """
+    hired = call_context == "hired"
     out = []
     if not isinstance(raw, list):
         return out
@@ -43,21 +55,25 @@ def _public_progress_parts(raw) -> list:
             continue
         kind = str(item.get("type") or "")
         if kind == "tool":
+            detail = str(item.get("detail") or "")
+            result = str(item.get("result") or "")
             tool = {
                 "type": "tool",
                 "name": str(item.get("name") or "tool")[:80],
-                "detail": str(item.get("detail") or "")[:4000],
+                "detail": _visible_text(detail, call_context)[:4000],
             }
-            result = str(item.get("result") or "")
-            if result:
-                tool["result"] = result[:4000]
-            if item.get("done"):
+            shown = _visible_text(result, call_context)
+            if shown:
+                tool["result"] = shown[:4000]
+            status = str(item.get("status") or "").strip().lower()
+            # 结束态无论写 done 还是 status，网页都按同一种完成来收
+            if item.get("done") or status in ("completed", "complete", "done", "error", "failed"):
                 tool["done"] = True
-            if item.get("error"):
+            if item.get("error") or status in ("error", "failed"):
                 tool["error"] = True
             out.append(tool)
             continue
-        if kind not in ("text", "thinking"):
+        if hired or kind not in ("text", "thinking"):
             continue
         text = str(item.get("text") or "")
         if not text.strip():
@@ -66,16 +82,105 @@ def _public_progress_parts(raw) -> list:
     return out
 
 
-def _apply_artifacts(task_id: str, output: str, raw) -> tuple[str, list]:
-    """成品存到本服务，正文里的本机路径换成 /media/agent 中转地址。"""
+def _apply_artifacts(task_id: str, output: str, raw, call_context: str = "owner") -> tuple[str, list]:
+    """成品存到本服务，正文里的本机路径换成 /media/agent 中转地址。地址换完再拦截雇佣正文。"""
     stored = publish_agent_artifacts(task_id, raw)
     text = rewrite_artifact_paths(output, stored) if stored else output
-    # 换不掉的出租方路径不再原样返回
-    return redact_remaining_local_paths(text), public_artifacts(stored)
+    return _visible_text(text, call_context), public_artifacts(stored)
 
 
-# 正文先到、文件后到。这段时间内断线仍保留正文，不改写成 worker disconnected
+# 正文先到、文件后到。旧客户端这段时间内断线仍保留正文
 _ARTIFACT_FOLLOW_SEC = 20
+# 同一幂等键再来时接上这一单，不新开
+_IDEMPOTENCY: dict[str, dict] = {}
+
+
+def _idem_slot(user_id, guest_ip: Optional[str], key: Optional[str]) -> str:
+    token = str(key or "").strip()
+    if not token:
+        return ""
+    who = f"u{int(user_id)}" if user_id is not None else f"g{guest_ip or ''}"
+    return f"{who}:{token[:80]}"
+
+
+def _idem_lookup(slot: str, digest: str):
+    """返回 join 的任务号、conflict，或 None。"""
+    if not slot:
+        return None
+    row = _IDEMPOTENCY.get(slot)
+    if not row:
+        return None
+    if str(row.get("digest") or "") != str(digest or ""):
+        return "conflict"
+    return str(row.get("task_id") or "")
+
+
+def _idem_store(slot: str, digest: str, task_id: str) -> None:
+    if not slot or not task_id:
+        return
+    _IDEMPOTENCY[slot] = {"digest": digest, "task_id": task_id}
+    if len(_IDEMPOTENCY) > 400:
+        _IDEMPOTENCY.pop(next(iter(_IDEMPOTENCY)))
+
+
+async def _refund_task_charge(task_id: str, user_id, aid: str, charged: bool, note: str) -> float:
+    """只退扣过的那一笔。本人和访客没有记录，直接返回 0。"""
+    if not charged or user_id is None:
+        return 0
+    try:
+        state = await db.claim_agent_task_refund(task_id)
+    except Exception:
+        logger.exception("[agent_task] claim refund failed task_id=%s", task_id)
+        state = "missing"
+    if state == "settled":
+        return 0
+    await db.award_credits(
+        user_id=user_id,
+        delta=AGENT_TASK_CREDITS,
+        type_="refund",
+        model_name=f"agent:{aid}",
+        tokens=0,
+        base_credits=AGENT_TASK_CREDITS,
+        multiplier=1.0,
+        note=note,
+    )
+    return AGENT_TASK_CREDITS
+
+
+async def refund_orphaned_agent_charges() -> int:
+    """服务端重启后，内存里的任务没了。还标着 running 的退回一次。"""
+    try:
+        rows = await db.list_running_agent_task_charges()
+    except Exception:
+        logger.exception("[agent_task] list running charges failed")
+        return 0
+    count = 0
+    for row in rows:
+        try:
+            amount = await _refund_task_charge(
+                str(row.get("task_id") or ""),
+                row.get("user_id"),
+                str(row.get("assistant_id") or ""),
+                True,
+                f"agent_task restart refund task_id={row.get('task_id')}",
+            )
+        except Exception:
+            logger.exception("[agent_task] restart refund failed task_id=%s", row.get("task_id"))
+            continue
+        if amount:
+            count += 1
+    return count
+
+
+def _release_pending(ctx: dict, msg: dict) -> dict:
+    task_id = ctx["task_id"]
+    owner = _task_worker(ctx)
+    if owner is not None:
+        owner.pending_agents.pop(task_id, None)
+    out = dict(msg)
+    out.pop("artifacts_follow", None)
+    out.pop("output_commit", None)
+    return out
 
 
 def _keep_partial_on_disconnect(msg: dict, ctx: dict) -> dict:
@@ -101,10 +206,10 @@ def _task_worker(ctx: dict):
 
 
 async def _iter_agent_messages(ctx: dict):
-    """读队列：进度原样吐出；终态若声明还有文件，就再等一帧再结束。
+    """读队列。新客户端先给清单再给字节，到齐才结束。
 
-    文件帧丢失或连接随大包断开时，已经入队的正文仍然按原状态返回。
-    超时且没有任何终态时产出 None，由调用方退款。
+    旧客户端仍是正文先到、文件后补，超过等待就放行，并标明没走确认。
+    清单还没到齐就断线，终态是待补传，不把正文当成完成。
     断线后续跑会把 clock.deadline_at 往后推，等待期间不要提前判超时。
     """
     q = ctx["queue"]
@@ -115,14 +220,12 @@ async def _iter_agent_messages(ctx: dict):
         ctx["clock"]["deadline_at"] = time.time() + float(ctx["timeout_sec"])
     held = None
     file_deadline = None
+    commit = None
+    manifest = None
+    artifacts = None
 
-    def _release(msg: dict) -> dict:
-        owner = _task_worker(ctx)
-        if owner is not None:
-            owner.pending_agents.pop(task_id, None)
-        out = dict(msg)
-        out.pop("artifacts_follow", None)
-        return out
+    def _emit(msg: dict) -> dict:
+        return _release_pending(ctx, msg)
 
     while True:
         now = time.time()
@@ -137,38 +240,70 @@ async def _iter_agent_messages(ctx: dict):
         if not isinstance(msg, dict):
             continue
         kind = msg.get("type")
-        if kind == "agent_task_progress" and held is None:
-            # 超时交卷时把已经流过的正文带回，调用方才能接着跑
+        if kind == "agent_task_progress" and held is None and commit is None:
             text = str(msg.get("text") or "")
             if text:
                 ctx["partial_output"] = text[:200_000]
             yield msg
             continue
-        if kind == "agent_task_artifacts" and held is not None:
-            merged = dict(held)
-            merged["artifacts"] = msg.get("artifacts")
-            yield _release(merged)
-            return
+        if kind == "agent_task_output_manifest":
+            manifest = msg
+            if commit is not None:
+                yield _emit(settle_output(commit, manifest, artifacts, confirmed=True))
+                return
+            continue
+        if kind == "agent_task_artifacts":
+            artifacts = msg.get("artifacts")
+            if held is not None:
+                merged = dict(held)
+                merged["artifacts"] = artifacts
+                # 旧的第二帧：有字节就带上，仍标明这轮没走清单确认
+                yield _emit(settle_output(merged, None, artifacts, confirmed=False))
+                return
+            if commit is not None and manifest is not None:
+                yield _emit(settle_output(commit, manifest, artifacts, confirmed=True))
+                return
+            continue
         if kind == "agent_task_result":
-            # 出租方先交正文，文件单独再来。先挂起，避免随后的断线覆盖成功结果
+            if msg.get("output_commit"):
+                commit = msg
+                if manifest is not None:
+                    yield _emit(settle_output(commit, manifest, artifacts, confirmed=True))
+                    return
+                continue
             if msg.get("artifacts_follow"):
                 held = msg
                 file_deadline = min(deadline, time.time() + _ARTIFACT_FOLLOW_SEC)
                 continue
-            # 连接断了也要把已经流过的正文交回去，调用方才能接着聊
-            yield _release(_keep_partial_on_disconnect(msg, ctx))
+            yield _emit(settle_output(_keep_partial_on_disconnect(msg, ctx), None, msg.get("artifacts"), confirmed=False))
             return
-        if held is not None and msg.get("error") == "worker disconnected":
-            yield _release(held)
+        if (held is not None or commit is not None) and msg.get("error") == "worker disconnected":
+            base = commit or held
+            confirmed = commit is not None
+            settled = settle_output(base, manifest, artifacts, confirmed=confirmed)
+            if confirmed and settled.get("status") == "completed":
+                settled["status"] = "output_pending"
+                settled["error"] = "output_pending"
+                settled["output_confirmed"] = False
+            yield _emit(settled)
             return
         if msg.get("status") or msg.get("error"):
-            if held is not None:
-                yield _release(held)
+            if held is not None or commit is not None:
+                base = commit or held
+                yield _emit(settle_output(base, manifest, artifacts, confirmed=commit is not None))
                 return
-            yield _release(_keep_partial_on_disconnect(msg, ctx))
+            yield _emit(settle_output(_keep_partial_on_disconnect(msg, ctx), None, None, confirmed=False))
             return
+    if commit is not None:
+        settled = settle_output(commit, manifest, artifacts, confirmed=True)
+        if settled.get("status") == "completed":
+            settled["status"] = "output_pending"
+            settled["error"] = "output_pending"
+            settled["output_confirmed"] = False
+        yield _emit(settled)
+        return
     if held is not None:
-        yield _release(held)
+        yield _emit(settle_output(held, None, artifacts, confirmed=False))
         return
     yield None
 
@@ -181,27 +316,27 @@ async def _finalize_agent_result(
     worker,
     guest: bool,
     consumer_user_id: Optional[int],
+    call_context: str = "hired",
+    charged: bool = False,
 ) -> dict:
-    """处理终态结果：退款 / 结息 / 组装响应。"""
+    """处理终态结果：退款 / 结息 / 组装响应。待补传不退，缺文件和失败才退。"""
     status = (result or {}).get("status") or "failed"
     success = status == "completed"
+    pending = status == "output_pending"
     usage = (result or {}).get("usage") or {}
     duration_ms = usage.get("duration_ms")
     worker.record_agent_complete(aid, success, duration_ms if isinstance(duration_ms, (int, float)) else None)
 
-    if not success:
-        # 调用方已在取消接口里退过积分
+    refunded = 0.0
+    if not success and not pending:
         already_refunded = bool((result or {}).get("cancel_settled"))
-        if not guest and not already_refunded:
-            await db.award_credits(
-                user_id=consumer_user_id,
-                delta=AGENT_TASK_CREDITS,
-                type_="refund",
-                model_name=f"agent:{aid}",
-                tokens=0,
-                base_credits=AGENT_TASK_CREDITS,
-                multiplier=1.0,
-                note=f"agent_task failed refund task_id={task_id} status={status}",
+        if not already_refunded:
+            refunded = await _refund_task_charge(
+                task_id,
+                consumer_user_id,
+                aid,
+                charged,
+                f"agent_task failed refund task_id={task_id} status={status}",
             )
         failed = {
             "ok": False,
@@ -209,15 +344,16 @@ async def _finalize_agent_result(
             "status": status,
             "error": (result or {}).get("error") or status,
             "output": (result or {}).get("output") or "",
-            "credits_refunded": 0 if guest else AGENT_TASK_CREDITS,
+            "credits_refunded": refunded,
+            "call_context": call_context,
         }
-        text, arts = _apply_artifacts(task_id, failed["output"], (result or {}).get("artifacts"))
+        text, arts = _apply_artifacts(task_id, failed["output"], (result or {}).get("artifacts"), call_context)
         failed["output"] = text
         if arts:
             failed["artifacts"] = arts
         return failed
 
-    if worker.user_id:
+    if success and should_award_contributor(call_context, True) and getattr(worker, "user_id", None):
         await db.award_credits(
             user_id=worker.user_id,
             delta=AGENT_TASK_CREDITS,
@@ -250,20 +386,46 @@ async def _finalize_agent_result(
             )
         except Exception:
             logger.exception("[agent_task] log_settlement failed task_id=%s", task_id)
+        if charged:
+            try:
+                await db.finish_agent_task_charge(task_id, "completed")
+            except Exception:
+                logger.exception("[agent_task] charge complete failed task_id=%s", task_id)
 
     done = {
-        "ok": True,
+        "ok": success,
         "task_id": task_id,
-        "status": "completed",
+        "status": status,
         "output": str((result or {}).get("output") or "")[:200_000],
         "usage": usage,
-        "credits_charged": AGENT_TASK_CREDITS,
+        "credits_charged": AGENT_TASK_CREDITS if charged else 0,
+        "call_context": call_context,
+        "output_confirmed": bool((result or {}).get("output_confirmed")),
     }
-    text, arts = _apply_artifacts(task_id, done["output"], (result or {}).get("artifacts"))
+    if pending:
+        done["error"] = "output_pending"
+    text, arts = _apply_artifacts(task_id, done["output"], (result or {}).get("artifacts"), call_context)
     done["output"] = text
     if arts:
         done["artifacts"] = arts
+    if pending and charged:
+        asyncio.create_task(_expire_output_pending(task_id, consumer_user_id, aid))
     return done
+
+
+async def _expire_output_pending(task_id: str, user_id, aid: str) -> None:
+    """待补传超过事件保留时间仍没完成，改成失败并退款。"""
+    try:
+        await asyncio.sleep(_AGENT_FEED_TTL)
+        await _refund_task_charge(
+            task_id,
+            user_id,
+            aid,
+            True,
+            f"agent_task pending expired task_id={task_id}",
+        )
+    except Exception:
+        logger.exception("[agent_task] pending expire failed task_id=%s", task_id)
 
 
 async def _release_share_turn(task_id: str, output: str) -> None:
@@ -353,6 +515,8 @@ async def _prepare_agent_task(
     images: Optional[list] = None,
     files: Optional[list] = None,
     share_id: Optional[str] = None,
+    idempotency_key: Optional[str] = None,
+    idempotency_digest: Optional[str] = None,
 ) -> tuple[Optional[dict], Optional[dict]]:
     """预检 + 下发。成功返回 (ctx, None)；失败返回 (None, error_dict)。"""
     from web_public import (
@@ -377,6 +541,20 @@ async def _prepare_agent_task(
         return None, {"ok": False, "error": "assistant_id and prompt required", "status": "rejected"}
 
     guest = consumer_user_id is None
+    slot = _idem_slot(consumer_user_id, guest_ip, idempotency_key)
+    joined = _idem_lookup(slot, idempotency_digest or "")
+    if joined == "conflict":
+        return None, {
+            "ok": False,
+            "error": "idempotency key reused with a different body",
+            "status": "conflict",
+        }
+    if joined:
+        return {
+            "join_task_id": joined,
+            "guest": guest,
+            "consumer_user_id": consumer_user_id,
+        }, None
     consumer_key = consumer_isolation_key(consumer_user_id, guest_ip=guest_ip)
     # 分享里的下一句必须回到发起人那条会话，不能按当前发言人新开
     continue_session = False
@@ -392,13 +570,8 @@ async def _prepare_agent_task(
         cli_session_id = binding["cli_session_id"]
     if not guest:
         user = await db.get_user_by_id(consumer_user_id)
-        if not user or float(user["credits_balance"] or 0) < AGENT_TASK_CREDITS:
-            return None, {
-                "ok": False,
-                "error": "Insufficient credits",
-                "status": "rejected",
-                "credits_required": AGENT_TASK_CREDITS,
-            }
+        if not user:
+            return None, {"ok": False, "error": "user not found", "status": "rejected"}
         circles = set(await db.get_user_circle_ids(consumer_user_id))
     else:
         circles = set()
@@ -414,6 +587,24 @@ async def _prepare_agent_task(
         }
 
     worker = workers[0]
+    # 执行节点属于调用人自己：自己的智能体。否则是雇来的，才做输入检查
+    call_context = resolve_call_context(consumer_user_id, worker_owner_id(worker))
+    charged = should_charge(call_context, guest)
+    if charged:
+        user = await db.get_user_by_id(consumer_user_id)
+        if not user or float(user["credits_balance"] or 0) < AGENT_TASK_CREDITS:
+            return None, {
+                "ok": False,
+                "error": "Insufficient credits",
+                "status": "rejected",
+                "credits_required": AGENT_TASK_CREDITS,
+                "call_context": call_context,
+            }
+    if call_context == "hired":
+        names = [item.get("name") for item in (img_list or []) + (file_list or []) if isinstance(item, dict)]
+        rejected = reject_hired_input(text, names)
+        if rejected:
+            return None, {"ok": False, "error": rejected, "status": "rejected", "call_context": "hired"}
     task_id = f"at-{uuid.uuid4().hex[:12]}"
     q: asyncio.Queue = asyncio.Queue()
     timeout_sec = max(30, (timeout_ms or AGENT_TASK_TIMEOUT_SEC * 1000) / 1000)
@@ -436,10 +627,12 @@ async def _prepare_agent_task(
         "partial_output": "",
         "worker_box": worker_box,
         "clock": clock,
+        "call_context": call_context,
+        "charged": False,
     }
     worker.active_requests += 1
 
-    if not guest:
+    if charged:
         ok_deduct, bal = await db.deduct_credits(
             consumer_user_id,
             AGENT_TASK_CREDITS,
@@ -456,7 +649,14 @@ async def _prepare_agent_task(
                 "status": "rejected",
                 "balance": bal,
                 "credits_required": AGENT_TASK_CREDITS,
+                "call_context": call_context,
             }
+        worker.pending_agents[task_id]["charged"] = True
+        try:
+            await db.record_agent_task_charge(task_id, consumer_user_id, aid, AGENT_TASK_CREDITS)
+        except Exception:
+            logger.exception("[agent_task] record charge failed task_id=%s", task_id)
+    _idem_store(slot, idempotency_digest or "", task_id)
 
     try:
         await worker.send({
@@ -472,6 +672,8 @@ async def _prepare_agent_task(
             "cli_session_id": cli_session_id or None,
             "images": img_list or None,
             "files": file_list or None,
+            # 客户端不认识的字段会忽略，登录环境保持原样
+            "call_context": call_context,
         })
         logger.info(
             "[agent_task] dispatch task_id=%s assistant=%s worker=%s user=%s guest=%s key=%s",
@@ -480,17 +682,10 @@ async def _prepare_agent_task(
     except Exception as e:
         worker.pending_agents.pop(task_id, None)
         worker.active_requests = max(0, worker.active_requests - 1)
-        if not guest:
-            await db.award_credits(
-                user_id=consumer_user_id,
-                delta=AGENT_TASK_CREDITS,
-                type_="refund",
-                model_name=f"agent:{aid}",
-                tokens=0,
-                base_credits=AGENT_TASK_CREDITS,
-                multiplier=1.0,
-                note=f"agent_task error refund task_id={task_id}",
-            )
+        await _refund_task_charge(
+            task_id, consumer_user_id, aid, charged,
+            f"agent_task error refund task_id={task_id}",
+        )
         worker.record_agent_complete(aid, False)
         logger.error("[agent_task] send error task_id=%s: %s", task_id, e)
         return None, {"ok": False, "task_id": task_id, "status": "failed", "error": str(e)}
@@ -507,6 +702,8 @@ async def _prepare_agent_task(
         "timeout_sec": timeout_sec,
         "worker_box": worker_box,
         "clock": clock,
+        "call_context": call_context,
+        "charged": charged,
     }, None
 
 
@@ -526,18 +723,13 @@ async def cancel_agent_task(task_id: str, consumer_user_id: Optional[int]) -> bo
         if entry.get("cancel_settled"):
             return True
         entry["cancel_settled"] = True
-        owner = entry.get("consumer_user_id")
-        if owner is not None:
-            await db.award_credits(
-                user_id=owner,
-                delta=AGENT_TASK_CREDITS,
-                type_="refund",
-                model_name=f"agent:{entry.get('assistant_id') or ''}",
-                tokens=0,
-                base_credits=AGENT_TASK_CREDITS,
-                multiplier=1.0,
-                note=f"agent_task cancelled refund task_id={task_id}",
-            )
+        await _refund_task_charge(
+            task_id,
+            entry.get("consumer_user_id"),
+            str(entry.get("assistant_id") or ""),
+            bool(entry.get("charged")),
+            f"agent_task cancelled refund task_id={task_id}",
+        )
         try:
             await worker.send({"type": "agent_task_cancel", "task_id": task_id})
         except Exception:
@@ -566,18 +758,13 @@ async def cancel_agent_task(task_id: str, consumer_user_id: Optional[int]) -> bo
         return True
     entry["cancel_settled"] = True
     pool.pop_parked_agent(task_id)
-    owner = entry.get("consumer_user_id")
-    if owner is not None:
-        await db.award_credits(
-            user_id=owner,
-            delta=AGENT_TASK_CREDITS,
-            type_="refund",
-            model_name=f"agent:{entry.get('assistant_id') or ''}",
-            tokens=0,
-            base_credits=AGENT_TASK_CREDITS,
-            multiplier=1.0,
-            note=f"agent_task cancelled refund task_id={task_id}",
-        )
+    await _refund_task_charge(
+        task_id,
+        entry.get("consumer_user_id"),
+        str(entry.get("assistant_id") or ""),
+        bool(entry.get("charged")),
+        f"agent_task cancelled refund task_id={task_id}",
+    )
     q = entry.get("queue")
     if q is not None:
         await q.put({
@@ -605,17 +792,10 @@ async def _refund_timeout(ctx: dict) -> dict:
         pool.pop_parked_agent(task_id)
     if worker is not None:
         worker.active_requests = max(0, worker.active_requests - 1)
-    if not guest:
-        await db.award_credits(
-            user_id=consumer_user_id,
-            delta=AGENT_TASK_CREDITS,
-            type_="refund",
-            model_name=f"agent:{aid}",
-            tokens=0,
-            base_credits=AGENT_TASK_CREDITS,
-            multiplier=1.0,
-            note=f"agent_task timeout refund task_id={task_id}",
-        )
+    refunded = await _refund_task_charge(
+        task_id, consumer_user_id, aid, bool(ctx.get("charged")),
+        f"agent_task timeout refund task_id={task_id}",
+    )
     if worker is not None:
         worker.record_agent_complete(aid, False)
     partial = str(ctx.get("partial_output") or "")
@@ -625,7 +805,27 @@ async def _refund_timeout(ctx: dict) -> dict:
         "status": "timeout",
         "error": f"Agent task timeout ({int(timeout_sec)}s)",
         "output": partial,
-        "credits_refunded": 0 if guest else AGENT_TASK_CREDITS,
+        "credits_refunded": refunded,
+    }
+
+
+async def _join_existing_result(task_id: str) -> dict:
+    """同一个幂等键再来：等原来那一单的终态，不新开、不另扣。"""
+    deadline = time.time() + AGENT_TASK_TIMEOUT_SEC
+    while time.time() < deadline:
+        feed = _AGENT_FEEDS.get(task_id)
+        if feed:
+            for ev in reversed(feed.get("events") or []):
+                if ev.get("event") in ("done", "error"):
+                    return {k: v for k, v in ev.items() if k != "event"}
+            if feed.get("finished"):
+                break
+        await asyncio.sleep(0.2)
+    return {
+        "ok": False,
+        "task_id": task_id,
+        "status": "timeout",
+        "error": "idempotent wait timeout",
     }
 
 
@@ -641,8 +841,10 @@ async def handle_agent_task(
     images: Optional[list] = None,
     files: Optional[list] = None,
     share_id: Optional[str] = None,
+    idempotency_key: Optional[str] = None,
+    idempotency_digest: Optional[str] = None,
 ) -> dict:
-    """选 worker → 预扣积分 → 下发 → 等待终态结果；失败退款。"""
+    """选节点，按本人或雇佣校验，下发后等到终态。失败退款。"""
     ctx, err = await _prepare_agent_task(
         assistant_id=assistant_id,
         prompt=prompt,
@@ -654,6 +856,8 @@ async def handle_agent_task(
         images=images,
         files=files,
         share_id=share_id,
+        idempotency_key=idempotency_key,
+        idempotency_digest=idempotency_digest,
     )
     if err:
         if guest_ip and err.get("status") == "rejected":
@@ -661,6 +865,8 @@ async def handle_agent_task(
             release_guest_trial(guest_ip)
         return err
     assert ctx is not None
+    if ctx.get("join_task_id"):
+        return await _join_existing_result(ctx["join_task_id"])
     try:
         async for msg in _iter_agent_messages(ctx):
             if msg is None:
@@ -675,6 +881,8 @@ async def handle_agent_task(
                 worker=_task_worker(ctx),
                 guest=ctx["guest"],
                 consumer_user_id=ctx["consumer_user_id"],
+                call_context=ctx.get("call_context") or "hired",
+                charged=bool(ctx.get("charged")),
             )
         return await _refund_timeout(ctx)
     except Exception as e:
@@ -685,17 +893,10 @@ async def handle_agent_task(
         consumer_user_id = ctx["consumer_user_id"]
         worker.pending_agents.pop(task_id, None)
         worker.active_requests = max(0, worker.active_requests - 1)
-        if not guest:
-            await db.award_credits(
-                user_id=consumer_user_id,
-                delta=AGENT_TASK_CREDITS,
-                type_="refund",
-                model_name=f"agent:{aid}",
-                tokens=0,
-                base_credits=AGENT_TASK_CREDITS,
-                multiplier=1.0,
-                note=f"agent_task error refund task_id={task_id}",
-            )
+        await _refund_task_charge(
+            task_id, consumer_user_id, aid, bool(ctx.get("charged")),
+            f"agent_task error refund task_id={task_id}",
+        )
         worker.record_agent_complete(aid, False)
         logger.error("[agent_task] error task_id=%s: %s", task_id, e)
         return {"ok": False, "task_id": task_id, "status": "failed", "error": str(e)}
@@ -713,7 +914,7 @@ def _sweep_agent_feeds(now: float | None = None) -> None:
         _AGENT_FEEDS.pop(key, None)
 
 
-def _ensure_agent_feed(task_id: str, user_id) -> dict:
+def _ensure_agent_feed(task_id: str, user_id, call_context: str = "hired") -> dict:
     _sweep_agent_feeds()
     feed = _AGENT_FEEDS.get(task_id)
     if feed is None:
@@ -724,6 +925,7 @@ def _ensure_agent_feed(task_id: str, user_id) -> dict:
             "finished": False,
             "created": time.time(),
             "pump": None,
+            "call_context": call_context if call_context in ("owner", "hired") else "hired",
         }
         _AGENT_FEEDS[task_id] = feed
     return feed
@@ -733,6 +935,9 @@ def _publish_agent_feed(task_id: str, event: dict) -> None:
     feed = _AGENT_FEEDS.get(task_id)
     if not feed:
         return
+    # 标出是自己的还是雇来的。页面只读它已经认识的字段
+    event = dict(event)
+    event.setdefault("call_context", feed.get("call_context") or "hired")
     events = feed["events"]
     # 进度是全文快照，只留最新一帧，重放时不会把同一段正文叠很多遍
     if event.get("event") == "progress" and events and events[-1].get("event") == "progress":
@@ -750,7 +955,7 @@ def agent_feed_exists(task_id: str) -> bool:
 async def _pump_agent_feed(ctx: dict, guest: bool) -> None:
     """读出租方队列并记成可重放的事件。不跟某一次 HTTP 连接绑在一起。"""
     task_id = ctx["task_id"]
-    feed = _ensure_agent_feed(task_id, ctx.get("consumer_user_id"))
+    feed = _ensure_agent_feed(task_id, ctx.get("consumer_user_id"), ctx.get("call_context") or "hired")
     _publish_agent_feed(task_id, {"event": "started", "task_id": task_id})
     try:
         async for msg in _iter_agent_messages(ctx):
@@ -760,13 +965,14 @@ async def _pump_agent_feed(ctx: dict, guest: bool) -> None:
                 await _release_share_turn(task_id, final.get("output") or "")
                 return
             if msg.get("type") == "agent_task_progress":
+                hired = (ctx.get("call_context") or "") == "hired"
                 _publish_agent_feed(task_id, {
                     "event": "progress",
                     "task_id": task_id,
-                    "text": str(msg.get("text") or "")[:200_000],
+                    "text": "" if hired else str(msg.get("text") or "")[:200_000],
                     "tool": msg.get("tool"),
                     "progress_event": msg.get("event"),
-                    "parts": _public_progress_parts(msg.get("parts")),
+                    "parts": _public_progress_parts(msg.get("parts"), ctx.get("call_context") or "owner"),
                 })
                 continue
             await _remember_share_cli_session(ctx.get("share_id") or "", msg)
@@ -777,8 +983,11 @@ async def _pump_agent_feed(ctx: dict, guest: bool) -> None:
                 worker=_task_worker(ctx),
                 guest=ctx["guest"],
                 consumer_user_id=ctx["consumer_user_id"],
+                call_context=ctx.get("call_context") or "hired",
+                charged=bool(ctx.get("charged")),
             )
-            ev = "done" if final.get("ok") else "error"
+            terminal = final.get("status") in ("output_pending", "output_missing")
+            ev = "done" if final.get("ok") or terminal else "error"
             _publish_agent_feed(task_id, {**final, "event": ev, "guest": guest, "need_login_to_continue": guest})
             await _release_share_turn(task_id, final.get("output") or "")
             return
@@ -791,17 +1000,10 @@ async def _pump_agent_feed(ctx: dict, guest: bool) -> None:
         consumer_user_id = ctx["consumer_user_id"]
         worker.pending_agents.pop(task_id, None)
         worker.active_requests = max(0, worker.active_requests - 1)
-        if not guest_flag:
-            await db.award_credits(
-                user_id=consumer_user_id,
-                delta=AGENT_TASK_CREDITS,
-                type_="refund",
-                model_name=f"agent:{aid}",
-                tokens=0,
-                base_credits=AGENT_TASK_CREDITS,
-                multiplier=1.0,
-                note=f"agent_task error refund task_id={task_id}",
-            )
+        await _refund_task_charge(
+            task_id, consumer_user_id, aid, bool(ctx.get("charged")),
+            f"agent_task error refund task_id={task_id}",
+        )
         worker.record_agent_complete(aid, False)
         logger.error("[agent_task] stream error task_id=%s: %s", task_id, e)
         await _release_share_turn(task_id, "")
@@ -820,7 +1022,7 @@ async def _pump_agent_feed(ctx: dict, guest: bool) -> None:
 
 
 def start_agent_feed(ctx: dict, guest: bool) -> None:
-    feed = _ensure_agent_feed(ctx["task_id"], ctx.get("consumer_user_id"))
+    feed = _ensure_agent_feed(ctx["task_id"], ctx.get("consumer_user_id"), ctx.get("call_context") or "hired")
     pump = feed.get("pump")
     if pump is not None and not pump.done():
         return
@@ -898,6 +1100,8 @@ async def iter_agent_task_sse(
     images: Optional[list] = None,
     files: Optional[list] = None,
     share_id: Optional[str] = None,
+    idempotency_key: Optional[str] = None,
+    idempotency_digest: Optional[str] = None,
 ) -> AsyncIterator[str]:
     """SSE：progress 事件推正文，done/error 收尾。页面断开后任务仍继续。"""
     ctx, err = await _prepare_agent_task(
@@ -911,6 +1115,8 @@ async def iter_agent_task_sse(
         images=images,
         files=files,
         share_id=share_id,
+        idempotency_key=idempotency_key,
+        idempotency_digest=idempotency_digest,
     )
     if err:
         # 还没派到设备上：这次不算试用，避免第一条还没回复就被额度拦住
@@ -922,6 +1128,15 @@ async def iter_agent_task_sse(
         return
 
     assert ctx is not None
+    if ctx.get("join_task_id"):
+        tid = str(ctx["join_task_id"])
+        for _ in range(50):
+            if tid in _AGENT_FEEDS:
+                break
+            await asyncio.sleep(0.1)
+        async for chunk in iter_agent_feed_sse(tid):
+            yield chunk
+        return
     start_agent_feed(ctx, guest)
     async for chunk in iter_agent_feed_sse(ctx["task_id"]):
         yield chunk

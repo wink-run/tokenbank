@@ -9,6 +9,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const { ensureDeviceId } = require('../shared/device-id');
 
 const CONFIG_PATH = path.join(os.homedir(), '.llm-agent', 'config.json');
@@ -825,6 +826,52 @@ async function collectAgentCardsForRegister(cfg) {
   }
 }
 
+/** 清单先于字节。服务端哈希到齐才算完成。读不出内容的文件记入缺失。 */
+function artifactSha256(item) {
+  const raw = String(item && item.dataUrl || '');
+  const comma = raw.indexOf(',');
+  if (comma < 0 || !raw.startsWith('data:')) return '';
+  try {
+    return crypto.createHash('sha256').update(Buffer.from(raw.slice(comma + 1), 'base64')).digest('hex');
+  } catch {
+    return '';
+  }
+}
+
+function commitAgentOutput(send, taskId, payload, artifacts) {
+  const files = [];
+  const missing = [];
+  const packed = [];
+  for (const item of artifacts || []) {
+    if (!item || typeof item !== 'object') continue;
+    const sha256 = artifactSha256(item);
+    if (!sha256) {
+      if (item.name) missing.push(String(item.name));
+      continue;
+    }
+    packed.push({ ...item, sha256 });
+    files.push({
+      name: String(item.name || 'file'),
+      size: Number(item.size) || 0,
+      sha256,
+    });
+  }
+  send({ type: 'agent_task_output_manifest', task_id: taskId, files, missing });
+  if (packed.length) {
+    try {
+      send({ type: 'agent_task_artifacts', task_id: taskId, artifacts: packed });
+    } catch (e) {
+      log(`[agent] send artifacts failed: ${e.message}`);
+    }
+  }
+  send({
+    ...payload,
+    type: 'agent_task_result',
+    task_id: taskId,
+    output_commit: true,
+  });
+}
+
 /** 处理社区派发的武将任务（支持过程中推送 agent_task_progress） */
 async function handleAgentTask(msg, cfg) {
   const taskId = String(msg.task_id || msg.req_id || '').trim();
@@ -858,6 +905,12 @@ async function handleAgentTask(msg, cfg) {
   log(`[agent] agent_task → ${taskId} assistant=${assistantId} consumer=${consumerKey} cwd=${workingDir}`);
 
   const executor = require('./agent-executor');
+  // 同一单重连时先停掉还在跑的进程，避免两份 CLI 写同一个目录
+  const previous = liveAgentTasks.get(taskId);
+  if (previous) {
+    try { await executor.cancel(previous); } catch { /* 进程可能已经结束 */ }
+    liveAgentTasks.delete(taskId);
+  }
   let trackedTaskId = null;
   let textAcc = '';
   let lastProgressAt = 0;
@@ -1075,31 +1128,12 @@ async function handleAgentTask(msg, cfg) {
         log(`[agent] timeout artifacts failed: ${e.message}`);
       }
       try { await executor.cancel(localId); } catch { /* ignore */ }
-      const ARTIFACT_INLINE_CHARS = 1_500_000;
-      let inlineArtifacts = null;
-      if (artifacts.length) {
-        try {
-          const packed = JSON.stringify(artifacts);
-          if (packed.length <= ARTIFACT_INLINE_CHARS) inlineArtifacts = artifacts;
-        } catch { /* 序列化失败就走单独一帧 */ }
-      }
-      send({
-        type: 'agent_task_result',
-        task_id: taskId,
+      commitAgentOutput(send, taskId, {
         status: 'timeout',
         error: `Agent task timeout (${Math.round(localTimeoutMs / 1000)}s)`,
         output: partial,
         usage: { duration_ms: Date.now() - started },
-        artifacts: inlineArtifacts || undefined,
-        artifacts_follow: inlineArtifacts ? undefined : (artifacts.length ? true : undefined),
-      });
-      if (artifacts.length && !inlineArtifacts) {
-        try {
-          send({ type: 'agent_task_artifacts', task_id: taskId, artifacts });
-        } catch (e) {
-          log(`[agent] send artifacts failed: ${e.message}`);
-        }
-      }
+      }, artifacts);
       return;
     }
 
@@ -1128,37 +1162,13 @@ async function handleAgentTask(msg, cfg) {
     if (artifacts.length) {
       log(`[agent] artifacts ${artifacts.map((a) => a.name).join(', ')}`);
     }
-    // 常见图片直接跟在结果里。太大才拆成第二帧，避免一帧过大把连接打断后文件丢失
-    const ARTIFACT_INLINE_CHARS = 1_500_000;
-    let inlineArtifacts = null;
-    if (artifacts.length) {
-      try {
-        const packed = JSON.stringify(artifacts);
-        if (packed.length <= ARTIFACT_INLINE_CHARS) inlineArtifacts = artifacts;
-      } catch { /* 序列化失败就走单独一帧 */ }
-    }
-    send({
-      type: 'agent_task_result',
-      task_id: taskId,
+    commitAgentOutput(send, taskId, {
       status: ok ? 'completed' : (status?.status || 'failed'),
       output: finalBody.slice(0, 200_000),
       error: ok ? null : (status?.error || status?.result?.output || 'failed'),
       usage: { duration_ms: Date.now() - started },
       cli_session_id: cliSessionId || undefined,
-      artifacts: inlineArtifacts || undefined,
-      artifacts_follow: inlineArtifacts ? undefined : (artifacts.length ? true : undefined),
-    });
-    if (artifacts.length && !inlineArtifacts) {
-      try {
-        send({
-          type: 'agent_task_artifacts',
-          task_id: taskId,
-          artifacts,
-        });
-      } catch (e) {
-        log(`[agent] send artifacts failed: ${e.message}`);
-      }
-    }
+    }, artifacts);
   } catch (e) {
     send({
       type: 'agent_task_result',

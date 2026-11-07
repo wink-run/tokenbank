@@ -92,6 +92,8 @@ def agent_resume_message(task_id: str, entry: dict) -> dict:
         "continue_session": True if started else ((entry or {}).get("continue_session") or None),
         "cli_session_id": sid or None,
     }
+    if (entry or {}).get("call_context"):
+        body["call_context"] = entry["call_context"]
     if not started:
         if (entry or {}).get("images"):
             body["images"] = entry["images"]

@@ -106,10 +106,15 @@ function taskToResponse(task) {
   return response;
 }
 
-function rememberIdempotency(key, raw, response) {
+function rememberIdempotency(key, raw, response, taskId) {
   if (!key) return;
   const digest = crypto.createHash('sha256').update(raw).digest('hex');
-  idempotency.set(key, { digest, response });
+  const prev = idempotency.get(key);
+  idempotency.set(key, {
+    digest,
+    response: response || prev?.response || null,
+    taskId: taskId || prev?.taskId || '',
+  });
   if (idempotency.size > 200) {
     const oldest = idempotency.keys().next().value;
     idempotency.delete(oldest);
@@ -177,6 +182,17 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
         sendJson(res, 409, { error: { message: 'idempotency key reused with a different body', type: 'invalid_request_error' } });
         return true;
       }
+      if (!prev.response && prev.taskId) {
+        const task = await waitTask(executor, prev.taskId);
+        const response = taskToResponse(task);
+        rememberIdempotency(idem, raw, response, prev.taskId);
+        if (body.stream) {
+          writeSse(res, response);
+          return true;
+        }
+        sendJson(res, 200, response);
+        return true;
+      }
       if (body.stream) {
         writeSse(res, prev.response);
         return true;
@@ -209,6 +225,8 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
       // 只有请求显式打开 stream 才边收边推
       stream: !!body.stream,
     });
+    // 等结果之前就记住键，连接断开后同样的请求接上这一单
+    rememberIdempotency(idem, raw, null, taskId);
 
     let detachStream = () => {};
     if (body.stream && !res.headersSent) {

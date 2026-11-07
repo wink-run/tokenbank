@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -78,6 +79,13 @@ _bearer = HTTPBearer(auto_error=False)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.init_db()
+    try:
+        from dispatch_agent import refund_orphaned_agent_charges
+        refunded = await refund_orphaned_agent_charges()
+        if refunded:
+            logger.info("Refunded %s agent task(s) interrupted by restart", refunded)
+    except Exception:
+        logger.exception("agent task restart refund failed")
     logger.info("Database ready")
     from config_seed import seed_default_configs, seed_default_studio
     await seed_default_configs()
@@ -1112,6 +1120,8 @@ class AgentTaskBody(BaseModel):
     files: Optional[list] = None
     # 分享里接着聊。服务端据此回到发起人的会话，而不是按当前发言人新开
     share_id: Optional[str] = None
+    # 相同键再提交接上同一单，不另扣。请求体变了就拒绝
+    idempotency_key: Optional[str] = None
 
 
 @app.post("/api/agent-tasks")
@@ -1144,6 +1154,10 @@ async def create_agent_task(
             raise HTTPException(429, "guest trial limit reached — sign in to continue")
 
     guest_ip = _client_ip(request) if guest else None
+    idem = (request.headers.get("idempotency-key") or body.idempotency_key or "").strip()[:80]
+    digest = hashlib.sha256(
+        f"{body.assistant_id}\n{body.prompt}\n{body.share_id or ''}\n{len(task_images)}\n{len(task_files)}".encode("utf-8")
+    ).hexdigest()
     if body.stream:
         from dispatch_agent import iter_agent_task_sse
         gen = iter_agent_task_sse(
@@ -1158,6 +1172,8 @@ async def create_agent_task(
             images=task_images or None,
             files=task_files or None,
             share_id=body.share_id,
+            idempotency_key=idem or None,
+            idempotency_digest=digest,
         )
         return StreamingResponse(
             gen,
@@ -1180,11 +1196,19 @@ async def create_agent_task(
         images=task_images or None,
         files=task_files or None,
         share_id=body.share_id,
+        idempotency_key=idem or None,
+        idempotency_digest=digest,
     )
     if not result.get("ok"):
         status = result.get("status") or "failed"
-        code = 402 if "credit" in str(result.get("error") or "").lower() else (
-            404 if status == "rejected" and "No online" in str(result.get("error") or "") else 400
+        if status in ("output_pending", "output_missing"):
+            result["guest"] = guest
+            result["need_login_to_continue"] = guest
+            return result
+        code = 409 if status == "conflict" else (
+            402 if "credit" in str(result.get("error") or "").lower() else (
+                404 if status == "rejected" and "No online" in str(result.get("error") or "") else 400
+            )
         )
         if status == "timeout":
             code = 504
@@ -1861,21 +1885,34 @@ async def worker_ws(ws: WebSocket):
                     await entry["queue"].put(msg)
                 continue
 
-            # 文件后到。正文还挂在 pending 上时才能并进去
+            # 文件后到。声明了清单的这一单还不能摘掉，结果帧还在后面
+            if kind == "agent_task_output_manifest":
+                task_id = msg.get("task_id")
+                entry = worker.pending_agents.get(task_id) if task_id else None
+                if entry and entry.get("queue") is not None:
+                    entry["output_commit"] = True
+                    await entry["queue"].put(msg)
+                continue
+
             if kind == "agent_task_artifacts":
                 task_id = msg.get("task_id")
-                entry = worker.pending_agents.pop(task_id, None) if task_id else None
+                entry = worker.pending_agents.get(task_id) if task_id else None
+                commit = bool(entry and entry.get("output_commit"))
+                if entry and not commit:
+                    entry = worker.pending_agents.pop(task_id, None)
                 if entry:
                     await entry["queue"].put(msg)
                 continue
 
             # 武将任务结果：用 task_id，与模型 req_id 分流。
-            # 声明还有文件时先不摘 pending，断线才能被读端识别成「正文已到」
+            # 还有文件或清单没到齐时先不摘 pending
             if kind == "agent_task_result":
                 task_id = msg.get("task_id")
-                follow = bool(msg.get("artifacts_follow"))
+                follow = bool(msg.get("artifacts_follow") or msg.get("output_commit"))
                 if follow:
                     entry = worker.pending_agents.get(task_id) if task_id else None
+                    if entry is not None and msg.get("output_commit"):
+                        entry["output_commit"] = True
                 else:
                     entry = worker.pending_agents.pop(task_id, None) if task_id else None
                 if entry:
