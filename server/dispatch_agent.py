@@ -836,15 +836,18 @@ async def handle_agent_task(
         else:
             processed_output, public_arts = output_text, []
         
-        # 安全：hired模式输出检查（程序级硬规则，第一层防御）
+        # 安全：hired模式输出检查和路径脱敏（程序级硬规则，第一层防御）
         if call_context == "hired" and success:
-            from .agent_safety import check_output_safety
+            from .agent_safety import check_output_safety, sanitize_paths_in_output
             
-            # 检查输出文本和artifacts安全性
+            # 提取session_root（由worker传递）
+            session_root = gateway_response.get("metadata", {}).get("session_root")
+            
+            # 1. 检查输出文本和artifacts安全性
             output_safe, output_err = check_output_safety(
                 processed_output,
                 artifacts=raw_artifacts,
-                session_dir=None,  # TODO: 传递实际session目录
+                session_dir=session_root,
             )
             if not output_safe:
                 logger.warning(
@@ -860,6 +863,9 @@ async def handle_agent_task(
                     "credits_charged": 0,
                     "credits_refunded": AGENT_TASK_CREDITS if not guest else 0,
                 }
+            
+            # 2. 路径脱敏（基于实际session root）
+            processed_output = sanitize_paths_in_output(processed_output, session_root=session_root)
         
         result = {
             "ok": success,
@@ -896,11 +902,22 @@ async def handle_agent_task(
             )
         
         logger.error("[agent_task] error task_id=%s: %s", task_id, e)
+        
+        # hired模式：脱敏错误消息（防止路径泄露）
+        error_msg = str(e)
+        if call_context == "hired":
+            from .agent_safety import sanitize_paths_in_output
+            # 注：此处gateway_response可能未定义（调用前失败），使用None作为session_root
+            session_root = None
+            if 'gateway_response' in locals() and gateway_response:
+                session_root = gateway_response.get("metadata", {}).get("session_root")
+            error_msg = sanitize_paths_in_output(error_msg, session_root=session_root)
+        
         return {
             "ok": False,
             "task_id": task_id,
             "status": "failed",
-            "error": str(e),
+            "error": error_msg,
             "credits_refunded": 0 if guest else AGENT_TASK_CREDITS,
         }
 
@@ -1277,22 +1294,40 @@ async def iter_agent_task_sse(
                 # Delta: 累积文本
                 delta = event_data.get("delta", "")
                 accumulated_text += delta
-                yield _sse({
-                    "event": "progress",
-                    "task_id": task_id,
-                    "text": accumulated_text[:200_000],
-                    "parts": [{"type": "text", "text": accumulated_text[:80_000]}],
-                })
+                
+                # hired模式：执行中不发送原始文本，只发状态（防止提前泄露敏感信息）
+                if call_context == "hired":
+                    yield _sse({
+                        "event": "progress",
+                        "task_id": task_id,
+                        "status": "running",
+                    })
+                else:
+                    yield _sse({
+                        "event": "progress",
+                        "task_id": task_id,
+                        "text": accumulated_text[:200_000],
+                        "parts": [{"type": "text", "text": accumulated_text[:80_000]}],
+                    })
             
             elif event_name == "response.output_text.snapshot":
                 # Snapshot: 替换文本
                 accumulated_text = event_data.get("text", "")
-                yield _sse({
-                    "event": "progress",
-                    "task_id": task_id,
-                    "text": accumulated_text[:200_000],
-                    "parts": [{"type": "text", "text": accumulated_text[:80_000]}],
-                })
+                
+                # hired模式：执行中不发送原始文本，只发状态（防止提前泄露敏感信息）
+                if call_context == "hired":
+                    yield _sse({
+                        "event": "progress",
+                        "task_id": task_id,
+                        "status": "running",
+                    })
+                else:
+                    yield _sse({
+                        "event": "progress",
+                        "task_id": task_id,
+                        "text": accumulated_text[:200_000],
+                        "parts": [{"type": "text", "text": accumulated_text[:80_000]}],
+                    })
             
             elif event_name == "response.tool":
                 # 工具调用/结果
@@ -1302,23 +1337,32 @@ async def iter_agent_task_sse(
                 result = event_data.get("result", "")
                 status = event_data.get("status", "running")
                 
-                tool_part = {"type": "tool", "name": tool_name}
-                if tool_id:
-                    tool_part["id"] = tool_id
-                if detail:
-                    tool_part["detail"] = detail
-                if result:
-                    tool_part["result"] = result
-                if status:
-                    tool_part["status"] = status
-                
-                yield _sse({
-                    "event": "progress",
-                    "task_id": task_id,
-                    "text": accumulated_text[:200_000],
-                    "tool": tool_name,
-                    "parts": [tool_part],
-                })
+                # hired模式：执行中不发送tool详情（可能包含路径/敏感数据），只发状态
+                if call_context == "hired":
+                    yield _sse({
+                        "event": "progress",
+                        "task_id": task_id,
+                        "status": "running",
+                        "tool": tool_name,  # 只发tool名称，不发detail/result
+                    })
+                else:
+                    tool_part = {"type": "tool", "name": tool_name}
+                    if tool_id:
+                        tool_part["id"] = tool_id
+                    if detail:
+                        tool_part["detail"] = detail
+                    if result:
+                        tool_part["result"] = result
+                    if status:
+                        tool_part["status"] = status
+                    
+                    yield _sse({
+                        "event": "progress",
+                        "task_id": task_id,
+                        "text": accumulated_text[:200_000],
+                        "tool": tool_name,
+                        "parts": [tool_part],
+                    })
             
             elif event_name == "response.completed":
                 # 完成
@@ -1370,15 +1414,18 @@ async def iter_agent_task_sse(
                 else:
                     processed_output, public_arts = output_text, []
                 
-                # 安全：hired模式输出检查（程序级硬规则，第一层防御）
+                # 安全：hired模式输出检查和路径脱敏（程序级硬规则，第一层防御）
                 if call_context == "hired" and gateway_status == "completed":
-                    from .agent_safety import check_output_safety
+                    from .agent_safety import check_output_safety, sanitize_paths_in_output
                     
-                    # 检查输出文本和artifacts安全性
+                    # 提取session_root（由worker传递）
+                    session_root = gateway_response.get("metadata", {}).get("session_root")
+                    
+                    # 1. 检查输出文本和artifacts安全性
                     output_safe, output_err = check_output_safety(
                         processed_output,
                         artifacts=raw_artifacts,
-                        session_dir=None,  # TODO: 传递实际session目录
+                        session_dir=session_root,
                     )
                     if not output_safe:
                         logger.warning(
@@ -1395,6 +1442,9 @@ async def iter_agent_task_sse(
                             "credits_refunded": AGENT_TASK_CREDITS if not is_guest else 0,
                         })
                         return
+                    
+                    # 2. 路径脱敏（基于实际session root）
+                    processed_output = sanitize_paths_in_output(processed_output, session_root=session_root)
                 
                 done_payload = {
                     "event": "done",
@@ -1418,6 +1468,13 @@ async def iter_agent_task_sse(
             elif event_name == "error":
                 # 错误
                 error_msg = event_data.get("error", {}).get("message", "unknown error")
+                
+                # hired模式：脱敏错误消息和输出（防止路径泄露）
+                if call_context == "hired":
+                    from .agent_safety import sanitize_paths_in_output
+                    session_root = gateway_response.get("metadata", {}).get("session_root")
+                    error_msg = sanitize_paths_in_output(error_msg, session_root=session_root)
+                    accumulated_text = sanitize_paths_in_output(accumulated_text, session_root=session_root)
                 
                 # 失败退款
                 if not is_guest:
@@ -1448,6 +1505,15 @@ async def iter_agent_task_sse(
     except Exception as e:
         logger.error("[agent_task] stream error task_id=%s: %s", task_id, e)
         
+        # hired模式：脱敏异常消息和输出（防止路径泄露）
+        error_msg = str(e)
+        output_text = accumulated_text[:200_000]
+        if call_context == "hired":
+            from .agent_safety import sanitize_paths_in_output
+            session_root = gateway_response.get("metadata", {}).get("session_root") if 'gateway_response' in locals() else None
+            error_msg = sanitize_paths_in_output(error_msg, session_root=session_root)
+            output_text = sanitize_paths_in_output(output_text, session_root=session_root)
+        
         # 失败退款
         if not is_guest:
             await db.award_credits(
@@ -1466,8 +1532,8 @@ async def iter_agent_task_sse(
             "ok": False,
             "task_id": task_id,
             "status": "failed",
-            "error": str(e),
-            "output": accumulated_text[:200_000],
+            "error": error_msg,
+            "output": output_text,
             "credits_refunded": 0 if is_guest else AGENT_TASK_CREDITS,
             "guest": is_guest,
             "need_login_to_continue": is_guest,

@@ -128,6 +128,17 @@ function taskToResponse(task) {
     response.metadata.workspace_session_id = task.result.workspaceSessionId;
   }
   
+  // hired模式：传递session root供服务端路径脱敏
+  try {
+    const context = task?.context ? JSON.parse(task.context) : null;
+    const callContext = context?.callContext;
+    if (callContext === 'hired' && context?.workingDir) {
+      response.metadata.session_root = context.workingDir;
+    }
+  } catch (e) {
+    // context解析失败不影响主流程
+  }
+  
   return response;
 }
 
