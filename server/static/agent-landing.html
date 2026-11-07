@@ -190,8 +190,10 @@
                       </div>
                     </details>
                   </template>
-                  <div v-else class="md-body" v-html="renderRich(p.text, m.artifacts)"></div>
+                  <div v-else-if="p.type === 'text'" class="md-body" v-html="renderRich(p.text, m.artifacts)"></div>
                 </div>
+                <!-- 正文只在 content 里时也要画出来。工具条收起后不能把这句挡住 -->
+                <div v-if="hiddenAnswer(m)" class="md-body" v-html="renderRich(hiddenAnswer(m), m.artifacts)"></div>
               </template>
               <div v-else-if="m.content && m.content !== T.thinking" class="md-body" v-html="renderRich(m.content, m.artifacts)"></div>
               <span v-if="m.pending && !(m.parts && m.parts.length) && (!m.content || m.content === T.thinking)" class="typing"><i></i><i></i><i></i></span>
@@ -581,21 +583,54 @@ createApp({
     function hasReplyParts(m) {
       return Array.isArray(m && m.parts) && m.parts.some(p => p && (p.type === 'tool' || p.type === 'text' || p.type === 'thinking'))
     }
+    function textInParts(row) {
+      const parts = Array.isArray(row && row.parts) ? row.parts : []
+      return parts.filter(p => p && p.type === 'text' && String(p.text || '').trim()).map(p => String(p.text).trim()).join('\n\n')
+    }
+    // 工具分段还在时，页面只画 parts。终态正文必须写进 text 段，不能只放在 content
+    function revealAnswer(row, text) {
+      const out = String(text || '').trim()
+      if (!row) return
+      const shown = textInParts(row)
+      if (out && !shown.includes(out)) {
+        if (shown && out.startsWith(shown)) {
+          const extra = out.slice(shown.length).replace(/^\s+/, '')
+          if (extra) row.parts = [...(row.parts || []), { type: 'text', text: extra }]
+        } else if (!shown || !out.includes(shown)) {
+          row.parts = [...(row.parts || []), { type: 'text', text: out }]
+        }
+      }
+      const visible = textInParts(row)
+      row.content = visible || out || String(row.content || '')
+    }
+    function hiddenAnswer(m) {
+      if (!m || !Array.isArray(m.parts) || !m.parts.length) return ''
+      const shown = textInParts(m)
+      const content = String(m.content || '').trim()
+      if (!content || content === '…' || shown.includes(content)) return ''
+      return content
+    }
     function isPlainTwin(a, b) {
       if (!a || !b || a.role !== 'assistant' || b.role !== 'assistant') return false
-      // 只合并紧挨着的「带工具」和「纯正文」。两句都没有工具时保持原样
-      return hasReplyParts(a) !== hasReplyParts(b)
+      // 只合并「带工具」和同一句纯正文。两句都没有工具，或正文对不上，就保持原样
+      if (hasReplyParts(a) === hasReplyParts(b)) return false
+      const ta = replyText(a)
+      const tb = replyText(b)
+      if (!ta || !tb || ta === tb) return true
+      const short = ta.length <= tb.length ? ta : tb
+      const long = short === ta ? tb : ta
+      return long.includes(short)
     }
     function keepRichReply(a, b) {
       const rich = hasReplyParts(b) ? b : a
       const other = rich === a ? b : a
       const extra = String(other.content || '').trim()
-      const shown = replyText(rich)
-      if (extra && extra !== shown && !shown.includes(extra) && !extra.includes(shown)) {
-        rich.content = shown ? `${shown}\n\n${extra}` : extra
-        const parts = Array.isArray(rich.parts) ? rich.parts.slice() : []
-        parts.push({ type: 'text', text: extra })
-        rich.parts = parts
+      revealAnswer(rich, extra || replyText(rich))
+      // 纯正文是已经写完的那句。合并后不要再显示「正在执行」
+      if (!hasReplyParts(other) && extra) {
+        rich.pending = false
+        rich.taskId = undefined
+        rich.liveTurn = false
       }
       if ((!rich.artifacts || !rich.artifacts.length) && other.artifacts && other.artifacts.length) rich.artifacts = other.artifacts
       if (!rich.at && other.at) rich.at = other.at
@@ -626,7 +661,36 @@ createApp({
         }
         out.push(m)
       }
-      return out
+      // 刷新时同一轮可能留下两条「正在执行」。留下有工具的那条
+      const folded = []
+      for (const m of out) {
+        if (m && m.role === 'assistant' && m.pending) {
+          let prevAt = -1
+          for (let i = folded.length - 1; i >= 0; i -= 1) {
+            const item = folded[i]
+            if (item && item.role === 'assistant' && item.pending) {
+              prevAt = i
+              break
+            }
+          }
+          const prev = prevAt >= 0 ? folded[prevAt] : null
+          const sameTask = prev && (!m.taskId || !prev.taskId || m.taskId === prev.taskId)
+          if (sameTask) {
+            const richer = (m.parts && m.parts.length) ? m : prev
+            const other = richer === m ? prev : m
+            if (!richer.taskId && other.taskId) richer.taskId = other.taskId
+            folded[prevAt] = richer
+            const between = folded[prevAt + 1]
+            if (between && between.role === 'user' && folded[prevAt - 1] && folded[prevAt - 1].role === 'user'
+              && String(between.content || '').trim() === String(folded[prevAt - 1].content || '').trim()) {
+              folded.pop()
+            }
+            continue
+          }
+        }
+        folded.push(m)
+      }
+      return folded
     }
     // 排在所有用户发言前面的回复，是被时间戳甩上去的，按顺序放回各自的提问后面
     function placeRepliesAfterUsers(list) {
@@ -1690,17 +1754,35 @@ createApp({
         mine: speakerIsMe(turn),
       }
       const live = foreignTurn.value
-      let user = messages.value.find(m => m && m.liveTurn && m.role === 'user')
+      // 刷新后本地已经有这条正在执行的回复。接上它，不要再开一条
       let asst = messages.value.find(m => m && m.liveTurn && m.role === 'assistant')
+      if (!asst && live.taskId) {
+        asst = [...messages.value].reverse().find(m => m && m.role === 'assistant' && m.pending && m.taskId === live.taskId)
+      }
+      if (!asst) {
+        const last = [...messages.value].reverse().find(m => m && m.role === 'assistant' && m.pending && !m.liveTurn)
+        if (last) asst = last
+      }
+      let user = messages.value.find(m => m && m.liveTurn && m.role === 'user')
+      if (!user && asst) {
+        const prev = messages.value[messages.value.indexOf(asst) - 1]
+        if (prev && prev.role === 'user') user = prev
+      }
       if (!user) {
         messages.value.push({ role: 'user', content: live.text, author: live.author, at: live.at, liveTurn: true, shared: true })
       } else {
         user.content = live.text
         user.author = live.author
-        user.at = live.at
+        if (!user.at) user.at = live.at
+        user.liveTurn = true
       }
       if (!asst) {
         messages.value.push({ role: 'assistant', content: '', pending: true, liveTurn: true, shared: true, startedAt: live.at })
+      } else {
+        asst.liveTurn = true
+        asst.pending = true
+        asst.shared = true
+        if (!asst.startedAt) asst.startedAt = live.at
       }
       watchForeignStream(live.taskId)
       if (stickToBottom) followChat()
@@ -1782,7 +1864,7 @@ createApp({
                 continue
               }
               const text = String(ev.output || ev.result || ev.text || ev.message || row.content || '')
-              if (text) row.content = text
+              if (text) revealAnswer(row, text)
               row.pending = false
               row.liveTurn = false
               sealTimes(row)
@@ -1865,6 +1947,11 @@ createApp({
           }
           if (r.ok && data) {
             absorbShare(kept, data)
+            // 分享里后写上的句子带时间。按时间排，不要把后到的旧回复堆在最底下
+            const ordered = sortMessages(kept)
+            if (ordered.length !== kept.length || ordered.some((row, i) => row !== kept[i])) {
+              kept.splice(0, kept.length, ...ordered)
+            }
             turn = data.turn || null
           }
         }
@@ -2552,17 +2639,9 @@ createApp({
               row.pending = false
               row.taskId = undefined
               if (arts.length) row.artifacts = arts
-              if (row.parts && row.parts.length) {
-                row.parts = rewriteParts(row.parts, arts)
-                const shown = answerOf(row)
-                if (out && out !== shown && !shown.includes(out) && !out.includes(shown)) {
-                  row.parts = [...row.parts, { type: 'text', text: out }]
-                } else if (out.startsWith(shown) && out.length > shown.length) {
-                  const extra = out.slice(shown.length).replace(/^\s+/, '')
-                  if (extra) row.parts = [...row.parts, { type: 'text', text: extra }]
-                }
-                row.content = answerOf(row) || out || '(empty)'
-              } else {
+              if (row.parts && row.parts.length) row.parts = rewriteParts(row.parts, arts)
+              revealAnswer(row, out || answerOf(row))
+              if (!textInParts(row) && !String(row.content || '').trim()) {
                 setAssistant(out || rewriteShown(row.content, arts) || '(empty)', { pending: false })
               }
               if (arts.length) row.artifacts = arts
@@ -3059,7 +3138,7 @@ createApp({
     return {
       authOpen, openAuth, composerEl, fileEl, agentName, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor, appIcon,
       runLabel, messageClock, activityLabel, toolElapsed, toolFriendly, toolSummary, toolStatus, thinkLine,
-      viewParts, toolGroupTitle, toolGroupStatus, toolGroupClass, toolGroupHint, toolGroupElapsed,
+      viewParts, toolGroupTitle, toolGroupStatus, toolGroupClass, toolGroupHint, toolGroupElapsed, hiddenAnswer,
       renderRich, onChatClick, onImgOver, onImgOut, onImgHide, copyMsg, answerOf, downloadArtifact, isVideoFile,
       lang, T, toggleLang, backToTools, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, chatPeople, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
