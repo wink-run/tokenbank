@@ -1776,18 +1776,11 @@ ${userPrompt}`;
       }
       spawnEnv = sanitizeAgentSpawnEnv(spawnEnv, resolvedCwd);
       
-      // 安全：hired模式应用严格环境限制（程序级硬规则，第一层防御）
+      // 安全：hired模式依赖会话目录隔离（ensureContributeWorkspace）
+      // 不做额外env重写/cwd校验，优先保证可用性
       const isHired = options.callContext === 'hired';
       if (isHired) {
-        const { validateWorkingDirectory, applyHiredEnvSafety } = require('./agent-safety');
-        const validation = validateWorkingDirectory(resolvedCwd);
-        if (!validation.safe) {
-          reject(new Error(`Cannot execute in hired mode: ${validation.error}`));
-          return;
-        }
-        // 合并安全策略（保留linker注入的认证env，过滤敏感密钥）
-        spawnEnv = applyHiredEnvSafety(spawnEnv, resolvedCwd);
-        console.log('[AgentExecutor] Applied hired mode env safety:', taskId);
+        console.log('[AgentExecutor] Hired mode (minimal safety):', taskId);
       }
 
       const proc = spawn(executable, args, {

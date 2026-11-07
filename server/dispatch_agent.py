@@ -1276,8 +1276,13 @@ async def iter_agent_task_sse(
             yield _sse(payload)
             return
 
+    # 登记feed（让 /api/agent-tasks/{id}/events 可查询）
+    feed = _ensure_agent_feed(task_id, consumer_user_id)
+    
     # 发送 started 事件
-    yield _sse({"event": "started", "task_id": task_id})
+    started_event = {"event": "started", "task_id": task_id}
+    _publish_agent_feed(task_id, started_event)
+    yield _sse(started_event)
 
     # 流式调用 worker 的本地 Gateway
     # 发起方由调用者显式传递，不推断
@@ -1300,39 +1305,49 @@ async def iter_agent_task_sse(
                 delta = event_data.get("delta", "")
                 accumulated_text += delta
                 
-                # hired模式：执行中不发送原始文本，只发状态（防止提前泄露敏感信息）
+                # hired模式：不发送完整原始文本，但发送进度指示（防止假超时/无反馈）
                 if call_context == "hired":
-                    yield _sse({
+                    progress_event = {
                         "event": "progress",
                         "task_id": task_id,
                         "status": "running",
-                    })
+                        "progress_hint": f"{len(accumulated_text)} chars generated",
+                    }
+                    _publish_agent_feed(task_id, progress_event)
+                    yield _sse(progress_event)
                 else:
-                    yield _sse({
+                    progress_event = {
                         "event": "progress",
                         "task_id": task_id,
                         "text": accumulated_text[:200_000],
                         "parts": [{"type": "text", "text": accumulated_text[:80_000]}],
-                    })
+                    }
+                    _publish_agent_feed(task_id, progress_event)
+                    yield _sse(progress_event)
             
             elif event_name == "response.output_text.snapshot":
                 # Snapshot: 替换文本
                 accumulated_text = event_data.get("text", "")
                 
-                # hired模式：执行中不发送原始文本，只发状态（防止提前泄露敏感信息）
+                # hired模式：不发送完整原始文本，但发送进度指示（防止假超时/无反馈）
                 if call_context == "hired":
-                    yield _sse({
+                    progress_event = {
                         "event": "progress",
                         "task_id": task_id,
                         "status": "running",
-                    })
+                        "progress_hint": f"{len(accumulated_text)} chars generated",
+                    }
+                    _publish_agent_feed(task_id, progress_event)
+                    yield _sse(progress_event)
                 else:
-                    yield _sse({
+                    progress_event = {
                         "event": "progress",
                         "task_id": task_id,
                         "text": accumulated_text[:200_000],
                         "parts": [{"type": "text", "text": accumulated_text[:80_000]}],
-                    })
+                    }
+                    _publish_agent_feed(task_id, progress_event)
+                    yield _sse(progress_event)
             
             elif event_name == "response.tool":
                 # 工具调用/结果
@@ -1342,14 +1357,17 @@ async def iter_agent_task_sse(
                 result = event_data.get("result", "")
                 status = event_data.get("status", "running")
                 
-                # hired模式：执行中不发送tool详情（可能包含路径/敏感数据），只发状态
+                # hired模式：不发送tool详情（可能包含路径/敏感数据），但发送工具名和状态
                 if call_context == "hired":
-                    yield _sse({
+                    progress_event = {
                         "event": "progress",
                         "task_id": task_id,
                         "status": "running",
-                        "tool": tool_name,  # 只发tool名称，不发detail/result
-                    })
+                        "tool": tool_name,
+                        "progress_hint": f"Using tool: {tool_name}",
+                    }
+                    _publish_agent_feed(task_id, progress_event)
+                    yield _sse(progress_event)
                 else:
                     tool_part = {"type": "tool", "name": tool_name}
                     if tool_id:
@@ -1361,13 +1379,15 @@ async def iter_agent_task_sse(
                     if status:
                         tool_part["status"] = status
                     
-                    yield _sse({
+                    progress_event = {
                         "event": "progress",
                         "task_id": task_id,
                         "text": accumulated_text[:200_000],
                         "tool": tool_name,
                         "parts": [tool_part],
-                    })
+                    }
+                    _publish_agent_feed(task_id, progress_event)
+                    yield _sse(progress_event)
             
             elif event_name == "response.completed":
                 # 完成
@@ -1434,14 +1454,21 @@ async def iter_agent_task_sse(
                             task_id, assistant_id,
                         )
                         # 阻断输出，不上传artifacts，不透出原文
-                        yield _sse({
+                        error_payload = {
                             "event": "error",
                             "ok": False,
                             "task_id": task_id,
                             "status": "failed",
                             "error": output_err or "Output violates safety policy",
                             "credits_refunded": AGENT_TASK_CREDITS if not is_guest else 0,
-                        })
+                        }
+                        
+                        # 发布到feed并标记完成
+                        _publish_agent_feed(task_id, error_payload)
+                        if task_id in _AGENT_FEEDS:
+                            _AGENT_FEEDS[task_id]["finished"] = True
+                        
+                        yield _sse(error_payload)
                         return
                     
                     # 2. 安全检查通过，上传artifacts并改写路径
@@ -1472,6 +1499,11 @@ async def iter_agent_task_sse(
                 if public_arts:
                     done_payload["artifacts"] = public_arts
                 
+                # 发布到feed并标记完成
+                _publish_agent_feed(task_id, done_payload)
+                if task_id in _AGENT_FEEDS:
+                    _AGENT_FEEDS[task_id]["finished"] = True
+                
                 yield _sse(done_payload)
                 return
             
@@ -1499,7 +1531,7 @@ async def iter_agent_task_sse(
                         note=f"agent_task failed refund task_id={task_id}",
                     )
                 
-                yield _sse({
+                error_payload = {
                     "event": "error",
                     "ok": False,
                     "task_id": task_id,
@@ -1509,7 +1541,14 @@ async def iter_agent_task_sse(
                     "credits_refunded": 0 if is_guest else AGENT_TASK_CREDITS,
                     "guest": is_guest,
                     "need_login_to_continue": is_guest,
-                })
+                }
+                
+                # 发布到feed并标记完成
+                _publish_agent_feed(task_id, error_payload)
+                if task_id in _AGENT_FEEDS:
+                    _AGENT_FEEDS[task_id]["finished"] = True
+                
+                yield _sse(error_payload)
                 return
 
     except Exception as e:
@@ -1537,7 +1576,7 @@ async def iter_agent_task_sse(
                 note=f"agent_task error refund task_id={task_id}",
             )
         
-        yield _sse({
+        error_payload = {
             "event": "error",
             "ok": False,
             "task_id": task_id,
@@ -1547,4 +1586,11 @@ async def iter_agent_task_sse(
             "credits_refunded": 0 if is_guest else AGENT_TASK_CREDITS,
             "guest": is_guest,
             "need_login_to_continue": is_guest,
-        })
+        }
+        
+        # 发布到feed并标记完成
+        _publish_agent_feed(task_id, error_payload)
+        if task_id in _AGENT_FEEDS:
+            _AGENT_FEEDS[task_id]["finished"] = True
+        
+        yield _sse(error_payload)
