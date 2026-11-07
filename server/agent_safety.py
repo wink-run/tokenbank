@@ -332,35 +332,80 @@ def check_output_safety(text: str, artifacts: Optional[List[dict]] = None, sessi
                 if any(file_name.endswith(e) for e in ['.pem', '.key', 'id_rsa', 'id_ed25519']):
                     return False, "Artifact contains private key file"
         
-        # 3b. 内容秘密检查（检查dataUrl/base64内容是否包含敏感信息）
+        # 3b. 内容格式验证和秘密检查（fail closed）
         for art in artifacts:
+            # 提取MIME type和文件名
+            mime_type = str(art.get('mime', '')).split(';')[0].strip().lower()
+            file_name = str(art.get('name', '')).lower()
             data_url = art.get('dataUrl', '')
-            if data_url and ';base64,' in data_url:
+            
+            if not data_url or ';base64,' not in data_url:
+                # 无dataUrl或非base64格式：拒绝
+                return False, "Artifact must have base64-encoded dataUrl"
+            
+            # 提取并解码base64
+            try:
+                b64_data = data_url.split(';base64,', 1)[1]
+                content_bytes = base64.b64decode(b64_data)
+            except Exception as e:
+                # base64解码失败：拒绝（fail closed）
+                return False, f"Artifact base64 decode failed: {str(e)}"
+            
+            # 按真实格式区分处理
+            # 允许的图片类型（验证magic bytes）
+            allowed_images = {
+                'image/png': (b'\x89PNG\r\n\x1a\n', 8),
+                'image/jpeg': (b'\xff\xd8', 2),
+                'image/jpg': (b'\xff\xd8', 2),
+                'image/gif': (b'GIF8', 4),  # GIF87a或GIF89a
+                'image/webp': (b'RIFF', 4),  # 还需检查offset 8的WEBP
+            }
+            
+            # 允许的文本类型（必须UTF-8解码）
+            allowed_text = {
+                'text/plain', 'text/csv', 'text/markdown', 'text/html',
+                'application/json', 'application/xml', 'text/xml',
+                'image/svg+xml',  # SVG作为文本处理
+            }
+            
+            is_image = mime_type in allowed_images
+            is_text = mime_type in allowed_text or file_name.endswith('.svg')
+            
+            if not is_image and not is_text:
+                # 未知或禁止的类型：拒绝（fail closed）
+                return False, f"Artifact type {mime_type} not in allowed list (images: png/jpg/gif/webp; text: txt/csv/md/html/json/xml/svg)"
+            
+            if is_image:
+                # 图片：验证magic bytes
+                if mime_type == 'image/webp':
+                    # WebP特殊检查：RIFF....WEBP
+                    if not (content_bytes[:4] == b'RIFF' and content_bytes[8:12] == b'WEBP'):
+                        return False, f"Artifact declared as {mime_type} but magic bytes mismatch"
+                else:
+                    magic, length = allowed_images[mime_type]
+                    if not content_bytes[:length].startswith(magic):
+                        return False, f"Artifact declared as {mime_type} but magic bytes mismatch"
+                # 图片内容不检查OCR/隐写（已知限制）
+            
+            elif is_text:
+                # 文本：必须能UTF-8解码并检查内容
                 try:
-                    # 提取并解码base64内容
-                    b64_data = data_url.split(';base64,', 1)[1]
-                    content_bytes = base64.b64decode(b64_data)
-                    
-                    # 尝试作为文本解码（文本文件/配置文件）
-                    try:
-                        content_text = content_bytes.decode('utf-8', errors='replace')
-                        
-                        # 检查敏感值模式
-                        for pattern in _SENSITIVE_VALUE_RE:
-                            if pattern.search(content_text):
-                                return False, "Artifact content contains sensitive credentials"
-                        
-                        # 检查环境变量泄露
-                        for env_name in SENSITIVE_ENV_NAMES:
-                            pattern = rf'\b{re.escape(env_name)}\s*[:=]\s*(?!your_|<|{{|\[)[A-Za-z0-9+/=._-]{{8,}}'
-                            if re.search(pattern, content_text, re.IGNORECASE):
-                                return False, "Artifact content contains environment variable"
-                    except Exception:
-                        # 无法解码为UTF-8（可能是图片等二进制）：跳过内容检查
-                        pass
-                except Exception:
-                    # base64解码失败：不阻断（可能是格式问题，但文件名已检查过）
-                    pass
+                    content_text = content_bytes.decode('utf-8')
+                except UnicodeDecodeError as e:
+                    # 声明为text但无法UTF-8解码：拒绝（fail closed）
+                    return False, f"Artifact declared as text ({mime_type}) but UTF-8 decode failed: {str(e)}"
+                
+                # SVG和其他文本：扫描危险内容
+                # 检查敏感值模式
+                for pattern in _SENSITIVE_VALUE_RE:
+                    if pattern.search(content_text):
+                        return False, "Artifact content contains sensitive credentials"
+                
+                # 检查环境变量泄露
+                for env_name in SENSITIVE_ENV_NAMES:
+                    pattern = rf'\b{re.escape(env_name)}\s*[:=]\s*(?!your_|<|{{|\[)[A-Za-z0-9+/=._-]{{8,}}'
+                    if re.search(pattern, content_text, re.IGNORECASE):
+                        return False, "Artifact content contains environment variable"
     
     return True, None
 

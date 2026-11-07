@@ -1155,10 +1155,9 @@ async def create_agent_task(
     # 发起方标识：优先 app_id，否则 source，均未提供时保持 None（Gateway用默认值 "direct"）
     initiator = (body.app_id or body.source or "").strip() or None
     
-    # 调用上下文：默认hired（云端API是雇佣调用），显式local时不处理产物
-    call_ctx = str(body.call_context or "hired").strip().lower()
-    if call_ctx not in ("local", "hired"):
-        call_ctx = "hired"
+    # 调用上下文：远端HTTP API强制hired（不信任用户输入call_context）
+    # 只有本机gateway（agent-http.js）才允许local模式
+    call_ctx = "hired"
     
     if body.stream:
         from dispatch_agent import iter_agent_task_sse

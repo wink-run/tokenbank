@@ -828,15 +828,8 @@ async def handle_agent_task(
                 note=f"agent_task failed refund task_id={task_id}",
             )
 
-        # 处理产物：雇佣/远程调用需要上传图片/文件，改写本地路径为可访问URL
-        # 本机直接调用（call_context="local"）保留本地路径
+        # 安全：hired模式先检查安全性，通过后才上传artifacts（fail closed）
         raw_artifacts = gateway_response.get("artifacts")
-        if call_context == "hired":
-            processed_output, public_arts = _apply_artifacts(task_id, output_text, raw_artifacts)
-        else:
-            processed_output, public_arts = output_text, []
-        
-        # 安全：hired模式输出检查和路径脱敏（程序级硬规则，第一层防御）
         if call_context == "hired" and success:
             from .agent_safety import check_output_safety, sanitize_paths_in_output
             
@@ -846,9 +839,9 @@ async def handle_agent_task(
             if session_root and "metadata" in gateway_response:
                 gateway_response["metadata"].pop("session_root", None)
             
-            # 1. 检查输出文本和artifacts安全性
+            # 1. 先检查输出文本和artifacts安全性（在上传之前）
             output_safe, output_err = check_output_safety(
-                processed_output,
+                output_text,
                 artifacts=raw_artifacts,
                 session_dir=session_root,
             )
@@ -857,7 +850,7 @@ async def handle_agent_task(
                     "[dispatch_agent] Blocked unsafe hired output: task=%s, assistant=%s",
                     task_id, assistant_id,
                 )
-                # 阻断输出，返回安全错误（不包含敏感值）
+                # 阻断输出，不上传artifacts，不透出原文
                 return {
                     "ok": False,
                     "task_id": task_id,
@@ -867,8 +860,17 @@ async def handle_agent_task(
                     "credits_refunded": AGENT_TASK_CREDITS if not guest else 0,
                 }
             
-            # 2. 路径脱敏（基于实际session root）
+            # 2. 安全检查通过，上传artifacts并改写路径
+            processed_output, public_arts = _apply_artifacts(task_id, output_text, raw_artifacts)
+            
+            # 3. 路径脱敏（基于实际session root）
             processed_output = sanitize_paths_in_output(processed_output, session_root=session_root)
+        elif call_context == "local":
+            # 本机local：不上传artifacts，保留本地路径
+            processed_output, public_arts = output_text, []
+        else:
+            # hired但失败：不上传artifacts
+            processed_output, public_arts = output_text, []
         
         result = {
             "ok": success,
@@ -1409,15 +1411,8 @@ async def iter_agent_task_sse(
                 # 提取 response_id（用于多轮对话续session）
                 response_id = event_data.get("id")
                 
-                # 处理产物：雇佣/远程调用需要上传图片/文件，改写本地路径为可访问URL
-                # 本机直接调用（call_context="local"）保留本地路径
+                # 安全：hired模式先检查安全性，通过后才上传artifacts（fail closed）
                 raw_artifacts = event_data.get("artifacts")
-                if call_context == "hired":
-                    processed_output, public_arts = _apply_artifacts(task_id, output_text, raw_artifacts)
-                else:
-                    processed_output, public_arts = output_text, []
-                
-                # 安全：hired模式输出检查和路径脱敏（程序级硬规则，第一层防御）
                 if call_context == "hired" and gateway_status == "completed":
                     from .agent_safety import check_output_safety, sanitize_paths_in_output
                     
@@ -1427,9 +1422,9 @@ async def iter_agent_task_sse(
                     if session_root and "metadata" in gateway_response:
                         gateway_response["metadata"].pop("session_root", None)
                     
-                    # 1. 检查输出文本和artifacts安全性
+                    # 1. 先检查输出文本和artifacts安全性（在上传之前）
                     output_safe, output_err = check_output_safety(
-                        processed_output,
+                        output_text,
                         artifacts=raw_artifacts,
                         session_dir=session_root,
                     )
@@ -1438,7 +1433,7 @@ async def iter_agent_task_sse(
                             "[dispatch_agent] Blocked unsafe hired output (SSE): task=%s, assistant=%s",
                             task_id, assistant_id,
                         )
-                        # 阻断输出，返回安全错误（不包含敏感值）
+                        # 阻断输出，不上传artifacts，不透出原文
                         yield _sse({
                             "event": "error",
                             "ok": False,
@@ -1449,8 +1444,17 @@ async def iter_agent_task_sse(
                         })
                         return
                     
-                    # 2. 路径脱敏（基于实际session root）
+                    # 2. 安全检查通过，上传artifacts并改写路径
+                    processed_output, public_arts = _apply_artifacts(task_id, output_text, raw_artifacts)
+                    
+                    # 3. 路径脱敏（基于实际session root）
                     processed_output = sanitize_paths_in_output(processed_output, session_root=session_root)
+                elif call_context == "local":
+                    # 本机local：不上传artifacts，保留本地路径
+                    processed_output, public_arts = output_text, []
+                else:
+                    # hired但未完成或失败：不上传artifacts
+                    processed_output, public_arts = output_text, []
                 
                 done_payload = {
                     "event": "done",
