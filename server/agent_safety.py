@@ -299,34 +299,68 @@ def check_output_safety(text: str, artifacts: Optional[List[dict]] = None, sessi
         if re.search(pattern, text, re.IGNORECASE):
             return False, "Output contains sensitive environment variable"
     
-    # 3. Artifacts路径验证（必须在授权会话目录内）
-    if artifacts and session_dir:
+    # 3. Artifacts检查：路径验证和内容秘密检查
+    if artifacts:
         import os
-        try:
-            session_real = os.path.realpath(session_dir)
-        except Exception:
-            return False, "Cannot verify artifact paths (session directory invalid)"
+        import base64
         
-        for art in artifacts:
-            local_path = art.get('localPath')
-            if not local_path:
-                continue
-            
+        # 3a. 路径验证（如果提供了session_dir）
+        if session_dir:
             try:
-                file_real = os.path.realpath(local_path)
+                session_real = os.path.realpath(session_dir)
             except Exception:
-                return False, "Artifact contains invalid path"
+                return False, "Cannot verify artifact paths (session directory invalid)"
             
-            # 必须在session目录内
-            if not file_real.startswith(session_real + os.sep):
-                return False, "Artifact path outside authorized session directory"
-            
-            # 敏感配置文件不得交付
-            file_name = os.path.basename(file_real).lower()
-            if any(file_name.startswith(p) for p in ['.env', '.aws', '.ssh']):
-                return False, "Artifact contains sensitive configuration file"
-            if any(file_name.endswith(e) for e in ['.pem', '.key', 'id_rsa', 'id_ed25519']):
-                return False, "Artifact contains private key file"
+            for art in artifacts:
+                local_path = art.get('localPath')
+                if not local_path:
+                    continue
+                
+                try:
+                    file_real = os.path.realpath(local_path)
+                except Exception:
+                    return False, "Artifact contains invalid path"
+                
+                # 必须在session目录内
+                if not file_real.startswith(session_real + os.sep):
+                    return False, "Artifact path outside authorized session directory"
+                
+                # 敏感配置文件不得交付
+                file_name = os.path.basename(file_real).lower()
+                if any(file_name.startswith(p) for p in ['.env', '.aws', '.ssh']):
+                    return False, "Artifact contains sensitive configuration file"
+                if any(file_name.endswith(e) for e in ['.pem', '.key', 'id_rsa', 'id_ed25519']):
+                    return False, "Artifact contains private key file"
+        
+        # 3b. 内容秘密检查（检查dataUrl/base64内容是否包含敏感信息）
+        for art in artifacts:
+            data_url = art.get('dataUrl', '')
+            if data_url and ';base64,' in data_url:
+                try:
+                    # 提取并解码base64内容
+                    b64_data = data_url.split(';base64,', 1)[1]
+                    content_bytes = base64.b64decode(b64_data)
+                    
+                    # 尝试作为文本解码（文本文件/配置文件）
+                    try:
+                        content_text = content_bytes.decode('utf-8', errors='replace')
+                        
+                        # 检查敏感值模式
+                        for pattern in _SENSITIVE_VALUE_RE:
+                            if pattern.search(content_text):
+                                return False, "Artifact content contains sensitive credentials"
+                        
+                        # 检查环境变量泄露
+                        for env_name in SENSITIVE_ENV_NAMES:
+                            pattern = rf'\b{re.escape(env_name)}\s*[:=]\s*(?!your_|<|{{|\[)[A-Za-z0-9+/=._-]{{8,}}'
+                            if re.search(pattern, content_text, re.IGNORECASE):
+                                return False, "Artifact content contains environment variable"
+                    except Exception:
+                        # 无法解码为UTF-8（可能是图片等二进制）：跳过内容检查
+                        pass
+                except Exception:
+                    # base64解码失败：不阻断（可能是格式问题，但文件名已检查过）
+                    pass
     
     return True, None
 

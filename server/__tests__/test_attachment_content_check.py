@@ -175,19 +175,20 @@ class TestAttachmentContentCheck:
         is_safe, error = agent_safety.check_input_safety("", files=files)
         assert is_safe, "Image files should be allowed"
 
-    def test_decode_failure_not_blocking(self):
-        """解码失败不阻断（可能是误判的binary）"""
+    def test_decode_failure_must_reject(self):
+        """解码失败必须拒绝（fail closed原则）"""
         import agent_safety
         
         # 无效的base64（故意破坏）
         files = [{
-            "name": "data.bin",
+            "name": "data.txt",
             "dataUrl": "data:text/plain;base64,invalid!!!base64"
         }]
         
         is_safe, error = agent_safety.check_input_safety("", files=files)
-        # 解码失败不应该阻断（只要文件名和MIME type安全）
-        assert is_safe
+        # 解码失败必须拒绝（fail closed）
+        assert not is_safe
+        assert "decode" in error.lower() or "base64" in error.lower()
 
     def test_multiple_files_one_dangerous(self):
         """多个附件中有一个危险文件，应该拒绝"""
@@ -225,6 +226,73 @@ class TestAttachmentContentCheck:
         }]
         
         is_safe, error = agent_safety.check_input_safety(safe_prompt, files=files)
+        assert not is_safe
+
+    def test_reject_unknown_mime_type(self):
+        """拒绝未在允许列表中的MIME类型（fail closed）"""
+        import agent_safety
+        
+        # PDF文件（未在允许列表中）
+        pdf_content = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3"
+        b64_content = base64.b64encode(pdf_content).decode()
+        
+        files = [{
+            "name": "document.pdf",
+            "dataUrl": f"data:application/pdf;base64,{b64_content}"
+        }]
+        
+        is_safe, error = agent_safety.check_input_safety("", files=files)
+        assert not is_safe
+        assert "not allowed" in error.lower() or "not in the allowed list" in error.lower()
+
+    def test_reject_text_invalid_utf8(self):
+        """拒绝声明为text但无法UTF-8解码的文件"""
+        import agent_safety
+        
+        # 无效UTF-8字节序列
+        invalid_utf8 = b'\x80\x81\x82\x83'
+        b64_content = base64.b64encode(invalid_utf8).decode()
+        
+        files = [{
+            "name": "invalid.txt",
+            "dataUrl": f"data:text/plain;base64,{b64_content}"
+        }]
+        
+        is_safe, error = agent_safety.check_input_safety("", files=files)
+        assert not is_safe
+        assert "utf-8" in error.lower() or "decode" in error.lower()
+
+    def test_reject_image_wrong_magic_bytes(self):
+        """拒绝magic bytes与MIME类型不匹配的图片"""
+        import agent_safety
+        
+        # 声明为PNG但实际不是PNG
+        fake_png = b"This is not a PNG file"
+        b64_content = base64.b64encode(fake_png).decode()
+        
+        files = [{
+            "name": "fake.png",
+            "dataUrl": f"data:image/png;base64,{b64_content}"
+        }]
+        
+        is_safe, error = agent_safety.check_input_safety("", files=files)
+        assert not is_safe
+        assert "magic bytes" in error.lower() or "mime type" in error.lower()
+
+    def test_reject_archive_file(self):
+        """拒绝归档文件（无法审核内部内容）"""
+        import agent_safety
+        
+        # ZIP文件（禁止类型）
+        zip_content = b"PK\x03\x04"  # ZIP magic bytes
+        b64_content = base64.b64encode(zip_content).decode()
+        
+        files = [{
+            "name": "archive.zip",
+            "dataUrl": f"data:application/zip;base64,{b64_content}"
+        }]
+        
+        is_safe, error = agent_safety.check_input_safety("", files=files)
         assert not is_safe
 
 

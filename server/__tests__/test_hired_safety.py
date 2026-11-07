@@ -199,11 +199,11 @@ Include error handling and unit tests.
     is_safe, _ = check_input_safety(safe_request)
     assert is_safe
     
-    # 场景2：合法的文件操作（非系统文件）
+    # 场景2：合法的文件名（非系统文件）
     safe_with_files = "Process these data files"
     files = [
         {"name": "data.csv"},
-        {"name": "report.pdf"},
+        {"name": "report.txt"},  # 注：实际文件内容需在允许列表（文本/图片）
     ]
     is_safe, _ = check_input_safety(safe_with_files, files)
     assert is_safe
