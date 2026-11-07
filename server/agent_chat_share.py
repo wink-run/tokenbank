@@ -178,7 +178,12 @@ def _turn_sig(msg: dict) -> tuple:
 def _same_user(a: dict | None, b: dict | None) -> bool:
     if not a or not b or a.get("role") != "user" or b.get("role") != "user":
         return False
-    return _turn_sig(a) == _turn_sig(b)
+    if str(a.get("content") or "").strip() != str(b.get("content") or "").strip():
+        return False
+    # 一边还没写上发言人时，仍是同一句
+    left = str(a.get("author") or "")
+    right = str(b.get("author") or "")
+    return not left or not right or left == right
 
 
 def _last_user(messages: list) -> dict | None:
@@ -194,6 +199,13 @@ def _plain_reply_replaced_by(old: dict, new: dict) -> bool:
         return False
     # 只有「纯正文」被「带分段」换掉。两句都没有工具时仍是先后两轮
     return not old.get("parts") and bool(new.get("parts"))
+
+
+def _rich_already_answers(old: dict, new: dict) -> bool:
+    """带工具的回复已经在库里，任务结束时又来了一句纯正文。不要再追加。"""
+    if old.get("role") != "assistant" or new.get("role") != "assistant":
+        return False
+    return bool(old.get("parts")) and not new.get("parts")
 
 
 def _suffix_overlap(merged: list, fresh: list) -> int:
@@ -250,6 +262,16 @@ def append_share_turns(existing, incoming, now_ms: int | None = None, user_at: i
                 richer[key] = merged[-1][key]
         merged[-1] = richer
         pending = pending[consumed:]
+    elif (
+        len(pending) >= 2
+        and merged
+        and _rich_already_answers(merged[-1], pending[1])
+        and _same_user(_last_user(merged[:-1]), pending[0])
+    ):
+        # 工具回复已经写下。纯正文只在工具回复还没有正文时补上
+        if not str(merged[-1].get("content") or "").strip():
+            merged[-1]["content"] = pending[1].get("content") or ""
+        pending = pending[2:]
     now = int(now_ms if now_ms is not None else time.time() * 1000)
     spoken_user = int(user_at) if isinstance(user_at, (int, float)) and user_at > 0 else 0
     for msg in pending:

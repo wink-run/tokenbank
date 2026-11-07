@@ -156,6 +156,14 @@ def test_plain_release_is_replaced_by_tool_reply():
     folded = append_share_turns(base, other, now_ms=90_000)
     assert [m["content"] for m in folded] == ["查一下", "工具跑完了"]
     assert folded[0]["at"] == 1000
+    # 工具回复先落库，任务结束又写来一句纯正文，不能再追加一条
+    later = append_share_turns(folded, [
+        {"role": "user", "content": "查一下"},
+        {"role": "assistant", "content": "结果是 42"},
+    ], now_ms=90_000)
+    assert [m["role"] for m in later] == ["user", "assistant"]
+    assert later[1]["parts"][0]["type"] == "tool"
+    assert later[1]["content"] == "工具跑完了"
 
 
 def test_share_drops_empty_chat():

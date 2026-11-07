@@ -604,20 +604,17 @@ createApp({
     }
     function isPlainTwin(a, b) {
       if (!a || !b || a.role !== 'assistant' || b.role !== 'assistant') return false
-      // 只合并「带工具」和同一句纯正文。两句都没有工具，或正文对不上，就保持原样
-      if (hasReplyParts(a) === hasReplyParts(b)) return false
-      const ta = replyText(a)
-      const tb = replyText(b)
-      if (!ta || !tb || ta === tb) return true
-      const short = ta.length <= tb.length ? ta : tb
-      const long = short === ta ? tb : ta
-      return long.includes(short)
+      // 一条带工具，一条是任务结束补上的纯正文。正文被改写后也还是同一句
+      return hasReplyParts(a) !== hasReplyParts(b)
     }
     function keepRichReply(a, b) {
       const rich = hasReplyParts(b) ? b : a
       const other = rich === a ? b : a
       const extra = String(other.content || '').trim()
-      revealAnswer(rich, extra || replyText(rich))
+      const shown = textInParts(rich)
+      // 工具回复里已经有正文时，不再把纯正文那句再贴一遍
+      if (!shown) revealAnswer(rich, extra || replyText(rich))
+      else if (extra && extra !== shown && (extra.startsWith(shown) || shown.startsWith(extra))) revealAnswer(rich, extra)
       // 纯正文是已经写完的那句。合并后不要再显示「正在执行」
       if (!hasReplyParts(other) && extra) {
         rich.pending = false
@@ -773,12 +770,20 @@ createApp({
         }
         let hitAt = -1
         for (let n = 0; n < into.length; n += 1) {
-          if (used.has(n) || !sameLine(into[n], row)) continue
+          if (used.has(n)) continue
+          if (sameLine(into[n], row)) {
+            hitAt = n
+            break
+          }
+          // 只合并这一轮末尾的「工具回复 + 纯正文」，更早的回复别卷进来
+          if (!isPlainTwin(into[n], row)) continue
+          if (into.slice(n + 1).some(item => item && item.role === 'user')) continue
           hitAt = n
           break
         }
         if (hitAt >= 0) {
           used.add(hitAt)
+          if (isPlainTwin(into[hitAt], row)) into[hitAt] = keepRichReply(into[hitAt], row)
           const hit = into[hitAt]
           if (!hit.author && row.author) hit.author = row.author
           // 服务端记下的发言时间覆盖本机后来盖上的完成时间
