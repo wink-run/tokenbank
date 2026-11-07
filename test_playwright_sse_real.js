@@ -90,7 +90,7 @@ async function runTest() {
     page.on('console', msg => {
       const text = msg.text();
       const type = msg.type();
-      if (type === 'error' || type === 'warning' || text.includes('Error') || text.includes('fetch') || text.includes('agent-tasks') || text.includes('turn/finish')) {
+      if (type === 'error' || type === 'warning' || text.includes('Error') || text.includes('fetch') || text.includes('agent-tasks') || text.includes('turn/finish') || text.includes('SSE') || text.includes('done') || text.includes('finalOk')) {
         console.log(`  [浏览器${type}] ${text}`);
       }
     });
@@ -247,6 +247,10 @@ async function runTest() {
       console.log(`  [捕获] ${method} ${url.split('?')[0]}`);
       
       if (method === 'GET' && url.includes('/shares/') && !url.includes('/turn/')) {
+        // 动态turn状态：当有hold参数时，表示这是轮询请求，不返回task_id避免被判定为foreign turn
+        const hasHold = url.includes('hold=');
+        const turnData = hasHold ? null : null; // 始终返回null，避免轮询清除holdingTurn
+        
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -255,24 +259,38 @@ async function runTest() {
             assistant_id: 'test-agent',
             author: 'Test User',
             created_at: new Date().toISOString(),
-            messages: [],
+            messages: [
+              // 至少一条消息，否则页面认为share无效
+              { role: 'user', content: '之前的对话', at: Date.now() - 120000 },
+            ],
             participants: [{
               id: 999,
               nickname: 'Test User',
               role: 'owner',
             }],
-            turn: null, // 无active turn，允许claim
+            turn: turnData,
           }),
         });
-      } else if (method === 'POST' && url.includes('/turn/claim')) {
-        console.log(`  [turn/claim] 返回token`);
+      } else if (method === 'POST' && url.includes('/shares/') && url.includes('/turn/task')) {
+        // POST /api/agent-chats/shares/{id}/turn/task - publish task id
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true }),
+        });
+      } else if (method === 'POST' && url.includes('/shares/') && url.includes('/turn') && !url.includes('/finish') && !url.includes('/task')) {
+        // POST /api/agent-chats/shares/{id}/turn - claim turn
+        console.log(`  [turn claim] 返回ok和turn`);
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
             ok: true,
-            token: 'test-turn-token',
-            at: Date.now(),
+            turn: {
+              author: 'Test User',
+              text: '画一幅画',
+              at: Date.now(),
+            },
           }),
         });
       } else {
@@ -358,8 +376,72 @@ async function runTest() {
       console.log(`  ✗ 发送按钮不可见\n`);
     }
     
-    // 等待SSE处理（3秒足够处理done事件）
-    await page.waitForTimeout(3000);
+    // 立即注入详细的调试钩子到页面关键函数
+    await page.evaluate(() => {
+      window._debugLog = [];
+      const log = (msg) => {
+        window._debugLog.push(`[${Date.now() % 10000}ms] ${msg}`);
+        console.log(`[DEBUG] ${msg}`);
+      };
+      
+      // Hook sendMessage的关键步骤
+      if (typeof sendMessage !== 'undefined') {
+        const origSendMessage = sendMessage;
+        window.sendMessage = async function() {
+          log('sendMessage called');
+          return origSendMessage.apply(this, arguments);
+        };
+      }
+      
+      // Hook claimRelayTurn
+      if (typeof claimRelayTurn !== 'undefined') {
+        const origClaim = claimRelayTurn;
+        window.claimRelayTurn = async function(...args) {
+          log(`claimRelayTurn called with: ${JSON.stringify(args[0]?.slice(0, 20))}`);
+          const result = await origClaim.apply(this, args);
+          log(`claimRelayTurn returned: ${result}`);
+          return result;
+        };
+      }
+      
+      // Hook readAgentSse completion
+      if (typeof readAgentSse !== 'undefined') {
+        const origReadSse = readAgentSse;
+        window.readAgentSse = async function(...args) {
+          log('readAgentSse called');
+          const outcome = await origReadSse.apply(this, args);
+          log(`readAgentSse outcome: finalOk=${outcome?.finalOk}, stopped=${outcome?.stopped}, nextAuto=${outcome?.nextAuto}`);
+          return outcome;
+        };
+      }
+      
+      // Hook endRelayTurn
+      if (typeof endRelayTurn !== 'undefined') {
+        const origEnd = endRelayTurn;
+        window.endRelayTurn = async function(commit) {
+          log(`endRelayTurn called with commit=${commit}`);
+          return origEnd.apply(this, arguments);
+        };
+      }
+    }).catch(e => console.log(`  注入失败: ${e.message}`));
+    
+    // 等待5秒让SSE完成
+    await page.waitForTimeout(5000);
+    
+    // 读取调试日志
+    const debugLog = await page.evaluate(() => window._debugLog || []).catch(() => []);
+    if (debugLog.length > 0) {
+      console.log(`  调试日志: ${debugLog.join('; ')}`);
+    }
+    
+    // 等待/turn/finish请求（最多8秒）
+    console.log(`  等待/turn/finish调用...`);
+    const turnFinishPromise = page.waitForRequest(
+      req => req.url().includes('/turn/finish') && req.method() === 'POST',
+      { timeout: 8000 }
+    ).catch(() => null);
+    
+    const turnFinishReq = await turnFinishPromise;
     
     // 检查页面是否还活着
     const pageAlive = await page.evaluate(() => true).catch(() => false);
@@ -404,10 +486,7 @@ async function runTest() {
       console.log(`    错误: "${afterTask.errText}"\n`);
     }
     
-    // 检查是否在relay模式且是否调用了/turn/finish
-    // /turn/finish可能在SSE完成后异步调用，再等待一下
-    await page.waitForTimeout(1000);
-    console.log(`  等待/turn/finish调用...\n`);
+    // turnFinishReq已在前面通过waitForRequest获取
     
     // 验证任务创建
     const taskCreations = testResults.capturedRequests.agentTasks;
@@ -422,7 +501,16 @@ async function runTest() {
     
     // 验证/turn/finish调用
     const finishCalls = testResults.capturedRequests.turnFinish;
-    addTest('/turn/finish被调用', finishCalls.length > 0);
+    const turnFinishCalled = !!turnFinishReq || finishCalls.length > 0;
+    addTest('/turn/finish被调用', turnFinishCalled);
+    
+    if (!turnFinishCalled) {
+      console.log(`  ⚠ /turn/finish未被调用，可能原因：`);
+      console.log(`    - holdingTurn不为true`);
+      console.log(`    - relayShareId为空`);
+      console.log(`    - SSE outcome.finalOk不为true`);
+      console.log(`    - 页面逻辑条件不满足`);
+    }
     
     if (finishCalls.length > 0) {
       const finish = finishCalls[0];
