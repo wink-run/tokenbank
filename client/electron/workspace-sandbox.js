@@ -34,7 +34,7 @@ function realpathOrSelf(p) {
   try { return fs.realpathSync(p); } catch { return path.resolve(p); }
 }
 
-function buildSeatbeltProfile({ workspace, home, pathEnv } = {}) {
+function buildSeatbeltProfile({ workspace, home, pathEnv, executable, tmpDir } = {}) {
   const logical = path.resolve(String(workspace || ''));
   const root = realpathOrSelf(logical);
   const homeDir = path.resolve(home || os.homedir());
@@ -46,10 +46,28 @@ function buildSeatbeltProfile({ workspace, home, pathEnv } = {}) {
     if (!dir) continue;
     reads.add(path.resolve(dir));
   }
+  if (tmpDir) {
+    const tmp = path.resolve(String(tmpDir));
+    reads.add(tmp);
+    writes.add(tmp);
+  }
+  // CLI 本体可能在家目录里。只放行它所在的目录，不放行整个家目录
+  if (executable) {
+    try {
+      const binDir = path.dirname(fs.realpathSync(String(executable)));
+      reads.add(binDir);
+    } catch { /* 找不到就靠 PATH */ }
+  }
   for (const rel of TOOL_STATE) {
     const abs = path.join(homeDir, rel);
     reads.add(abs);
     writes.add(abs);
+  }
+  // Claude 的登录文件在家目录这一层，不在 .claude 里面
+  for (const name of ['.claude.json', '.claude.json.backup']) {
+    const file = path.join(homeDir, name);
+    reads.add(file);
+    writes.add(file);
   }
   const lines = [
     '(version 1)',
@@ -68,6 +86,8 @@ function buildSeatbeltProfile({ workspace, home, pathEnv } = {}) {
     '(allow file-map-executable)',
     // 只放行根目录这一层，否则解析 /bin、/usr 时会直接中止
     '(allow file-read* (literal "/"))',
+    // 家目录本身不能读内容，但要能穿过它走进工作目录。否则一写文件就是 Operation not permitted
+    '(allow file-read-metadata (subpath "/"))',
     // 工具会把丢弃的输出写到这里。不放行的话很多命令一重定向就失败
     '(allow file-write* (literal "/dev/null"))',
   ];
@@ -86,6 +106,8 @@ function wrapConfinedSpawn({ executable, args, workingDir, env } = {}) {
     workspace: workingDir,
     home: env && env.HOME,
     pathEnv: env && env.PATH,
+    executable,
+    tmpDir: env && (env.TMPDIR || env.TMP),
   });
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-sandbox-'));
   const profilePath = path.join(dir, 'workspace.sb');
