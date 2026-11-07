@@ -1,0 +1,27 @@
+{
+  "name": "tokenbank",
+  "version": "1.0.0",
+  "description": "> ## 你的 AI，该有个管家了。 > > **个人 AI 中枢 · Token 管家。** 一个本地网关接入 Claude Code、Codex、Cursor、WorkBuddy、Kimi Code 等——每个 Token 看得清，花得更少，AI 资产一处纳管，一句话调度智能体团队，闲置的模型和智能体还能出租赚钱。 > > 开源 · 不改使用习惯 · 随时一键还原",
+  "main": "test_executor_gateway_output.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wink-run/tokenbank.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/wink-run/tokenbank/issues"
+  },
+  "homepage": "https://github.com/wink-run/tokenbank#readme",
+  "devDependencies": {
+    "playwright": "^1.65.0"
+  }
+}
