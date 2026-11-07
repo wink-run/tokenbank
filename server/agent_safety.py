@@ -71,6 +71,12 @@ def check_input_safety(prompt: str, files: Optional[List[dict]] = None) -> Tuple
     """
     检查输入安全性（hired模式硬规则）
     
+    检查项目：
+    1. prompt中的危险命令和敏感路径
+    2. 附件文件名的路径穿越和敏感路径
+    3. 附件内容的危险命令和敏感信息（文本文件）
+    4. 附件MIME类型限制（拒绝可执行文件）
+    
     Returns:
         (is_safe, error_message)
         is_safe=False时必须拒绝任务
@@ -86,18 +92,76 @@ def check_input_safety(prompt: str, files: Optional[List[dict]] = None) -> Tuple
             if pattern.search(prompt):
                 return False, "Input attempts to access sensitive paths or credentials"
     
-    # 3. 附件路径穿越和敏感路径（必须检查，即使prompt为空）
+    # 3. 附件检查（必须检查，即使prompt为空）
     if files:
+        import base64
+        
+        # 禁止的MIME类型（可执行文件、脚本）
+        FORBIDDEN_MIMES = [
+            'application/x-executable',
+            'application/x-sharedlib',
+            'application/x-dosexec',
+            'application/x-msdownload',
+            'application/x-sh',
+            'application/x-csh',
+            'application/x-perl',
+            'application/x-python',
+            'application/x-ruby',
+        ]
+        
         for f in files:
             name = str(f.get('name', ''))
-            # 路径穿越检查
+            
+            # 3a. 文件名路径穿越检查
             for pattern in _PATH_TRAVERSAL_RE:
                 if pattern.search(name):
                     return False, "File attachment contains path traversal attempt"
-            # 敏感路径检查
+            
+            # 3b. 文件名敏感路径检查
             for pattern in _SENSITIVE_PATH_RE:
                 if pattern.search(name):
                     return False, "File attachment attempts to access sensitive paths"
+            
+            # 3c. MIME类型检查（如果有dataUrl）
+            data_url = f.get('dataUrl', '')
+            if data_url:
+                # 提取MIME type
+                if data_url.startswith('data:'):
+                    header = data_url.split(',', 1)[0]
+                    mime_type = header.replace('data:', '').split(';')[0].strip().lower()
+                    
+                    # 拒绝可执行文件
+                    if mime_type in FORBIDDEN_MIMES:
+                        return False, f"File type {mime_type} is not allowed for security reasons"
+                    
+                    # 拒绝.exe/.sh等危险扩展名（双重检查）
+                    name_lower = name.lower()
+                    if any(name_lower.endswith(ext) for ext in ['.exe', '.sh', '.bash', '.bat', '.cmd', '.com', '.scr', '.vbs', '.ps1']):
+                        return False, "Executable file attachments are not allowed"
+                    
+                    # 3d. 文本文件内容检查
+                    # 只检查可以安全解码为文本的MIME类型
+                    text_mimes = ['text/', 'application/json', 'application/xml', 'application/javascript']
+                    if any(mime_type.startswith(prefix) for prefix in text_mimes):
+                        try:
+                            # 解码base64内容
+                            if ';base64,' in data_url:
+                                b64_data = data_url.split(';base64,', 1)[1]
+                                content_bytes = base64.b64decode(b64_data)
+                                content_text = content_bytes.decode('utf-8', errors='ignore')
+                                
+                                # 检查危险命令
+                                for pattern in _DANGEROUS_CMD_RE:
+                                    if pattern.search(content_text):
+                                        return False, "File attachment contains potentially dangerous operations"
+                                
+                                # 检查敏感路径
+                                for pattern in _SENSITIVE_PATH_RE:
+                                    if pattern.search(content_text):
+                                        return False, "File attachment contains references to sensitive paths"
+                        except Exception:
+                            # 解码失败不阻断（可能是binary data误判为text）
+                            pass
     
     return True, None
 
