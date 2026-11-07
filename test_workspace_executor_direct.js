@@ -141,12 +141,21 @@ test('绘图任务排除子目录package.json', () => {
   }
 }, true);
 
-test('明确提及时收集子目录package.json', () => {
-  const explicitSubOutput = '子项目已创建 subproject/package.json';
+test('明确提及时收集子目录package.json（中文标点）', () => {
+  const explicitSubOutput = '子项目已创建：subproject/package.json';
   const artifacts = collectWorkspaceArtifacts(testWorkspace, explicitSubOutput, taskStartTime);
   const hasSubPackage = artifacts.some(a => a.name === 'package.json' && a.localPath && a.localPath.includes('subproject'));
   if (!hasSubPackage) {
     throw new Error('未收集正文提及的子目录package.json');
+  }
+});
+
+test('Markdown反引号中的文件路径', () => {
+  const mdOutput = '生成了文件 `subproject/package.json` 和其他文件。';
+  const artifacts = collectWorkspaceArtifacts(testWorkspace, mdOutput, taskStartTime);
+  const hasSubPackage = artifacts.some(a => a.name === 'package.json' && a.localPath && a.localPath.includes('subproject'));
+  if (!hasSubPackage) {
+    throw new Error('未识别反引号中的路径');
   }
 });
 

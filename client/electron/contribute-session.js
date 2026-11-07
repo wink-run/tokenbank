@@ -121,8 +121,10 @@ function mentionedPaths(text, workingDir) {
     found.push(p);
   }
   // 目录和文件名可以是中文，例如 outputs/宣传片.srt
+  // 边界：空白、引号、反引号、括号、中文标点（：。，、；！？）
+  // 路径字符：排除空白、引号、特殊字符及中文标点（路径本身不含标点）
   const relRe = new RegExp(
-    String.raw`(?:^|[\s'"\`（(])((?:[^\s'"\`<>|*?\u0000/\\]+[\\/])+[^\s'"\`<>|*?\u0000/\\]+\.(?:${ARTIFACT_EXT}))`,
+    String.raw`(?:^|[\s'"\`（(：。，、；！？])((?:[^\s'"\`<>|*?\u0000/\\：。，、；！？]+[\\/])+[^\s'"\`<>|*?\u0000/\\：。，、；！？]+\.(?:${ARTIFACT_EXT}))`,
     'gim',
   );
   while ((m = relRe.exec(raw))) {
@@ -132,7 +134,7 @@ function mentionedPaths(text, workingDir) {
   }
   // 封面常只写文件名，例如 `轻记账技能-封面-16x9.png`，没有目录也要能找到。
   const bareRe = new RegExp(
-    String.raw`(?:^|[\s'"\`（(])([^\s'"\`<>|*?\u0000/\\]{1,120}\.(?:${ARTIFACT_EXT}))`,
+    String.raw`(?:^|[\s'"\`（(：。，、；！？])([^\s'"\`<>|*?\u0000/\\：。，、；！？]{1,120}\.(?:${ARTIFACT_EXT}))`,
     'gim',
   );
   const bareNames = [];

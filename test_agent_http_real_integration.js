@@ -474,7 +474,7 @@ async function runTests() {
     console.log('');
     
     // ========== 测试9: local不收集产物 ==========
-    console.log('测试9: local调用 - 验证不收集产物');
+    console.log('测试9: local调用默认目录 - 验证不收集产物');
     clearSpawnLogs();
     
     const resp9 = await callAgentHttp(port, {
@@ -500,14 +500,85 @@ async function runTests() {
     }
     console.log('');
     
-    // ========== 测试10: 新会话不同目录 ==========
-    console.log('测试10: 同consumer新会话 - 验证不同目录');
+    // ========== 测试9b: local显式working_dir ==========
+    console.log('测试9b: local显式working_dir - 验证spawn cwd');
+    clearSpawnLogs();
+    
+    const localExplicitDir = path.join(testRoot, 'local-explicit-' + Date.now());
+    fs.mkdirSync(localExplicitDir, { recursive: true });
+    
+    const resp9b = await callAgentHttp(port, {
+      harness_id: 'claude-code',
+      input: '画图',
+      metadata: {
+        call_context: 'local',
+        working_dir: localExplicitDir,
+      },
+    });
+    
+    if (resp9b.status !== 200) {
+      console.error(`  请求失败: ${resp9b.status}`, resp9b.body.error?.message || resp9b.body);
+      addTest('local显式目录spawn', false);
+    } else {
+      const task9b = await waitForTask(resp9b.body.id);
+      const spawns9b = getSpawnLogs();
+      const artifacts9b = task9b.result?.artifacts || [];
+      
+      console.log(`  显式目录: ${localExplicitDir}`);
+      console.log(`  spawn cwd: ${spawns9b[0]?.cwd || '(无)'}`);
+      console.log(`  cwd匹配: ${spawns9b[0]?.cwd === localExplicitDir ? 'yes' : 'no'}`);
+      console.log(`  artifacts: ${artifacts9b.length} 个`);
+      console.log(`  workspace_session: ${task9b.result?.workspaceSessionId || '(无)'}`);
+      
+      addTest('local显式cwd正确', spawns9b[0]?.cwd === localExplicitDir);
+      addTest('local显式不收集', artifacts9b.length === 0, true);
+      addTest('local显式无hired workspace', !task9b.result?.workspaceSessionId, true);
+    }
+    console.log('');
+    
+    // ========== 测试10: 缺旧prev授权字段拒绝 ==========
+    console.log('测试10: 续用旧任务（缺context字段）- 验证fail closed');
+    if (!tests.task1Id) {
+      console.log('  ⊘ 跳过（测试1未通过）\n');
+    } else {
+      // 模拟旧数据：直接修改DB，删除context字段
+      const db = executor._getDb();
+      db.prepare('UPDATE agent_tasks SET context = ? WHERE id = ?').run(null, tests.task1Id);
+      
+      clearSpawnLogs();
+      
+      const resp10 = await callAgentHttp(port, {
+        harness_id: 'claude-code',
+        input: '继续',
+        previous_response_id: tests.task1Id,
+        metadata: {
+          assistant_id: 'artist-bot',
+          consumer_key: 'u100',
+          call_context: 'hired',
+        },
+      });
+      
+      const spawns10 = getSpawnLogs();
+      console.log(`  HTTP状态: ${resp10.status}`);
+      console.log(`  spawn次数: ${spawns10.length}`);
+      
+      addTest('缺prev context返回403', resp10.status === 403, true);
+      addTest('缺prev context无spawn', spawns10.length === 0, true);
+      
+      // 恢复context以便后续测试
+      const ctx = { workingDir: tests.cwd1, assistantId: 'artist-bot', consumerKey: 'u100', callContext: 'hired' };
+      db.prepare('UPDATE agent_tasks SET context = ? WHERE id = ?').run(JSON.stringify(ctx), tests.task1Id);
+    }
+    console.log('');
+    
+    // ========== 测试11: 新会话不同目录 ==========
+    console.log('测试11: 同consumer新会话 - 验证不同目录');
     if (!tests.cwd1) {
       console.log('  ⊘ 跳过（测试1未通过）\n');
     } else {
       clearSpawnLogs();
       
-      const resp10 = await callAgentHttp(port, {
+      const resp11 = await callAgentHttp(port, {
         harness_id: 'claude-code',
         input: '画肖像画',
         // 无previous_response_id
@@ -518,17 +589,17 @@ async function runTests() {
         },
       });
       
-      if (resp10.status !== 200) {
-        console.error(`  请求失败: ${resp10.status}`, resp10.body.error?.message || resp10.body);
+      if (resp11.status !== 200) {
+        console.error(`  请求失败: ${resp11.status}`, resp11.body.error?.message || resp11.body);
         addTest('新会话不同目录', false);
       } else {
-        const task10 = await waitForTask(resp10.body.id);
-        const spawns10 = getSpawnLogs();
+        const task11 = await waitForTask(resp11.body.id);
+        const spawns11 = getSpawnLogs();
         
-        console.log(`  新会话cwd: ${spawns10[0]?.cwd || '(无)'}`);
-        console.log(`  与task1不同: ${tests.cwd1 !== spawns10[0]?.cwd ? 'yes' : 'no'}`);
+        console.log(`  新会话cwd: ${spawns11[0]?.cwd || '(无)'}`);
+        console.log(`  与task1不同: ${tests.cwd1 !== spawns11[0]?.cwd ? 'yes' : 'no'}`);
         
-        addTest('新会话不同目录', tests.cwd1 !== spawns10[0]?.cwd, true);
+        addTest('新会话不同目录', tests.cwd1 !== spawns11[0]?.cwd, true);
       }
     }
     console.log('');
