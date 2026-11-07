@@ -1615,7 +1615,25 @@ createApp({
         const tok = getToken()
         if (tok) headers.Authorization = `Bearer ${tok}`
         const r = await fetch('/api/agent-tasks/' + encodeURIComponent(id) + '/events', { headers, cache: 'no-store', signal: ac.signal })
-        if (!r.ok || !(r.headers.get('content-type') || '').includes('text/event-stream') || !r.body) return
+        if (!r.ok || !(r.headers.get('content-type') || '').includes('text/event-stream') || !r.body) {
+          // 404或其他错误：任务已经不存在，清除pending状态
+          if (r.status === 404) {
+            const row = messages.value.find(m => m && m.taskId === id)
+            if (row) {
+              row.pending = false
+              row.taskId = undefined
+              row.liveTurn = false
+              if (!row.content || !answerOf(row).trim()) {
+                row.content = '(Task not found or expired)'
+              }
+              sealTimes(row)
+            }
+            if (activeTaskId.value === id) activeTaskId.value = null
+            // 清除云端turn_task_id指针（避免重复显示）
+            if (holdingTurn.value) await endRelayTurn(false)
+          }
+          return
+        }
         const reader = r.body.getReader()
         const decoder = new TextDecoder()
         let buf = ''
@@ -2542,6 +2560,18 @@ createApp({
         const r = await fetch('/api/agent-tasks/' + encodeURIComponent(id) + '/events', { headers, cache: 'no-store' })
         if (!r.ok || !(r.headers.get('content-type') || '').includes('text/event-stream')) {
           row.pending = false
+          row.taskId = undefined
+          row.liveTurn = false
+          if (r.status === 404) {
+            // 任务404：可能已完成但记录丢失，或任务过期
+            if (!row.content || !answerOf(row).trim()) {
+              row.content = '(Task not found — may have completed or expired)'
+            }
+            // 清除云端turn_task_id指针
+            if (holdingTurn.value) await endRelayTurn(false)
+          }
+          sealTimes(row)
+          if (activeTaskId.value === id) activeTaskId.value = null
           return
         }
         const outcome = await readAgentSse(r, idx, !getToken())
