@@ -1779,15 +1779,15 @@ ${userPrompt}`;
       // 安全：hired模式应用严格环境限制（程序级硬规则，第一层防御）
       const isHired = options.callContext === 'hired';
       if (isHired) {
-        const { buildHiredSpawnOptions } = require('./agent-safety');
-        const hiredOpts = buildHiredSpawnOptions(resolvedCwd);
-        if (!hiredOpts) {
-          reject(new Error('Cannot execute in hired mode: working directory validation failed'));
+        const { validateWorkingDirectory, applyHiredEnvSafety } = require('./agent-safety');
+        const validation = validateWorkingDirectory(resolvedCwd);
+        if (!validation.safe) {
+          reject(new Error(`Cannot execute in hired mode: ${validation.error}`));
           return;
         }
-        // 替换为受限环境（移除敏感env，设置临时HOME）
-        spawnEnv = hiredOpts.env;
-        console.log('[AgentExecutor] Applied hired mode restrictions:', taskId);
+        // 合并安全策略（保留linker注入的认证env，过滤敏感密钥）
+        spawnEnv = applyHiredEnvSafety(spawnEnv, resolvedCwd);
+        console.log('[AgentExecutor] Applied hired mode env safety:', taskId);
       }
 
       const proc = spawn(executable, args, {

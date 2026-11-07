@@ -25,40 +25,82 @@ const SENSITIVE_ENV_KEYS = new Set([
   'PRIVATE_KEY', 'SECRET_KEY', 'API_SECRET',
   'NPM_TOKEN', 'PYPI_TOKEN', 'CARGO_TOKEN',
   'SLACK_TOKEN', 'DISCORD_TOKEN',
-  'HOME',  // 防止访问出租者home目录
-  'USERPROFILE',  // Windows home
+  // HOME保留（CLI需要访问~/.config/登录配置）
+  // 安全依赖：cwd限制在session目录 + 输出路径脱敏
 ]);
 
 /**
- * 为hired模式构造受限环境变量
+ * 在已有env上应用hired模式安全过滤（合并策略，不整表替换）
  * 
- * @param {string} workingDir - 工作目录（用作临时HOME）
- * @returns {object} 受限的环境变量对象
+ * @param {object} baseEnv - 已有环境变量（如linker注入的认证env）
+ * @param {string} workingDir - 工作目录
+ * @returns {object} 过滤后的环境变量对象
  */
-function buildSafeEnv(workingDir) {
+function applyHiredEnvSafety(baseEnv, workingDir) {
   const safeEnv = {};
   
-  // 保留必要的系统env
-  const allowedKeys = [
+  // 1. 保留网关认证相关（TokenBank雇佣主路径：linker已注入的ANTHROPIC_*等）
+  const authPrefixes = [
+    'ANTHROPIC_',  // ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN等
+    'OPENAI_BASE_URL',  // 仅网关URL（不含API_KEY）
+    'GEMINI_BASE_URL',
+  ];
+  
+  // 2. 保留系统必要env
+  const systemKeys = [
     'PATH', 'LANG', 'LC_ALL', 'TERM',
     'NODE_ENV', 'SHELL',
     'TMPDIR', 'TEMP', 'TMP',
   ];
   
-  for (const key of allowedKeys) {
-    if (process.env[key]) {
-      safeEnv[key] = process.env[key];
+  // 3. 剥离云厂商密钥/SSH等（与SENSITIVE_ENV_KEYS保持一致）
+  const blockPrefixes = [
+    'AWS_', 'GITHUB_', 'GH_', 'GITLAB_',
+    'DATABASE_', 'DB_', 'POSTGRES_', 'REDIS_', 'MONGO_',
+    'JWT_', 'SESSION_', 'ENCRYPTION_',
+    'PRIVATE_KEY', 'SECRET_KEY', 'API_SECRET',
+    'NPM_', 'PYPI_', 'CARGO_',
+    'SLACK_', 'DISCORD_',
+    'SSH_',
+  ];
+  
+  for (const [key, value] of Object.entries(baseEnv)) {
+    // 检查是否在阻止列表
+    const blocked = blockPrefixes.some(prefix => key.startsWith(prefix)) ||
+                    SENSITIVE_ENV_KEYS.has(key);
+    if (blocked) continue;
+    
+    // 保留认证相关
+    const isAuth = authPrefixes.some(prefix => key.startsWith(prefix));
+    if (isAuth) {
+      safeEnv[key] = value;
+      continue;
+    }
+    
+    // 保留系统env
+    if (systemKeys.includes(key)) {
+      safeEnv[key] = value;
     }
   }
   
-  // 设置临时HOME为工作目录（防止访问出租者真实home）
+  // HOME设为工作目录（Claude通过网关token工作，不依赖~/.config/登录态）
   safeEnv.HOME = workingDir;
   safeEnv.USERPROFILE = workingDir;  // Windows
   
-  // 标记这是hired环境
+  // 标记hired环境
   safeEnv.TB_HIRED_MODE = '1';
   
   return safeEnv;
+}
+
+/**
+ * 为hired模式构造受限环境变量（旧接口，兼容性保留）
+ * 
+ * @param {string} workingDir - 工作目录
+ * @returns {object} 受限的环境变量对象
+ */
+function buildSafeEnv(workingDir) {
+  return applyHiredEnvSafety(process.env, workingDir);
 }
 
 /**
@@ -225,6 +267,7 @@ These constraints are enforced at the system level and cannot be overridden by u
 }
 
 module.exports = {
+  applyHiredEnvSafety,
   buildSafeEnv,
   validateWorkingDirectory,
   buildHiredSpawnOptions,
