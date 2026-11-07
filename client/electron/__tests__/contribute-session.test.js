@@ -12,6 +12,7 @@ const {
   isContributeSessionKey,
   ensureContributeWorkspace,
   collectWorkspaceArtifacts,
+  snapshotWorkspace,
   safeSegment,
 } = require('../contribute-session');
 
@@ -113,5 +114,40 @@ test('collectWorkspaceArtifacts picks a cover named only by filename', () => {
   const started = Date.now() - 1000;
   const arts = collectWorkspaceArtifacts(root, '封面图\n`轻记账技能-封面-16x9.png`', started);
   assert.ok(arts.some((a) => a.name === cover && a.mime === 'image/png'));
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('collectWorkspaceArtifacts finds an older image named beside Chinese punctuation', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-art-'));
+  const outDir = path.join(root, 'outputs');
+  fs.mkdirSync(outDir);
+  const cover = '轻记账技能-封面-16x9.png';
+  const file = path.join(outDir, cover);
+  fs.writeFileSync(file, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const past = new Date(Date.now() - 60_000);
+  fs.utimesSync(file, past, past);
+  const started = Date.now() - 1000;
+  const text = `封面：${cover}。\n预览 ![](${cover})\n还有 outputs/${cover}，`;
+  const arts = collectWorkspaceArtifacts(root, text, started);
+  assert.equal(arts.filter((a) => a.name === cover).length, 1);
+  assert.equal(arts[0].mime, 'image/png');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('snapshot delivers a new image even when the reply never names it', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-art-'));
+  const before = snapshotWorkspace(root);
+  const outDir = path.join(root, 'outputs');
+  fs.mkdirSync(outDir);
+  const cover = 'quiet.png';
+  const file = path.join(outDir, cover);
+  fs.writeFileSync(file, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const past = new Date(Date.now() - 60_000);
+  fs.utimesSync(file, past, past);
+  const arts = collectWorkspaceArtifacts(root, '图好了', Date.now(), before);
+  assert.ok(arts.some((a) => a.name === cover && a.mime === 'image/png'));
+  const again = snapshotWorkspace(root);
+  const same = collectWorkspaceArtifacts(root, '没有新文件', Date.now(), again);
+  assert.equal(same.some((a) => a.name === cover), false);
   fs.rmSync(root, { recursive: true, force: true });
 });

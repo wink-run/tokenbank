@@ -29,6 +29,7 @@ const {
   contributeSessionKey,
   ensureContributeWorkspace,
   collectWorkspaceArtifacts,
+  snapshotWorkspace,
 } = require('./contribute-session');
 
 // 云端任务号 → 本机执行器任务，供中途暂停时杀掉 CLI
@@ -872,6 +873,18 @@ function commitAgentOutput(send, taskId, payload, artifacts) {
   });
 }
 
+/** 正文和工具回显都拿来对文件名。工具里写出的路径也要能交出去。 */
+function deliveryText(body, parts) {
+  const bits = [String(body || '')];
+  for (const part of parts || []) {
+    if (!part) continue;
+    if (part.text) bits.push(String(part.text));
+    if (part.detail) bits.push(String(part.detail));
+    if (part.result) bits.push(String(part.result));
+  }
+  return bits.join('\n');
+}
+
 /** 处理社区派发的武将任务（支持过程中推送 agent_task_progress） */
 async function handleAgentTask(msg, cfg) {
   const taskId = String(msg.task_id || msg.req_id || '').trim();
@@ -902,6 +915,8 @@ async function handleAgentTask(msg, cfg) {
   const consumerKey = resolveConsumerKey(msg);
   const sessionKey = contributeSessionKey(assistantId, consumerKey);
   const workingDir = ensureContributeWorkspace(assistantId, consumerKey);
+  // 开工前的文件清单。这轮新增或改过的文件都交付，不依赖正文是否写对了文件名
+  const beforeWorkspace = snapshotWorkspace(workingDir);
   log(`[agent] agent_task → ${taskId} assistant=${assistantId} consumer=${consumerKey} cwd=${workingDir}`);
 
   const executor = require('./agent-executor');
@@ -1123,7 +1138,7 @@ async function handleAgentTask(msg, cfg) {
       const partial = String(textAcc || '').slice(0, 200_000);
       let artifacts = [];
       try {
-        artifacts = collectWorkspaceArtifacts(workingDir, partial, started);
+        artifacts = collectWorkspaceArtifacts(workingDir, deliveryText(partial, parts), started, beforeWorkspace);
       } catch (e) {
         log(`[agent] timeout artifacts failed: ${e.message}`);
       }
@@ -1155,7 +1170,7 @@ async function handleAgentTask(msg, cfg) {
     // 工作目录里本轮写出的图片和文件，回传给网页展示或下载
     let artifacts = [];
     try {
-      artifacts = collectWorkspaceArtifacts(workingDir, finalBody, started);
+      artifacts = collectWorkspaceArtifacts(workingDir, deliveryText(finalBody, parts), started, beforeWorkspace);
     } catch (e) {
       log(`[agent] collect artifacts failed: ${e.message}`);
     }

@@ -1162,10 +1162,10 @@ createApp({
     }
     /** 流式正文里已经出现的本机路径，收尾时换成中转地址。 */
     function swapArtifactPaths(text, arts) {
-      let s = String(text || '')
+      let s = String(text || '').normalize('NFC')
       for (const f of arts || []) {
         if (!f || !f.url || !f.name) continue
-        const name = String(f.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const name = String(f.name).normalize('NFC').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
         const re = new RegExp('(?:~/|/(?:Users|home|tmp|var|opt|private|Volumes)|(?<![A-Za-z])[A-Za-z]:[\\\\/])[^\\s`\'"<>|]*?' + name, 'g')
         s = s.replace(re, f.url)
         // 相对路径如 outputs/成片.mp4。已经换成的中转地址不再改。

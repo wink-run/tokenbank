@@ -106,9 +106,16 @@ function containedFile(rootReal, candidate) {
   return { real, size: st.size, mtimeMs: st.mtimeMs, name: path.basename(real) };
 }
 
+/** 文件名两侧的标点。中文冒号、句号也要切开，否则「封面：图.png。」对不上磁盘上的文件。 */
+const MENTION_STOP = '：:，。、；;！!？?）)】》」』';
+
+function mentionName(raw) {
+  return String(raw || '').normalize('NFC').replace(/[)\]】》」』，。、；：,.!?;:]+$/u, '');
+}
+
 /** 从回复正文里找出工作目录内的文件路径（绝对路径或相对路径）。 */
 function mentionedPaths(text, workingDir) {
-  const raw = String(text || '');
+  const raw = String(text || '').normalize('NFC');
   const found = [];
   const absRe = new RegExp(
     String.raw`(?:^|[^\w./\\~])((?:\/|~\/|[A-Za-z]:[\\/])[^\s'"\`<>|*?\u0000]+?\.(?:${ARTIFACT_EXT}))`,
@@ -120,24 +127,28 @@ function mentionedPaths(text, workingDir) {
     if (p.startsWith('~/')) p = path.join(os.homedir(), p.slice(2));
     found.push(p);
   }
+  // 文件名本体。标点不算进名字，中文也能当名字。反引号单独放进字符类，避免 u 标志把转义判错。
+  const piece = `[^\\s'"\`<>|*?\\u0000/\\\\${MENTION_STOP}]{1,120}`;
   // 目录和文件名可以是中文，例如 outputs/宣传片.srt
   const relRe = new RegExp(
-    String.raw`(?:^|[\s'"\`（(])((?:[^\s'"\`<>|*?\u0000/\\]+[\\/])+[^\s'"\`<>|*?\u0000/\\]+\.(?:${ARTIFACT_EXT}))`,
-    'gim',
+    `((?:${piece}[\\\\/])+${piece}\\.(?:${ARTIFACT_EXT}))`,
+    'gi',
   );
   while ((m = relRe.exec(raw))) {
-    const rel = m[1];
-    if (rel.split(/[\\/]/).includes('..')) continue;
+    const rel = mentionName(m[1]);
+    if (!rel || rel.split(/[\\/]/).includes('..')) continue;
+    if (/^[a-z]+:/i.test(rel)) continue;
     found.push(path.resolve(workingDir, rel));
   }
-  // 封面常只写文件名，例如 `轻记账技能-封面-16x9.png`，没有目录也要能找到。
+  // 封面常只写文件名，例如 封面：轻记账.png。没有目录、也没有反引号，也要能找到。
   const bareRe = new RegExp(
-    String.raw`(?:^|[\s'"\`（(])([^\s'"\`<>|*?\u0000/\\]{1,120}\.(?:${ARTIFACT_EXT}))`,
-    'gim',
+    `(?<![\\w\\u4e00-\\u9fff._/-])(${piece}\\.(?:${ARTIFACT_EXT}))`,
+    'gi',
   );
   const bareNames = [];
-  while ((m = bareRe.exec(raw))) bareNames.push(m[1]);
+  while ((m = bareRe.exec(raw))) bareNames.push(mentionName(m[1]));
   for (const name of bareNames) {
+    if (!name) continue;
     for (const hit of findByBasename(workingDir, name)) found.push(hit);
   }
   return found;
@@ -155,14 +166,14 @@ function findByBasename(root, base) {
       if (ent.name.startsWith('.') || ent.name === 'node_modules') continue;
       const full = path.join(dir, ent.name);
       if (ent.isDirectory()) walk(full, depth + 1);
-      else if (ent.isFile() && ent.name === base) hits.push(full);
+      else if (ent.isFile() && ent.name.normalize('NFC') === String(base || '').normalize('NFC')) hits.push(full);
     }
   };
   walk(root, 0);
   return hits;
 }
 
-function walkRecentFiles(dir, rootReal, startedAt, acc, depth) {
+function visitWorkspaceFiles(dir, rootReal, depth, visit) {
   if (depth > 4) return;
   let entries;
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
@@ -171,23 +182,36 @@ function walkRecentFiles(dir, rootReal, startedAt, acc, depth) {
     const full = path.join(dir, ent.name);
     if (ent.isSymbolicLink()) continue;
     if (ent.isDirectory()) {
-      walkRecentFiles(full, rootReal, startedAt, acc, depth + 1);
+      visitWorkspaceFiles(full, rootReal, depth + 1, visit);
       continue;
     }
     if (!ent.isFile()) continue;
     const info = containedFile(rootReal, full);
-    if (!info) continue;
-    // 本轮新写的文件；给 2 秒时钟误差
-    if (startedAt && info.mtimeMs + 2000 < startedAt) continue;
-    acc.push(info);
+    if (info) visit(info);
   }
 }
 
+function fileStamp(info) {
+  return `${info.size}:${info.mtimeMs}`;
+}
+
+/** 任务开始前记下工作目录。结束时用这份对照，不靠正文猜哪些文件是这轮写的。 */
+function snapshotWorkspace(workingDir) {
+  const index = new Map();
+  if (!workingDir || !fs.existsSync(workingDir)) return index;
+  let rootReal;
+  try { rootReal = fs.realpathSync(workingDir); } catch { return index; }
+  visitWorkspaceFiles(rootReal, rootReal, 0, (info) => {
+    index.set(info.real, fileStamp(info));
+  });
+  return index;
+}
+
 /**
- * 收集本轮成品。正文点名的文件优先；此外带上工作目录里本轮新写出的允许类型。
- * 不读工作目录以外的路径。
+ * 收集本轮成品。正文点名的文件优先；有开工快照时，多出来或改过的文件都算交付。
+ * 没有快照时仍按修改时间。不读工作目录以外的路径。
  */
-function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
+function collectWorkspaceArtifacts(workingDir, text, startedAt = 0, before = null) {
   if (!workingDir || !fs.existsSync(workingDir)) return [];
   let rootReal;
   try { rootReal = fs.realpathSync(workingDir); } catch { return []; }
@@ -210,7 +234,7 @@ function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
     totalChars += dataUrl.length;
     const kind = mime.startsWith('image/') && ext !== '.svg' ? 'image' : 'file';
     picked.push({
-      name: info.name.slice(0, 120),
+      name: info.name.normalize('NFC').slice(0, 120),
       mime,
       kind,
       dataUrl,
@@ -220,10 +244,20 @@ function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
   };
 
   for (const p of mentionedPaths(text, rootReal)) pushFile(p);
-  const recent = [];
-  walkRecentFiles(rootReal, rootReal, Number(startedAt) || 0, recent, 0);
-  recent.sort((a, b) => b.mtimeMs - a.mtimeMs);
-  for (const item of recent) pushFile(item.real);
+  const produced = [];
+  const started = Number(startedAt) || 0;
+  const hasBefore = before instanceof Map;
+  visitWorkspaceFiles(rootReal, rootReal, 0, (info) => {
+    if (hasBefore) {
+      if (before.get(info.real) !== fileStamp(info)) produced.push(info);
+      return;
+    }
+    // 没有快照时，只带本轮新写的文件，给 2 秒时钟误差
+    if (started && info.mtimeMs + 2000 < started) return;
+    produced.push(info);
+  });
+  produced.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  for (const item of produced) pushFile(item.real);
   return picked;
 }
 
@@ -236,4 +270,5 @@ module.exports = {
   isContributeSessionKey,
   ensureContributeWorkspace,
   collectWorkspaceArtifacts,
+  snapshotWorkspace,
 };

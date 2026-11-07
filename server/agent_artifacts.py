@@ -6,6 +6,7 @@ import base64
 import os
 import re
 import time
+import unicodedata
 from pathlib import Path
 
 AGENT_MEDIA_DIR = Path(__file__).resolve().parent / "data" / "agent_media"
@@ -234,10 +235,14 @@ def _dir_tokens(local: str) -> tuple[set, set]:
     return paths, names
 
 
+def _nfc(text: str) -> str:
+    return unicodedata.normalize("NFC", str(text or ""))
+
+
 def _replace_filename_token(text: str, name: str, url: str) -> str:
     """单独出现的成品文件名也换成中转地址。雇佣方打不开出租方磁盘上的文件名。"""
-    pat = re.compile(r"(?<!" + _NAME_EDGE + r")" + re.escape(name) + r"(?!" + _NAME_EDGE + r")")
-    return pat.sub(url, text)
+    pat = re.compile(r"(?<!" + _NAME_EDGE + r")" + re.escape(_nfc(name)) + r"(?!" + _NAME_EDGE + r")")
+    return pat.sub(url, _nfc(text))
 
 
 def _strip_local_dirs(text: str, paths: set, names: set) -> str:
@@ -265,7 +270,7 @@ def _strip_local_dirs(text: str, paths: set, names: set) -> str:
 
 def rewrite_artifact_paths(text: str, artifacts: list) -> str:
     """把正文中的出租方路径换成已发布的中转地址。远程雇佣不能留下本机路径。"""
-    out = str(text or "")
+    out = _nfc(text)
     dir_paths: set[str] = set()
     dir_names: set[str] = set()
     named = []
@@ -273,10 +278,10 @@ def rewrite_artifact_paths(text: str, artifacts: list) -> str:
         if not isinstance(art, dict):
             continue
         url = str(art.get("url") or "")
-        name = str(art.get("name") or "")
+        name = _nfc(art.get("name") or "")
         if not url or not name:
             continue
-        local = str(art.get("local") or "")
+        local = _nfc(art.get("local") or "")
         if local:
             out = out.replace(local, url)
             # 正文里常写工作目录下的相对路径，如 outputs/成片.mp4

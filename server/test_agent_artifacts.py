@@ -93,6 +93,10 @@ def test_chinese_filename_keeps_extension():
     assert url in text
     assert "/Users/wink" not in text
     assert stored[0]["name"] == "骑自行车的人.svg"
+    # 只写文件名，旁边是中文标点，也要换成可打开的地址
+    titled = rewrite_artifact_paths("封面：骑自行车的人.svg。\n![](骑自行车的人.svg)", stored)
+    assert url in titled
+    assert "骑自行车的人.svg" not in titled.replace(url, "")
 
 
 def test_video_and_relative_subtitle_become_proxy_urls():

@@ -53,6 +53,9 @@ test('rental definition tells the agent it is hired out', () => {
   assert.ok(RENTAL_CONTEXT.includes('雇佣方'));
   assert.ok(RENTAL_CONTEXT.includes('Finder'));
   assert.ok(RENTAL_CONTEXT.includes('绝对路径'));
+  assert.ok(RENTAL_CONTEXT.includes('当前工作目录'));
+  assert.ok(RENTAL_CONTEXT.includes('准确文件名'));
+  assert.ok(RENTAL_CONTEXT.includes('远程'));
 
   const claude = applyRentalDefinition(['--append-system-prompt', DELIVERY_POLICY, '做封面']);
   const sys = claude[claude.indexOf('--append-system-prompt') + 1];
