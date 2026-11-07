@@ -74,9 +74,9 @@ button{font-family:inherit}
 .picker select:disabled{cursor:not-allowed}
 
 /* 消息滚动区 */
-.cscroll{flex:1;min-height:0;overflow-y:auto;overflow-anchor:none;scroll-behavior:auto;display:flex;flex-direction:column}
-/* 短对话靠 margin-top 沉底。不用 flex-end，否则状态一变高就会把视口粘回底部 */
-.cscroll .cinner{margin-top:auto;padding-top:24px;padding-bottom:24px;display:flex;flex-direction:column;gap:22px}
+/* 滚动容器本身不要做 flex 底对齐，否则内容变高时浏览器会把视口粘回底部 */
+.cscroll{flex:1;min-height:0;overflow-y:auto;overflow-anchor:none;display:block}
+.cscroll .cinner{min-height:100%;padding-top:24px;padding-bottom:24px;display:flex;flex-direction:column;justify-content:flex-end;gap:22px}
 
 /* 空状态 */
 .empty{margin:auto 0;padding:6vh 0 2vh;text-align:center;display:flex;flex-direction:column;align-items:center}

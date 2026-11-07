@@ -864,7 +864,12 @@ createApp({
     function startTick() {
       if (tickTimer) return
       nowTick.value = Date.now()
-      tickTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
+      tickTimer = setInterval(() => {
+        const el = chatEl.value
+        const top = el && !stickToBottom ? el.scrollTop : null
+        nowTick.value = Date.now()
+        if (top != null) restoreScroll(top)
+      }, 1000)
     }
     function stopTick() {
       if (!tickTimer) return
@@ -1619,9 +1624,10 @@ createApp({
       await scrollChat(true)
     }
 
-    // 打开或刚发出时贴在最新一条；用户往上翻之后，状态更新不再拽回去
+    // 打开或刚发出时贴在最新一条。上翻之后，状态更新把视口拉回去时再拨回原处
     let stickToBottom = true
     let pinning = 0
+    let userMoved = false
     function leftBottom(el) {
       if (!el) return false
       return el.scrollHeight - el.scrollTop - el.clientHeight >= 80
@@ -1629,7 +1635,6 @@ createApp({
     function pinChatBottom() {
       const el = chatEl.value
       if (!el) return
-      // 这次滚动是我们拉下去的，不要当成用户又回到了底部
       pinning += 1
       const prev = el.style.scrollBehavior
       el.style.scrollBehavior = 'auto'
@@ -1637,17 +1642,20 @@ createApp({
       el.style.scrollBehavior = prev
       requestAnimationFrame(() => { pinning = Math.max(0, pinning - 1) })
     }
-    function keepScroll(top) {
+    function restoreScroll(top) {
       nextTick(() => {
         const box = chatEl.value
-        if (!box) return
+        if (!box || stickToBottom) return
+        if (Math.abs(box.scrollTop - top) < 2) return
+        pinning += 1
         const prev = box.style.scrollBehavior
         box.style.scrollBehavior = 'auto'
         box.scrollTop = top
         box.style.scrollBehavior = prev
+        requestAnimationFrame(() => { pinning = Math.max(0, pinning - 1) })
       })
     }
-    // force 只用于打开对话、切换历史、自己刚发出。流式更新不能把人从历史里拉下来
+    // force 只用于打开对话、切换历史、自己刚发出
     async function scrollChat(force) {
       if (force) stickToBottom = true
       await nextTick()
@@ -1655,23 +1663,33 @@ createApp({
     }
     function followChat() {
       const el = chatEl.value
-      // 已经离开底部就不要在状态更新时再拉回去
-      if (!el || !stickToBottom || leftBottom(el)) {
-        if (el && leftBottom(el)) stickToBottom = false
+      if (!el) return
+      const top = el.scrollTop
+      if (leftBottom(el)) stickToBottom = false
+      if (!stickToBottom) {
+        restoreScroll(top)
         return
       }
       nextTick(() => {
-        if (!stickToBottom) return
+        if (!stickToBottom) {
+          restoreScroll(top)
+          return
+        }
         pinChatBottom()
       })
     }
     function onChatScroll() {
       if (pinning) return
       const el = chatEl.value
-      if (el) stickToBottom = !leftBottom(el)
+      if (!el) return
+      // 布局把视口甩到底时不要重新打开跟随，只有用户自己滚回去才跟随
+      if (leftBottom(el)) stickToBottom = false
+      else if (userMoved) stickToBottom = true
+      userMoved = false
       onImgHide()
     }
     function onChatWheel(e) {
+      userMoved = true
       if (e && e.deltaY < 0) stickToBottom = false
     }
     let touchY = 0
@@ -1680,7 +1698,10 @@ createApp({
     }
     function onChatTouchMove(e) {
       const y = e.touches && e.touches[0] ? e.touches[0].clientY : 0
-      if (y > touchY + 8) stickToBottom = false
+      if (y > touchY + 8) {
+        userMoved = true
+        stickToBottom = false
+      }
       touchY = y
     }
     function onChatMedia() {
@@ -1931,7 +1952,7 @@ createApp({
       if (!same) messages.value = next
       // 人在看上面的消息时，轮询只改文字，不把视口拉到底
       if (!stick) {
-        if (!same) keepScroll(top)
+        if (!same) restoreScroll(top)
         return
       }
       if (!same) nextTick(() => { if (stickToBottom) pinChatBottom() })
@@ -2091,7 +2112,7 @@ createApp({
           const stick = stickToBottom
           if (!same) messages.value = ordered
           if (stick) nextTick(() => { if (stickToBottom) pinChatBottom() })
-          else if (!same) keepScroll(top)
+          else if (!same) restoreScroll(top)
         }
         if (commit && stillHere) syncHistoryTranscript(sid)
       } catch { /* 锁过期后别人也能重新抢 */ }
