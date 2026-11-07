@@ -74,83 +74,6 @@ def _apply_artifacts(task_id: str, output: str, raw) -> tuple[str, list]:
     return redact_remaining_local_paths(text), public_artifacts(stored)
 
 
-def _collect_missing_artifacts(output: str, raw_artifacts, metadata: dict) -> list:
-    """补全缺失的artifacts：从输出文本中提取文件路径并读取为dataUrl。
-    
-    复用重构前可用产物机制：读取文件 → 打dataUrl → 交给publish_agent_artifacts上传。
-    """
-    import re
-    import base64
-    import mimetypes
-    from pathlib import Path
-    
-    # 初始化artifacts列表
-    artifacts = list(raw_artifacts) if isinstance(raw_artifacts, list) else []
-    existing_paths = set()
-    for art in artifacts:
-        if isinstance(art, dict) and art.get("localPath"):
-            existing_paths.add(str(art["localPath"]))
-    
-    # 从输出中提取文件路径（常见模式）
-    # 支持：/path/to/file.ext, ~/path/file.ext, ./file.ext
-    # 优先匹配常见图片/视频格式
-    path_patterns = [
-        r'(?:^|[\s\'"(])((?:/[^\s\'"<>|]+|~/[^\s\'"<>|]+|\./[^\s\'"<>|]+)\.(?:png|jpg|jpeg|gif|webp|svg|mp4|mov|avi|pdf))(?:[\s\'")<,.]|$)',
-        r'(?:^|[\s\'"(])((?:/[^\s\'"<>|]+|~/[^\s\'"<>|]+|\./[^\s\'"<>|]+))(?:[\s\'")<,.]|$)',
-    ]
-    
-    session_root = metadata.get("session_root")
-    found_paths = set()
-    
-    for pattern in path_patterns:
-        for match in re.finditer(pattern, output, re.MULTILINE):
-            path_str = match.group(1)
-            if path_str in existing_paths or path_str in found_paths:
-                continue
-            
-            try:
-                # 解析路径（支持~和相对路径）
-                if path_str.startswith("~/"):
-                    file_path = Path.home() / path_str[2:]
-                elif path_str.startswith("./") and session_root:
-                    file_path = Path(session_root) / path_str[2:]
-                else:
-                    file_path = Path(path_str)
-                
-                # 检查文件是否存在且可读
-                if not file_path.exists() or not file_path.is_file():
-                    continue
-                
-                # 读取文件内容
-                content = file_path.read_bytes()
-                if len(content) == 0 or len(content) > 10 * 1024 * 1024:  # 跳过空文件和>10MB
-                    continue
-                
-                # 推断MIME类型
-                mime_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
-                
-                # 转换为dataUrl
-                b64_content = base64.b64encode(content).decode('ascii')
-                data_url = f"data:{mime_type};base64,{b64_content}"
-                
-                # 添加到artifacts
-                artifacts.append({
-                    "name": file_path.name,
-                    "mime": mime_type,
-                    "dataUrl": data_url,
-                    "localPath": str(file_path),
-                })
-                
-                found_paths.add(path_str)
-                logger.info(f"[collect_artifacts] Collected missing artifact: {file_path.name} ({len(content)} bytes)")
-                
-            except Exception as e:
-                logger.warning(f"[collect_artifacts] Failed to read {path_str}: {e}")
-                continue
-    
-    return artifacts
-
-
 # 正文先到、文件后到。这段时间内断线仍保留正文，不改写成 worker disconnected
 _ARTIFACT_FOLLOW_SEC = 20
 
@@ -1357,10 +1280,6 @@ async def _pump_gateway_stream_to_feed(
                 
                 response_id = event_data.get("id")
                 raw_artifacts = event_data.get("artifacts")
-                
-                # hired: 补全缺失的artifacts（从输出文本中提取文件路径并读取）
-                if call_context == "hired" and gateway_status == "completed":
-                    raw_artifacts = _collect_missing_artifacts(output_text, raw_artifacts, event_data.get("metadata", {}))
                 
                 # hired安全检查
                 if call_context == "hired" and gateway_status == "completed":
