@@ -121,10 +121,8 @@ function mentionedPaths(text, workingDir) {
     found.push(p);
   }
   // 目录和文件名可以是中文，例如 outputs/宣传片.srt
-  // 边界：空白、引号、反引号、括号、中文标点（：。，、；！？）
-  // 路径字符：排除空白、引号、特殊字符及中文标点（路径本身不含标点）
   const relRe = new RegExp(
-    String.raw`(?:^|[\s'"\`（(：。，、；！？])((?:[^\s'"\`<>|*?\u0000/\\：。，、；！？]+[\\/])+[^\s'"\`<>|*?\u0000/\\：。，、；！？]+\.(?:${ARTIFACT_EXT}))`,
+    String.raw`(?:^|[\s'"\`（(])((?:[^\s'"\`<>|*?\u0000/\\]+[\\/])+[^\s'"\`<>|*?\u0000/\\]+\.(?:${ARTIFACT_EXT}))`,
     'gim',
   );
   while ((m = relRe.exec(raw))) {
@@ -134,7 +132,7 @@ function mentionedPaths(text, workingDir) {
   }
   // 封面常只写文件名，例如 `轻记账技能-封面-16x9.png`，没有目录也要能找到。
   const bareRe = new RegExp(
-    String.raw`(?:^|[\s'"\`（(：。，、；！？])([^\s'"\`<>|*?\u0000/\\：。，、；！？]{1,120}\.(?:${ARTIFACT_EXT}))`,
+    String.raw`(?:^|[\s'"\`（(])([^\s'"\`<>|*?\u0000/\\]{1,120}\.(?:${ARTIFACT_EXT}))`,
     'gim',
   );
   const bareNames = [];
@@ -188,12 +186,6 @@ function walkRecentFiles(dir, rootReal, startedAt, acc, depth) {
 /**
  * 收集本轮成品。正文点名的文件优先；此外带上工作目录里本轮新写出的允许类型。
  * 不读工作目录以外的路径。
- * 
- * 产物选择策略：
- * 1. 正文明确提及的文件：总是收集（包括用户明确要求的package.json等）
- * 2. 时间窗口兜底扫描：排除根目录的依赖管理文件（防止绘图任务混入npm依赖）
- * 3. 跨轮文件：时间窗口过滤（不收集startedAt之前的文件）
- * 4. 明确引用前轮：正文提及则可收集（同会话内文件，通过mentionedPaths）
  */
 function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
   if (!workingDir || !fs.existsSync(workingDir)) return [];
@@ -202,115 +194,36 @@ function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
 
   const picked = [];
   const seen = new Set();
-  const explicitMentions = new Set();
   let totalChars = 0;
 
-  const pushFile = (abs, isExplicit = false) => {
+  const pushFile = (abs) => {
     if (picked.length >= ARTIFACT_MAX) return;
     const info = containedFile(rootReal, abs);
-    
-    // 优先处理workspace内文件（已有逻辑）
-    if (info && !seen.has(info.real)) {
-      // 时间窗口兜底扫描：排除所有目录的依赖管理文件（除非正文明确提及）
-      if (!isExplicit) {
-        const isDependencyFile = /^(package(-lock)?\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|Gemfile\.lock|poetry\.lock|requirements\.txt)$/i.test(info.name);
-        if (isDependencyFile) {
-          return;
-        }
-      }
-      
-      const ext = path.extname(info.name).toLowerCase();
-      const mime = ARTIFACT_MIME[ext];
-      if (!mime) return;
-      if (info.size <= 0 || info.size > ARTIFACT_MAX_BYTES) return;
-      const dataUrl = `data:${mime};base64,${fs.readFileSync(info.real).toString('base64')}`;
-      if (totalChars + dataUrl.length > ARTIFACT_TOTAL_CHARS) return;
-      seen.add(info.real);
-      if (isExplicit) explicitMentions.add(info.real);
-      totalChars += dataUrl.length;
-      const kind = mime.startsWith('image/') && ext !== '.svg' ? 'image' : 'file';
-      picked.push({
-        name: info.name.slice(0, 120),
-        mime,
-        kind,
-        dataUrl,
-        localPath: info.real,
-      });
-      return;
-    }
-    
-    // 处理workspace外的绝对路径（明确提及且文件存在）
-    if (isExplicit && !info) {
-      let realPath;
-      try {
-        realPath = fs.realpathSync(abs);
-        if (seen.has(realPath)) return;
-        const stat = fs.statSync(realPath);
-        if (!stat.isFile()) return;
-        if (stat.size <= 0 || stat.size > ARTIFACT_MAX_BYTES) return;
-        
-        const ext = path.extname(realPath).toLowerCase();
-        const mime = ARTIFACT_MIME[ext];
-        if (!mime) return;
-        
-        // 优先拷贝到workspace再collect（用户要求）
-        const basename = path.basename(realPath);
-        const destPath = path.join(rootReal, basename);
-        let finalPath = realPath;
-        
-        try {
-          // 尝试拷贝（如果目标不存在或可覆盖）
-          if (!fs.existsSync(destPath)) {
-            fs.copyFileSync(realPath, destPath);
-            finalPath = destPath;
-            console.log(`[collectWorkspaceArtifacts] Copied external file to workspace: ${basename}`);
-          }
-        } catch (copyErr) {
-          // 拷贝失败，直接读取原文件
-          console.warn(`[collectWorkspaceArtifacts] Copy failed, using original: ${copyErr.message}`);
-        }
-        
-        const dataUrl = `data:${mime};base64,${fs.readFileSync(finalPath).toString('base64')}`;
-        if (totalChars + dataUrl.length > ARTIFACT_TOTAL_CHARS) return;
-        
-        seen.add(realPath);
-        explicitMentions.add(realPath);
-        totalChars += dataUrl.length;
-        const kind = mime.startsWith('image/') && ext !== '.svg' ? 'image' : 'file';
-        picked.push({
-          name: basename.slice(0, 120),
-          mime,
-          kind,
-          dataUrl,
-          localPath: finalPath,  // 使用拷贝后的路径（或原路径）
-        });
-        console.log(`[collectWorkspaceArtifacts] Collected external artifact: ${basename} (${stat.size} bytes)`);
-      } catch (err) {
-        // 文件不存在或无法读取，跳过
-        return;
-      }
-    }
+    if (!info || seen.has(info.real)) return;
+    const ext = path.extname(info.name).toLowerCase();
+    const mime = ARTIFACT_MIME[ext];
+    if (!mime) return;
+    if (info.size <= 0 || info.size > ARTIFACT_MAX_BYTES) return;
+    const dataUrl = `data:${mime};base64,${fs.readFileSync(info.real).toString('base64')}`;
+    if (totalChars + dataUrl.length > ARTIFACT_TOTAL_CHARS) return;
+    seen.add(info.real);
+    totalChars += dataUrl.length;
+    const kind = mime.startsWith('image/') && ext !== '.svg' ? 'image' : 'file';
+    picked.push({
+      name: info.name.slice(0, 120),
+      mime,
+      kind,
+      dataUrl,
+      // 服务端用它把正文里的本机路径换成中转地址，不会原样发给调用方
+      localPath: info.real,
+    });
   };
 
-  // 正文明确提及：总是收集（包括package.json如果用户明确要求）
-  const mentioned = mentionedPaths(text, rootReal);
-  for (const p of mentioned) {
-    pushFile(p, true);
-  }
-  
-  // 时间窗口兜底：收集新文件（排除根目录依赖）
+  for (const p of mentionedPaths(text, rootReal)) pushFile(p);
   const recent = [];
   walkRecentFiles(rootReal, rootReal, Number(startedAt) || 0, recent, 0);
   recent.sort((a, b) => b.mtimeMs - a.mtimeMs);
-  for (const item of recent) {
-    pushFile(item.real, false);
-  }
-  
-  // 调试日志（不含正文）
-  if (mentioned.length > 0 || recent.length > 0 || picked.length > 0) {
-    console.log(`[collectWorkspaceArtifacts] mentioned=${mentioned.length}, recent=${recent.length}, picked=${picked.length}, startedAt=${startedAt}`);
-  }
-  
+  for (const item of recent) pushFile(item.real);
   return picked;
 }
 

@@ -55,10 +55,6 @@ let _onLog = null;
 let _onStatus = null;
 let _onTasks = null;
 
-// 内部gateway请求签名token（防止外部HTTP请求伪造hired模式）
-// 每次worker启动时生成，只有通过WS gateway_request的loopback请求才知道此token
-let internalGatewayToken = null;
-
 /** 出租任务在贡献页上显示的名字：本机应用用 CLI 名，智能体用资源名。 */
 function contributeTaskName(assistantId) {
   const runtime = contributedAppRuntime(assistantId);
@@ -830,155 +826,6 @@ async function collectAgentCardsForRegister(cfg) {
 }
 
 /** 处理社区派发的武将任务（支持过程中推送 agent_task_progress） */
-/**
- * 处理云端发来的 Gateway HTTP 请求。
- * 调用本地 agent-http.js 处理器，将响应通过 WebSocket 返回。
- */
-async function handleGatewayRequest(msg) {
-  const requestId = String(msg.request_id || '').trim();
-  const method = String(msg.method || '').trim();
-  const reqPath = String(msg.path || '').trim();
-  const body = msg.body || {};
-
-  if (!requestId) {
-    log('[agent] gateway_request missing request_id');
-    return;
-  }
-
-  log(`[agent] gateway_request ${requestId} ${method} ${reqPath}`);
-
-  try {
-    // 通过 HTTP loopback 调用本地 Gateway，确保与真实 HTTP 调用完全等价
-    // （不再使用 mockReq/mockRes 进程内模拟，避免 SSE 解析不一致和输出丢失）
-    const http = require('http');
-    const localGateway = require('./local-gateway');
-    const gatewayPort = localGateway.port() || 11430;
-    const gatewayOrigin = `http://127.0.0.1:${gatewayPort}`;
-
-    // 获取本地密钥用于认证（loopback 调用需要有效密钥）
-    const localKey = localGateway.getAgentApiKey && localGateway.getAgentApiKey();
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(msg.headers || {}),
-    };
-    if (localKey) {
-      headers['Authorization'] = `Bearer ${localKey}`;
-    }
-    
-    // 添加内部请求签名（证明此请求来自可信的WS gateway_request，不是外部HTTP）
-    // agent-http.js验证此token以信任metadata.call_context
-    if (internalGatewayToken) {
-      headers['X-Internal-Gateway-Token'] = internalGatewayToken;
-    }
-
-    const requestBody = JSON.stringify(body);
-    const options = {
-      hostname: '127.0.0.1',
-      port: gatewayPort,
-      path: reqPath,
-      method: method,
-      headers: {
-        ...headers,
-        'Content-Length': Buffer.byteLength(requestBody),
-      },
-    };
-
-    const req = http.request(options, (res) => {
-      const isStreaming = (res.headers['content-type'] || '').includes('text/event-stream');
-      let buffer = '';
-
-      res.on('data', (chunk) => {
-        if (isStreaming) {
-          // SSE 流式响应：解析事件
-          buffer += chunk.toString('utf8');
-          const lines = buffer.split('\n\n');
-          // 保留最后一个可能不完整的块
-          buffer = lines.pop() || '';
-
-          for (const block of lines) {
-            if (!block.trim()) continue;
-            
-            let event = '';
-            let data = '';
-            for (const line of block.split('\n')) {
-              if (line.startsWith('event: ')) {
-                event = line.slice(7).trim();
-              } else if (line.startsWith('data: ')) {
-                data = line.slice(6);
-              }
-            }
-
-            if (event && data) {
-              try {
-                send({
-                  type: 'gateway_sse',
-                  request_id: requestId,
-                  event,
-                  data: JSON.parse(data),
-                });
-              } catch (e) {
-                log(`[agent] SSE parse error: ${e.message}`);
-              }
-            }
-          }
-        } else {
-          // 非流式响应：累积
-          buffer += chunk.toString('utf8');
-        }
-      });
-
-      res.on('end', () => {
-        if (isStreaming) {
-          // 流式响应结束
-          send({
-            type: 'gateway_stream_end',
-            request_id: requestId,
-          });
-        } else {
-          // 非流式响应：返回完整body
-          let parsedBody = null;
-          try {
-            parsedBody = buffer ? JSON.parse(buffer) : null;
-          } catch {
-            parsedBody = { error: { message: buffer } };
-          }
-
-          send({
-            type: 'gateway_response',
-            request_id: requestId,
-            status: res.statusCode,
-            headers: res.headers,
-            body: parsedBody,
-          });
-        }
-      });
-    });
-
-    req.on('error', (err) => {
-      log(`[agent] gateway_request HTTP error: ${err.message}`);
-      send({
-        type: 'gateway_response',
-        request_id: requestId,
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-        body: { error: { message: err.message, type: 'connection_error' } },
-      });
-    });
-
-    req.write(requestBody);
-    req.end();
-  } catch (err) {
-    log(`[agent] gateway_request error: ${err.message}`);
-    send({
-      type: 'gateway_response',
-      request_id: requestId,
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: { error: { message: err.message, type: 'internal_error' } },
-    });
-  }
-}
-
 async function handleAgentTask(msg, cfg) {
   const taskId = String(msg.task_id || msg.req_id || '').trim();
   const assistantId = String(msg.assistant_id || '').trim();
@@ -1336,17 +1183,6 @@ function connect(cfg) {
   // 每次连接都读最新配置，避免「已在跑时改勾选武将」仍用旧 closure
   const liveCfg = loadConfig() || cfg;
   clearReconnectTimer();
-  
-  // 生成内部gateway请求签名token（每次连接时重新生成）
-  const crypto = require('crypto');
-  internalGatewayToken = crypto.randomBytes(32).toString('hex');
-  
-  // 设置到agent-http模块（让它能验证loopback请求）
-  const agentHttp = require('./agent-http');
-  if (agentHttp.setInternalGatewayToken) {
-    agentHttp.setInternalGatewayToken(internalGatewayToken);
-  }
-  
   log(`[agent] connecting → ${liveCfg.server_url}`);
   ws = new WebSocket(liveCfg.server_url, { handshakeTimeout: 20000 });
   const thisSocket = ws;
@@ -1486,18 +1322,6 @@ function connect(cfg) {
       }
     }
 
-    // Gateway HTTP 请求：通过 WebSocket 隧道调用本地 agent-http.js
-    if (msg.type === 'gateway_request') {
-      activeRequests++;
-      try {
-        await handleGatewayRequest(msg);
-      } finally {
-        activeRequests = Math.max(0, activeRequests - 1);
-      }
-      return;
-    }
-
-    // 保留旧的 agent_task 消息处理以兼容旧版本客户端
     if (msg.type === 'agent_task') {
       const cloudId = String(msg.task_id || '').trim();
       // 连接抖了一下但本机还在跑：不要再开一个 CLI，原来的进程会从新连接把进度送回去

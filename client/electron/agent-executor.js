@@ -888,8 +888,6 @@ class AgentExecutor extends EventEmitter {
       JSON.stringify({
         workingDir,
         assistantId,
-        consumerKey: options.consumerKey || null,
-        callContext: options.callContext || null,
         mcpProfile,
         mode,
         mainAgentId,
@@ -898,8 +896,6 @@ class AgentExecutor extends EventEmitter {
         sessionInstanceId: options.sessionInstanceId || null,
         // 社区接单标记：本机游乐场列表/事件应忽略
         clientId: options.clientId || null,
-        // 发起方标识（类似模型网关的 app_id）
-        initiator: options.initiator || null,
       }),
       Date.now(),
     );
@@ -1386,39 +1382,11 @@ class AgentExecutor extends EventEmitter {
     let orchestratorCleanup = null;
 
     try {
-      // 社区智能体格式：检查本机是否有对应的 assistant（雇佣的本机智能体或自己发布的）
-      const { isCommunityAgentId, parseCommunityAgentId } = require('./hired-community-agents');
+      // 已雇佣社区智能体：远程派发，勿走本地 CLI
+      const { isCommunityAgentId } = require('./hired-community-agents');
       if (isCommunityAgentId(agentId)) {
-        const parsed = parseCommunityAgentId(agentId);
-        const localAssistantId = parsed?.assistant_id;
-        
-        // 尝试解析为本地 assistant（若本机有，则直接本地执行，避免通过云端循环）
-        if (localAssistantId) {
-          try {
-            const { agentId: effectiveAgentId } = this._resolveAssistant(localAssistantId);
-            const cfg = AGENT_CLI[effectiveAgentId];
-            const launch = this._resolveLaunchSpec(effectiveAgentId);
-            
-            // 本机有此 assistant 且已安装 CLI：用本地 harness 执行
-            if (cfg && launch?.executable) {
-              console.log(`[agent-executor] community agent ${agentId} found locally as ${localAssistantId}, executing locally`);
-              agentId = localAssistantId;
-              // 继续本地执行流程（不 return）
-            } else {
-              // 本机无此 assistant：远程派发
-              await this._runCommunityTaskForExecute(taskId, agentId, prompt, options);
-              return;
-            }
-          } catch {
-            // 解析失败或本机无此 assistant：远程派发
-            await this._runCommunityTaskForExecute(taskId, agentId, prompt, options);
-            return;
-          }
-        } else {
-          // 无法解析 assistant_id：远程派发
-          await this._runCommunityTaskForExecute(taskId, agentId, prompt, options);
-          return;
-        }
+        await this._runCommunityTaskForExecute(taskId, agentId, prompt, options);
+        return;
       }
 
       // 本地 CLI：附图落盘；Claude 走多模态 stdin，其它 Agent 拼路径进 prompt
@@ -1441,24 +1409,6 @@ class AgentExecutor extends EventEmitter {
       );
 
       let userPrompt = prompt;
-      
-      // 安全：hired模式注入系统级安全约束（第二层防御，纵深补充）
-      const isHired = options.callContext === 'hired';
-      if (isHired) {
-        const { buildHiredSystemPrompt } = require('./agent-safety');
-        const assistantDesc = assistant?.description || assistant?.name || 'the requested task';
-        const systemConstraints = buildHiredSystemPrompt(assistantDesc);
-        
-        // 注入为高优先级系统指令（放在用户prompt之前，标记为不可覆盖）
-        userPrompt = `<system_security_constraints>
-${systemConstraints}
-</system_security_constraints>
-
-User request:
-${userPrompt}`;
-        console.log('[AgentExecutor] Injected hired mode system constraints:', taskId);
-      }
-      
       // 非 Claude：图片路径后缀；Claude 的图在 stdin。普通文件一律给路径。
       if (imgInfo.suffix && !claudeMultimodal) userPrompt = `${userPrompt}${imgInfo.suffix}`;
       if (fileInfo.suffix) userPrompt = `${userPrompt}${fileInfo.suffix}`;
@@ -1586,7 +1536,6 @@ ${userPrompt}`;
         virtualAgentId: agentId,
         gatewayAgentId: effectiveAgentId,
         sessionKey: options.sessionKey || null,
-        collectArtifacts: options.collectArtifacts || false,
       });
 
       // 停止竞态：进程退出时任务可能已被标为 cancelled，只补写 sessionId
@@ -1618,7 +1567,6 @@ ${userPrompt}`;
           success: result.success,
           summary: result.summary,
           stderr: result.stderr,
-          artifacts: result.artifacts || [],
           files: result.files,
           stepCount: result.stepCount,
           cliSessionId: result.cliSessionId,
@@ -1721,8 +1669,6 @@ ${userPrompt}`;
       sessionKey = null,
       sessionInstanceId = null,
       stdinPayload = null,
-      collectArtifacts = false,
-      workspaceSessionId = null,
     } = options;
 
     const cliCfg = AGENT_CLI[gatewayAgentId] || {};
@@ -1775,13 +1721,6 @@ ${userPrompt}`;
         return;
       }
       spawnEnv = sanitizeAgentSpawnEnv(spawnEnv, resolvedCwd);
-      
-      // 安全：hired模式依赖会话目录隔离（ensureContributeWorkspace）
-      // 不做额外env重写/cwd校验，优先保证可用性
-      const isHired = options.callContext === 'hired';
-      if (isHired) {
-        console.log('[AgentExecutor] Hired mode (minimal safety):', taskId);
-      }
 
       const proc = spawn(executable, args, {
         cwd: resolvedCwd,
@@ -1819,7 +1758,6 @@ ${userPrompt}`;
         session_key: sessionKey,
         session_instance_id: sessionInstanceId,
         spawn_diag: spawnDiag,
-        started_at: Date.now(),
       });
       this.taskMetaCache.set(taskId, {
         agentId: virtualAgentId || agentId,
@@ -1918,7 +1856,6 @@ ${userPrompt}`;
               files: [],
               stepCount: stepCounter,
               cliSessionId: cliSid,
-              workspaceSessionId,
             });
             return;
           }
@@ -1932,33 +1869,14 @@ ${userPrompt}`;
               console.warn('[AgentExecutor] recordModifiedFiles failed:', e.message);
             }
 
-            // 收集工作目录中的产物（图片、文件）- 仅雇佣/远程调用
-            let artifacts = [];
-            if (collectArtifacts) {
-              try {
-                const { collectWorkspaceArtifacts } = require('./contribute-session');
-                const taskStartTime = running?.started_at || (Date.now() - 300000);
-                artifacts = collectWorkspaceArtifacts(workingDir, stdout, taskStartTime);
-                if (artifacts.length > 0) {
-                  console.log(`[AgentExecutor] collected ${artifacts.length} artifacts for task ${taskId}`);
-                } else {
-                  console.log(`[AgentExecutor] no artifacts collected for task ${taskId}`);
-                }
-              } catch (e) {
-                console.warn('[AgentExecutor] collectWorkspaceArtifacts failed:', e.message);
-              }
-            }
-
             resolve({
               success: true,
               output: stdout,
               summary: summarizeAgentStdout(stdout, gatewayAgentId),
               stderr,
               files: [],
-              artifacts,
               stepCount: stepCounter,
               cliSessionId: cliSid,
-              workspaceSessionId,
             });
           } else {
             const errText = execFail || formatAgentExitError(stderr, stdout, code, gatewayAgentId, signal);

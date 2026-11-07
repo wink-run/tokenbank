@@ -156,8 +156,8 @@
             <div v-else class="av sm" :style="{ background: avatarColor(agentName) }">{{ agentName.slice(0, 1).toUpperCase() }}</div>
             <div class="abody">
               <template v-if="m.parts && m.parts.length">
-                <template v-for="(p, pi) in m.parts" :key="pi">
-                  <div v-if="p.type === 'thinking'" class="apart apart-thinking">
+                <div v-for="(p, pi) in m.parts" :key="pi" class="apart" :class="'apart-' + p.type">
+                  <template v-if="p.type === 'thinking'">
                     <!-- 和工具条一样：默认一行，展开后才是全文 -->
                     <details class="tool-fold think-fold">
                       <summary>
@@ -167,17 +167,23 @@
                       </summary>
                       <div class="apart-body">{{ p.text }}</div>
                     </details>
-                  </div>
-                  <!-- 工具只在执行中留一行。结束后不渲染，计时也跟着停 -->
-                  <div v-else-if="p.type === 'tool' && isCurrentTool(m, p)" class="tool-live">
-                    <span>{{ T.toolRunning.replace('{name}', toolFriendly(p.name)) }}</span>
-                    <span v-if="toolSummary(p.detail)" class="tool-sum" :title="toolSummary(p.detail)">{{ toolSummary(p.detail) }}</span>
-                    <span v-if="toolElapsed(p, m)" class="apart-time">{{ toolElapsed(p, m) }}</span>
-                  </div>
-                  <div v-else-if="p.type !== 'tool'" class="apart" :class="'apart-' + p.type">
-                    <div class="md-body" v-html="renderRich(p.text, m.artifacts)"></div>
-                  </div>
-                </template>
+                  </template>
+                  <template v-else-if="p.type === 'tool'">
+                    <!-- 默认收起。标题行对齐桌面：友好名、状态、一行命令或路径 -->
+                    <details class="tool-fold">
+                      <summary>
+                        <span class="tool-chev" aria-hidden="true"></span>
+                        <span class="apart-name">{{ toolFriendly(p.name) }}</span>
+                        <span class="tool-status" :class="{ err: p.error, live: !p.done && m.pending }">{{ toolStatus(p, m) }}</span>
+                        <span v-if="toolSummary(p.detail)" class="tool-sum" :title="toolSummary(p.detail)">{{ toolSummary(p.detail) }}</span>
+                        <span v-if="toolElapsed(p, m)" class="apart-time">{{ toolElapsed(p, m) }}</span>
+                      </summary>
+                      <pre v-if="p.detail">{{ p.detail }}</pre>
+                      <pre v-if="p.result" class="tool-result">{{ p.result }}</pre>
+                    </details>
+                  </template>
+                  <div v-else class="md-body" v-html="renderRich(p.text, m.artifacts)"></div>
+                </div>
               </template>
               <div v-else-if="m.content && m.content !== T.thinking" class="md-body" v-html="renderRich(m.content, m.artifacts)"></div>
               <span v-if="m.pending && !(m.parts && m.parts.length) && (!m.content || m.content === T.thinking)" class="typing"><i></i><i></i><i></i></span>
@@ -702,18 +708,12 @@ createApp({
           const startedAt = Number(p.startedAt) || 0
           const finishedAt = Number(p.finishedAt) || 0
           const result = String(p.result || '').slice(0, 4000)
-          // 服务端用 status=completed 表示工具已经返回。没转成 done 的话，这一行会一直计时
-          const status = String(p.status || '').toLowerCase()
-          const done = !!p.done || status === 'completed' || status === 'complete' || status === 'done' || status === 'error' || status === 'failed'
-          const error = !!p.error || status === 'error' || status === 'failed'
           out.push({
             type: 'tool',
             name: String(p.name || 'tool').slice(0, 80),
             detail: String(p.detail || '').slice(0, 4000),
-            ...(p.id ? { id: String(p.id).slice(0, 120) } : {}),
             ...(result ? { result } : {}),
-            done,
-            ...(error ? { error: true } : {}),
+            done: !!p.done,
             ...(startedAt ? { startedAt } : {}),
             ...(finishedAt ? { finishedAt } : {}),
           })
@@ -761,42 +761,17 @@ createApp({
     }
     /** 进度分段会整包替换。同一条工具沿用开始时间，结束时记下结束时间。 */
     function withToolTimes(prev, parts) {
-      // 按id/name合并parts，不整表替换（保留历史tools和text）
       const old = Array.isArray(prev) ? prev : []
-      const oldMap = new Map()
-      for (const p of old) {
-        if (!p) continue
-        const key = p.type === 'tool' ? (p.id || p.name || p.type) : p.type
-        oldMap.set(key, p)
-      }
-      
-      // 合并新parts到旧parts
-      const merged = new Map(oldMap)  // 复制旧的
-      for (const p of parts || []) {
-        if (!p) continue
-        const key = p.type === 'tool' ? (p.id || p.name || p.type) : p.type
-        const before = oldMap.get(key)
-        
-        if (p.type === 'tool') {
-          const startedAt = before?.startedAt || Date.now()
-          let finishedAt = before?.finishedAt || 0
-          if (p.done && !finishedAt) finishedAt = Date.now()
-          if (!p.done) finishedAt = 0
-          merged.set(key, { ...p, startedAt, ...(finishedAt ? { finishedAt } : {}), done: !!p.done })
-        } else {
-          // text类型直接替换（保持最新内容）
-          merged.set(key, p)
-        }
-      }
-      
-      // 返回合并后的parts（保持text在前，tools在后）
-      const result = []
-      const textPart = merged.get('text')
-      if (textPart) result.push(textPart)
-      for (const [key, p] of merged.entries()) {
-        if (key !== 'text') result.push(p)
-      }
-      return result
+      return parts.map((p, i) => {
+        if (!p || p.type !== 'tool') return p
+        const before = old[i]
+        const same = before && before.type === 'tool' && before.name === p.name
+        const startedAt = same && before.startedAt ? before.startedAt : Date.now()
+        let finishedAt = same ? before.finishedAt : 0
+        if (p.done && !finishedAt) finishedAt = Date.now()
+        if (!p.done) finishedAt = 0
+        return { ...p, startedAt, ...(finishedAt ? { finishedAt } : {}), done: !!p.done }
+      })
     }
     function messageClock(m) {
       if (!m) return ''
@@ -827,25 +802,18 @@ createApp({
       if (!ms) return ''
       return T.value.ranFor.replace('{t}', formatElapsed(ms))
     }
-    // 正在执行的工具只留最后一条。结束后不再显示，避免和正文状态各说各的
-    function isCurrentTool(m, p) {
-      if (!m || !m.pending || !p || p.type !== 'tool' || p.done) return false
-      const parts = Array.isArray(m.parts) ? m.parts : []
-      for (let i = parts.length - 1; i >= 0; i--) {
-        const item = parts[i]
-        if (item && item.type === 'tool' && !item.done) return item === p
-      }
-      return false
-    }
-    // 工具自己有一行。这里只在整轮很久没有新输出时提示，不再把已经结束的工具说成还在跑
+    // 跑了很久却没有新分段时，把当前工具或「没有进度」写出来
     function activityLabel(m) {
       if (!m || !m.pending) return ''
-      const parts = Array.isArray(m.parts) ? m.parts : []
-      if (parts.some(p => p && p.type === 'tool' && !p.done)) return ''
       const now = nowTick.value
+      const parts = Array.isArray(m.parts) ? m.parts : []
+      const tool = [...parts].reverse().find(p => p && p.type === 'tool' && !p.done)
       const since = Number(m.progressAt) || Number(m.startedAt) || now
-      if (now - since < 20000) return ''
-      return T.value.noProgress
+      const quiet = now - since >= 20000
+      const bits = []
+      if (tool && tool.name) bits.push(T.value.toolRunning.replace('{name}', tool.name))
+      if (quiet) bits.push(T.value.noProgress)
+      return bits.join(' · ')
     }
     // 工具条和桌面执行日志一样：友好名、状态、一行命令或路径
     function thinkLine(text) {
@@ -1647,25 +1615,7 @@ createApp({
         const tok = getToken()
         if (tok) headers.Authorization = `Bearer ${tok}`
         const r = await fetch('/api/agent-tasks/' + encodeURIComponent(id) + '/events', { headers, cache: 'no-store', signal: ac.signal })
-        if (!r.ok || !(r.headers.get('content-type') || '').includes('text/event-stream') || !r.body) {
-          // 404或其他错误：任务已经不存在，清除pending状态
-          if (r.status === 404) {
-            const row = messages.value.find(m => m && m.taskId === id)
-            if (row) {
-              row.pending = false
-              row.taskId = undefined
-              row.liveTurn = false
-              if (!row.content || !answerOf(row).trim()) {
-                row.content = '(Task not found or expired)'
-              }
-              sealTimes(row)
-            }
-            if (activeTaskId.value === id) activeTaskId.value = null
-            // 清除云端turn_task_id指针（避免重复显示）
-            if (holdingTurn.value) await endRelayTurn(false)
-          }
-          return
-        }
+        if (!r.ok || !(r.headers.get('content-type') || '').includes('text/event-stream') || !r.body) return
         const reader = r.body.getReader()
         const decoder = new TextDecoder()
         let buf = ''
@@ -1683,18 +1633,12 @@ createApp({
             if (ev.event === 'progress') {
               const partsNow = cleanParts(ev.parts)
               if (partsNow) {
-                // 按id/name合并，不整表替换（保留历史tools）
-                row.parts = withToolTimes(row.parts, partsNow)
-                // 有正文时，仅工具在跑不重写content（避免caret重新生成动画）
-                const hasText = partsNow.some(p => p.type === 'text')
-                if (hasText || !row.content) {
-                  row.content = answerOf(row)
-                }
+                row.parts = partsNow
+                row.content = answerOf(row)
               } else if (ev.text) {
                 row.content = String(ev.text)
               }
               row.pending = true
-              row.progressAt = Date.now()
               if (stickToBottom) followChat()
             } else if (ev.event === 'done' || ev.event === 'error') {
               const text = String(ev.output || ev.result || ev.text || ev.message || row.content || '')
@@ -1737,7 +1681,7 @@ createApp({
       const sameBase = kept.length === base.length && kept.every((row, i) => row === base[i])
       const liveGone = !keepLive && messages.value.some(m => m && m.liveTurn)
       if (sameBase && !liveGone) {
-        if (stickToBottom) followChat()
+        followChat()
         return
       }
       const el = chatEl.value
@@ -2416,11 +2360,7 @@ createApp({
             const parts = cleanParts(ev.parts)
             if (row && parts) {
               row.parts = withToolTimes(row.parts, parts)
-              // 有正文时，仅工具在跑不重写content（避免caret重新生成动画）
-              const hasText = parts.some(p => p.type === 'text')
-              if (hasText || !row.content) {
-                row.content = answerOf(row)
-              }
+              row.content = answerOf(row)
               row.pending = true
               row.progressAt = Date.now()
             } else {
@@ -2442,7 +2382,7 @@ createApp({
                 row.progressAt = Date.now()
               }
             }
-            if (stickToBottom) followChat()
+            followChat()
             continue
           }
           if (ev.event === 'done') {
@@ -2454,7 +2394,6 @@ createApp({
             if (row) {
               row.pending = false
               row.taskId = undefined
-              if (ev.response_id) row.responseId = ev.response_id
               if (arts.length) row.artifacts = arts
               if (row.parts && row.parts.length) {
                 row.parts = rewriteParts(row.parts, arts)
@@ -2471,8 +2410,7 @@ createApp({
               }
               if (arts.length) row.artifacts = arts
             }
-            // 完成：调用finish保存结果到数据库
-            return finish(true)
+            continue
           }
           if (ev.event === 'error') {
             if (ev.status === 'cancelled' || ev.error === 'cancelled' || stopRequested) {
@@ -2602,18 +2540,6 @@ createApp({
         const r = await fetch('/api/agent-tasks/' + encodeURIComponent(id) + '/events', { headers, cache: 'no-store' })
         if (!r.ok || !(r.headers.get('content-type') || '').includes('text/event-stream')) {
           row.pending = false
-          row.taskId = undefined
-          row.liveTurn = false
-          if (r.status === 404) {
-            // 任务404：可能已完成但记录丢失，或任务过期
-            if (!row.content || !answerOf(row).trim()) {
-              row.content = '(Task not found — may have completed or expired)'
-            }
-            // 清除云端turn_task_id指针
-            if (holdingTurn.value) await endRelayTurn(false)
-          }
-          sealTimes(row)
-          if (activeTaskId.value === id) activeTaskId.value = null
           return
         }
         const outcome = await readAgentSse(r, idx, !getToken())
@@ -2710,22 +2636,11 @@ createApp({
         }
       }
       const history = messages.value.slice()
-      // 找到历史中最后一个 assistant 的 response_id（如果有）
-      let lastResponseId = null
-      for (let i = history.length - 1; i >= 0; i--) {
-        if (history[i].role === 'assistant' && history[i].responseId) {
-          lastResponseId = history[i].responseId
-          break
-        }
-      }
       // 分享里的下一句要带上已有对话。访客单独试用仍只发这一句
       const shareContinue = !!relayShareId.value && String(relayShareId.value).indexOf('new-') !== 0
-      // 有 previous_response_id 时只发本轮新消息，无需压缩历史
-      const apiPrompt = lastResponseId
-        ? (text || displayText)
-        : ((!isGuest || shareContinue)
-          ? buildPromptWithHistory(history, text || displayText)
-          : text)
+      const apiPrompt = (!isGuest || shareContinue)
+        ? buildPromptWithHistory(history, text || displayText)
+        : text
       const attachUrls = imageItems.map(p => p.dataUrl)
       messages.value.push({
         role: 'user',
@@ -2778,10 +2693,6 @@ createApp({
           prompt: apiPrompt,
           worker_id: agent.value.worker_id || undefined,
           stream: true,
-          app_id: 'web-chat',  // 网页聊天UI（类似模型网关的发起应用）
-        }
-        if (lastResponseId) {
-          body.previous_response_id = lastResponseId
         }
         if (imageItems.length) {
           body.images = imageItems.map(p => ({ dataUrl: p.dataUrl, name: p.name || 'image' }))
@@ -2829,8 +2740,7 @@ createApp({
         const finalOk = outcome.finalOk
         const finalGuest = outcome.finalGuest
         nextAuto = outcome.nextAuto || ''
-        // stopped=true表示提前终止（done/error/cancelled），但done成功时仍需继续finish流程
-        if (outcome.stopped && !finalOk) return
+        if (outcome.stopped) return
 
         if (!finalOk && !messages.value[asstIdx]?.interrupted && !answerOf(messages.value[asstIdx]).trim()) {
           const row = messages.value[asstIdx]
@@ -2858,7 +2768,7 @@ createApp({
         // 这一轮已经有回复，试用才算用过
         if (finalGuest && answerOf(messages.value[asstIdx]).trim()) guestUsed.value = true
         if (!isGuest) await fetchProfile()
-        if (stickToBottom) followChat()
+        followChat()
       } catch (e) {
         if (stopRequested) {
           freezePartial(asstIdx)
@@ -2987,7 +2897,7 @@ createApp({
 
     return {
       authOpen, openAuth, composerEl, fileEl, agentName, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor, appIcon,
-      runLabel, messageClock, activityLabel, isCurrentTool, toolElapsed, toolFriendly, toolSummary, toolStatus, thinkLine,
+      runLabel, messageClock, activityLabel, toolElapsed, toolFriendly, toolSummary, toolStatus, thinkLine,
       renderRich, onChatClick, onImgOver, onImgOut, onImgHide, copyMsg, answerOf, downloadArtifact, isVideoFile,
       lang, T, toggleLang, backToTools, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, chatPeople, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,

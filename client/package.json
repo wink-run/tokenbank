@@ -1,6 +1,6 @@
 {
   "name": "llm-proxy-client",
-  "version": "0.6.3-71",
+  "version": "0.6.0",
   "private": true,
   "main": "electron/main.js",
   "scripts": {

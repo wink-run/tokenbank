@@ -1112,14 +1112,6 @@ class AgentTaskBody(BaseModel):
     files: Optional[list] = None
     # 分享里接着聊。服务端据此回到发起人的会话，而不是按当前发言人新开
     share_id: Optional[str] = None
-    # 发起方标识（类似模型网关的 app_id）。调用方显式传递，不由服务端推断。
-    app_id: Optional[str] = None
-    source: Optional[str] = None  # 兼容 metadata.source
-    # 多轮对话：续上之前的 response（本地 agent session），而不是新开会话
-    previous_response_id: Optional[str] = None
-    # 调用上下文：local=本机直接调用（保留本地路径），hired=雇佣/远程调用（上传产物，改写路径）
-    # 默认 hired（云端API默认是雇佣调用）。不用于鉴权，仅决定产物处理策略。
-    call_context: Optional[str] = "hired"
 
 
 @app.post("/api/agent-tasks")
@@ -1152,13 +1144,6 @@ async def create_agent_task(
             raise HTTPException(429, "guest trial limit reached — sign in to continue")
 
     guest_ip = _client_ip(request) if guest else None
-    # 发起方标识：优先 app_id，否则 source，均未提供时保持 None（Gateway用默认值 "direct"）
-    initiator = (body.app_id or body.source or "").strip() or None
-    
-    # 调用上下文：远端HTTP API强制hired（不信任用户输入call_context）
-    # 只有本机gateway（agent-http.js）才允许local模式
-    call_ctx = "hired"
-    
     if body.stream:
         from dispatch_agent import iter_agent_task_sse
         gen = iter_agent_task_sse(
@@ -1173,9 +1158,6 @@ async def create_agent_task(
             images=task_images or None,
             files=task_files or None,
             share_id=body.share_id,
-            app_id=initiator,
-            previous_response_id=body.previous_response_id,
-            call_context=call_ctx,
         )
         return StreamingResponse(
             gen,
@@ -1198,9 +1180,6 @@ async def create_agent_task(
         images=task_images or None,
         files=task_files or None,
         share_id=body.share_id,
-        app_id=initiator,
-        call_context=call_ctx,
-        previous_response_id=body.previous_response_id,
     )
     if not result.get("ok"):
         status = result.get("status") or "failed"
@@ -1859,12 +1838,6 @@ async def worker_ws(ws: WebSocket):
                     worker.worker_id,
                     [a.get("display_name") or a.get("id") for a in worker.agents],
                 )
-                continue
-
-            # Gateway 响应消息：路由到等待的队列
-            if kind in ("gateway_response", "gateway_sse", "gateway_stream_end"):
-                from gateway_over_websocket import handle_worker_gateway_message
-                handle_worker_gateway_message(worker, msg)
                 continue
 
             # 武将任务进度：不摘 pending，供 HTTP SSE 转发

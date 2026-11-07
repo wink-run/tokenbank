@@ -58,7 +58,3 @@ Thumbs.db
 # 头脑风暴产物（mockup HTML，勿提交）
 .superpowers/
 docs/
-
-# Node.js
-node_modules/
-package-lock.json

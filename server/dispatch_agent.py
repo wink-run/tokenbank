@@ -33,23 +33,6 @@ def _sse(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def _progress_tool_part(name, tool_id=None, detail="", result="", status="running") -> dict:
-    """网页上的工具行。结束态带 done，否则工具已经返回，页面仍会一直计时。"""
-    part = {"type": "tool", "name": str(name or "tool")[:80]}
-    if tool_id:
-        part["id"] = str(tool_id)[:120]
-    if detail:
-        part["detail"] = str(detail)[:4000]
-    if result:
-        part["result"] = str(result)[:4000]
-    st = str(status or "running").strip().lower()
-    if st in ("completed", "complete", "done", "error", "failed"):
-        part["done"] = True
-    if st in ("error", "failed"):
-        part["error"] = True
-    return part
-
-
 def _public_progress_parts(raw) -> list:
     """网页对话用的分段：正文 / 思考 / 工具。丢掉未知字段，限制长度。"""
     out = []
@@ -68,11 +51,9 @@ def _public_progress_parts(raw) -> list:
             result = str(item.get("result") or "")
             if result:
                 tool["result"] = result[:4000]
-            status = str(item.get("status") or "").strip().lower()
-            # 有的进度只带 status，不带 done。漏了的话网页会把已经返回的工具继续计时
-            if item.get("done") or status in ("completed", "complete", "done", "error", "failed"):
+            if item.get("done"):
                 tool["done"] = True
-            if item.get("error") or status in ("error", "failed"):
+            if item.get("error"):
                 tool["error"] = True
             out.append(tool)
             continue
@@ -660,290 +641,64 @@ async def handle_agent_task(
     images: Optional[list] = None,
     files: Optional[list] = None,
     share_id: Optional[str] = None,
-    app_id: Optional[str] = None,
-    previous_response_id: Optional[str] = None,
-    call_context: str = "hired",
 ) -> dict:
-    """选 worker → 预扣积分 → 下发 → 等待终态结果；失败退款。
-    
-    外部接口保持不变；内部通过 Gateway-over-WebSocket 调用 worker 本地 Gateway。
-    """
-    from gateway_over_websocket import invoke_worker_gateway
-
-    # 选择 worker（先选，再根据 worker 决定 harness_id 格式）
-    guest = consumer_user_id is None
-    if not guest:
-        user = await db.get_user_by_id(consumer_user_id)
-        if not user or float(user["credits_balance"] or 0) < AGENT_TASK_CREDITS:
-            return {
-                "ok": False,
-                "error": "Insufficient credits",
-                "status": "rejected",
-                "credits_required": AGENT_TASK_CREDITS,
-            }
-        circles = set(await db.get_user_circle_ids(consumer_user_id))
-    else:
-        circles = set()
-
-    workers = pool.pick_agent_workers(
-        assistant_id, user_circle_ids=circles, worker_id=worker_id, owner=owner,
+    """选 worker → 预扣积分 → 下发 → 等待终态结果；失败退款。"""
+    ctx, err = await _prepare_agent_task(
+        assistant_id=assistant_id,
+        prompt=prompt,
+        consumer_user_id=consumer_user_id,
+        worker_id=worker_id,
+        owner=owner,
+        timeout_ms=timeout_ms,
+        guest_ip=guest_ip,
+        images=images,
+        files=files,
+        share_id=share_id,
     )
-    if not workers:
-        return {
-            "ok": False,
-            "error": "该智能体当前无在线节点",
-            "status": "rejected",
-        }
-
-    worker = workers[0]
-    task_id = f"at-{uuid.uuid4().hex[:12]}"
-    
-    # 判断该 worker 是否本地拥有此 assistant（在其 agents 列表中）
-    # 若是，使用本地 harness_id（assistant_id），避免客户端把它当作远程社区智能体再次回云端
-    # 否则用 community: 格式（真正的远程雇佣场景）
-    worker_has_local = any(
-        isinstance(c, dict) and c.get("id") == assistant_id
-        for c in (getattr(worker, "agents", None) or [])
-    )
-    
-    if worker_has_local:
-        # 本地智能体：直接用 assistant_id 作为 harness_id
-        harness_id = assistant_id
-    else:
-        # 远程社区智能体：使用 community: 格式
-        harness_id = f"community:{assistant_id}"
-        if owner:
-            harness_id = f"{harness_id}@{owner}"
-    
-    # 构建 Gateway 请求
-    # 构建consumer_key用于隔离工作目录
-    consumer_key = None
-    if consumer_user_id:
-        consumer_key = f"u{consumer_user_id}"
-    elif guest_ip:
-        # 游客用IP哈希作为consumer_key
-        import hashlib
-        h = hashlib.sha256(guest_ip.encode()).hexdigest()[:12]
-        consumer_key = f"g{h}"
-    
-    # 安全：hired模式输入检查（程序级硬规则，第一层防御）
-    if call_context == "hired":
-        from agent_safety import check_input_safety, ensure_checker_available
-        
-        # 1. 验证检查器可用性（fail closed）
-        checker_ok, checker_err = ensure_checker_available()
-        if not checker_ok:
-            return {
-                "ok": False,
-                "error": checker_err or "Safety checker unavailable",
-                "status": "rejected",
-            }
-        
-        # 2. 检查输入安全性
-        files_meta = []
-        if files:
-            files_meta = [{"name": f.get("name", "")} for f in files]
-        
-        is_safe, safety_err = check_input_safety(prompt, files_meta)
-        if not is_safe:
-            logger.warning(
-                "[dispatch_agent] Rejected unsafe hired input: task=%s, assistant=%s",
-                task_id, assistant_id,
-            )
-            return {
-                "ok": False,
-                "error": safety_err or "Input violates safety policy",
-                "status": "rejected",
-            }
-    
-    gateway_body = {
-        "input": prompt,
-        "metadata": {
-            "harness_id": harness_id,
-            "call_context": call_context,
-            "assistant_id": assistant_id,
-            "consumer_key": consumer_key,
-        },
-    }
-    
-    # 附件：图片和文件（data URL格式）
-    if images:
-        gateway_body["images"] = images
-    if files:
-        gateway_body["files"] = files
-    
-    if previous_response_id:
-        gateway_body["previous_response_id"] = previous_response_id
-
-    # 扣除积分
-    if not guest:
-        ok_deduct, bal = await db.deduct_credits(
-            consumer_user_id,
-            AGENT_TASK_CREDITS,
-            model_name=f"agent:{assistant_id}",
-            tokens=0,
-            tier="p2p",
-        )
-        if not ok_deduct:
-            return {
-                "ok": False,
-                "error": "Insufficient credits",
-                "status": "rejected",
-                "balance": bal,
-                "credits_required": AGENT_TASK_CREDITS,
-            }
-
-    # 调用 worker 的本地 Gateway
-    # 发起方由调用者显式传递，不推断
+    if err:
+        if guest_ip and err.get("status") == "rejected":
+            from web_public import release_guest_trial
+            release_guest_trial(guest_ip)
+        return err
+    assert ctx is not None
     try:
-        gateway_response = await invoke_worker_gateway(
-            worker=worker,
-            method="POST",
-            path="/v1/agent/responses",
-            body=gateway_body,
-            timeout_sec=(timeout_ms or AGENT_TASK_TIMEOUT_SEC * 1000) // 1000,
-            initiator=app_id,  # 调用方显式传递
-        )
-
-        # 转换 Gateway 响应为云端格式
-        status = gateway_response.get("status", "failed")
-        success = status == "completed"
-        
-        # 提取输出文本
-        output_text = ""
-        output_list = gateway_response.get("output", [])
-        if isinstance(output_list, list) and output_list:
-            first_msg = output_list[0]
-            if isinstance(first_msg, dict):
-                content = first_msg.get("content", [])
-                if isinstance(content, list):
-                    for item in content:
-                        if isinstance(item, dict) and item.get("type") == "output_text":
-                            output_text = str(item.get("text", ""))
-                            break
-
-        if success and worker.user_id:
-            # 结息给出租方
-            await db.award_credits(
-                user_id=worker.user_id,
-                delta=AGENT_TASK_CREDITS,
-                type_="contribute",
-                model_name=f"agent:{assistant_id}",
-                tokens=0,
-                base_credits=AGENT_TASK_CREDITS,
-                multiplier=1.0,
-                note=f"agent_task kind=agent task_id={task_id} worker={worker.worker_id}",
+        async for msg in _iter_agent_messages(ctx):
+            if msg is None:
+                return await _refund_timeout(ctx)
+            if msg.get("type") == "agent_task_progress":
+                continue  # 非流式忽略过程事件
+            await _remember_share_cli_session(ctx.get("share_id") or "", msg)
+            return await _finalize_agent_result(
+                result=msg,
+                task_id=ctx["task_id"],
+                aid=ctx["aid"],
+                worker=_task_worker(ctx),
+                guest=ctx["guest"],
+                consumer_user_id=ctx["consumer_user_id"],
             )
-        elif not success and not guest:
-            # 失败退款给调用方
-            await db.award_credits(
-                user_id=consumer_user_id,
-                delta=AGENT_TASK_CREDITS,
-                type_="refund",
-                model_name=f"agent:{assistant_id}",
-                tokens=0,
-                base_credits=AGENT_TASK_CREDITS,
-                multiplier=1.0,
-                note=f"agent_task failed refund task_id={task_id}",
-            )
-
-        # 安全：hired模式先检查安全性，通过后才上传artifacts（fail closed）
-        raw_artifacts = gateway_response.get("artifacts")
-        if call_context == "hired" and success:
-            from agent_safety import check_output_safety, sanitize_paths_in_output
-            
-            # 提取session_root（由worker内部传递，仅供脱敏用，不得泄露给用户）
-            session_root = gateway_response.get("metadata", {}).get("session_root")
-            # 立即从metadata中删除，防止泄露给最终用户
-            if session_root and "metadata" in gateway_response:
-                gateway_response["metadata"].pop("session_root", None)
-            
-            # 1. 先检查输出文本和artifacts安全性（在上传之前）
-            output_safe, output_err = check_output_safety(
-                output_text,
-                artifacts=raw_artifacts,
-                session_dir=session_root,
-            )
-            if not output_safe:
-                logger.warning(
-                    "[dispatch_agent] Blocked unsafe hired output: task=%s, assistant=%s",
-                    task_id, assistant_id,
-                )
-                # 阻断输出，不上传artifacts，不透出原文
-                return {
-                    "ok": False,
-                    "task_id": task_id,
-                    "status": "failed",
-                    "error": output_err or "Output violates safety policy",
-                    "credits_charged": 0,
-                    "credits_refunded": AGENT_TASK_CREDITS if not guest else 0,
-                }
-            
-            # 2. 安全检查通过，上传artifacts并改写路径
-            processed_output, public_arts = _apply_artifacts(task_id, output_text, raw_artifacts)
-            
-            # 3. 路径脱敏（基于实际session root）
-            processed_output = sanitize_paths_in_output(processed_output, session_root=session_root)
-        elif call_context == "local":
-            # 本机local：不上传artifacts，保留本地路径
-            processed_output, public_arts = output_text, []
-        else:
-            # hired但失败：不上传artifacts
-            processed_output, public_arts = output_text, []
-        
-        result = {
-            "ok": success,
-            "task_id": task_id,
-            "status": status,
-            "output": processed_output[:200_000],
-            "usage": gateway_response.get("usage") or {},
-            "credits_charged": AGENT_TASK_CREDITS if success else 0,
-            "credits_refunded": 0 if success or guest else AGENT_TASK_CREDITS,
-        }
-        
-        # 多轮对话：返回 response_id 用于续session
-        response_id = gateway_response.get("id")
-        if response_id:
-            result["response_id"] = response_id
-        
-        if public_arts:
-            result["artifacts"] = public_arts
-        
-        return result
-
+        return await _refund_timeout(ctx)
     except Exception as e:
-        # 失败退款
+        worker = _task_worker(ctx)
+        task_id = ctx["task_id"]
+        aid = ctx["aid"]
+        guest = ctx["guest"]
+        consumer_user_id = ctx["consumer_user_id"]
+        worker.pending_agents.pop(task_id, None)
+        worker.active_requests = max(0, worker.active_requests - 1)
         if not guest:
             await db.award_credits(
                 user_id=consumer_user_id,
                 delta=AGENT_TASK_CREDITS,
                 type_="refund",
-                model_name=f"agent:{assistant_id}",
+                model_name=f"agent:{aid}",
                 tokens=0,
                 base_credits=AGENT_TASK_CREDITS,
                 multiplier=1.0,
                 note=f"agent_task error refund task_id={task_id}",
             )
-        
+        worker.record_agent_complete(aid, False)
         logger.error("[agent_task] error task_id=%s: %s", task_id, e)
-        
-        # hired模式：脱敏错误消息（防止路径泄露）
-        error_msg = str(e)
-        if call_context == "hired":
-            from agent_safety import sanitize_paths_in_output
-            # 注：此处gateway_response可能未定义（调用前失败），使用None作为session_root
-            session_root = None
-            if 'gateway_response' in locals() and gateway_response:
-                session_root = gateway_response.get("metadata", {}).get("session_root")
-            error_msg = sanitize_paths_in_output(error_msg, session_root=session_root)
-        
-        return {
-            "ok": False,
-            "task_id": task_id,
-            "status": "failed",
-            "error": error_msg,
-            "credits_refunded": 0 if guest else AGENT_TASK_CREDITS,
-        }
+        return {"ok": False, "task_id": task_id, "status": "failed", "error": str(e)}
 
 
 # 网页刷新或切页会断开 SSE，任务本身继续跑。事件留在这里，页面回来后从同一条流接上。
@@ -1064,381 +819,6 @@ async def _pump_agent_feed(ctx: dict, guest: bool) -> None:
         feed["notify"].set()
 
 
-async def _pump_gateway_stream_to_feed(
-    *,
-    task_id: str,
-    worker,
-    gateway_body: dict,
-    timeout_sec: int,
-    app_id: Optional[str],
-    call_context: str,
-    is_guest: bool,
-    consumer_user_id: Optional[int],
-    assistant_id: str,
-) -> None:
-    """后台泵：消费 Gateway over WebSocket 流并写入 feed，不与浏览器 SSE 连接绑定。
-    
-    浏览器断开主 SSE 不影响此泵继续运行，直到 completed/error 写入 feed。
-    """
-    from gateway_over_websocket import invoke_worker_gateway_stream
-    
-    feed = _AGENT_FEEDS.get(task_id)
-    if not feed:
-        return
-    
-    accumulated_text = ""
-    success = False
-    
-    # Parts累积器：维护text + 所有tools的完整快照
-    parts_accumulator = {
-        "text": None,  # {"type": "text", "text": "..."}
-        "tools": {},   # {tool_id: {"type": "tool", "name": "...", ...}}
-    }
-    
-    try:
-        async for gateway_event in invoke_worker_gateway_stream(
-            worker=worker,
-            method="POST",
-            path="/v1/agent/responses",
-            body=gateway_body,
-            timeout_sec=timeout_sec,
-            initiator=app_id,
-        ):
-            event_name = gateway_event.get("event")
-            event_data = gateway_event.get("data", {})
-            
-            if event_name == "response.output_text.delta":
-                delta = event_data.get("delta", "")
-                accumulated_text += delta
-                
-                # 更新parts累积器（text部分）
-                if call_context == "hired":
-                    from agent_safety import sanitize_paths_in_output
-                    session_root = event_data.get("metadata", {}).get("session_root")
-                    sanitized_text = sanitize_paths_in_output(accumulated_text[:200_000], session_root=session_root)
-                    sanitized_part = sanitize_paths_in_output(accumulated_text[:80_000], session_root=session_root)
-                    
-                    parts_accumulator["text"] = {"type": "text", "text": sanitized_part}
-                    
-                    # 构建完整parts快照（text + 所有tools）
-                    parts = []
-                    if parts_accumulator["text"]:
-                        parts.append(parts_accumulator["text"])
-                    parts.extend(parts_accumulator["tools"].values())
-                    
-                    progress_event = {
-                        "event": "progress",
-                        "task_id": task_id,
-                        "status": "running",
-                        "text": sanitized_text,
-                        "parts": parts,
-                    }
-                else:
-                    parts_accumulator["text"] = {"type": "text", "text": accumulated_text[:80_000]}
-                    
-                    # 构建完整parts快照
-                    parts = []
-                    if parts_accumulator["text"]:
-                        parts.append(parts_accumulator["text"])
-                    parts.extend(parts_accumulator["tools"].values())
-                    
-                    progress_event = {
-                        "event": "progress",
-                        "task_id": task_id,
-                        "text": accumulated_text[:200_000],
-                        "parts": parts,
-                    }
-                _publish_agent_feed(task_id, progress_event)
-            
-            elif event_name == "response.output_text.snapshot":
-                accumulated_text = event_data.get("text", "")
-                
-                # 更新parts累积器（text部分）
-                if call_context == "hired":
-                    from agent_safety import sanitize_paths_in_output
-                    session_root = event_data.get("metadata", {}).get("session_root")
-                    sanitized_text = sanitize_paths_in_output(accumulated_text[:200_000], session_root=session_root)
-                    sanitized_part = sanitize_paths_in_output(accumulated_text[:80_000], session_root=session_root)
-                    
-                    parts_accumulator["text"] = {"type": "text", "text": sanitized_part}
-                    
-                    # 构建完整parts快照（text + 所有tools）
-                    parts = []
-                    if parts_accumulator["text"]:
-                        parts.append(parts_accumulator["text"])
-                    parts.extend(parts_accumulator["tools"].values())
-                    
-                    progress_event = {
-                        "event": "progress",
-                        "task_id": task_id,
-                        "status": "running",
-                        "text": sanitized_text,
-                        "parts": parts,
-                    }
-                else:
-                    parts_accumulator["text"] = {"type": "text", "text": accumulated_text[:80_000]}
-                    
-                    # 构建完整parts快照
-                    parts = []
-                    if parts_accumulator["text"]:
-                        parts.append(parts_accumulator["text"])
-                    parts.extend(parts_accumulator["tools"].values())
-                    
-                    progress_event = {
-                        "event": "progress",
-                        "task_id": task_id,
-                        "text": accumulated_text[:200_000],
-                        "parts": parts,
-                    }
-                _publish_agent_feed(task_id, progress_event)
-            
-            elif event_name == "response.tool":
-                tool_name = event_data.get("tool", "")
-                tool_id = event_data.get("tool_use_id")
-                detail = event_data.get("detail", "")
-                result = event_data.get("result", "")
-                status = event_data.get("status", "running")
-                
-                # 更新parts累积器（按id/name更新tool）
-                tool_key = tool_id if tool_id else tool_name
-                
-                if call_context == "hired":
-                    from agent_safety import sanitize_paths_in_output
-                    session_root = event_data.get("metadata", {}).get("session_root")
-                    
-                    tool_part = _progress_tool_part(
-                        tool_name,
-                        tool_id,
-                        sanitize_paths_in_output(detail, session_root=session_root) if detail else "",
-                        sanitize_paths_in_output(result, session_root=session_root) if result else "",
-                        status,
-                    )
-                    
-                    # 按id/name更新（不是替换整个列表）
-                    parts_accumulator["tools"][tool_key] = tool_part
-                    
-                    # 构建完整parts快照（text + 所有tools）
-                    parts = []
-                    if parts_accumulator["text"]:
-                        parts.append(parts_accumulator["text"])
-                    parts.extend(parts_accumulator["tools"].values())
-                    
-                    sanitized_text = sanitize_paths_in_output(accumulated_text[:200_000], session_root=session_root)
-                    
-                    progress_event = {
-                        "event": "progress",
-                        "task_id": task_id,
-                        "status": "running",
-                        "text": sanitized_text,
-                        "tool": tool_name,
-                        "parts": parts,
-                    }
-                else:
-                    tool_part = _progress_tool_part(tool_name, tool_id, detail, result, status)
-                    
-                    # 按id/name更新
-                    parts_accumulator["tools"][tool_key] = tool_part
-                    
-                    # 构建完整parts快照
-                    parts = []
-                    if parts_accumulator["text"]:
-                        parts.append(parts_accumulator["text"])
-                    parts.extend(parts_accumulator["tools"].values())
-                    
-                    progress_event = {
-                        "event": "progress",
-                        "task_id": task_id,
-                        "text": accumulated_text[:200_000],
-                        "tool": tool_name,
-                        "parts": parts,
-                    }
-                _publish_agent_feed(task_id, progress_event)
-            
-            elif event_name == "response.completed":
-                success = True
-                gateway_status = event_data.get("status", "completed")
-                
-                # 提取输出文本
-                output_text = accumulated_text
-                output_from_completed = ""
-                output_list = event_data.get("output", [])
-                if isinstance(output_list, list) and output_list:
-                    first_msg = output_list[0]
-                    if isinstance(first_msg, dict):
-                        content = first_msg.get("content", [])
-                        if isinstance(content, list):
-                            for item in content:
-                                if isinstance(item, dict) and item.get("type") == "output_text":
-                                    output_from_completed = str(item.get("text", ""))
-                                    break
-                if len(output_from_completed) > len(output_text):
-                    output_text = output_from_completed
-                
-                # 结息给出租方
-                if gateway_status == "completed" and worker.user_id:
-                    await db.award_credits(
-                        user_id=worker.user_id,
-                        delta=AGENT_TASK_CREDITS,
-                        type_="contribute",
-                        model_name=f"agent:{assistant_id}",
-                        tokens=0,
-                        base_credits=AGENT_TASK_CREDITS,
-                        multiplier=1.0,
-                        note=f"agent_task kind=agent task_id={task_id} worker={worker.worker_id}",
-                    )
-                
-                response_id = event_data.get("id")
-                raw_artifacts = event_data.get("artifacts")
-                
-                # hired安全检查
-                if call_context == "hired" and gateway_status == "completed":
-                    from agent_safety import check_output_safety, sanitize_paths_in_output
-                    
-                    session_root = event_data.get("metadata", {}).get("session_root")
-                    if session_root and "metadata" in event_data:
-                        event_data["metadata"].pop("session_root", None)
-                    
-                    output_safe, output_err = check_output_safety(
-                        output_text,
-                        artifacts=raw_artifacts,
-                        session_dir=session_root,
-                    )
-                    if not output_safe:
-                        logger.warning(
-                            "[pump_gateway] Blocked unsafe hired output: task=%s, assistant=%s",
-                            task_id, assistant_id,
-                        )
-                        error_payload = {
-                            "event": "error",
-                            "ok": False,
-                            "task_id": task_id,
-                            "status": "failed",
-                            "error": output_err or "Output violates safety policy",
-                            "credits_refunded": AGENT_TASK_CREDITS if not is_guest else 0,
-                        }
-                        _publish_agent_feed(task_id, error_payload)
-                        return
-                    
-                    processed_output, public_arts = _apply_artifacts(task_id, output_text, raw_artifacts)
-                    processed_output = sanitize_paths_in_output(processed_output, session_root=session_root)
-                elif call_context == "local":
-                    processed_output, public_arts = output_text, []
-                else:
-                    processed_output, public_arts = output_text, []
-                
-                # Done时标记所有tools为done:true，构建完整parts
-                for tool_part in parts_accumulator["tools"].values():
-                    tool_part["done"] = True
-                    if "status" not in tool_part:
-                        tool_part["status"] = "completed"
-                
-                # 构建完整parts（text + 所有done的tools）
-                final_parts = []
-                if parts_accumulator["text"]:
-                    final_parts.append(parts_accumulator["text"])
-                final_parts.extend(parts_accumulator["tools"].values())
-                
-                done_payload = {
-                    "event": "done",
-                    "ok": True,
-                    "task_id": task_id,
-                    "status": gateway_status,
-                    "output": processed_output[:200_000],
-                    "usage": event_data.get("usage") or {},
-                    "credits_charged": AGENT_TASK_CREDITS,
-                    "guest": is_guest,
-                    "need_login_to_continue": is_guest,
-                    "parts": final_parts,  # 完整parts快照
-                }
-                if response_id:
-                    done_payload["response_id"] = response_id
-                if public_arts:
-                    done_payload["artifacts"] = public_arts
-                
-                _publish_agent_feed(task_id, done_payload)
-                return
-            
-            elif event_name == "error":
-                error_msg = event_data.get("error", {}).get("message", "unknown error")
-                
-                # hired脱敏错误
-                if call_context == "hired":
-                    from agent_safety import sanitize_paths_in_output
-                    session_root = event_data.get("metadata", {}).get("session_root") if event_data.get("metadata") else None
-                    error_msg = sanitize_paths_in_output(error_msg, session_root=session_root)
-                    accumulated_text = sanitize_paths_in_output(accumulated_text, session_root=session_root)
-                
-                # 失败退款
-                if not is_guest:
-                    await db.award_credits(
-                        user_id=consumer_user_id,
-                        delta=AGENT_TASK_CREDITS,
-                        type_="refund",
-                        model_name=f"agent:{assistant_id}",
-                        tokens=0,
-                        base_credits=AGENT_TASK_CREDITS,
-                        multiplier=1.0,
-                        note=f"agent_task failed refund task_id={task_id}",
-                    )
-                
-                error_payload = {
-                    "event": "error",
-                    "ok": False,
-                    "task_id": task_id,
-                    "status": "failed",
-                    "error": error_msg,
-                    "output": accumulated_text[:200_000],
-                    "credits_refunded": 0 if is_guest else AGENT_TASK_CREDITS,
-                    "guest": is_guest,
-                    "need_login_to_continue": is_guest,
-                }
-                _publish_agent_feed(task_id, error_payload)
-                return
-    
-    except Exception as e:
-        logger.error("[pump_gateway] stream error task_id=%s: %s", task_id, e)
-        
-        # hired脱敏异常
-        error_msg = str(e)
-        output_text = accumulated_text[:200_000]
-        if call_context == "hired":
-            from agent_safety import sanitize_paths_in_output
-            error_msg = sanitize_paths_in_output(error_msg, session_root=None)
-            output_text = sanitize_paths_in_output(output_text, session_root=None)
-        
-        # 失败退款
-        if not is_guest:
-            await db.award_credits(
-                user_id=consumer_user_id,
-                delta=AGENT_TASK_CREDITS,
-                type_="refund",
-                model_name=f"agent:{assistant_id}",
-                tokens=0,
-                base_credits=AGENT_TASK_CREDITS,
-                multiplier=1.0,
-                note=f"agent_task error refund task_id={task_id}",
-            )
-        
-        error_payload = {
-            "event": "error",
-            "ok": False,
-            "task_id": task_id,
-            "status": "failed",
-            "error": error_msg,
-            "output": output_text,
-            "credits_refunded": 0 if is_guest else AGENT_TASK_CREDITS,
-            "guest": is_guest,
-            "need_login_to_continue": is_guest,
-        }
-        _publish_agent_feed(task_id, error_payload)
-    
-    finally:
-        # 标记feed完成
-        if task_id in _AGENT_FEEDS:
-            _AGENT_FEEDS[task_id]["finished"] = True
-            _AGENT_FEEDS[task_id]["notify"].set()
-
-
 def start_agent_feed(ctx: dict, guest: bool) -> None:
     feed = _ensure_agent_feed(ctx["task_id"], ctx.get("consumer_user_id"))
     pump = feed.get("pump")
@@ -1518,392 +898,30 @@ async def iter_agent_task_sse(
     images: Optional[list] = None,
     files: Optional[list] = None,
     share_id: Optional[str] = None,
-    app_id: Optional[str] = None,
-    previous_response_id: Optional[str] = None,
-    call_context: str = "hired",
 ) -> AsyncIterator[str]:
-    """SSE：progress 事件推正文，done/error 收尾。
-    
-    内部通过 Gateway-over-WebSocket 流式调用 worker 本地 Gateway。
-    """
-    from gateway_over_websocket import invoke_worker_gateway_stream
-
-    # 选择 worker（先选，再根据 worker 决定 harness_id 格式）
-    is_guest = consumer_user_id is None
-    if not is_guest:
-        user = await db.get_user_by_id(consumer_user_id)
-        if not user or float(user["credits_balance"] or 0) < AGENT_TASK_CREDITS:
-            payload = {
-                "event": "error",
-                "ok": False,
-                "error": "Insufficient credits",
-                "status": "rejected",
-                "guest": is_guest,
-                "need_login_to_continue": is_guest,
-            }
-            yield _sse(payload)
-            return
-        circles = set(await db.get_user_circle_ids(consumer_user_id))
-    else:
-        circles = set()
-
-    workers = pool.pick_agent_workers(
-        assistant_id, user_circle_ids=circles, worker_id=worker_id, owner=owner,
+    """SSE：progress 事件推正文，done/error 收尾。页面断开后任务仍继续。"""
+    ctx, err = await _prepare_agent_task(
+        assistant_id=assistant_id,
+        prompt=prompt,
+        consumer_user_id=consumer_user_id,
+        worker_id=worker_id,
+        owner=owner,
+        timeout_ms=timeout_ms,
+        guest_ip=guest_ip,
+        images=images,
+        files=files,
+        share_id=share_id,
     )
-    if not workers:
-        payload = {
-            "event": "error",
-            "ok": False,
-            "error": "该智能体当前无在线节点",
-            "status": "rejected",
-            "guest": is_guest,
-            "need_login_to_continue": is_guest,
-        }
+    if err:
+        # 还没派到设备上：这次不算试用，避免第一条还没回复就被额度拦住
+        if guest and guest_ip and err.get("status") == "rejected":
+            from web_public import release_guest_trial
+            release_guest_trial(guest_ip)
+        payload = {**err, "event": "error", "guest": guest, "need_login_to_continue": guest}
         yield _sse(payload)
         return
 
-    worker = workers[0]
-    task_id = f"at-{uuid.uuid4().hex[:12]}"
-    
-    # 判断该 worker 是否本地拥有此 assistant（在其 agents 列表中）
-    # 若是，使用本地 harness_id（assistant_id），避免客户端把它当作远程社区智能体再次回云端
-    # 否则用 community: 格式（真正的远程雇佣场景）
-    worker_has_local = any(
-        isinstance(c, dict) and c.get("id") == assistant_id
-        for c in (getattr(worker, "agents", None) or [])
-    )
-    
-    if worker_has_local:
-        # 本地智能体：直接用 assistant_id 作为 harness_id
-        harness_id = assistant_id
-    else:
-        # 远程社区智能体：使用 community: 格式
-        harness_id = f"community:{assistant_id}"
-        if owner:
-            harness_id = f"{harness_id}@{owner}"
-    
-    # 构建 Gateway 请求
-    # 构建consumer_key用于隔离工作目录
-    consumer_key = None
-    if consumer_user_id:
-        consumer_key = f"u{consumer_user_id}"
-    elif guest_ip:
-        # 游客用IP哈希作为consumer_key
-        import hashlib
-        h = hashlib.sha256(guest_ip.encode()).hexdigest()[:12]
-        consumer_key = f"g{h}"
-    
-    # 安全：hired模式输入检查（程序级硬规则，第一层防御）
-    if call_context == "hired":
-        from agent_safety import check_input_safety, ensure_checker_available
-        
-        # 1. 验证检查器可用性（fail closed）
-        checker_ok, checker_err = ensure_checker_available()
-        if not checker_ok:
-            payload = {
-                "event": "error",
-                "ok": False,
-                "error": checker_err or "Safety checker unavailable",
-                "status": "rejected",
-            }
-            yield _sse(payload)
-            return
-        
-        # 2. 检查输入安全性
-        files_meta = []
-        if files:
-            files_meta = [{"name": f.get("name", "")} for f in files]
-        
-        is_safe, safety_err = check_input_safety(prompt, files_meta)
-        if not is_safe:
-            logger.warning(
-                "[dispatch_agent] Rejected unsafe hired input (SSE): task=%s, assistant=%s",
-                task_id, assistant_id,
-            )
-            payload = {
-                "event": "error",
-                "ok": False,
-                "error": safety_err or "Input violates safety policy",
-                "status": "rejected",
-            }
-            yield _sse(payload)
-            return
-    
-    gateway_body = {
-        "input": prompt,
-        "metadata": {
-            "harness_id": harness_id,
-            "call_context": call_context,
-            "assistant_id": assistant_id,
-            "consumer_key": consumer_key,
-        },
-    }
-    
-    # 附件：图片和文件（data URL格式）
-    if images:
-        gateway_body["images"] = images
-    if files:
-        gateway_body["files"] = files
-    
-    # 多轮对话：续上之前的 session（如果提供了 previous_response_id）
-    if previous_response_id:
-        gateway_body["previous_response_id"] = previous_response_id
-
-    # 扣除积分
-    if not is_guest:
-        ok_deduct, bal = await db.deduct_credits(
-            consumer_user_id,
-            AGENT_TASK_CREDITS,
-            model_name=f"agent:{assistant_id}",
-            tokens=0,
-            tier="p2p",
-        )
-        if not ok_deduct:
-            payload = {
-                "event": "error",
-                "ok": False,
-                "error": "Insufficient credits",
-                "status": "rejected",
-                "guest": is_guest,
-                "need_login_to_continue": is_guest,
-            }
-            yield _sse(payload)
-            return
-
-    # 登记feed（让 /api/agent-tasks/{id}/events 可查询）
-    feed = _ensure_agent_feed(task_id, consumer_user_id)
-    
-    # hired模式：后台泵解耦（浏览器断开不影响worker收包）
-    if call_context == "hired":
-        # 启动后台泵消费gateway stream
-        pump = feed.get("pump")
-        if pump is None or pump.done():
-            feed["pump"] = asyncio.create_task(_pump_gateway_stream_to_feed(
-                task_id=task_id,
-                worker=worker,
-                gateway_body=gateway_body,
-                timeout_sec=(timeout_ms or AGENT_TASK_TIMEOUT_SEC * 1000) // 1000,
-                app_id=app_id,
-                call_context=call_context,
-                is_guest=is_guest,
-                consumer_user_id=consumer_user_id,
-                assistant_id=assistant_id,
-            ))
-        
-        # SSE从feed读取（断线不影响后台泵）
-        async for sse_line in iter_agent_feed_sse(task_id):
-            yield sse_line
-        return
-    
-    # local模式：保持原有直接转发（不走feed，不解耦）
-    # 发送 started 事件
-    started_event = {"event": "started", "task_id": task_id}
-    _publish_agent_feed(task_id, started_event)
-    yield _sse(started_event)
-
-    # 流式调用 worker 的本地 Gateway（local直接转发）
-    accumulated_text = ""
-    success = False
-    try:
-        async for gateway_event in invoke_worker_gateway_stream(
-            worker=worker,
-            method="POST",
-            path="/v1/agent/responses",
-            body=gateway_body,
-            timeout_sec=(timeout_ms or AGENT_TASK_TIMEOUT_SEC * 1000) // 1000,
-            initiator=app_id,  # 调用方显式传递
-        ):
-            event_name = gateway_event.get("event")
-            event_data = gateway_event.get("data", {})
-
-            if event_name == "response.output_text.delta":
-                # Delta: 累积文本（local直接转发）
-                delta = event_data.get("delta", "")
-                accumulated_text += delta
-                
-                progress_event = {
-                    "event": "progress",
-                    "task_id": task_id,
-                    "text": accumulated_text[:200_000],
-                    "parts": [{"type": "text", "text": accumulated_text[:80_000]}],
-                }
-                _publish_agent_feed(task_id, progress_event)
-                yield _sse(progress_event)
-            
-            elif event_name == "response.output_text.snapshot":
-                # Snapshot: 替换文本（local直接转发）
-                accumulated_text = event_data.get("text", "")
-                
-                progress_event = {
-                    "event": "progress",
-                    "task_id": task_id,
-                    "text": accumulated_text[:200_000],
-                    "parts": [{"type": "text", "text": accumulated_text[:80_000]}],
-                }
-                _publish_agent_feed(task_id, progress_event)
-                yield _sse(progress_event)
-            
-            elif event_name == "response.tool":
-                # 工具调用/结果（local直接转发）
-                tool_name = event_data.get("tool", "")
-                tool_id = event_data.get("tool_use_id")
-                detail = event_data.get("detail", "")
-                result = event_data.get("result", "")
-                status = event_data.get("status", "running")
-                
-                tool_part = _progress_tool_part(tool_name, tool_id, detail, result, status)
-                
-                progress_event = {
-                    "event": "progress",
-                    "task_id": task_id,
-                    "text": accumulated_text[:200_000],
-                    "tool": tool_name,
-                    "parts": [tool_part],
-                }
-                _publish_agent_feed(task_id, progress_event)
-                yield _sse(progress_event)
-            
-            elif event_name == "response.completed":
-                # 完成
-                success = True
-                gateway_status = event_data.get("status", "completed")
-                
-                # 提取输出文本：优先使用流式累积的 accumulated_text（来自 delta 事件）
-                # 但如果 completed.output 更长（工具调用后生成的文本可能没发delta），使用它
-                output_text = accumulated_text
-                
-                # 始终检查 completed 事件的 output
-                output_from_completed = ""
-                output_list = event_data.get("output", [])
-                if isinstance(output_list, list) and output_list:
-                    first_msg = output_list[0]
-                    if isinstance(first_msg, dict):
-                        content = first_msg.get("content", [])
-                        if isinstance(content, list):
-                            for item in content:
-                                if isinstance(item, dict) and item.get("type") == "output_text":
-                                    output_from_completed = str(item.get("text", ""))
-                                    break
-                
-                # 使用更长的那个（completed可能包含工具调用后生成的额外文本）
-                if len(output_from_completed) > len(output_text):
-                    output_text = output_from_completed
-
-                # 结息给出租方
-                if gateway_status == "completed" and worker.user_id:
-                    await db.award_credits(
-                        user_id=worker.user_id,
-                        delta=AGENT_TASK_CREDITS,
-                        type_="contribute",
-                        model_name=f"agent:{assistant_id}",
-                        tokens=0,
-                        base_credits=AGENT_TASK_CREDITS,
-                        multiplier=1.0,
-                        note=f"agent_task kind=agent task_id={task_id} worker={worker.worker_id}",
-                    )
-
-                # 提取 response_id（用于多轮对话续session）
-                response_id = event_data.get("id")
-                
-                # local：不上传artifacts，保留本地路径（hired已在前面return，这里只处理local）
-                processed_output, public_arts = output_text, []
-                
-                done_payload = {
-                    "event": "done",
-                    "ok": True,
-                    "task_id": task_id,
-                    "status": gateway_status,
-                    "output": processed_output[:200_000],
-                    "usage": event_data.get("usage") or {},
-                    "credits_charged": AGENT_TASK_CREDITS,
-                    "guest": is_guest,
-                    "need_login_to_continue": is_guest,
-                }
-                if response_id:
-                    done_payload["response_id"] = response_id
-                if public_arts:
-                    done_payload["artifacts"] = public_arts
-                
-                # 发布到feed并标记完成
-                _publish_agent_feed(task_id, done_payload)
-                if task_id in _AGENT_FEEDS:
-                    _AGENT_FEEDS[task_id]["finished"] = True
-                
-                yield _sse(done_payload)
-                return
-            
-            elif event_name == "error":
-                # 错误（local直接转发，hired已在前面return）
-                error_msg = event_data.get("error", {}).get("message", "unknown error")
-                
-                # 失败退款
-                if not is_guest:
-                    await db.award_credits(
-                        user_id=consumer_user_id,
-                        delta=AGENT_TASK_CREDITS,
-                        type_="refund",
-                        model_name=f"agent:{assistant_id}",
-                        tokens=0,
-                        base_credits=AGENT_TASK_CREDITS,
-                        multiplier=1.0,
-                        note=f"agent_task failed refund task_id={task_id}",
-                    )
-                
-                error_payload = {
-                    "event": "error",
-                    "ok": False,
-                    "task_id": task_id,
-                    "status": "failed",
-                    "error": error_msg,
-                    "output": accumulated_text[:200_000],
-                    "credits_refunded": 0 if is_guest else AGENT_TASK_CREDITS,
-                    "guest": is_guest,
-                    "need_login_to_continue": is_guest,
-                }
-                
-                # 发布到feed并标记完成
-                _publish_agent_feed(task_id, error_payload)
-                if task_id in _AGENT_FEEDS:
-                    _AGENT_FEEDS[task_id]["finished"] = True
-                
-                yield _sse(error_payload)
-                return
-
-    except Exception as e:
-        logger.error("[agent_task] stream error task_id=%s: %s", task_id, e)
-        
-        # local异常处理（hired已在前面return）
-        error_msg = str(e)
-        output_text = accumulated_text[:200_000]
-        
-        # 失败退款
-        if not is_guest:
-            await db.award_credits(
-                user_id=consumer_user_id,
-                delta=AGENT_TASK_CREDITS,
-                type_="refund",
-                model_name=f"agent:{assistant_id}",
-                tokens=0,
-                base_credits=AGENT_TASK_CREDITS,
-                multiplier=1.0,
-                note=f"agent_task error refund task_id={task_id}",
-            )
-        
-        error_payload = {
-            "event": "error",
-            "ok": False,
-            "task_id": task_id,
-            "status": "failed",
-            "error": error_msg,
-            "output": output_text,
-            "credits_refunded": 0 if is_guest else AGENT_TASK_CREDITS,
-            "guest": is_guest,
-            "need_login_to_continue": is_guest,
-        }
-        
-        # 发布到feed并标记完成
-        _publish_agent_feed(task_id, error_payload)
-        if task_id in _AGENT_FEEDS:
-            _AGENT_FEEDS[task_id]["finished"] = True
-        
-        yield _sse(error_payload)
+    assert ctx is not None
+    start_agent_feed(ctx, guest)
+    async for chunk in iter_agent_feed_sse(ctx["task_id"]):
+        yield chunk
