@@ -208,13 +208,12 @@ function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
     const info = containedFile(rootReal, abs);
     if (!info || seen.has(info.real)) return;
     
-    // 时间窗口兜底扫描：排除根目录的依赖管理文件（除非正文明确提及）
+    // 时间窗口兜底扫描：排除所有目录的依赖管理文件（除非正文明确提及）
+    // 绘图任务不应收集npm/pip等依赖文件，无论根目录还是子目录
     if (!isExplicit) {
-      const relPath = path.relative(rootReal, info.real);
-      const inRoot = !relPath.includes(path.sep);
       const isDependencyFile = /^(package(-lock)?\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|Gemfile\.lock|poetry\.lock|requirements\.txt)$/i.test(info.name);
-      if (inRoot && isDependencyFile) {
-        return; // 根目录依赖文件：只有正文明确提及才收集
+      if (isDependencyFile) {
+        return; // 依赖管理文件：只有正文明确提及才收集（明确代码交付场景）
       }
     }
     

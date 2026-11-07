@@ -253,7 +253,8 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
         const prev = await executor.getTaskStatus(body.previous_response_id);
         
         // 完整授权检查：续会话必须匹配assistant、consumer、call_context
-        const prevContext = prev?.context ? JSON.parse(prev.context) : {};
+        // getTaskStatus已经解析过context，不需要再JSON.parse
+        const prevContext = prev?.context || {};
         const prevAssistantId = prevContext?.assistantId || prev?.agent_id;
         const prevConsumerKey = prevContext?.consumerKey;
         const prevCallContext = prevContext?.callContext;

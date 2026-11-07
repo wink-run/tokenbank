@@ -126,19 +126,27 @@ test('代码交付收集README.md', () => {
   }
 });
 
-// 子目录场景：子目录中的package.json应该被收集
+// 子目录场景：子目录中的package.json默认也排除（除非正文明确提及）
 const subDir = path.join(testWorkspace, 'subproject');
 fs.mkdirSync(subDir, { recursive: true });
 const subPackagePath = path.join(subDir, 'package.json');
 fs.writeFileSync(subPackagePath, JSON.stringify({ name: 'subproject' }));
 
-const subOutput = '子项目已创建：subproject/package.json';
+test('绘图任务排除子目录package.json', () => {
+  const drawingSubOutput = '生成了图片，子目录里有配置文件。';
+  const artifacts = collectWorkspaceArtifacts(testWorkspace, drawingSubOutput, taskStartTime);
+  const hasSubPackage = artifacts.some(a => a.name === 'package.json' && a.localPath && a.localPath.includes('subproject'));
+  if (hasSubPackage) {
+    throw new Error('误收了子目录的package.json');
+  }
+}, true);
 
-test('子目录package.json可以收集', () => {
-  const artifacts = collectWorkspaceArtifacts(testWorkspace, subOutput, taskStartTime);
+test('明确提及时收集子目录package.json', () => {
+  const explicitSubOutput = '子项目已创建 subproject/package.json';
+  const artifacts = collectWorkspaceArtifacts(testWorkspace, explicitSubOutput, taskStartTime);
   const hasSubPackage = artifacts.some(a => a.name === 'package.json' && a.localPath && a.localPath.includes('subproject'));
   if (!hasSubPackage) {
-    throw new Error('未收集子目录的package.json');
+    throw new Error('未收集正文提及的子目录package.json');
   }
 });
 
