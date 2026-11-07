@@ -304,7 +304,21 @@ function pipeTaskStream(executor, taskId, res) {
   const onStep = (step) => {
     if (!step || step.taskId !== taskId) return;
     if (step.stepType === 'tool_call' && step.tool_name) {
-      writeEvent(res, 'response.tool', { tool: step.tool_name });
+      writeEvent(res, 'response.tool', {
+        tool: step.tool_name,
+        tool_use_id: step.tool_use_id || null,
+        detail: step.content || '',
+        status: 'running'
+      });
+      return;
+    }
+    if (step.stepType === 'tool_result' && step.tool_name) {
+      writeEvent(res, 'response.tool', {
+        tool: step.tool_name,
+        tool_use_id: step.tool_use_id || null,
+        result: step.content || '',
+        status: step.is_error ? 'error' : 'completed'
+      });
       return;
     }
     const next = outputStreamEvent(prev, step);

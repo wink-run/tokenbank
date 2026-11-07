@@ -1168,14 +1168,29 @@ async def iter_agent_task_sse(
                 })
             
             elif event_name == "response.tool":
-                # 工具调用
+                # 工具调用/结果
                 tool_name = event_data.get("tool", "")
+                tool_id = event_data.get("tool_use_id")
+                detail = event_data.get("detail", "")
+                result = event_data.get("result", "")
+                status = event_data.get("status", "running")
+                
+                tool_part = {"type": "tool", "name": tool_name}
+                if tool_id:
+                    tool_part["id"] = tool_id
+                if detail:
+                    tool_part["detail"] = detail
+                if result:
+                    tool_part["result"] = result
+                if status:
+                    tool_part["status"] = status
+                
                 yield _sse({
                     "event": "progress",
                     "task_id": task_id,
                     "text": accumulated_text[:200_000],
                     "tool": tool_name,
-                    "parts": [{"type": "tool", "name": tool_name}],
+                    "parts": [tool_part],
                 })
             
             elif event_name == "response.completed":
