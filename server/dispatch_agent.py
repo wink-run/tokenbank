@@ -709,7 +709,7 @@ async def handle_agent_task(
     
     # 安全：hired模式输入检查（程序级硬规则，第一层防御）
     if call_context == "hired":
-        from .agent_safety import check_input_safety, ensure_checker_available
+        from agent_safety import check_input_safety, ensure_checker_available
         
         # 1. 验证检查器可用性（fail closed）
         checker_ok, checker_err = ensure_checker_available()
@@ -831,7 +831,7 @@ async def handle_agent_task(
         # 安全：hired模式先检查安全性，通过后才上传artifacts（fail closed）
         raw_artifacts = gateway_response.get("artifacts")
         if call_context == "hired" and success:
-            from .agent_safety import check_output_safety, sanitize_paths_in_output
+            from agent_safety import check_output_safety, sanitize_paths_in_output
             
             # 提取session_root（由worker内部传递，仅供脱敏用，不得泄露给用户）
             session_root = gateway_response.get("metadata", {}).get("session_root")
@@ -911,7 +911,7 @@ async def handle_agent_task(
         # hired模式：脱敏错误消息（防止路径泄露）
         error_msg = str(e)
         if call_context == "hired":
-            from .agent_safety import sanitize_paths_in_output
+            from agent_safety import sanitize_paths_in_output
             # 注：此处gateway_response可能未定义（调用前失败），使用None作为session_root
             session_root = None
             if 'gateway_response' in locals() and gateway_response:
@@ -1201,7 +1201,7 @@ async def iter_agent_task_sse(
     
     # 安全：hired模式输入检查（程序级硬规则，第一层防御）
     if call_context == "hired":
-        from .agent_safety import check_input_safety, ensure_checker_available
+        from agent_safety import check_input_safety, ensure_checker_available
         
         # 1. 验证检查器可用性（fail closed）
         checker_ok, checker_err = ensure_checker_available()
@@ -1414,7 +1414,7 @@ async def iter_agent_task_sse(
                 # 安全：hired模式先检查安全性，通过后才上传artifacts（fail closed）
                 raw_artifacts = event_data.get("artifacts")
                 if call_context == "hired" and gateway_status == "completed":
-                    from .agent_safety import check_output_safety, sanitize_paths_in_output
+                    from agent_safety import check_output_safety, sanitize_paths_in_output
                     
                     # 提取session_root（由worker内部传递，仅供脱敏用，不得泄露给用户）
                     session_root = gateway_response.get("metadata", {}).get("session_root")
@@ -1481,7 +1481,7 @@ async def iter_agent_task_sse(
                 
                 # hired模式：脱敏错误消息和输出（防止路径泄露）
                 if call_context == "hired":
-                    from .agent_safety import sanitize_paths_in_output
+                    from agent_safety import sanitize_paths_in_output
                     session_root = gateway_response.get("metadata", {}).get("session_root")
                     error_msg = sanitize_paths_in_output(error_msg, session_root=session_root)
                     accumulated_text = sanitize_paths_in_output(accumulated_text, session_root=session_root)
@@ -1519,7 +1519,7 @@ async def iter_agent_task_sse(
         error_msg = str(e)
         output_text = accumulated_text[:200_000]
         if call_context == "hired":
-            from .agent_safety import sanitize_paths_in_output
+            from agent_safety import sanitize_paths_in_output
             session_root = gateway_response.get("metadata", {}).get("session_root") if 'gateway_response' in locals() else None
             error_msg = sanitize_paths_in_output(error_msg, session_root=session_root)
             output_text = sanitize_paths_in_output(output_text, session_root=session_root)
