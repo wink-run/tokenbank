@@ -200,6 +200,13 @@ function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
     if (picked.length >= ARTIFACT_MAX) return;
     const info = containedFile(rootReal, abs);
     if (!info || seen.has(info.real)) return;
+    
+    // 排除依赖管理文件（不是用户明确交付的产物）
+    if (info.name === 'package.json' || info.name === 'package-lock.json' || 
+        info.name === 'yarn.lock' || info.name === 'pnpm-lock.yaml') {
+      return;
+    }
+    
     const ext = path.extname(info.name).toLowerCase();
     const mime = ARTIFACT_MIME[ext];
     if (!mime) return;

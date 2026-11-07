@@ -1791,6 +1791,7 @@ class AgentExecutor extends EventEmitter {
         session_key: sessionKey,
         session_instance_id: sessionInstanceId,
         spawn_diag: spawnDiag,
+        started_at: Date.now(),
       });
       this.taskMetaCache.set(taskId, {
         agentId: virtualAgentId || agentId,
@@ -1907,7 +1908,8 @@ class AgentExecutor extends EventEmitter {
             if (collectArtifacts) {
               try {
                 const { collectWorkspaceArtifacts } = require('./contribute-session');
-                artifacts = collectWorkspaceArtifacts(workingDir, stdout, Date.now() - 300000);
+                const taskStartTime = running?.started_at || (Date.now() - 300000);
+                artifacts = collectWorkspaceArtifacts(workingDir, stdout, taskStartTime);
               } catch (e) {
                 console.warn('[AgentExecutor] collectWorkspaceArtifacts failed:', e.message);
               }
