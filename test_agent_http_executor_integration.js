@@ -99,10 +99,36 @@ async function runTests() {
   // 劫持DB路径
   process.env.AGENT_TASKS_DB_PATH = testDbPath;
   
+  // 创建测试agents.json registry
+  const testAgentsDir = path.join(testRoot, '.tokenbank');
+  fs.mkdirSync(testAgentsDir, { recursive: true });
+  const testAgentsJson = path.join(testAgentsDir, 'agents.json');
+  fs.writeFileSync(testAgentsJson, JSON.stringify({
+    'fake-cli': {
+      id: 'fake-cli',
+      name: 'Fake CLI',
+      type: 'cli',
+      installed: true,
+      launch: {
+        executable: fakeCLIPath,
+        args: [],
+      },
+    },
+  }, null, 2));
+  
+  // 劫持agents.json路径
+  const originalHomedir = os.homedir;
+  os.homedir = () => testRoot;
+  
   // Import生产模块（已经是单例实例）
+  // 需要重新加载以使用新的homedir
+  delete require.cache[require.resolve('./client/electron/agent-executor')];
   const executor = require('./client/electron/agent-executor');
   
-  // 注册fake CLI
+  // 恢复homedir（但executor已经读取了测试路径）
+  os.homedir = originalHomedir;
+  
+  // 配置fake CLI的AGENT_CLI（用于spawn参数）
   if (!executor.constructor.AGENT_CLI) {
     executor.constructor.AGENT_CLI = {};
   }
@@ -114,6 +140,15 @@ async function runTests() {
     },
     installed: true,
     syncOutput: false,
+  };
+  
+  // Mock resolveAgentId for testing
+  const originalResolveAgentId = executor.resolveAgentId.bind(executor);
+  executor.resolveAgentId = async function(agentId) {
+    if (agentId === 'fake-cli') {
+      return 'fake-cli';
+    }
+    return originalResolveAgentId(agentId);
   };
   
   const agentHttpModule = require('./client/electron/agent-http');
@@ -287,7 +322,7 @@ async function runTests() {
     console.log('');
     
     // ========== 测试3: 跨consumer续用（拒绝）==========
-    console.log('测试3: 跨consumer尝试续用task1');
+    console.log('测试3: 跨consumer尝试续用task1（必须拒绝）');
     const task3 = await callHandler({
       harness_id: 'fake-cli',
       input: '继续',
@@ -303,14 +338,44 @@ async function runTests() {
     const workspaceSessionId3 = result3.workspaceSessionId;
     const context3 = task3.context ? JSON.parse(task3.context) : {};
     const workingDir3 = context3.workingDir;
+    const consumerKey3 = context3.consumerKey;
     
     console.log(`  workspaceSessionId: ${workspaceSessionId3}`);
+    console.log(`  consumerKey: ${consumerKey3}`);
     console.log(`  未复用u100会话: ${workspaceSessionId1 !== workspaceSessionId3 ? '✓' : '✗ 跨用户泄漏'}`);
     console.log(`  目录不同: ${workingDir1 !== workingDir3 ? '✓' : '✗'}`);
+    console.log(`  consumer匹配当前: ${consumerKey3 === 'u200' ? '✓' : '✗'}`);
     
     tests.push({
-      name: '跨consumer隔离',
-      pass: workspaceSessionId1 !== workspaceSessionId3 && workingDir1 !== workingDir3,
+      name: '跨consumer拒绝续用',
+      pass: workspaceSessionId1 !== workspaceSessionId3 && workingDir1 !== workingDir3 && consumerKey3 === 'u200',
+    });
+    console.log('');
+    
+    // ========== 测试3b: hired/local跨context续用（拒绝）==========
+    console.log('测试3b: local尝试续用hired task1（必须拒绝）');
+    const task3b = await callHandler({
+      harness_id: 'fake-cli',
+      input: '继续',
+      previous_response_id: task1.id,
+      metadata: {
+        call_context: 'local',  // 不同context
+      },
+    });
+    
+    const result3b = task3b.result ? JSON.parse(task3b.result) : {};
+    const context3b = task3b.context ? JSON.parse(task3b.context) : {};
+    const callContext3b = context3b.callContext;
+    const cliSessionId3b = result3b.cliSessionId;
+    const cliSessionId1 = result1.cliSessionId;
+    
+    console.log(`  callContext: ${callContext3b}`);
+    console.log(`  cliSessionId与task1不同: ${cliSessionId3b !== cliSessionId1 ? '✓' : '✗ 跨context泄漏'}`);
+    console.log(`  context匹配当前: ${callContext3b === 'local' ? '✓' : '✗'}`);
+    
+    tests.push({
+      name: '跨context拒绝续用',
+      pass: cliSessionId3b !== cliSessionId1 && callContext3b === 'local',
     });
     console.log('');
     

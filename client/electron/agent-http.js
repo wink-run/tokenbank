@@ -235,38 +235,35 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
       try {
         const prev = await executor.getTaskStatus(body.previous_response_id);
         
-        // 安全检查：续会话必须匹配assistant和consumer归属
+        // 完整授权检查：续会话必须匹配assistant、consumer、call_context
         const prevContext = prev?.context ? JSON.parse(prev.context) : {};
         const prevAssistantId = prevContext?.assistantId || prev?.agent_id;
-        const currentAssistantId = body.metadata?.assistant_id;
+        const prevConsumerKey = prevContext?.consumerKey;
+        const prevCallContext = prevContext?.callContext;
         
-        // hired调用：必须验证assistant和consumer归属
-        if (callContext === 'hired') {
-          const currentConsumerKey = body.metadata?.consumer_key;
-          
-          // 从prev context获取consumer归属（如果记录了）
-          // 否则从workspaceSessionId路径反推
-          let prevMatches = false;
-          if (prevAssistantId && currentAssistantId && currentConsumerKey) {
-            // 验证assistant必须匹配
-            if (prevAssistantId !== currentAssistantId) {
-              console.warn(`[agent-http] 拒绝续用其他assistant的会话: prev=${prevAssistantId}, current=${currentAssistantId}`);
-            } else {
-              // assistant匹配，允许续用
-              prevMatches = true;
-            }
-          }
-          
-          if (!prevMatches) {
-            console.warn(`[agent-http] previous_response_id权限不匹配，当作新会话`);
-            // 不使用prev的session信息，当作新会话
-          } else {
-            cliSessionId = prev?.result?.cliSessionId || '';
-            workspaceSessionId = prev?.result?.workspaceSessionId || '';
-            continueSession = true;
-          }
-        } else {
-          // local调用：允许（本地agent自主）
+        const currentAssistantId = body.metadata?.assistant_id;
+        const currentConsumerKey = body.metadata?.consumer_key;
+        
+        // 验证1: assistant_id必须匹配（公共智能体标识，但必须是同一个）
+        if (prevAssistantId && currentAssistantId && prevAssistantId !== currentAssistantId) {
+          console.warn(`[agent-http] 拒绝续用其他assistant的会话: prev=${prevAssistantId}, current=${currentAssistantId}`);
+          // 不使用prev的session信息，当作新会话
+        }
+        // 验证2: consumer_key必须匹配（用户身份，不能跨用户）
+        else if (prevConsumerKey && currentConsumerKey && prevConsumerKey !== currentConsumerKey) {
+          console.warn(`[agent-http] 拒绝续用其他consumer的会话: prev=${prevConsumerKey}, current=${currentConsumerKey}`);
+          // 明确拒绝：游客IP变化不能作为绕过理由
+        }
+        // 验证3: call_context必须匹配（hired不能用local会话，反之亦然）
+        else if (prevCallContext && prevCallContext !== callContext) {
+          console.warn(`[agent-http] 拒绝跨context续用会话: prev=${prevCallContext}, current=${callContext}`);
+        }
+        // 验证4: 旧数据缺失授权信息时拒绝（防止利用旧任务绕过）
+        else if (!prevAssistantId || !prevConsumerKey || !prevCallContext) {
+          console.warn(`[agent-http] 旧任务缺失授权信息，拒绝续用: assistantId=${!!prevAssistantId}, consumerKey=${!!prevConsumerKey}, callContext=${!!prevCallContext}`);
+        }
+        // 全部验证通过：允许续用
+        else {
           cliSessionId = prev?.result?.cliSessionId || '';
           workspaceSessionId = prev?.result?.workspaceSessionId || '';
           continueSession = true;
@@ -352,8 +349,10 @@ async function handle(req, res, { method, cleanPath, knownKey }) {
       workingDir,
       // 会话级目录标识（供续会话复用）
       workspaceSessionId: workspaceSessionId || undefined,
-      // 记录assistant归属（供续会话权限验证）
+      // 记录完整授权上下文（供续会话权限验证）
       assistantId: body.metadata?.assistant_id || undefined,
+      consumerKey: body.metadata?.consumer_key || undefined,
+      callContext: callContext,
       // 只有请求显式打开 stream 才边收边推
       stream: !!body.stream,
       // 发起方标识（用于统计和日志）

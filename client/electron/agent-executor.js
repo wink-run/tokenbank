@@ -888,6 +888,8 @@ class AgentExecutor extends EventEmitter {
       JSON.stringify({
         workingDir,
         assistantId,
+        consumerKey: options.consumerKey || null,
+        callContext: options.callContext || null,
         mcpProfile,
         mode,
         mainAgentId,
