@@ -1534,6 +1534,19 @@ function summarizeAgentStdout(rawStdout, agentId = 'claude-code') {
       .filter(s => s.stepType === 'output' && s.content?.trim())
       .map(s => s.content.trim());
     if (outputs.length) return outputs.join('\n\n');
+    
+    // 流式JSON fallback: 提取agent_message的content
+    const streamOutputs = [];
+    for (const line of String(rawStdout || '').split('\n')) {
+      if (!line.trim().startsWith('{')) continue;
+      try {
+        const obj = JSON.parse(line);
+        if (obj.type === 'agent_message' && obj.content && typeof obj.content === 'string') {
+          streamOutputs.push(obj.content.trim());
+        }
+      } catch { /* ignore */ }
+    }
+    if (streamOutputs.length) return streamOutputs.join('\n\n');
   }
 
   const lines = String(rawStdout || '').split('\n');
