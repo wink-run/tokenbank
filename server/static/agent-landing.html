@@ -169,7 +169,7 @@
                     </details>
                   </template>
                   <template v-else-if="p.type === 'tools'">
-                    <!-- 一次回复里的多次调用收成一条，展开后再看每一次 -->
+                    <!-- 多次调用收成一条。展开只看当前这一次的参数和返回 -->
                     <details class="tool-fold">
                       <summary>
                         <span class="tool-chev" aria-hidden="true"></span>
@@ -178,16 +178,8 @@
                         <span v-if="toolGroupHint(p.items)" class="tool-sum" :title="toolGroupHint(p.items)">{{ toolGroupHint(p.items) }}</span>
                         <span v-if="toolGroupElapsed(p.items, m)" class="apart-time">{{ toolGroupElapsed(p.items, m) }}</span>
                       </summary>
-                      <div v-for="(t, ti) in p.items" :key="ti" class="tool-item">
-                        <div v-if="p.items.length > 1" class="tool-item-h">
-                          <span class="apart-name">{{ toolFriendly(t.name) }}</span>
-                          <span class="tool-status" :class="{ err: t.error, live: !t.done && m.pending }">{{ toolStatus(t, m) }}</span>
-                          <span v-if="toolSummary(t.detail)" class="tool-sum" :title="toolSummary(t.detail)">{{ toolSummary(t.detail) }}</span>
-                          <span v-if="toolElapsed(t, m)" class="apart-time">{{ toolElapsed(t, m) }}</span>
-                        </div>
-                        <pre v-if="t.detail">{{ t.detail }}</pre>
-                        <pre v-if="t.result" class="tool-result">{{ t.result }}</pre>
-                      </div>
+                      <pre v-if="currentTool(p.items) && currentTool(p.items).detail">{{ currentTool(p.items).detail }}</pre>
+                      <pre v-if="currentTool(p.items) && currentTool(p.items).result" class="tool-result">{{ currentTool(p.items).result }}</pre>
                     </details>
                   </template>
                   <div v-else-if="p.type === 'text'" class="md-body" v-html="renderRich(p.text, m.artifacts)"></div>
@@ -1018,11 +1010,15 @@ createApp({
         live: !!(m && m.pending) && list.some(p => p && !p.done),
       }
     }
-    function toolGroupHint(items) {
+    function currentTool(items) {
       const list = Array.isArray(items) ? items : []
       const live = [...list].reverse().find(p => p && !p.done)
-      const pick = live || list[list.length - 1]
+      return live || list[list.length - 1] || null
+    }
+    function toolGroupHint(items) {
+      const pick = currentTool(items)
       if (!pick) return ''
+      const list = Array.isArray(items) ? items : []
       return toolSummary(pick.detail) || (list.length > 1 ? toolFriendly(pick.name) : '')
     }
     function toolGroupElapsed(items, m) {
@@ -1623,15 +1619,33 @@ createApp({
       await scrollChat(true)
     }
 
-    // 打开或刚发出时贴在最新一条；用户往上翻之后，后面的输出不再拽回去
+    // 打开或刚发出时贴在最新一条；用户往上翻之后，状态更新不再拽回去
     let stickToBottom = true
+    let pinning = 0
+    function leftBottom(el) {
+      if (!el) return false
+      return el.scrollHeight - el.scrollTop - el.clientHeight >= 80
+    }
     function pinChatBottom() {
       const el = chatEl.value
       if (!el) return
+      // 这次滚动是我们拉下去的，不要当成用户又回到了底部
+      pinning += 1
       const prev = el.style.scrollBehavior
       el.style.scrollBehavior = 'auto'
       el.scrollTop = el.scrollHeight
       el.style.scrollBehavior = prev
+      requestAnimationFrame(() => { pinning = Math.max(0, pinning - 1) })
+    }
+    function keepScroll(top) {
+      nextTick(() => {
+        const box = chatEl.value
+        if (!box) return
+        const prev = box.style.scrollBehavior
+        box.style.scrollBehavior = 'auto'
+        box.scrollTop = top
+        box.style.scrollBehavior = prev
+      })
     }
     // force 只用于打开对话、切换历史、自己刚发出。流式更新不能把人从历史里拉下来
     async function scrollChat(force) {
@@ -1640,23 +1654,17 @@ createApp({
       if (force || stickToBottom) pinChatBottom()
     }
     function followChat() {
-      const el = chatEl.value
-      if (!stickToBottom || !el) return
-      const top = el.scrollTop
+      // 只认用户自己滚走。内容变高不算离开底部，否则贴底的人会停在半截
+      if (!stickToBottom) return
       nextTick(() => {
-        const box = chatEl.value
-        if (!box) return
-        // 这一拍里用户已经往上翻了，就留在他正在看的位置
-        if (box.scrollTop + 4 < top) {
-          stickToBottom = false
-          return
-        }
+        if (!stickToBottom) return
         pinChatBottom()
       })
     }
     function onChatScroll() {
+      if (pinning) return
       const el = chatEl.value
-      if (el) stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+      if (el) stickToBottom = !leftBottom(el)
       onImgHide()
     }
     function onChatMedia() {
@@ -1899,29 +1907,19 @@ createApp({
     // 轮询只改已有气泡或在末尾补句。整表换成新对象会让图片和正文重新加载，并把视口拽到底
     function adoptKept(kept, keepLive) {
       const live = keepLive ? messages.value.filter(m => m && m.liveTurn) : []
-      const base = messages.value.filter(m => m && !m.liveTurn)
-      const sameBase = kept.length === base.length && kept.every((row, i) => row === base[i])
-      const liveGone = !keepLive && messages.value.some(m => m && m.liveTurn)
-      if (sameBase && !liveGone) {
-        followChat()
-        return
-      }
+      const next = kept.concat(live)
+      const same = next.length === messages.value.length && next.every((row, i) => row === messages.value[i])
       const el = chatEl.value
       const top = el ? el.scrollTop : 0
       const stick = stickToBottom
-      messages.value = kept.concat(live)
-      nextTick(() => {
-        const box = chatEl.value
-        if (!box) return
-        if (stick) {
-          pinChatBottom()
-          return
-        }
-        const prev = box.style.scrollBehavior
-        box.style.scrollBehavior = 'auto'
-        box.scrollTop = top
-        box.style.scrollBehavior = prev
-      })
+      if (!same) messages.value = next
+      // 人在看上面的消息时，轮询只改文字，不把视口拉到底
+      if (!stick) {
+        if (!same) keepScroll(top)
+        return
+      }
+      if (!same) nextTick(() => { if (stickToBottom) pinChatBottom() })
+      else followChat()
     }
     async function pollShareTurn() {
       // 自己正在说的这轮不用被刷新打断；别人的页面要一直把新内容拉下来
@@ -2070,22 +2068,14 @@ createApp({
         // 用云端写回的发言时间盖掉本机时钟
         if (r.ok && stillHere && data && Array.isArray(data.messages) && data.messages.length) {
           absorbShare(messages.value, data)
+          const ordered = sortMessages(messages.value)
+          const same = ordered.length === messages.value.length && ordered.every((row, i) => row === messages.value[i])
           const el = chatEl.value
           const top = el ? el.scrollTop : 0
           const stick = stickToBottom
-          messages.value = sortMessages(messages.value)
-          nextTick(() => {
-            const box = chatEl.value
-            if (!box) return
-            if (stick) {
-              pinChatBottom()
-              return
-            }
-            const prev = box.style.scrollBehavior
-            box.style.scrollBehavior = 'auto'
-            box.scrollTop = top
-            box.style.scrollBehavior = prev
-          })
+          if (!same) messages.value = ordered
+          if (stick) nextTick(() => { if (stickToBottom) pinChatBottom() })
+          else if (!same) keepScroll(top)
         }
         if (commit && stillHere) syncHistoryTranscript(sid)
       } catch { /* 锁过期后别人也能重新抢 */ }
@@ -3138,7 +3128,7 @@ createApp({
     return {
       authOpen, openAuth, composerEl, fileEl, agentName, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor, appIcon,
       runLabel, messageClock, activityLabel, toolElapsed, toolFriendly, toolSummary, toolStatus, thinkLine,
-      viewParts, toolGroupTitle, toolGroupStatus, toolGroupClass, toolGroupHint, toolGroupElapsed, hiddenAnswer,
+      viewParts, toolGroupTitle, toolGroupStatus, toolGroupClass, toolGroupHint, toolGroupElapsed, currentTool, hiddenAnswer,
       renderRich, onChatClick, onImgOver, onImgOut, onImgHide, copyMsg, answerOf, downloadArtifact, isVideoFile,
       lang, T, toggleLang, backToTools, loading, fatal, showAuthGate, agent, creditsPerTask,
       loggedIn, profile, currentUserLabel, chatPeople, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
