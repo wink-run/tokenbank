@@ -240,7 +240,8 @@ function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
   };
 
   // 正文明确提及：总是收集（包括package.json如果用户明确要求）
-  for (const p of mentionedPaths(text, rootReal)) {
+  const mentioned = mentionedPaths(text, rootReal);
+  for (const p of mentioned) {
     pushFile(p, true);
   }
   
@@ -250,6 +251,11 @@ function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
   recent.sort((a, b) => b.mtimeMs - a.mtimeMs);
   for (const item of recent) {
     pushFile(item.real, false);
+  }
+  
+  // 临时调试日志
+  if (mentioned.length > 0 || recent.length > 0 || picked.length > 0) {
+    console.log(`[collectWorkspaceArtifacts] mentioned=${mentioned.length}, recent=${recent.length}, picked=${picked.length}, startedAt=${startedAt}, textLen=${text.length}`);
   }
   
   return picked;
