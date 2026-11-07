@@ -247,9 +247,12 @@ async function runTest() {
       console.log(`  [捕获] ${method} ${url.split('?')[0]}`);
       
       if (method === 'GET' && url.includes('/shares/') && !url.includes('/turn/')) {
-        // 动态turn状态：当有hold参数时，表示这是轮询请求，不返回task_id避免被判定为foreign turn
+        // 动态turn状态：
+        // - hold参数存在表示轮询请求，应返回null（无foreign turn）保持holdingTurn=true
+        // - 或者返回包含mine:true的turn让页面识别为"我的turn"
         const hasHold = url.includes('hold=');
-        const turnData = hasHold ? null : null; // 始终返回null，避免轮询清除holdingTurn
+        // 始终返回null最安全，页面会保持holdingTurn状态
+        const turnData = null;
         
         await route.fulfill({
           status: 200,
