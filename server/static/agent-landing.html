@@ -761,17 +761,42 @@ createApp({
     }
     /** 进度分段会整包替换。同一条工具沿用开始时间，结束时记下结束时间。 */
     function withToolTimes(prev, parts) {
+      // 按id/name合并parts，不整表替换（保留历史tools和text）
       const old = Array.isArray(prev) ? prev : []
-      return parts.map((p, i) => {
-        if (!p || p.type !== 'tool') return p
-        const before = old[i]
-        const same = before && before.type === 'tool' && before.name === p.name
-        const startedAt = same && before.startedAt ? before.startedAt : Date.now()
-        let finishedAt = same ? before.finishedAt : 0
-        if (p.done && !finishedAt) finishedAt = Date.now()
-        if (!p.done) finishedAt = 0
-        return { ...p, startedAt, ...(finishedAt ? { finishedAt } : {}), done: !!p.done }
-      })
+      const oldMap = new Map()
+      for (const p of old) {
+        if (!p) continue
+        const key = p.type === 'tool' ? (p.id || p.name || p.type) : p.type
+        oldMap.set(key, p)
+      }
+      
+      // 合并新parts到旧parts
+      const merged = new Map(oldMap)  // 复制旧的
+      for (const p of parts || []) {
+        if (!p) continue
+        const key = p.type === 'tool' ? (p.id || p.name || p.type) : p.type
+        const before = oldMap.get(key)
+        
+        if (p.type === 'tool') {
+          const startedAt = before?.startedAt || Date.now()
+          let finishedAt = before?.finishedAt || 0
+          if (p.done && !finishedAt) finishedAt = Date.now()
+          if (!p.done) finishedAt = 0
+          merged.set(key, { ...p, startedAt, ...(finishedAt ? { finishedAt } : {}), done: !!p.done })
+        } else {
+          // text类型直接替换（保持最新内容）
+          merged.set(key, p)
+        }
+      }
+      
+      // 返回合并后的parts（保持text在前，tools在后）
+      const result = []
+      const textPart = merged.get('text')
+      if (textPart) result.push(textPart)
+      for (const [key, p] of merged.entries()) {
+        if (key !== 'text') result.push(p)
+      }
+      return result
     }
     function messageClock(m) {
       if (!m) return ''
@@ -1651,8 +1676,13 @@ createApp({
             if (ev.event === 'progress') {
               const partsNow = cleanParts(ev.parts)
               if (partsNow) {
-                row.parts = partsNow
-                row.content = answerOf(row)
+                // 按id/name合并，不整表替换（保留历史tools）
+                row.parts = withToolTimes(row.parts, partsNow)
+                // 有正文时，仅工具在跑不重写content（避免caret重新生成动画）
+                const hasText = partsNow.some(p => p.type === 'text')
+                if (hasText || !row.content) {
+                  row.content = answerOf(row)
+                }
               } else if (ev.text) {
                 row.content = String(ev.text)
               }
@@ -2378,7 +2408,11 @@ createApp({
             const parts = cleanParts(ev.parts)
             if (row && parts) {
               row.parts = withToolTimes(row.parts, parts)
-              row.content = answerOf(row)
+              // 有正文时，仅工具在跑不重写content（避免caret重新生成动画）
+              const hasText = parts.some(p => p.type === 'text')
+              if (hasText || !row.content) {
+                row.content = answerOf(row)
+              }
               row.pending = true
               row.progressAt = Date.now()
             } else {

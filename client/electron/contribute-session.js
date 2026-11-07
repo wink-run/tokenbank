@@ -208,35 +208,88 @@ function collectWorkspaceArtifacts(workingDir, text, startedAt = 0) {
   const pushFile = (abs, isExplicit = false) => {
     if (picked.length >= ARTIFACT_MAX) return;
     const info = containedFile(rootReal, abs);
-    if (!info || seen.has(info.real)) return;
     
-    // 时间窗口兜底扫描：排除所有目录的依赖管理文件（除非正文明确提及）
-    // 绘图任务不应收集npm/pip等依赖文件，无论根目录还是子目录
-    if (!isExplicit) {
-      const isDependencyFile = /^(package(-lock)?\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|Gemfile\.lock|poetry\.lock|requirements\.txt)$/i.test(info.name);
-      if (isDependencyFile) {
-        return; // 依赖管理文件：只有正文明确提及才收集（明确代码交付场景）
+    // 优先处理workspace内文件（已有逻辑）
+    if (info && !seen.has(info.real)) {
+      // 时间窗口兜底扫描：排除所有目录的依赖管理文件（除非正文明确提及）
+      if (!isExplicit) {
+        const isDependencyFile = /^(package(-lock)?\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|Gemfile\.lock|poetry\.lock|requirements\.txt)$/i.test(info.name);
+        if (isDependencyFile) {
+          return;
+        }
       }
+      
+      const ext = path.extname(info.name).toLowerCase();
+      const mime = ARTIFACT_MIME[ext];
+      if (!mime) return;
+      if (info.size <= 0 || info.size > ARTIFACT_MAX_BYTES) return;
+      const dataUrl = `data:${mime};base64,${fs.readFileSync(info.real).toString('base64')}`;
+      if (totalChars + dataUrl.length > ARTIFACT_TOTAL_CHARS) return;
+      seen.add(info.real);
+      if (isExplicit) explicitMentions.add(info.real);
+      totalChars += dataUrl.length;
+      const kind = mime.startsWith('image/') && ext !== '.svg' ? 'image' : 'file';
+      picked.push({
+        name: info.name.slice(0, 120),
+        mime,
+        kind,
+        dataUrl,
+        localPath: info.real,
+      });
+      return;
     }
     
-    const ext = path.extname(info.name).toLowerCase();
-    const mime = ARTIFACT_MIME[ext];
-    if (!mime) return;
-    if (info.size <= 0 || info.size > ARTIFACT_MAX_BYTES) return;
-    const dataUrl = `data:${mime};base64,${fs.readFileSync(info.real).toString('base64')}`;
-    if (totalChars + dataUrl.length > ARTIFACT_TOTAL_CHARS) return;
-    seen.add(info.real);
-    if (isExplicit) explicitMentions.add(info.real);
-    totalChars += dataUrl.length;
-    const kind = mime.startsWith('image/') && ext !== '.svg' ? 'image' : 'file';
-    picked.push({
-      name: info.name.slice(0, 120),
-      mime,
-      kind,
-      dataUrl,
-      // 服务端用它把正文里的本机路径换成中转地址，不会原样发给调用方
-      localPath: info.real,
-    });
+    // 处理workspace外的绝对路径（明确提及且文件存在）
+    if (isExplicit && !info) {
+      let realPath;
+      try {
+        realPath = fs.realpathSync(abs);
+        if (seen.has(realPath)) return;
+        const stat = fs.statSync(realPath);
+        if (!stat.isFile()) return;
+        if (stat.size <= 0 || stat.size > ARTIFACT_MAX_BYTES) return;
+        
+        const ext = path.extname(realPath).toLowerCase();
+        const mime = ARTIFACT_MIME[ext];
+        if (!mime) return;
+        
+        // 优先拷贝到workspace再collect（用户要求）
+        const basename = path.basename(realPath);
+        const destPath = path.join(rootReal, basename);
+        let finalPath = realPath;
+        
+        try {
+          // 尝试拷贝（如果目标不存在或可覆盖）
+          if (!fs.existsSync(destPath)) {
+            fs.copyFileSync(realPath, destPath);
+            finalPath = destPath;
+            console.log(`[collectWorkspaceArtifacts] Copied external file to workspace: ${basename}`);
+          }
+        } catch (copyErr) {
+          // 拷贝失败，直接读取原文件
+          console.warn(`[collectWorkspaceArtifacts] Copy failed, using original: ${copyErr.message}`);
+        }
+        
+        const dataUrl = `data:${mime};base64,${fs.readFileSync(finalPath).toString('base64')}`;
+        if (totalChars + dataUrl.length > ARTIFACT_TOTAL_CHARS) return;
+        
+        seen.add(realPath);
+        explicitMentions.add(realPath);
+        totalChars += dataUrl.length;
+        const kind = mime.startsWith('image/') && ext !== '.svg' ? 'image' : 'file';
+        picked.push({
+          name: basename.slice(0, 120),
+          mime,
+          kind,
+          dataUrl,
+          localPath: finalPath,  // 使用拷贝后的路径（或原路径）
+        });
+        console.log(`[collectWorkspaceArtifacts] Collected external artifact: ${basename} (${stat.size} bytes)`);
+      } catch (err) {
+        // 文件不存在或无法读取，跳过
+        return;
+      }
+    }
   };
 
   // 正文明确提及：总是收集（包括package.json如果用户明确要求）
