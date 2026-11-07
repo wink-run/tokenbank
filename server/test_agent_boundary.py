@@ -10,6 +10,7 @@ def test_own_agent_is_not_hired():
 
 def test_hired_input_blocks_obvious_danger_only():
     assert reject_hired_input("画一幅故宫水墨") == ""
+    assert reject_hired_input("把这个文件删掉") == ""
     assert reject_hired_input("rm -rf /") != ""
     assert reject_hired_input("看一下 ~/.ssh/id_rsa") != ""
     assert reject_hired_input("说明.txt", ["../secret"]) != ""

@@ -9,7 +9,7 @@ import re
 
 from agent_artifacts import redact_remaining_local_paths
 
-# 只拦会直接碰系统或密钥目录的写法。普通绘画、写稿提示不会撞上。
+# 只拦会直接碰系统或密钥目录的写法。工作目录里的普通删改交给沙箱，不在这里拦。
 _INPUT_RULES = (
     re.compile(r"\brm\s+-[a-zA-Z]*r[a-zA-Z]*f\s+(?:/|~|\.|\$HOME)", re.I),
     re.compile(r"\bsudo\s+\S", re.I),

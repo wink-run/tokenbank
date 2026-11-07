@@ -1722,7 +1722,32 @@ class AgentExecutor extends EventEmitter {
       }
       spawnEnv = sanitizeAgentSpawnEnv(spawnEnv, resolvedCwd);
 
-      const proc = spawn(executable, args, {
+      // 社区接单只能动自己的工作目录。沙箱挡目录外的读写，CLI 仍不弹确认框
+      let command = executable;
+      let commandArgs = args;
+      let releaseSandbox = () => {};
+      try {
+        const { isContributeSessionKey } = require('./contribute-session');
+        const confine = options.clientId === 'contribute' || isContributeSessionKey(options.sessionKey);
+        if (confine) {
+          const wrapped = require('./workspace-sandbox').wrapConfinedSpawn({
+            executable,
+            args,
+            workingDir: resolvedCwd,
+            env: spawnEnv,
+          });
+          if (wrapped) {
+            command = wrapped.command;
+            commandArgs = wrapped.args;
+            releaseSandbox = wrapped.cleanup;
+          }
+        }
+      } catch (e) {
+        reject(e);
+        return;
+      }
+
+      const proc = spawn(command, commandArgs, {
         cwd: resolvedCwd,
         env: spawnEnv,
         shell: process.platform === 'win32',
@@ -1774,6 +1799,7 @@ class AgentExecutor extends EventEmitter {
       }, gatewayAgentId);
 
       const cleanup = () => {
+        try { releaseSandbox(); } catch { /* 沙箱描述文件已清 */ }
         if (typeof onCleanup === 'function') {
           try { onCleanup(); } catch {}
         }
