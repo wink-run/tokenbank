@@ -3,8 +3,12 @@ server/__tests__/test_hired_safety.py - Hired Agent 安全围栏对抗测试
 
 验证程序级硬规则不可被LLM诱导或用户输入绕过。
 """
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 import pytest
-from server.agent_safety import (
+from agent_safety import (
     check_input_safety,
     check_output_safety,
     ensure_checker_available,

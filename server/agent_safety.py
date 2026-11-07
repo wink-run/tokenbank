@@ -31,6 +31,8 @@ DANGEROUS_COMMANDS = [
     r'\binit\s+[06]\b',
     r'\bcurl.*\|\s*bash',
     r'\bwget.*\|\s*sh',
+    r'delete\s+all\s+files',  # "Delete all files"
+    r'(?i)system:.*admin\s+mode',  # "SYSTEM: admin mode"
 ]
 
 # 敏感路径模式（配置、密钥、凭证）
@@ -40,9 +42,7 @@ SENSITIVE_PATHS = [
     r'~/.ssh/',
     r'~/.aws/',
     r'~/.config/.*/(config|credentials|token)',
-    r'\.env(\.|$)',
-    r'\.env\.local',
-    r'\.env\.production',
+    r'\.env(\s|$|\.)',  # 匹配 .env 或 .env.local 等
     r'(id_rsa|id_ed25519|\.pem|\.key)$',
     r'(credentials?|secrets?|tokens?)\.(json|yaml|yml|txt)$',
     r'\.npmrc',
@@ -51,10 +51,10 @@ SENSITIVE_PATHS = [
     r'\.git-credentials',
 ]
 
-# 路径穿越模式
+# 路径穿越模式（用于文件名检查）
 PATH_TRAVERSAL = [
     r'\.\.',  # ../ or ..\
-    r'^/',  # 绝对路径
+    r'^/',  # 绝对路径（文件名不应以/开头）
     r'^~/',  # home路径
 ]
 
@@ -85,13 +85,18 @@ def check_input_safety(prompt: str, files: Optional[List[dict]] = None) -> Tuple
         if pattern.search(prompt):
             return False, "Input attempts to access sensitive paths or credentials"
     
-    # 3. 附件路径穿越
+    # 3. 附件路径穿越和敏感路径
     if files:
         for f in files:
             name = str(f.get('name', ''))
+            # 路径穿越检查
             for pattern in _PATH_TRAVERSAL_RE:
                 if pattern.search(name):
                     return False, "File attachment contains path traversal attempt"
+            # 敏感路径检查
+            for pattern in _SENSITIVE_PATH_RE:
+                if pattern.search(name):
+                    return False, "File attachment attempts to access sensitive paths"
     
     return True, None
 
@@ -101,13 +106,22 @@ def check_input_safety(prompt: str, files: Optional[List[dict]] = None) -> Tuple
 # ============================================================
 
 # 敏感值模式（密钥、token、密码格式）
+# 注意：避免匹配占位符like "your_key_here", "your_password"
 SENSITIVE_VALUE_PATTERNS = [
-    r'(?i)(api[_-]?key|apikey|access[_-]?key)["\s:=]+[A-Za-z0-9+/]{16,}',
-    r'(?i)(secret|password|passwd|pwd)["\s:=]+\S{8,}',
-    r'(?i)token["\s:=]+[A-Za-z0-9_.-]{20,}',
+    # API keys with common prefixes
+    r'(?i)(api[_-]?key|apikey|access[_-]?key)[\s:=]+(sk-|AIza)[A-Za-z0-9+/_-]{16,}',
+    # Generic API keys (long alphanumeric)
+    r'(?i)(api[_-]?key|apikey)[\s:=]+[A-Za-z0-9]{30,}',
+    # Passwords and secrets (excluding placeholders)
+    r'(?i)(secret|password|passwd)[\s:=]+(?!your_|<|{|\[)["\']?[A-Za-z0-9!@#$%^&*]{8,}',
+    # GitHub tokens
+    r'(?i)token[\s:=]+(ghp_|gho_)[A-Za-z0-9_]{20,}',
+    # Private keys
     r'-----BEGIN (RSA |EC )?PRIVATE KEY-----',
-    r'(?i)bearer\s+[A-Za-z0-9_.-]{20,}',
-    r'(?i)Authorization:\s*\S+',
+    # Bearer tokens
+    r'(?i)bearer\s+[A-Za-z0-9_.-]{30,}',
+    r'(?i)Authorization:\s*(Bearer|Basic)\s+[A-Za-z0-9+/=_.-]{20,}',
+    # AWS keys
     r'AWS[A-Z0-9]{16,}',
 ]
 
@@ -147,9 +161,11 @@ def check_output_safety(text: str, artifacts: Optional[List[dict]] = None, sessi
             return False, "Output contains sensitive credentials or keys"
     
     # 2. 环境变量泄露（格式：VAR=value 或 VAR: value）
+    # 但要排除示例代码中的占位符
     for env_name in SENSITIVE_ENV_NAMES:
-        # 匹配 ENV_NAME=... 或 ENV_NAME: ... 或 "ENV_NAME": "..."
-        if re.search(rf'\b{re.escape(env_name)}\s*[:=]', text, re.IGNORECASE):
+        # 匹配 ENV_NAME=真实值（不是占位符）
+        pattern = rf'\b{re.escape(env_name)}\s*[:=]\s*(?!your_|<|{{|\[)[A-Za-z0-9+/=._-]{{8,}}'
+        if re.search(pattern, text, re.IGNORECASE):
             return False, "Output contains sensitive environment variable"
     
     # 3. Artifacts路径验证（必须在授权会话目录内）
