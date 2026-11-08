@@ -1033,3 +1033,17 @@ body { background: #faf8f3 !important; color: var(--pz-ink); }
   .dv-al-chips { grid-column: 2; justify-content: flex-start; max-width: none; }
 }
 @media (prefers-reduced-motion: reduce) { .dv-iso-apps i, .dv-beam { animation: none; } .dv-beam { display: none; } }
+
+/* 架构图：logo 与接口 */
+.dv-al-chips i { display: inline-flex; align-items: center; gap: 5px; }
+.dv-al-chips i img, .dv-al-chips i > b { width: 16px; height: 16px; border-radius: 4px; background: #fff; padding: 2px; object-fit: contain; flex-shrink: 0; }
+.dv-al-chips i > b { display: inline-flex; align-items: center; justify-content: center; padding: 0; font-size: 9px; font-weight: 800; color: #1c1a17; }
+.dv-al-chips i.code { font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 11px; }
+.dv-arch-list li:nth-child(3) a { grid-template-columns: 40px minmax(0, 1fr); }
+.dv-arch-list li:nth-child(3) .dv-al-chips { grid-column: 2; justify-content: flex-start; max-width: none; }
+.dv-al-chips img[src*="kimi"], .dv-plate-logos img[src*="kimi"], .hs-chip img[src*="kimi"] { background: #111; }
+.dv-plate-logos { position: absolute; right: 22px; top: 20px; display: flex; gap: 8px; }
+.dv-plate-logos img, .dv-plate-logos b { width: 30px; height: 30px; border-radius: 8px; background: #fff; padding: 5px; object-fit: contain; box-shadow: 0 6px 10px -4px rgba(0,0,0,.5); }
+.dv-plate-logos b { display: inline-flex; align-items: center; justify-content: center; padding: 0; font-size: 12px; font-weight: 800; color: #1c1a17; }
+.dv-plate.on .dv-plate-logos img, .dv-plate.on .dv-plate-logos b { box-shadow: 0 0 0 2px var(--pz-y), 0 8px 14px -4px rgba(0,0,0,.5); }
+@media (max-width: 1024px) { .dv-plate-logos img, .dv-plate-logos b { width: 20px; height: 20px; padding: 3px; } .dv-plate-logos { right: 14px; top: 12px; gap: 5px; } }

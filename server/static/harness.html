@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=19">
+<link rel="stylesheet" href="/static/plaza.css?v=21">
 <script src="/static/plaza-nav.js?v=18"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -289,14 +289,16 @@ createApp({
         routes: [['定位并修复 bug', 'Codex（本机）', 'local'], ['跑测试、整理提交', 'Claude Code（本机）', 'local'], ['写更新说明', '内容创作教练（社区）', 'community'], ['生成封面图', 'gemini-2.5-flash-image', 'model']],
         kind: { local: '本机应用', community: '社区智能体 · 在对方设备执行', model: '社区模型' },
         routeNote: '示例',
-        apiKicker: 'ONE INTERFACE', apiTitle: '换一个 id，就换一个智能体', apiLead: '本机和社区智能体同一个任务接口；模型保持原生名。',
+        apiKicker: 'ONE INTERFACE', apiTitle: '一个网关：智能体任务 + 三种模型协议', apiLead: '本机和社区智能体同一个任务接口；模型保持原生名。',
         copy: '复制', copied: '已复制',
-        exLabels: ['本机 Claude Code', '本机 Codex', '社区智能体', '模型'],
+        exLabels: ['本机 Claude Code', '本机 Codex', '社区智能体', '模型 · OpenAI', '模型 · Anthropic', '模型 · Codex'],
         exNotes: [
           '本机网关监听 11430 端口，Authorization 用客户端里的本机网关 Key。',
           '只改了 harness_id，其他一个字不用动。',
           '社区智能体用 community:<id>@<分享者>，云端自动选对方在线的设备；任务在对方机器上执行，你只拿结果。',
-          '模型走 OpenAI 兼容接口（也支持 Anthropic Messages、Codex Responses）。网关按你的路由选本地源或社区共享。',
+          'OpenAI Chat 协议。模型名照常写，网关按你的路由选本地源、订阅或社区共享。',
+          'Anthropic Messages 协议，x-api-key 和 Authorization 都可以。Claude Code 这类客户端原样接入。',
+          'Codex Responses 协议，含工具调用转发。三种协议之间可以互相转换，同一个模型换个协议也能用。',
         ],
         prompt: '修一下登录页的报错',
         facts: [['同一个请求体', 'input + metadata.harness_id，stream 打开就按 SSE 逐段返回'], ['任务可查可停', 'GET / cancel 同一个任务 id，断线重连接着收'], ['协议自动转换', 'Anthropic、OpenAI、Codex 三种协议互通，原生模型名不变']],
@@ -369,14 +371,16 @@ createApp({
         routes: [['Find and fix the bug', 'Codex (local)', 'local'], ['Run tests, tidy the commit', 'Claude Code (local)', 'local'], ['Write release notes', 'Content coach (community)', 'community'], ['Make the cover image', 'gemini-2.5-flash-image', 'model']],
         kind: { local: 'Local app', community: 'Community agent · runs on their device', model: 'Community model' },
         routeNote: 'Example. Who gets what depends on the agents you have onboarded and hired; every tool call is visible and you can stop or resume any time.',
-        apiKicker: 'ONE INTERFACE', apiTitle: 'Change one id, change the agent', apiLead: 'One task endpoint for local and community agents; models keep native names.',
+        apiKicker: 'ONE INTERFACE', apiTitle: 'One gateway: agent tasks + three model protocols', apiLead: 'One task endpoint for local and community agents; models keep native names.',
         copy: 'Copy', copied: 'Copied',
-        exLabels: ['Local Claude Code', 'Local Codex', 'Community agent', 'Model'],
+        exLabels: ['Local Claude Code', 'Local Codex', 'Community agent', 'Model · OpenAI', 'Model · Anthropic', 'Model · Codex'],
         exNotes: [
           'The local gateway listens on port 11430; use the local gateway key from the app as Authorization.',
           'Only harness_id changed. Nothing else.',
           'Community agents use community:<id>@<owner>; the cloud picks an online device of theirs. The task runs on their machine and you get the result.',
-          'Models use the OpenAI-compatible endpoint (Anthropic Messages and Codex Responses work too). The gateway follows your routes across local and community sources.',
+          'OpenAI Chat protocol. Write the model name as usual; the gateway routes to local, subscription or community sources.',
+          'Anthropic Messages protocol; x-api-key or Authorization both work. Clients like Claude Code connect as is.',
+          'Codex Responses protocol, tool calls included. The three protocols translate into each other, so any model works on any of them.',
         ],
         prompt: 'Fix the error on the login page',
         facts: [['One request body', 'input + metadata.harness_id; set stream to get SSE chunks'], ['Inspect and cancel', 'GET or cancel by task id; reconnect and keep receiving'], ['Protocols translated', 'Anthropic, OpenAI and Codex protocols interoperate with native model names']],
@@ -433,13 +437,33 @@ createApp({
         { key: 'cc', label: t.exLabels[0], icon: B + 'claudecode-color.svg', lines: agent('claude-code'), note: t.exNotes[0] },
         { key: 'cx', label: t.exLabels[1], icon: B + 'codex-color.svg', lines: agent('codex'), note: t.exNotes[1] },
         { key: 'cm', label: t.exLabels[2], icon: '', lines: agent('community:<agent-id>@<owner>'), note: t.exNotes[2] },
-        { key: 'md', label: t.exLabels[3], icon: '', note: t.exNotes[3], lines: [
+        { key: 'oa', label: t.exLabels[3], icon: B + 'openai.svg', note: t.exNotes[3], lines: [
           { t: 'curl http://127.0.0.1:11430/v1/chat/completions \\' },
           { t: '  -H "Authorization: Bearer $TOKENBANK_KEY" \\' },
           { t: '  -H "content-type: application/json" \\' },
           { t: '  -d \'{' },
-          { t: '    "model": "claude-sonnet-4-6",', hl: true },
+          { t: '    "model": "gpt-5",', hl: true },
           { t: '    "messages": [{ "role": "user", "content": "' + t.prompt + '" }]' },
+          { t: '  }\'' },
+        ] },
+        { key: 'an', label: t.exLabels[4], icon: B + 'anthropic.svg', note: t.exNotes[4], lines: [
+          { t: 'curl http://127.0.0.1:11430/v1/messages \\' },
+          { t: '  -H "x-api-key: $TOKENBANK_KEY" \\' },
+          { t: '  -H "anthropic-version: 2023-06-01" \\' },
+          { t: '  -H "content-type: application/json" \\' },
+          { t: '  -d \'{' },
+          { t: '    "model": "claude-sonnet-4-6",', hl: true },
+          { t: '    "max_tokens": 1024,' },
+          { t: '    "messages": [{ "role": "user", "content": "' + t.prompt + '" }]' },
+          { t: '  }\'' },
+        ] },
+        { key: 'rs', label: t.exLabels[5], icon: B + 'codex-color.svg', note: t.exNotes[5], lines: [
+          { t: 'curl http://127.0.0.1:11430/v1/responses \\' },
+          { t: '  -H "Authorization: Bearer $TOKENBANK_KEY" \\' },
+          { t: '  -H "content-type: application/json" \\' },
+          { t: '  -d \'{' },
+          { t: '    "model": "gpt-5-codex",', hl: true },
+          { t: '    "input": "' + t.prompt + '"' },
           { t: '  }\'' },
         ] },
       ]

@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=19">
+<link rel="stylesheet" href="/static/plaza.css?v=21">
 <script src="/static/plaza-nav.js?v=18"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -81,6 +81,7 @@ a { color: inherit; text-decoration: none; }
               <div class="dv-iso-apps"><i v-for="a in T.stackApps" :key="a">{{ a }}</i></div>
               <div v-for="(l, i) in T.layers" :key="'p' + l[0]" :class="['dv-plate', { on: archIdx === i }]" :style="{ '--z': (T.layers.length - 1 - i) }" @mouseenter="hoverLayer(i)">
                 <span>{{ l[0] }}</span>
+                <div v-if="plateIcons[i]" class="dv-plate-logos"><template v-for="ic in plateIcons[i]" :key="ic"><img v-if="ic.startsWith('/')" :src="ic" alt=""><b v-else>{{ ic }}</b></template></div>
               </div>
               <i class="dv-beam"></i>
             </div>
@@ -90,7 +91,7 @@ a { color: inherit; text-decoration: none; }
               <a :href="l[3]">
                 <em>{{ String(T.layers.length - i).padStart(2, '0') }}</em>
                 <div class="dv-al-main"><small>{{ l[0] }}</small><b>{{ l[1] }}</b><span>{{ l[2] }}</span></div>
-                <div class="dv-al-chips"><i v-for="c in T.layerChips[i]" :key="c">{{ c }}</i></div>
+                <div class="dv-al-chips"><i v-for="c in T.layerChips[i]" :key="chipText(c)" :class="{ code: chipText(c).startsWith('/') || chipText(c).includes(' /v1') }"><img v-if="chipIcon(c)" :src="chipIcon(c)" alt=""><b v-else-if="chipBadge(c)">{{ chipBadge(c) }}</b>{{ chipText(c) }}</i></div>
               </a>
             </li>
           </ol>
@@ -178,12 +179,12 @@ createApp({
         promise: ['不用自己造 harness', '一套接口调智能体和模型', '上架即得网页应用', '开源 · macOS / Windows / Linux'],
         ctaApi: '看统一接口',
         stackKicker: 'THE FACTORY', stackTitle: '六层现成能力', stackLead: '纯模型网关只做最底下那一层。这里从执行引擎到分发，每一层都已经搭好，你只管在最上面做应用。',
-        layerChips: [['智能体广场', '资源市场', '圈子', '按次计费'], ['Trace', '盘点', '多设备'], ['/v1/agent/responses', '/v1/chat/completions'], ['Skill', 'MCP', 'Prompt', '模板'], ['Pi', 'Claude Code', 'Codex', 'Cursor'], ['Ollama', 'DeepSeek', 'Kimi', '订阅', '社区']],
+        layerChips: [['智能体广场', '资源市场', '圈子', '按次计费'], ['Trace', '盘点', '多设备'], [['智能体 /v1/agent/*', '#A'], ['OpenAI /v1/chat/completions', '/static/brand-icons/openai.svg'], ['Anthropic /v1/messages', '/static/brand-icons/anthropic.svg'], ['Codex /v1/responses', '/static/brand-icons/codex-color.svg']], ['Skill', 'MCP', 'Prompt', '模板'], [['Pi', '#Pi'], ['Claude Code', '/static/brand-icons/claudecode-color.svg'], ['Codex', '/static/brand-icons/codex-color.svg'], ['Cursor', '/static/brand-icons/cursor.svg'], ['Kimi Code', '/static/brand-icons/kimi-color.svg']], [['Ollama', '/static/brand-icons/ollama.svg'], ['DeepSeek', '/static/brand-icons/deepseek-color.svg'], ['Kimi', '/static/brand-icons/kimi-color.svg'], ['Qwen', '/static/brand-icons/qwen-color.svg'], ['OpenAI', '/static/brand-icons/openai.svg'], ['Claude', '/static/brand-icons/claude-color.svg'], '订阅', '社区']],
         stackTop: '你的应用', stackApps: ['你的产品后台', '网页智能体', '团队内部工具', '你的 Claude Code 工作流'],
         layers: [
           ['分发层', '上架、市场、圈子', '上架即得网页应用，有没有公网 IP 都能对外服务', '/share'],
           ['观测层', 'Trace、用量、跨端', '每次调用可追溯，多设备归集', '/harness#f-trace'],
-          ['接口层', '统一任务接口 + 模型接口', '换一个 harness_id 就换一个智能体', '/harness#api'],
+          ['接口层', '智能体任务 + 三种模型协议', '换一个 harness_id 换智能体，三种协议互通', '/harness#api'],
           ['资产层', 'Skill、MCP、Prompt', '组合进智能体，投射到各个 runtime', '/harness#f-assets'],
           ['运行时层', 'Pi、Claude Code、Codex、Cursor…', '已装好的 runtime 直接当执行引擎', '/harness#f-onboard'],
           ['模型层', '各家模型 + 场景路由', '本地、免费、订阅、按量、社区，自动兜底', '/harness#f-route'],
@@ -216,12 +217,12 @@ createApp({
           { k: '使用', b: '普通用户', d: '在智能体广场像打车一样用，任务在你的设备上执行', href: '/agents', cls: 'user' },
         ],
         loopBack: '每次被使用都结算积分，分摊你的订阅和算力开销；用户反馈再回到你的下一版。',
-        apiKicker: 'ONE INTERFACE', apiTitle: '本机的、社区的、模型，同一套接口', apiLead: '写一次集成，后面随便换。',
+        apiKicker: 'ONE INTERFACE', apiTitle: '一个网关，智能体和三种模型协议', apiLead: '写一次集成，后面随便换。',
         apiMore: '看完整示例',
         apiLines: [
           ['# 本机 runtime：pi、claude-code、codex、cursor、kimi-code', false], ['"harness_id": "pi"', true],
           ['# 雇来的社区智能体', false], ['"harness_id": "community:<id>@<owner>"', true],
-          ['# 任意来源的模型：网关按你的路由选本地源或社区共享', false], ['"model": "claude-sonnet-4-6"', true],
+          ['# 模型：三种协议都可以，原生模型名不变', false], ['POST /v1/chat/completions   # OpenAI', true], ['POST /v1/messages           # Anthropic', true], ['POST /v1/responses          # Codex', true],
         ],
         finalTitle: '先把手上的 runtime 接进来', finalText: '已装的应用自动出现，不喜欢一键还原。', finalCta2: '逛逛资源市场',
       },
@@ -232,12 +233,12 @@ createApp({
         promise: ['No harness to build', 'One API for agents and models', 'List it, get a web app', 'Open source · macOS / Windows / Linux'],
         ctaApi: 'See the interface',
         stackKicker: 'THE FACTORY', stackTitle: 'Six layers, ready', stackLead: 'A model gateway only covers the bottom layer. Here every layer from execution to distribution is built — you work on the top.',
-        layerChips: [['Agent Plaza', 'Market', 'Circles', 'Per-use billing'], ['Trace', 'Usage', 'Devices'], ['/v1/agent/responses', '/v1/chat/completions'], ['Skill', 'MCP', 'Prompt', 'Templates'], ['Pi', 'Claude Code', 'Codex', 'Cursor'], ['Ollama', 'DeepSeek', 'Kimi', 'Subscriptions', 'Community']],
+        layerChips: [['Agent Plaza', 'Market', 'Circles', 'Per-use billing'], ['Trace', 'Usage', 'Devices'], [['Agents /v1/agent/*', '#A'], ['OpenAI /v1/chat/completions', '/static/brand-icons/openai.svg'], ['Anthropic /v1/messages', '/static/brand-icons/anthropic.svg'], ['Codex /v1/responses', '/static/brand-icons/codex-color.svg']], ['Skill', 'MCP', 'Prompt', 'Templates'], [['Pi', '#Pi'], ['Claude Code', '/static/brand-icons/claudecode-color.svg'], ['Codex', '/static/brand-icons/codex-color.svg'], ['Cursor', '/static/brand-icons/cursor.svg'], ['Kimi Code', '/static/brand-icons/kimi-color.svg']], [['Ollama', '/static/brand-icons/ollama.svg'], ['DeepSeek', '/static/brand-icons/deepseek-color.svg'], ['Kimi', '/static/brand-icons/kimi-color.svg'], ['Qwen', '/static/brand-icons/qwen-color.svg'], ['OpenAI', '/static/brand-icons/openai.svg'], ['Claude', '/static/brand-icons/claude-color.svg'], 'Subscriptions', 'Community']],
         stackTop: 'Your apps', stackApps: ['Your product backend', 'Web agents', 'Internal team tools', 'Your Claude Code workflow'],
         layers: [
           ['Distribution', 'Listing, market, circles', 'List it, get a web app; serve with or without a public IP', '/share'],
           ['Observability', 'Trace, usage, devices', 'Every call traceable, rolled up across devices', '/harness#f-trace'],
-          ['Interface', 'Agent task API + model APIs', 'Change harness_id to change agent', '/harness#api'],
+          ['Interface', 'Agent tasks + three model protocols', 'Change harness_id to change agent; protocols interoperate', '/harness#api'],
           ['Assets', 'Skills, MCP, prompts', 'Composed into agents, projected to runtimes', '/harness#f-assets'],
           ['Runtimes', 'Pi, Claude Code, Codex, Cursor…', 'Installed runtimes as execution engines', '/harness#f-onboard'],
           ['Models', 'Every provider + scene routing', 'Local, free, subscription, PAYG, community, with fallback', '/harness#f-route'],
@@ -270,12 +271,12 @@ createApp({
           { k: 'Use', b: 'Everyday users', d: 'They hail it on the Agent Plaza; tasks run on your device', href: '/agents', cls: 'user' },
         ],
         loopBack: 'Every use settles credits that offset your subscriptions and compute; feedback flows into your next version.',
-        apiKicker: 'ONE INTERFACE', apiTitle: 'Local, community and models — one interface', apiLead: 'Integrate once, swap freely.',
+        apiKicker: 'ONE INTERFACE', apiTitle: 'One gateway: agents and three model protocols', apiLead: 'Integrate once, swap freely.',
         apiMore: 'Full examples',
         apiLines: [
           ['# local runtime: pi, claude-code, codex, cursor, kimi-code', false], ['"harness_id": "pi"', true],
           ['# hired community agent', false], ['"harness_id": "community:<id>@<owner>"', true],
-          ['# any model: the gateway routes to local or community sources', false], ['"model": "claude-sonnet-4-6"', true],
+          ['# models: any of three protocols, native names kept', false], ['POST /v1/chat/completions   # OpenAI', true], ['POST /v1/messages           # Anthropic', true], ['POST /v1/responses          # Codex', true],
         ],
         finalTitle: 'Start by plugging in your runtimes', finalText: 'Installed apps show up; restore with one click.', finalCta2: 'Browse the market',
       },
@@ -315,6 +316,11 @@ createApp({
     }
     // 架构图：自动轮播当前层，悬停时跟随鼠标
     const archIdx = ref(0), archHover = ref(false)
+    const chipText = c => Array.isArray(c) ? c[0] : c
+    const chipIcon = c => Array.isArray(c) && c[1] && c[1].startsWith('/') ? c[1] : ''
+    const chipBadge = c => Array.isArray(c) && c[1] && c[1].startsWith('#') ? c[1].slice(1) : ''
+    // 3D 层板上的 logo：接口层、运行时层、模型层
+    const plateIcons = { 2: ['/static/brand-icons/openai.svg', '/static/brand-icons/anthropic.svg', '/static/brand-icons/codex-color.svg'], 4: ['Pi', '/static/brand-icons/claudecode-color.svg', '/static/brand-icons/codex-color.svg', '/static/brand-icons/cursor.svg'], 5: ['/static/brand-icons/ollama.svg', '/static/brand-icons/deepseek-color.svg', '/static/brand-icons/kimi-color.svg', '/static/brand-icons/qwen-color.svg'] }
     function hoverLayer(i) { archHover.value = true; archIdx.value = i }
     let archReduced = false
     try { archReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches } catch {}
@@ -325,7 +331,7 @@ createApp({
       nextTick(setupReveal)
       load()
     })
-    return { lang, T, N, toggleLang, loggedIn, loaded, nodes, models, agents, res, archIdx, archHover, hoverLayer }
+    return { lang, T, N, toggleLang, loggedIn, loaded, nodes, models, agents, res, archIdx, archHover, hoverLayer, chipText, chipIcon, chipBadge, plateIcons }
   },
 }).mount('#app')
 </script>
