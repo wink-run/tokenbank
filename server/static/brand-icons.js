@@ -22,6 +22,8 @@
     [/antigravity/i, BASE + 'antigravity-color.svg'],
     [/hermes/i, BASE + 'hermesagent.svg'],
     [/groq/i, BASE + 'groq.svg'],
+    [/\bmuse\b/i, BASE + 'muse.svg'],
+    [/grok[\s_-]*bot/i, BASE + 'grokbot.svg'],
     [/grok/i, BASE + 'grok.svg'],
     [/workbuddy|codebuddy/i, BASE + 'codebuddy-color.svg'],
     [/trae/i, BASE + 'trae-color.svg'],
