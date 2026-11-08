@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=21">
+<link rel="stylesheet" href="/static/plaza.css?v=22">
 <script src="/static/plaza-nav.js?v=18"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -331,7 +331,7 @@ createApp({
     cleanName(tool) { return this.splitName(tool).name; },
     runtimeLabel(id) {
       const k = String(id || '').trim().toLowerCase();
-      const map = { 'claude-code': 'Claude Code', codex: 'Codex', pi: 'Pi', cursor: 'Cursor', gemini: 'Gemini CLI', 'gemini-cli': 'Gemini CLI', openclaw: 'OpenClaw', hermes: 'Hermes', kimi: 'Kimi', qwen: 'Qwen Code', opencode: 'OpenCode' };
+      const map = { 'claude-code': 'Claude Code', codex: 'Codex', pi: 'Pi', cursor: 'Cursor', gemini: 'Gemini CLI', 'gemini-cli': 'Gemini CLI', openclaw: 'OpenClaw', hermes: 'Hermes', kimi: 'Kimi', qwen: 'Qwen Code', opencode: 'OpenCode', grok: 'Grok', grokbot: 'GrokBot', muse: 'Muse', workbuddy: 'WorkBuddy', trae: 'Trae' };
       return map[k] || (k ? k.charAt(0).toUpperCase() + k.slice(1) : '');
     },
     setupReveal() {

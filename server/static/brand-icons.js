@@ -5,6 +5,7 @@
     [/claude[\s_-]*code/i, BASE + 'claudecode-color.svg'],
     [/claude|anthropic/i, BASE + 'claude-color.svg'],
     [/codex/i, BASE + 'codex-color.svg'],
+    [/opencode/i, BASE + 'opencode.svg'],
     [/openai|gpt|o[34]-|o1-/i, BASE + 'openai.svg'],
     [/cursor/i, BASE + 'cursor.svg'],
     [/openclaw/i, BASE + 'openclaw-color.svg'],
@@ -18,6 +19,13 @@
     [/hugging[\s_-]*face|huggingface/i, BASE + 'huggingface.svg'],
     [/qwen|通义|tongyi/i, BASE + 'qwen-color.svg'],
     [/copilot/i, BASE + 'copilot-color.svg'],
+    [/antigravity/i, BASE + 'antigravity-color.svg'],
+    [/hermes/i, BASE + 'hermesagent.svg'],
+    [/groq/i, BASE + 'groq.svg'],
+    [/grok/i, BASE + 'grok.svg'],
+    [/workbuddy|codebuddy/i, BASE + 'codebuddy-color.svg'],
+    [/trae/i, BASE + 'trae-color.svg'],
+    [/ollama/i, BASE + 'ollama.svg'],
     [/volcengine|火山|volc/i, BASE + 'volcengine-color.svg'],
   ];
 

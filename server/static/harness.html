@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>统一管理 · Token Bank</title>
-<meta name="description" content="OneHarness：Claude Code、Codex、Cursor、WorkBuddy、Kimi Code 等智能体平台一处纳管。统一接口，换一个 harness_id 就换一个智能体；主 Agent 按特点派活；人在外面也能用自己设备上的智能体。">
+<meta name="description" content="OneHarness：Claude Code、Codex、Cursor、WorkBuddy、Kimi Code、GrokBot、Muse 等智能体平台一处纳管。统一接口，换一个 harness_id 就换一个智能体；主 Agent 按特点派活；人在外面也能用自己设备上的智能体。">
 <link rel="icon" href="/static/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=21">
+<link rel="stylesheet" href="/static/plaza.css?v=22">
 <script src="/static/plaza-nav.js?v=18"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -245,7 +245,7 @@ createApp({
         ],
         featKicker: 'FEATURES', featTitle: '统一管理，具体管哪些', featLead: '下面每一项都是桌面客户端里现成的功能，同一套能力也通过本机网关的接口提供。',
         features: [
-          { id: 'f-onboard', n: '01', k: '智能体纳管', t: '不同智能体，一处纳管', d: 'Pi、Claude Code、Codex、Cursor、WorkBuddy、Kimi Code、OpenClaw……装好的自动出现在网关页，点一下纳管，不想用了一键还原官方配置。',
+          { id: 'f-onboard', n: '01', k: '智能体纳管', t: '不同智能体，一处纳管', d: 'Pi、Claude Code、Codex、Cursor、WorkBuddy、Kimi Code、GrokBot、Muse、OpenClaw……装好的自动出现在网关页，点一下纳管，不想用了一键还原官方配置。',
             points: [['三种状态：', '仅统计 / 走网关 / 还原'], ['三种接入：', 'CLI 托管、改写配置、读会话记录'], ['CLI 多账号：', '按启动目录自动分发']],
             shots: [['gateway', '网关']] },
           { id: 'f-swap', n: '02', k: '一键换模型', t: '一键换模型，智能体无感', d: '在路由下拉框里选一个模型或场景，配置自动改写，流量走本地网关；智能体继续用原生模型名，客户端不用改。',
@@ -327,7 +327,7 @@ createApp({
         ],
         featKicker: 'FEATURES', featTitle: 'What "manage" actually covers', featLead: 'Each of these ships in the desktop app today, and the same capabilities are exposed through the local gateway API.',
         features: [
-          { id: 'f-onboard', n: '01', k: 'Agent onboarding', t: 'Every agent runtime, onboarded in one place', d: 'Pi, Claude Code, Codex, Cursor, WorkBuddy, Kimi Code, OpenClaw… installed apps appear on the Gateway page; one click to onboard, one click to restore the official config.',
+          { id: 'f-onboard', n: '01', k: 'Agent onboarding', t: 'Every agent runtime, onboarded in one place', d: 'Pi, Claude Code, Codex, Cursor, WorkBuddy, Kimi Code, GrokBot, Muse, OpenClaw… installed apps appear on the Gateway page; one click to onboard, one click to restore the official config.',
             points: [['Three clear states: ', 'stats only (official subscription + session back-fill), via gateway (bound route + live proxy), restored (original config).'], ['Three access modes: ', 'CLIs get environment variables injected; desktop apps get their config patched; the rest are tracked from session logs.'], ['Multi-account CLIs: ', 'several sign-ins on one Claude Code or Codex, picked by launch directory so each project keeps its account, quota and route.']],
             shots: [['gateway', 'Gateway']] },
           { id: 'f-swap', n: '02', k: 'One-click model swap', t: 'Swap models in one click, invisible to the agent', d: 'Pick a model or scene from the route dropdown; the config is rewritten and traffic goes through the local gateway, while the agent keeps its native model name.',
@@ -401,10 +401,10 @@ createApp({
 
     // 与 app-handlers.yaml 对齐的应用清单（接入方式分三类）
     const APPS = {
-      cli: [['Claude Code', B + 'claudecode-color.svg'], ['Codex CLI', B + 'codex-color.svg'], ['Kimi Code', B + 'kimi-color.svg'], ['OpenCode'], ['Hermes'], ['Pi'], ['DeepSeek', B + 'deepseek-color.svg']],
-      cfg: [['Claude Desktop', B + 'claude-color.svg'], ['Codex Desktop', B + 'openai.svg'], ['OpenClaw', B + 'openclaw-color.svg'], ['WorkBuddy']],
-      stats: [['Cursor', B + 'cursor.svg'], ['Copilot', B + 'copilot-color.svg'], ['Qwen', B + 'qwen-color.svg'], ['Gemini CLI', B + 'geminicli-color.svg'], ['Grok'], ['Trae'], ['Antigravity']],
-      models: [['Ollama'], ['Groq'], ['GitHub Models'], ['DeepSeek', B + 'deepseek-color.svg'], ['火山引擎', B + 'volcengine-color.svg'], ['智谱', B + 'zhipu.svg'], ['Kimi', B + 'kimi-color.svg'], ['MiniMax', B + 'minimax.png'], ['Claude / ChatGPT 订阅', B + 'claude-color.svg'], ['社区共享', '/static/logo.svg']],
+      cli: [['Claude Code', B + 'claudecode-color.svg'], ['Codex CLI', B + 'codex-color.svg'], ['Kimi Code', B + 'kimi-color.svg'], ['OpenCode', B + 'opencode.svg'], ['Hermes', B + 'hermesagent.svg'], ['GrokBot', B + 'grok.svg'], ['Muse'], ['Pi'], ['DeepSeek', B + 'deepseek-color.svg']],
+      cfg: [['Claude Desktop', B + 'claude-color.svg'], ['Codex Desktop', B + 'openai.svg'], ['OpenClaw', B + 'openclaw-color.svg'], ['WorkBuddy', B + 'codebuddy-color.svg']],
+      stats: [['Cursor', B + 'cursor.svg'], ['Copilot', B + 'copilot-color.svg'], ['Qwen', B + 'qwen-color.svg'], ['Gemini CLI', B + 'geminicli-color.svg'], ['Grok', B + 'grok.svg'], ['Trae', B + 'trae-color.svg'], ['Antigravity', B + 'antigravity-color.svg']],
+      models: [['Ollama', B + 'ollama.svg'], ['Groq', B + 'groq.svg'], ['GitHub Models'], ['DeepSeek', B + 'deepseek-color.svg'], ['火山引擎', B + 'volcengine-color.svg'], ['智谱', B + 'zhipu.svg'], ['Kimi', B + 'kimi-color.svg'], ['MiniMax', B + 'minimax.png'], ['Claude / ChatGPT 订阅', B + 'claude-color.svg'], ['社区共享', '/static/logo.svg']],
     }
     const appGroups = computed(() => ['cli', 'cfg', 'stats', 'models'].map(key => ({
       key, title: T.value.groups[key][0], desc: T.value.groups[key][1],
@@ -412,7 +412,7 @@ createApp({
     })))
     const heroApps = [
       { id: 'cc', icon: B + 'claudecode-color.svg', y: 50 }, { id: 'cx', icon: B + 'codex-color.svg', y: 104 },
-      { id: 'cu', icon: B + 'cursor.svg', y: 158 }, { id: 'wb', short: 'WB', y: 212 },
+      { id: 'cu', icon: B + 'cursor.svg', y: 158 }, { id: 'wb', icon: B + 'codebuddy-color.svg', y: 212 },
       { id: 'km', icon: B + 'kimi-color.svg', y: 266 }, { id: 'oc', icon: B + 'openclaw-color.svg', y: 320 },
     ]
 

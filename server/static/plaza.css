@@ -1040,7 +1040,7 @@ body { background: #faf8f3 !important; color: var(--pz-ink); }
 .dv-al-chips i > b { display: inline-flex; align-items: center; justify-content: center; padding: 0; font-size: 9px; font-weight: 800; color: #1c1a17; }
 .dv-al-chips i.code { font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 11px; }
 .dv-arch-list li:nth-child(3) a { grid-template-columns: 40px minmax(0, 1fr); }
-.dv-arch-list li:nth-child(3) .dv-al-chips { grid-column: 2; justify-content: flex-start; max-width: none; }
+.dv-arch-list li:nth-child(3) .dv-al-chips, .dv-arch-list li:nth-child(5) .dv-al-chips { grid-column: 2; justify-content: flex-start; max-width: none; }
 .dv-al-chips img[src*="kimi"], .dv-plate-logos img[src*="kimi"], .hs-chip img[src*="kimi"] { background: #111; }
 .dv-plate-logos { position: absolute; right: 22px; top: 20px; display: flex; gap: 8px; }
 .dv-plate-logos img, .dv-plate-logos b { width: 30px; height: 30px; border-radius: 8px; background: #fff; padding: 5px; object-fit: contain; box-shadow: 0 6px 10px -4px rgba(0,0,0,.5); }
