@@ -1169,3 +1169,17 @@ body { background: #faf8f3 !important; color: var(--pz-ink); }
 @media (max-width: 1024px) { .dv-merge { max-width: 420px; margin: 8px auto 0; } }
 @media (max-width: 768px) { .dv-stats { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 1024px) { .hs-merge.dv-merge { display: block; } .dv-merge svg { height: auto; } }
+.pz-why-door { margin-top: 18px; border-color: rgba(255,201,74,.4); background: rgba(255,201,74,.08); }
+.pz-why-door span { color: var(--pz-y); }
+
+/* ── 广场底部通栏：「买车不如打车」（通往 /why） ── */
+.pz-ride-band { display: block; margin-top: 8px; background: var(--pz-deep) linear-gradient(90deg, rgba(255,201,74,.22), rgba(255,201,74,.04) 60%); border-top: 1px solid rgba(255,201,74,.35); border-bottom: 1px solid rgba(255,201,74,.35); transition: background-color .2s; }
+.pz-ride-in { max-width: 1200px; margin: 0 auto; padding: 26px 24px; display: flex; align-items: center; gap: 16px; }
+.pz-ride-ic { flex-shrink: 0; width: 46px; height: 46px; border-radius: 13px; display: grid; place-items: center; color: #1c1a17; background: var(--pz-y); }
+.pz-ride-band span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pz-ride-band b { font-size: 20px; font-weight: 750; letter-spacing: -.01em; color: #fff; }
+.pz-ride-band small { font-size: 14px; color: rgba(255,255,255,.62); }
+.pz-ride-band em { flex-shrink: 0; margin-left: auto; font-style: normal; font-size: 14.5px; font-weight: 700; color: #1c1a17; background: var(--pz-y); padding: 10px 18px; border-radius: 999px; transition: transform .2s var(--pz-ease); }
+.pz-ride-band:hover em { transform: translateX(4px); }
+.pz-ride-band + .nw-foot { padding-top: 28px; }
+@media (max-width: 640px) { .pz-ride-in { padding: 20px 16px; flex-wrap: wrap; } .pz-ride-band b { font-size: 17px; } .pz-ride-band em { margin-left: 62px; } }

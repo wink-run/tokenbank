@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=28">
+<link rel="stylesheet" href="/static/plaza.css?v=32">
 <script src="/static/plaza-nav.js?v=19"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -26,10 +26,6 @@ a { color: inherit; text-decoration: none; }
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
       <div class="ag-modes"><a class="ag-mode on" href="/agents">{{ N.modeUse }}</a><a class="ag-mode" href="/">{{ N.modeDev }}</a></div>
-      <div class="ag-navs ag-devnav">
-        <a class="ag-nav" href="/agents">{{ N.navPlaza }}</a>
-        <a class="ag-nav on" href="/why" aria-current="page">{{ N.navWhy }}</a>
-      </div>
       <div class="ag-top-r">
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
         <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
