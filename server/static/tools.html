@@ -436,12 +436,12 @@ a { color: inherit; text-decoration: none; }
           <a v-for="tool in tools" :key="tool.id" class="ag-card" :href="cardHref(tool)" @click="onCardClick(tool, $event)">
             <div class="ag-h">
               <span v-if="appIcon(tool)" class="ag-av brand"><img :src="appIcon(tool)" alt=""></span>
-              <span v-else class="ag-av" :style="{ background: avatarColor(tool.display_name) }">{{ (tool.display_name || '?').slice(0, 1) }}</span>
+              <span v-else class="ag-av" :style="{ background: avatarColor(cleanName(tool)) }">{{ (cleanName(tool) || '?').slice(0, 1) }}</span>
               <div style="min-width:0;flex:1">
-                <div class="ag-name">{{ tool.display_name }}</div>
+                <div class="ag-name">{{ cleanName(tool) }}</div>
                 <div class="ag-meta">
-                  <span v-if="tool.owner_nickname">@{{ tool.owner_nickname }}</span>
-                  <span v-if="tool.owner_nickname && tool.runtime"> · </span>
+                  <span v-if="ownerOf(tool)">@{{ ownerOf(tool) }}</span>
+                  <span v-if="ownerOf(tool) && tool.runtime"> · </span>
                   <span v-if="tool.runtime">{{ tool.runtime }}</span>
                 </div>
               </div>
@@ -730,6 +730,20 @@ createApp({
       const el = document.getElementById('agents');
       if (el) el.scrollIntoView({ behavior: this.reducedMotion ? 'auto' : 'smooth', block: 'start' });
     },
+    // 名片名常带「作者的」前缀，作者已在下一行显示，这里去掉，头像首字也更有区分度
+    splitName(tool) {
+      const name = String((tool && tool.display_name) || '').trim();
+      let owner = String((tool && tool.owner_nickname) || '').trim();
+      if (owner) {
+        if (name.startsWith(owner + '的') && name.length > owner.length + 1) return { name: name.slice(owner.length + 1).trim(), owner };
+        return { name, owner };
+      }
+      // 离线名片没有作者字段时，按「作者的名字」拆开
+      const m = name.match(/^(.{1,24}?)的(.+)$/);
+      return m ? { name: m[2].trim(), owner: m[1].trim() } : { name, owner: '' };
+    },
+    cleanName(tool) { return this.splitName(tool).name; },
+    ownerOf(tool) { return this.splitName(tool).owner; },
     roleIcon(key) {
       const a = 'width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
       if (key === 'r2') return '<svg ' + a + '><rect x="2.75" y="4.5" width="12.5" height="9" rx="1.5"/><path d="M6 17h6M9 13.5V17"/><rect x="16.5" y="8" width="4.75" height="10.5" rx="1.2"/></svg>';
