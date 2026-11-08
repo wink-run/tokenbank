@@ -13,8 +13,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/community.css">
-<link rel="stylesheet" href="/static/plaza.css?v=23">
-<script src="/static/plaza-nav.js?v=18"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=28">
+<script src="/static/plaza-nav.js?v=19"></script>
 <script src="/static/vue.global.prod.js"></script>
 <script src="/static/app-runtime-icon.js"></script>
 <style>
@@ -22,7 +22,7 @@
 @media (max-width:720px){.srow{grid-template-columns:minmax(0,1fr) 84px}}
 .detail-hero{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:20px}
 .detail-hero .top{position:relative;padding:22px;display:flex;flex-wrap:wrap;align-items:flex-start;gap:16px}
-.detail-hero .top::before{content:"";position:absolute;inset:0 0 auto 0;height:72px;background:linear-gradient(90deg,#d1fae5aa,#f5ebff88 60%,transparent);pointer-events:none}
+.detail-hero .top::before{content:"";position:absolute;inset:0 0 auto 0;height:72px;background:linear-gradient(90deg,#fff1c4aa,transparent);pointer-events:none}
 .detail-hero .top>*{position:relative}
 .detail-hero .av{width:60px;height:60px;border-radius:18px;font-size:24px;box-shadow:0 0 0 4px #fff,0 6px 16px rgba(0,0,0,.08)}
 .detail-hero .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--border)}
@@ -44,7 +44,7 @@
 .side-t{width:100%;font-size:16px;font-weight:650;letter-spacing:-.01em}
 .side-d{width:100%;font-size:13px;color:var(--text-muted);margin-bottom:6px;line-height:1.6}
 @media (max-width:720px){.sides{grid-template-columns:1fr}.navlinks{-webkit-mask-image:linear-gradient(90deg,#000 82%,transparent);mask-image:linear-gradient(90deg,#000 82%,transparent);padding-right:18px}}
-.signin-card{display:flex;flex-wrap:wrap;align-items:center;gap:14px;background:linear-gradient(135deg,#f5ebff,#ecfdf5);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px}
+.signin-card{display:flex;flex-wrap:wrap;align-items:center;gap:14px;background:#fff7dc;border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px}
 </style>
 </head>
 <body>
@@ -52,10 +52,9 @@
   <nav class="ag-top">
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/dev">{{ N.modeDev }}</a></div>
+      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/">{{ N.modeDev }}</a></div>
       <div class="ag-navs ag-devnav">
-        <a class="ag-nav" href="/dev">{{ N.dOverview }}</a>
-        <a class="ag-nav" href="/harness">{{ N.dManage }}</a>
+        <a class="ag-nav" href="/">{{ N.dOverview }}</a>
         <a class="ag-nav" href="/share">{{ N.dShare }}</a>
         <a class="ag-nav on" href="/market#circles" aria-current="page">{{ N.dMarket }}</a>
       </div>
@@ -66,9 +65,9 @@
           <button class="ag-lang" type="button" @click="logout">{{ T.logout }}</button>
         </template>
         <button v-else class="ag-dl" type="button" @click="openAuth()">{{ T.login }}</button>
+        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><em>{{ N.modeUse }}</em><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a></div><div class="ag-menu-g"><em>{{ N.modeDev }}</em><a href="/">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a class="on" aria-current="page" href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a v-if="loggedIn" href="/app">{{ N.account }}</a><a v-else href="#" @click.prevent="openAuth()">{{ N.signIn }}</a><a class="dl" href="/#download">{{ N.download }}</a></div></div></details>
       </div>
     </div>
-    <div class="ag-sub"><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a class="on" href="/market#circles">{{ N.dMarket }}</a></div>
   </nav>
 
   <main class="page">
@@ -317,7 +316,7 @@
     </template>
   </main>
 
-  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.navPlaza }}</a><a href="/dev">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
+  <footer class="nw-foot"><span>Token Bank</span><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a><a href="/">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
 
   <!-- 登录 / 注册 -->
   <div v-if="showAuth" class="mask" @click.self="showAuth = false">

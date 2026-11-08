@@ -13,7 +13,8 @@
     'gemini-cli': '/static/brand-icons/geminicli-color.svg',
     qwen: '/static/brand-icons/qwen-color.svg',
     grok: '/static/brand-icons/grok.svg',
-    grokbot: '/static/brand-icons/grok.svg',
+    grokbot: '/static/brand-icons/grokbot.svg',
+    muse: '/static/brand-icons/muse.svg',
     workbuddy: '/static/brand-icons/codebuddy-color.svg',
     trae: '/static/brand-icons/trae-color.svg',
   };

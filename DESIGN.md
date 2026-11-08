@@ -430,7 +430,7 @@ local-llm-proxy/
 │   ├── static/
 │   │   ├── admin.html      管理控制台（Vue 3）
 │   │   ├── dashboard.html  运营大屏（Vue 3）
-│   │   ├── landing.html    产品落地页
+│   │   ├── dev.html        首页 / 开发者概览
 │   │   └── app.html        用户前台（注册/登录/看板）
 │   └── requirements.txt
 ├── agent/

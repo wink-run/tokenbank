@@ -9,8 +9,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=23">
-<script src="/static/plaza-nav.js?v=18"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=28">
+<script src="/static/plaza-nav.js?v=19"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -25,10 +25,9 @@ a { color: inherit; text-decoration: none; }
   <nav class="ag-top">
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/dev">{{ N.modeDev }}</a></div>
+      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/">{{ N.modeDev }}</a></div>
       <div class="ag-navs ag-devnav">
-        <a class="ag-nav" href="/dev">{{ N.dOverview }}</a>
-        <a class="ag-nav" href="/harness">{{ N.dManage }}</a>
+        <a class="ag-nav" href="/">{{ N.dOverview }}</a>
         <a class="ag-nav" href="/share">{{ N.dShare }}</a>
         <a class="ag-nav on" href="/market" aria-current="page">{{ N.dMarket }}</a>
       </div>
@@ -36,9 +35,9 @@ a { color: inherit; text-decoration: none; }
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
         <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
         <a class="ag-dl hide-sm" href="/#download">{{ N.download }}</a>
+        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><em>{{ N.modeUse }}</em><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a></div><div class="ag-menu-g"><em>{{ N.modeDev }}</em><a href="/">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a class="on" aria-current="page" href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a href="/app">{{ loggedIn ? N.account : N.signIn }}</a><a class="dl" href="/#download">{{ N.download }}</a></div></div></details>
       </div>
     </div>
-    <div class="ag-sub"><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a class="on" href="/market">{{ N.dMarket }}</a></div>
   </nav>
 
   <header class="pz-hero">
@@ -154,7 +153,7 @@ a { color: inherit; text-decoration: none; }
           <div class="pz-tr pz-th"><span>{{ T.colModel }}</span><span class="pz-num hide-sm">{{ T.colNodes }}</span><span class="pz-num hide-sm">{{ T.colLatency }}</span><span></span></div>
           <component :is="m.mtype === 'embedding' ? 'div' : 'a'" v-for="m in shownModels" :key="m.name" class="pz-tr" :href="m.mtype === 'embedding' ? undefined : '/m/' + encodeURIComponent(m.name)">
             <span style="display:flex;align-items:center;gap:10px;min-width:0"><i class="ag-dot ok"></i><span class="pz-mono">{{ m.name }}</span><span class="pz-tag-s" :class="typeBadge(m.mtype)">{{ typeLabel(m.mtype) }}</span></span>
-            <span class="pz-num hide-sm">{{ T.nodesN.replace('{n}', String(m.nodes)) }}</span>
+            <span class="pz-num hide-sm">{{ (m.nodes === 1 && T.nodes1 ? T.nodes1 : T.nodesN).replace('{n}', String(m.nodes)) }}</span>
             <span class="pz-num hide-sm" :class="speedCls(m.avgMs)">{{ m.avgMs ? fmtMs(m.avgMs) : '—' }}</span>
             <span class="pz-try" :class="{ off: m.mtype === 'embedding' }">{{ m.mtype === 'embedding' ? T.apiOnly : T.tryIt }}</span>
           </component>
@@ -184,7 +183,7 @@ a { color: inherit; text-decoration: none; }
     </section>
 
   </main>
-  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
+  <footer class="nw-foot"><span>Token Bank</span><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a><a href="/">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
 </div>
 
 <script>
@@ -245,7 +244,7 @@ createApp({
           templates: 'Agent templates: a working agent out of the box — tweak the prompt, swap the model, add skills and it\'s yours.',
           scenes: 'Official scenes open in the browser; plugins cost credits.',
         },
-        modelHint: 'Lower first-token latency is faster', colModel: 'Model', colNodes: 'Nodes', colLatency: 'First token', nodesN: '{n} nodes', tryIt: 'Try', apiOnly: 'API only',
+        modelHint: 'Lower first-token latency is faster', colModel: 'Model', colNodes: 'Nodes', colLatency: 'First token', nodesN: '{n} nodes', nodes1: '{n} node', tryIt: 'Try', apiOnly: 'API only',
         typeChat: 'Text', typeVision: 'Vision', typeImage: 'Image', typeEmbedding: 'Embedding',
         rtSkill: 'Skill', rtPrompt: 'Prompt', rtAssistant: 'Agent template', rtScene: 'Scene', rtPlugin: 'Plugin',
         official: 'Official', userShare: 'User pick', sharedBy: 'by @{h}', inApp: 'Adopt in the app', adopt: 'Adopt', useIt: 'Use', noDesc: 'No description',
