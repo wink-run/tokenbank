@@ -25,7 +25,6 @@ import ServiceIcon from '../components/ServiceIcon';
 import { resolveBrandIcon } from '../lib/brandIcons';
 import { getServerUrl } from '../config';
 import { copyText } from '../lib/resource-enable';
-import { PlazaHero, PlazaWhy, PlazaSpotlight, PlazaEmpty } from '../components/AgentPlaza';
 function multiplierToStars(m) {
   const n = m >= 1.3 ? 5 : m >= 1.1 ? 4 : m >= 0.9 ? 3 : m >= 0.7 ? 2 : 1;
   return '★'.repeat(n) + '☆'.repeat(5 - n);
@@ -1090,7 +1089,7 @@ function CommunityAgentIcon({ agent, name, selected, small = false }) {
 }
 
 /** 社区智能体：浏览在线名片 → 雇佣/取消雇佣（供游乐场与 MCP；此处不发起任务） */
-function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onScopeChange, focusAgent = null, onGo }) {
+function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onScopeChange, focusAgent = null }) {
   const { t } = useLang();
   const location = useLocation();
   const [agents, setAgents] = useState([]);
@@ -1109,17 +1108,6 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
   // KeepAlive 下用 pathname 判断是否在交易页（再次进入需立刻刷新）
   const pageActive = location.pathname === '/contribute';
   const refreshRef = useRef(null);
-  const [copiedLinkId, setCopiedLinkId] = useState('');
-
-  /** 公开智能体的网页体验链接：好友在浏览器里直接打开对话，无需安装 */
-  async function copyAgentLink(a) {
-    const base = (getServerUrl() || '').replace(/\/$/, '');
-    if (!base || !a?.id) return;
-    const ok = await copyText(`${base}/a/${encodeURIComponent(a.id)}`);
-    if (!ok) return;
-    setCopiedLinkId(a.id);
-    setTimeout(() => setCopiedLinkId((cur) => (cur === a.id ? '' : cur)), 1600);
-  }
 
   function refreshHired() {
     if (!window.electronAPI?.agent?.listHiredCommunity) return;
@@ -1297,22 +1285,6 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
   const selectedRow = selected ? agents.find(a => a.id === selected.id && a.worker_id === selected.worker_id) : null;
   const hiredCount = agents.filter(a => hiredIds.has(a.id)).length;
   const idleCount = agents.filter(a => !(Number(a.active_requests) > 0)).length;
-  // 精选：当前范围内热度前三（优先空闲）
-  const spotlight = [...scoped]
-    .sort((x, y) => ((Number(y.hire_count) || 0) - (Number(x.hire_count) || 0))
-      || ((Number(x.active_requests) > 0) - (Number(y.active_requests) > 0)))
-    .slice(0, 3)
-    .map((a) => {
-      const { name, owner } = parseCommunityAgent(a);
-      return {
-        agent: a, name, owner,
-        hired: hiredIds.has(a.id),
-        busy: Number(a.active_requests) > 0,
-        hires: Number(a.hire_count) || 0,
-        isPublic: (a.visibility || 'public') === 'public',
-        runtimeName: a.runtime ? runtimeLabel(a.runtime) : '',
-      };
-    });
 
   const scopeOptions = [
     { id: 'all', label: t('contribute.scope.all') },
@@ -1333,37 +1305,32 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
   }`;
 
   return (
-    <div className="space-y-5">
-      <PlazaHero
-        query={query}
-        onQuery={setQuery}
-        onSuggest={setQuery}
-        online={agents.length}
-        idle={idleCount}
-        hired={hiredCount}
-        credits={credits}
-      />
-
-      {/* 有搜索词时收起介绍与精选，专注结果 */}
-      {!q && !onlyHired && <PlazaWhy onGo={onGo} />}
-
-      {!q && !onlyHired && !loading && spotlight.length > 0 && (
-        <PlazaSpotlight
-          items={spotlight}
-          renderIcon={(a, name) => <CommunityAgentIcon agent={a} name={name} />}
-          onOpen={(a) => selectAgent(a, { toggle: false })}
-          onHire={(a) => { selectAgent(a, { toggle: false }); setPendingHire(a); }}
-          onCopyLink={copyAgentLink}
-          copiedId={copiedLinkId}
-          busy={busy}
-        />
-      )}
-
-      <div className="flex items-end gap-2 pt-1">
-        <h3 className="text-[15px] font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          {q ? t('plaza.list.results', { n: shown.length }) : t('plaza.list.title')}
-        </h3>
-        {!q && <span className="pb-0.5 text-[11px] text-zinc-400">{t('plaza.list.hint')}</span>}
+    <div className="space-y-3">
+      {/* 市场头：在线概况 + 搜索 */}
+      <div className="relative overflow-hidden rounded-2xl border border-zinc-200/70 dark:border-white/[0.07] bg-gradient-to-br from-violet-50/80 via-white/70 to-blue-50/60 dark:from-violet-950/30 dark:via-zinc-900/40 dark:to-blue-950/20 px-5 py-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-violet-500 to-blue-500 text-white flex items-center justify-center text-lg shadow-md shadow-violet-500/25 shrink-0" aria-hidden>✦</div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[15px] font-semibold text-zinc-900 dark:text-zinc-50">{t('contribute.marketTitle')}</div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 flex flex-wrap items-center gap-x-2">
+              <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" aria-hidden />{t('contribute.marketOnline', { n: agents.length, idle: idleCount })}</span>
+              <span className="text-zinc-300 dark:text-zinc-600">·</span>
+              <span>{t('contribute.marketHired', { n: hiredCount })}</span>
+              {credits != null && (<><span className="text-zinc-300 dark:text-zinc-600">·</span><span>{t('contribute.agentTaskCost', { n: credits })}</span></>)}
+            </p>
+          </div>
+          <div className="relative w-72 max-w-full">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" aria-hidden>
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3.5 h-3.5"><circle cx="9" cy="9" r="5.5" /><path d="M13.5 13.5 17 17" strokeLinecap="round" /></svg>
+            </span>
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder={t('contribute.searchAgents')}
+              className="w-full text-xs pl-8 pr-3 py-2 rounded-xl bg-white/90 dark:bg-zinc-900/70 border border-zinc-200/80 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-500/15"
+            />
+          </div>
+        </div>
       </div>
 
       {/* 筛选：范围（圈子即交易范围）· 已雇佣 · 排序 */}
@@ -1427,8 +1394,6 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
                 </div>
               ))}
             </div>
-          ) : agents.length === 0 ? (
-            <PlazaEmpty onGo={onGo} />
           ) : shown.length === 0 ? (
             <div className={`${LIB_LIST_CLS} px-6 py-12 text-center`}>
               <div className="text-2xl" aria-hidden>{q || onlyHired ? '🔍' : '🌙'}</div>
@@ -1592,15 +1557,6 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
               hired={!!selectedHired}
               t={t}
             />
-            {selectedRow && (selectedRow.visibility || 'public') === 'public' && (
-              <InspectorSection title={t('plaza.share.title')}>
-                <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">{t('plaza.share.desc')}</p>
-                <button type="button" onClick={() => copyAgentLink(selectedRow)}
-                  className="tb-press mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-400/30 text-indigo-700 dark:text-indigo-200 bg-indigo-50/60 dark:bg-indigo-500/10 hover:bg-indigo-50 dark:hover:bg-indigo-500/15">
-                  {copiedLinkId === selectedRow.id ? t('plaza.share.copied') : t('plaza.share.copy')}
-                </button>
-              </InspectorSection>
-            )}
             <InspectorSection title={t('contribute.safetyTitle')}>
               <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">🔒 {t('contribute.hireHint')}</p>
             </InspectorSection>
@@ -2005,7 +1961,6 @@ export default function Contribute() {
             scope={scope}
             onScopeChange={setScope}
             focusAgent={focusAgent}
-            onGo={changeTab}
           />
         </div>
 
