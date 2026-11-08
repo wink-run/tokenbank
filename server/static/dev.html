@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>开发者 · Token Bank</title>
-<meta name="description" content="Token Bank 开发者中心：统一管理 Pi、Claude Code、Cursor、GrokBot、Muse 等智能体 runtime 和各家模型供应商（界面与接口）；把智能体分享给自己、圈子或全网分摊费用；从资源市场获取模型、Skill、智能体模板，自用或加工后上架。">
+<meta name="description" content="Token Bank 开发者中心：统一管理 Pi、Claude Code、Cursor、GrokBot、Muse 等智能体运行时和各家模型供应商（界面与接口）；把智能体分享给自己、圈子或全网分摊费用；从资源市场获取模型、Skill、智能体模板，自用或加工后上架。">
 <link rel="icon" href="/static/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -175,7 +175,7 @@ createApp({
       zh: {
         title: '开发者', eyebrow: '智能体应用工厂',
         h1a: '不只是管理智能体，', h1b: '还能把应用架在上面',
-        sub: '现成的 runtime、模型、资产、接口、观测和分发。你只管做应用。',
+        sub: '现成的运行时、模型、资产、接口、观测和分发。你只管做应用。',
         promise: ['不用自己造 harness', '一套接口调智能体和模型', '上架即得网页应用', '开源 · macOS / Windows / Linux'],
         ctaApi: '看统一接口',
         stackKicker: 'THE FACTORY', stackTitle: '六层现成能力', stackLead: '纯模型网关只做最底下那一层。这里从执行引擎到分发，每一层都已经搭好，你只管在最上面做应用。',
@@ -185,14 +185,14 @@ createApp({
           ['分发层', '上架、市场、圈子', '上架即得网页应用，有没有公网 IP 都能对外服务', '/share'],
           ['观测层', 'Trace、用量、跨端', '每次调用可追溯，多设备归集', '/harness#f-trace'],
           ['接口层', '智能体任务 + 三种模型协议', '换一个 harness_id 换智能体，三种协议互通', '/harness#api'],
-          ['资产层', 'Skill、MCP、Prompt', '组合进智能体，投射到各个 runtime', '/harness#f-assets'],
-          ['运行时层', 'Pi、Claude Code、Codex、Cursor、GrokBot、Muse…', '已装好的 runtime 直接当执行引擎', '/harness#f-onboard'],
+          ['资产层', 'Skill、MCP、Prompt', '组合进智能体，投射到各个运行时', '/harness#f-assets'],
+          ['运行时层', 'Pi、Claude Code、Codex、Cursor、GrokBot、Muse…', '已装好的运行时直接当执行引擎', '/harness#f-onboard'],
           ['模型层', '各家模型 + 场景路由', '本地、免费、订阅、按量、社区，自动兜底', '/harness#f-route'],
         ],
-        buildKicker: 'BUILD ON TOP', buildTitle: '在上面架应用，三条路', buildLead: '选哪条都不用从零写 runtime、计费和网页。',
+        buildKicker: 'BUILD ON TOP', buildTitle: '在上面架应用，三条路', buildLead: '选哪条都不用从零写运行时、计费和网页。',
         builds: [
-          { k: '路线 A', t: '用接口做进你的产品', d: '后端调 /v1/agent/responses，选 runtime 执行。', get: ['runtime 随时换，代码不动', '模型路由、计量、Trace 自带', '任务可查询、可取消、断线续接'], cta: '看接口', href: '/harness#api' },
-          { k: '路线 B', t: '组一个智能体，上架就是网页应用', d: 'runtime + 模型 + Skill，保存上架即可。', get: ['自带网页对话页，支持图片和文件', '可被搜索的介绍页和分享链接', '跑在你局域网的机器上，有没有公网 IP 都行', '未登录试一轮、多人接龙、按次计费'], cta: '怎么上架', href: '/share' },
+          { k: '路线 A', t: '用接口做进你的产品', d: '后端调 /v1/agent/responses，选运行时执行。', get: ['运行时随时换，代码不动', '模型路由、计量、Trace 自带', '任务可查询、可取消、断线续接'], cta: '看接口', href: '/harness#api' },
+          { k: '路线 B', t: '组一个智能体，上架就是网页应用', d: '运行时 + 模型 + Skill，保存上架即可。', get: ['自带网页对话页，支持图片和文件', '可被搜索的介绍页和分享链接', '跑在你局域网的机器上，有没有公网 IP 都行', '未登录试一轮、多人接龙、按次计费'], cta: '怎么上架', href: '/share' },
           { k: '路线 C', t: '把你已有的应用接进来', d: '「新建应用」以 API 接入，同享路由和观测。', get: ['绑定场景路由，原生模型名不变', '用量进盘点，调用进 Trace', '多设备归集到同一个账号'], cta: '看统一管理', href: '/harness#f-onboard' },
         ],
         liveTitle: '网络里此刻有', kNodes: '在线节点', kModels: '可用模型', kAgents: '在线智能体', kRes: '技能与模板', liveFoot: '都来自开发者分享，你也可以拿来自用或加工。',
@@ -202,7 +202,7 @@ createApp({
           ['f-swap', '02', '一键换模型', '原生模型名不变，协议自动转换，按应用独立绑定'],
           ['f-route', '03', '场景路由', '场景与任务分型、供给链逐级命中、策略组与故障转移'],
           ['f-trace', '04', 'Trace 管理', '网关实时 + 会话补录去重，步骤级 Session Trace'],
-          ['f-assets', '05', '资产管理', 'Skill / MCP / Prompt / Agent 一个库，投射到各 runtime'],
+          ['f-assets', '05', '资产管理', 'Skill / MCP / Prompt / Agent 一个库，投射到各运行时'],
           ['f-usage', '06', '用量看板', 'Token、费用、免费命中率，订阅与按量对照，托盘速览'],
           ['f-devices', '07', '跨端归集', '多台设备用量云端合并，订阅与配置跨设备同步'],
           ['f-orchestrate', '08', '智能体编排', '主 Agent 接任务，按特点派给本机或雇来的智能体'],
@@ -212,7 +212,7 @@ createApp({
         loop: [
           { k: '获取', b: '资源市场', d: '别人分享的模型、Skill、提示词和智能体模板', href: '/market' },
           { k: '加工', b: '在资产里改', d: '换模型、改提示词、加 Skill，调成你自己的智能体', href: '/market#paths' },
-          { k: '管理', b: '纳管到 runtime', d: '投射到 Pi、Claude Code、Cursor 等，用统一接口调试', href: '/harness' },
+          { k: '管理', b: '纳管到运行时', d: '投射到 Pi、Claude Code、Cursor 等，用统一接口调试', href: '/harness' },
           { k: '上架', b: '分享出去', d: '只给自己、只给圈子，或公开给所有人', href: '/share' },
           { k: '使用', b: '普通用户', d: '在智能体广场像打车一样用，任务在你的设备上执行', href: '/agents', cls: 'user' },
         ],
@@ -220,11 +220,11 @@ createApp({
         apiKicker: 'ONE INTERFACE', apiTitle: '一个网关，智能体和三种模型协议', apiLead: '写一次集成，后面随便换。',
         apiMore: '看完整示例',
         apiLines: [
-          ['# 本机 runtime：pi、claude-code、codex、cursor、kimi-code', false], ['"harness_id": "pi"', true],
+          ['# 本机运行时：pi、claude-code、codex、cursor、kimi-code', false], ['"harness_id": "pi"', true],
           ['# 雇来的社区智能体', false], ['"harness_id": "community:<id>@<owner>"', true],
           ['# 模型：三种协议都可以，原生模型名不变', false], ['POST /v1/chat/completions   # OpenAI', true], ['POST /v1/messages           # Anthropic', true], ['POST /v1/responses          # Codex', true],
         ],
-        finalTitle: '先把手上的 runtime 接进来', finalText: '已装的应用自动出现，不喜欢一键还原。', finalCta2: '逛逛资源市场',
+        finalTitle: '先把手上的运行时接进来', finalText: '已装的应用自动出现，不喜欢一键还原。', finalCta2: '逛逛资源市场',
       },
       en: {
         title: 'Developers', eyebrow: 'An agent app factory',
