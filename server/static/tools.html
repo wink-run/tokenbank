@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>智能体 · Token Bank</title>
-<meta name="description" content="租个智能体让它干活。分享给朋友一起协作，或挑逗它激发创意。人在外面，也能用自己电脑上的智能体。">
+<title>智能体广场 · Token Bank</title>
+<meta name="description" content="别人调好的智能体，打开就能用：不用买 Key、装环境、写提示词，按次付费。有设备的用户无需网络配置即可随时随地使用自己的智能体，并分享给圈子或全网分摊费用，Skill 不外泄。一个链接就能拉朋友一起玩。">
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,7 +17,7 @@
 [v-cloak]{display:none!important}
 body {
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  background: linear-gradient(180deg, #fafafa 0%, #ffffff 280px);
+  background: #fafafb;
   color: #0a0a0a;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
@@ -25,52 +25,169 @@ body {
 a { color: inherit; text-decoration: none; }
 .container { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
 
-/* 智能体主页，和社区网络同一套卡片 */
-.ag-top { position: sticky; top: 0; z-index: 20; background: rgba(255,255,255,.9); backdrop-filter: blur(12px); border-bottom: 1px solid #eee; }
-.ag-top-in { max-width: 1200px; margin: 0 auto; height: 56px; padding: 0 20px; display: flex; align-items: center; gap: 18px; }
-.ag-brand { display: flex; align-items: center; gap: 9px; font-weight: 650; }
+/* ── 智能体工具广场 ── */
+:root {
+  --pz-ink: #0a0a0f; --pz-muted: #6b6b78; --pz-line: #e7e7ee; --pz-soft: #f6f6fa;
+  --pz-indigo: #6366f1; --pz-violet: #8b5cf6; --pz-cyan: #22d3ee;
+  --pz-grad: linear-gradient(90deg, #67e8f9 0%, #a5b4fc 45%, #f0abfc 100%);
+  --pz-btn: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+}
+.ag-top { position: sticky; top: 0; z-index: 30; background: rgba(6,8,22,.72); backdrop-filter: saturate(160%) blur(14px); -webkit-backdrop-filter: saturate(160%) blur(14px); border-bottom: 1px solid rgba(255,255,255,.07); color: #e6e8ff; }
+.ag-top-in { max-width: 1200px; margin: 0 auto; height: 58px; padding: 0 24px; display: flex; align-items: center; gap: 6px; }
+.ag-brand { display: flex; align-items: center; gap: 9px; font-weight: 650; margin-right: 14px; color: #fff; }
 .ag-brand img { width: 26px; height: 26px; border-radius: 7px; }
-.ag-nav { font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 8px; background: #f5f2f0; }
-.ag-lang { margin-left: auto; border: none; background: transparent; color: #7b7b7b; cursor: pointer; font: inherit; font-size: 13px; }
-/* 智能体工具广场：居中介绍，下面四件事说明这页能干什么 */
-.ag-page { max-width: 1200px; margin: 0 auto; padding: 48px 24px 80px; }
-.ag-hero { text-align: center; margin-bottom: 28px; }
-.ag-badge-top { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; margin-bottom: 14px; background: #eff6ff; color: #2563eb; border-radius: 999px; font-size: 14px; font-weight: 500; }
-.ag-hero h1 { font-size: 44px; font-weight: 700; letter-spacing: -.03em; line-height: 1.15; color: #09090b; }
-.ag-hero p { margin: 12px auto 0; max-width: 40rem; color: #71717a; font-size: 17px; line-height: 1.7; }
-/* 四条用法：租来干活放在最前，其余三条是分享、协作挑逗、远程用自己的 */
-.ag-ways { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; max-width: 1040px; margin: 0 auto 32px; text-align: left; }
-.ag-way { background: #fff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
-.ag-way.lead { background: #eff6ff; border-color: #bfdbfe; }
-.ag-way-mark { width: 28px; height: 28px; border-radius: 8px; background: #f4f4f5; color: #3f3f46; font-weight: 700; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.ag-way.lead .ag-way-mark { background: #2563eb; color: #fff; }
-.ag-way strong { display: block; font-size: 14px; line-height: 1.35; margin-bottom: 4px; color: #09090b; }
-.ag-way span { display: block; font-size: 13px; color: #71717a; line-height: 1.5; }
-.ag-bar { display: flex; flex-direction: column; align-items: center; gap: 16px; margin: 0 0 28px; }
-.ag-search { position: relative; width: min(100%, 640px); }
-.ag-search input { width: 100%; height: 52px; padding: 0 48px 0 20px; border: 2px solid #e4e4e7; border-radius: 16px; background: #fff; outline: none; font: inherit; font-size: 16px; }
-.ag-search input:focus { border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,.12); }
-.ag-search svg { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: #a1a1aa; }
-.ag-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
-.ag-chip { height: 36px; padding: 0 16px; border-radius: 999px; border: 1px solid #e4e4e7; background: #fff; font: inherit; font-size: 14px; font-weight: 500; color: #52525b; cursor: pointer; }
-.ag-chip:hover { background: #f4f4f5; }
-.ag-chip.on { background: #3b82f6; color: #fff; border-color: #3b82f6; box-shadow: 0 4px 12px rgba(59,130,246,.28); }
-.ag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
-.ag-card { position: relative; background: #fff; border: 1px solid #e4e4e7; border-radius: 24px; padding: 22px; display: flex; flex-direction: column; gap: 12px; min-width: 0; transition: border-color .2s, box-shadow .2s, transform .2s; }
-.ag-card:hover { border-color: #93c5fd; box-shadow: 0 12px 24px rgba(0,0,0,.08); transform: translateY(-2px); }
+.ag-nav { white-space: nowrap; font-size: 13px; font-weight: 500; padding: 6px 11px; border-radius: 8px; color: rgba(230,232,255,.66); transition: color .15s, background .15s; }
+.ag-nav:hover { color: #fff; background: rgba(255,255,255,.06); }
+.ag-nav.on { color: #fff; background: rgba(255,255,255,.09); }
+.ag-top-r { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.ag-lang { border: none; background: transparent; color: rgba(230,232,255,.6); cursor: pointer; font: inherit; font-size: 13px; padding: 6px 8px; }
+.ag-lang:hover { color: #fff; }
+.ag-dl { white-space: nowrap; font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 9px; background: #fff; color: #0a0a0f; }
+.ag-dl:hover { background: #e9e9ff; }
+
+/* Hero：深空 + 极光 + 网格 + 星图 */
+.pz-hero { position: relative; overflow: hidden; background: #060816; color: #fff; margin-top: -58px; padding-top: 58px; }
+.pz-hero::before, .pz-hero::after { content: ''; position: absolute; border-radius: 50%; filter: blur(80px); pointer-events: none; }
+.pz-hero::before { width: 560px; height: 560px; left: -160px; top: -200px; background: rgba(99,102,241,.38); }
+.pz-hero::after { width: 520px; height: 520px; right: -120px; bottom: -280px; background: rgba(34,211,238,.22); }
+.pz-grid-bg { position: absolute; inset: 0; pointer-events: none; opacity: .7;
+  background-image: linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
+  background-size: 36px 36px;
+  -webkit-mask-image: radial-gradient(ellipse 75% 70% at 65% 35%, #000 25%, transparent 78%);
+  mask-image: radial-gradient(ellipse 75% 70% at 65% 35%, #000 25%, transparent 78%); }
+.pz-hero-in { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 64px 24px 0; display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 32px; align-items: center; }
+.pz-eyebrow { display: inline-flex; align-items: center; gap: 10px; padding: 5px 14px 5px 5px; border-radius: 999px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.04); font-size: 13px; color: rgba(224,231,255,.82); }
+.pz-eyebrow b { white-space: nowrap; flex-shrink: 0; padding: 3px 10px; border-radius: 999px; background: var(--pz-grad); color: #060816; font-size: 11px; letter-spacing: .08em; }
+.pz-h1 { margin-top: 22px; font-size: 52px; line-height: 1.1; font-weight: 700; letter-spacing: -.035em; }
+.pz-h1 em { font-style: normal; background: var(--pz-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.pz-sub { margin-top: 18px; max-width: 37rem; font-size: 17px; line-height: 1.75; color: rgba(224,231,255,.68); }
+.pz-search { margin-top: 28px; max-width: 620px; padding: 1.5px; border-radius: 18px; background: linear-gradient(90deg, rgba(103,232,249,.6), rgba(165,180,252,.5), rgba(240,171,252,.6)); box-shadow: 0 20px 50px -20px rgba(99,102,241,.6); }
+.pz-search-in { display: flex; align-items: center; gap: 10px; border-radius: 16.5px; background: rgba(10,13,32,.96); padding: 0 8px 0 18px; }
+.pz-search-in svg { color: rgba(199,210,254,.6); flex-shrink: 0; }
+.pz-search input { flex: 1; min-width: 0; height: 56px; border: none; outline: none; background: transparent; color: #fff; font: inherit; font-size: 16px; }
+.pz-search input::placeholder { color: rgba(199,210,254,.42); }
+.pz-search button { height: 42px; padding: 0 18px; border: none; border-radius: 12px; background: var(--pz-btn); color: #fff; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.pz-tags { margin-top: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.pz-tags span { color: rgba(199,210,254,.45); }
+.pz-tag { height: 30px; padding: 0 13px; border-radius: 999px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.04); color: rgba(224,231,255,.82); font: inherit; font-size: 13px; cursor: pointer; transition: background .15s, color .15s; }
+.pz-tag:hover, .pz-tag.on { background: rgba(255,255,255,.12); color: #fff; }
+.pz-orbit { height: 360px; }
+.pz-orbit svg { width: 100%; height: 100%; display: block; }
+.pz-stats { position: relative; z-index: 1; max-width: 1200px; margin: 52px auto 0; padding: 0 24px; display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid rgba(255,255,255,.08); }
+.pz-stat { padding: 20px 0 26px; }
+.pz-stat + .pz-stat { padding-left: 28px; border-left: 1px solid rgba(255,255,255,.08); }
+.pz-stat-k { display: flex; align-items: center; gap: 7px; font-size: 12px; letter-spacing: .06em; color: rgba(199,210,254,.55); }
+.pz-stat-v { margin-top: 4px; font-size: 30px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.pz-stat-v small { margin-left: 4px; font-size: 13px; font-weight: 500; color: rgba(199,210,254,.6); }
+.pz-live { position: relative; width: 7px; height: 7px; border-radius: 50%; background: #34d399; }
+.pz-live::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: #34d399; animation: pz-ping 1.8s cubic-bezier(0,0,.2,1) infinite; }
+@keyframes pz-ping { 75%, 100% { transform: scale(2.6); opacity: 0; } }
+
+/* 通用区块 */
+.ag-page { max-width: 1200px; margin: 0 auto; padding: 0 24px 96px; }
+.pz-sec { padding-top: 88px; }
+.pz-kicker { font-size: 12px; font-weight: 700; letter-spacing: .14em; color: var(--pz-indigo); text-transform: uppercase; }
+.pz-h2 { margin-top: 10px; font-size: 34px; line-height: 1.2; font-weight: 700; letter-spacing: -.03em; color: var(--pz-ink); }
+.pz-lead { margin-top: 12px; max-width: 44rem; font-size: 16px; line-height: 1.75; color: var(--pz-muted); }
+.pz-head-c { text-align: center; }
+.pz-head-c .pz-lead { margin-left: auto; margin-right: auto; }
+
+/* 三种人，三种用法 */
+.pz-roles { margin-top: 40px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.pz-role { position: relative; overflow: hidden; display: flex; flex-direction: column; padding: 28px; border-radius: 24px; background: #fff; border: 1px solid var(--pz-line); transition: transform .25s cubic-bezier(.2,.8,.2,1), box-shadow .25s, border-color .25s; }
+.pz-role:hover { transform: translateY(-4px); border-color: rgba(99,102,241,.35); box-shadow: 0 24px 48px -24px rgba(79,70,229,.35); }
+.pz-role::before { content: ''; position: absolute; top: -80px; right: -80px; width: 200px; height: 200px; border-radius: 50%; background: var(--pz-glow); filter: blur(40px); opacity: .5; pointer-events: none; }
+.pz-role.r1 { --pz-glow: rgba(99,102,241,.35); --pz-ic: linear-gradient(135deg,#6366f1,#8b5cf6); }
+.pz-role.r2 { --pz-glow: rgba(34,211,238,.35); --pz-ic: linear-gradient(135deg,#06b6d4,#3b82f6); }
+.pz-role.r3 { --pz-glow: rgba(236,72,153,.28); --pz-ic: linear-gradient(135deg,#d946ef,#ec4899); }
+.pz-role-top { position: relative; display: flex; align-items: center; gap: 12px; }
+.pz-ic { width: 44px; height: 44px; border-radius: 13px; background: var(--pz-ic); color: #fff; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 10px 20px -8px var(--pz-glow); flex-shrink: 0; }
+.pz-who { font-size: 13px; font-weight: 600; color: var(--pz-muted); }
+.pz-role h3 { position: relative; margin-top: 18px; font-size: 22px; line-height: 1.3; font-weight: 700; letter-spacing: -.02em; color: var(--pz-ink); }
+.pz-role p { position: relative; margin-top: 8px; font-size: 14.5px; line-height: 1.7; color: var(--pz-muted); }
+.pz-analogy { position: relative; margin-top: 16px; padding: 12px 14px; border-radius: 14px; background: var(--pz-soft); font-size: 13px; line-height: 1.6; color: #3f3f4a; }
+.pz-analogy b { color: var(--pz-ink); }
+.pz-list { position: relative; list-style: none; margin-top: 16px; display: grid; gap: 10px; }
+.pz-list li { display: flex; gap: 10px; font-size: 14px; line-height: 1.55; color: #33333d; }
+.pz-list li::before { content: ''; flex-shrink: 0; width: 18px; height: 18px; margin-top: 1px; border-radius: 6px; background: rgba(99,102,241,.1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E") center/11px no-repeat; }
+.pz-cta { position: relative; margin-top: auto; padding-top: 22px; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 650; color: var(--pz-indigo); }
+.pz-cta svg { transition: transform .2s; }
+.pz-role:hover .pz-cta svg { transform: translateX(3px); }
+
+/* 对比 */
+.pz-cmp { margin-top: 40px; border-radius: 24px; overflow: hidden; border: 1px solid var(--pz-line); background: #fff; }
+.pz-cmp-row { display: grid; grid-template-columns: 180px minmax(0,1fr) minmax(0,1fr); }
+.pz-cmp-row > div { padding: 16px 22px; font-size: 14.5px; line-height: 1.55; border-top: 1px solid #f0f0f5; }
+.pz-cmp-row:first-child > div { border-top: none; padding-top: 20px; padding-bottom: 18px; }
+.pz-cmp-dim { font-weight: 600; color: var(--pz-ink); }
+.pz-cmp-them { color: var(--pz-muted); display: flex; gap: 10px; }
+.pz-cmp-us { color: var(--pz-ink); display: flex; gap: 10px; background: linear-gradient(180deg, rgba(99,102,241,.06), rgba(99,102,241,.03)); }
+.pz-cmp-row:first-child .pz-cmp-us { background: linear-gradient(180deg, rgba(99,102,241,.14), rgba(99,102,241,.06)); }
+.pz-cmp-h { font-weight: 700; font-size: 15px; }
+.pz-cmp-h small { display: block; margin-top: 2px; font-size: 12px; font-weight: 500; color: var(--pz-muted); }
+.pz-cmp-us .pz-cmp-h { color: #4338ca; }
+.pz-x, .pz-v { flex-shrink: 0; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+.pz-x { background: #f1f1f5; color: #a1a1ad; }
+.pz-v { background: #10b981; color: #fff; }
+
+/* 保障条 */
+.pz-trust { margin-top: 18px; display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+.pz-trust div { padding: 16px 18px; border-radius: 16px; background: var(--pz-soft); }
+.pz-trust b { display: block; font-size: 14px; color: var(--pz-ink); }
+.pz-trust span { display: block; margin-top: 3px; font-size: 13px; line-height: 1.5; color: var(--pz-muted); }
+
+/* 名片列表 */
+.pz-list-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; }
+.pz-list-head .pz-h2 { flex: 1; min-width: 0; }
+.ag-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ag-chip { height: 34px; padding: 0 15px; border-radius: 999px; border: 1px solid var(--pz-line); background: #fff; font: inherit; font-size: 13.5px; font-weight: 500; color: #52525b; cursor: pointer; }
+.ag-chip:hover { background: var(--pz-soft); }
+.ag-chip.on { background: var(--pz-ink); color: #fff; border-color: var(--pz-ink); }
+.ag-grid { margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 18px; }
+.ag-card { position: relative; overflow: hidden; background: #fff; border: 1px solid var(--pz-line); border-radius: 22px; padding: 22px; display: flex; flex-direction: column; gap: 12px; min-width: 0; transition: border-color .2s, box-shadow .25s, transform .25s cubic-bezier(.2,.8,.2,1); }
+.ag-card::after { content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px; background: linear-gradient(135deg, rgba(103,232,249,.9), rgba(139,92,246,.9), rgba(236,72,153,.8)); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; opacity: 0; transition: opacity .25s; pointer-events: none; }
+.ag-card:hover { border-color: transparent; box-shadow: 0 22px 44px -22px rgba(79,70,229,.45); transform: translateY(-3px); }
+.ag-card:hover::after { opacity: 1; }
 .ag-h { display: flex; align-items: center; gap: 14px; min-width: 0; }
-.ag-av { width: 64px; height: 64px; border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 26px; flex-shrink: 0; background: linear-gradient(135deg, #fafafa, #f4f4f5); }
-.ag-av.brand { background: #fff; border: 1px solid #eee; padding: 12px; }
+.ag-av { width: 56px; height: 56px; border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 23px; flex-shrink: 0; background: linear-gradient(135deg, #fafafa, #f4f4f5); box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); }
+.ag-av.brand { background: #fff; border: 1px solid #eee; padding: 11px; }
 .ag-av.brand img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.ag-name { font-weight: 700; font-size: 18px; letter-spacing: -.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ag-meta { margin-top: 2px; font-size: 13px; color: #a1a1aa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ag-desc { font-size: 14px; color: #71717a; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 43px; }
-.ag-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 12px; border-top: 1px solid #f4f4f5; font-size: 13px; color: #71717a; }
+.ag-name { font-weight: 700; font-size: 17px; letter-spacing: -.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pz-ink); }
+.ag-meta { margin-top: 3px; font-size: 13px; color: #9a9aa6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-desc { font-size: 14px; color: var(--pz-muted); line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 45px; }
+.ag-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 14px; border-top: 1px solid #f2f2f6; font-size: 13px; color: var(--pz-muted); }
 .ag-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.ag-dot.ok { background: #16a34a; }
+.ag-dot.ok { background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,.15); }
 .ag-dot.off { background: #d4d4d8; }
-.ag-go { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-weight: 650; color: #18181b; }
+.ag-go { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 12px; border-radius: 10px; font-weight: 650; font-size: 13px; color: #fff; background: var(--pz-btn); box-shadow: 0 6px 14px -6px rgba(99,102,241,.6); }
+.ag-dot.off ~ .ag-go { background: var(--pz-soft); color: #52525b; box-shadow: none; }
 .ag-badge { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #f4f4f5; color: #52525b; }
+
+/* 空列表 */
+.pz-empty { margin-top: 28px; padding: 56px 24px; text-align: center; border-radius: 24px; border: 1px dashed #d4d4e8; background: linear-gradient(135deg, rgba(99,102,241,.05), rgba(34,211,238,.04)); }
+.pz-empty b { display: block; font-size: 18px; color: var(--pz-ink); }
+.pz-empty span { display: block; margin-top: 6px; font-size: 14px; color: var(--pz-muted); }
+
+/* 收尾 CTA */
+.pz-final { position: relative; overflow: hidden; margin-top: 96px; padding: 56px 48px; border-radius: 28px; background: #060816; color: #fff; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 24px; align-items: center; }
+.pz-final::before { content: ''; position: absolute; width: 480px; height: 480px; right: -120px; top: -220px; border-radius: 50%; background: rgba(139,92,246,.4); filter: blur(80px); }
+.pz-final::after { content: ''; position: absolute; width: 380px; height: 380px; left: -100px; bottom: -260px; border-radius: 50%; background: rgba(34,211,238,.25); filter: blur(80px); }
+.pz-final > * { position: relative; z-index: 1; }
+.pz-final h2 { font-size: 30px; line-height: 1.25; letter-spacing: -.03em; }
+.pz-final p { margin-top: 10px; max-width: 36rem; font-size: 15px; line-height: 1.7; color: rgba(224,231,255,.68); }
+.pz-final-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+.pz-btn { display: inline-flex; align-items: center; gap: 6px; height: 46px; padding: 0 22px; border-radius: 13px; font-size: 15px; font-weight: 650; }
+.pz-btn.pri { background: #fff; color: #0a0a0f; }
+.pz-btn.pri:hover { background: #e9e9ff; }
+.pz-btn.ghost { border: 1px solid rgba(255,255,255,.18); color: #fff; }
+.pz-btn.ghost:hover { background: rgba(255,255,255,.08); }
+
+@media (prefers-reduced-motion: reduce) {
+  .pz-live::after { animation: none; }
+  .pz-role, .ag-card { transition: none; }
+  .pz-role:hover, .ag-card:hover { transform: none; }
+}
+
 .tool-badge { display: inline-block; padding: 0.25rem 0.625rem; font-size: 0.75rem; font-weight: 600; color: #fff; border-radius: 9999px; }
 .badge-virtual { background: #3b82f6; }
 .badge-user-rented { background: #10b981; }
@@ -139,88 +256,221 @@ a { color: inherit; text-decoration: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .ad-skip { width: 100%; margin-top: 1rem; padding: 0.5rem 1rem; background: #f4f4f5; color: #52525b; border: none; border-radius: 0.5rem; cursor: pointer; }
 
+@media (max-width: 1024px) {
+  .pz-hero-in { grid-template-columns: 1fr; }
+  .pz-orbit { display: none; }
+  .pz-roles { grid-template-columns: 1fr; }
+  .pz-trust { grid-template-columns: 1fr 1fr; }
+}
 @media (max-width: 768px) {
-  .ag-hero h1 { font-size: 32px; }
-  .ag-hero p { font-size: 15px; }
-  .ag-page { padding: 28px 16px 48px; }
-  .ag-ways { grid-template-columns: 1fr 1fr; }
+  .ag-top-in { padding: 0 16px; }
+  .ag-nav.hide-sm { display: none; }
+  .ag-brand { margin-right: 4px; }
+  .ag-brand span { display: none; }
+  .pz-hero-in { padding: 40px 16px 0; }
+  .pz-h1 { font-size: 34px; }
+  .pz-sub { font-size: 15px; }
+  .pz-search input { height: 50px; font-size: 15px; }
+  .pz-search button { display: none; }
+  .pz-stats { grid-template-columns: 1fr 1fr; padding: 0 16px; margin-top: 36px; }
+  .pz-stat + .pz-stat { padding-left: 0; border-left: none; }
+  .pz-stat:nth-child(even) { padding-left: 20px; border-left: 1px solid rgba(255,255,255,.08); }
+  .pz-stat:nth-child(n+3) { border-top: 1px solid rgba(255,255,255,.08); }
+  .pz-stat-v { font-size: 24px; }
+  .ag-page { padding: 0 16px 56px; }
+  .pz-sec { padding-top: 60px; }
+  .pz-h2 { font-size: 26px; }
+  .pz-role { padding: 22px; }
+  .pz-cmp-row { grid-template-columns: 1fr 1fr; }
+  .pz-cmp-row > .pz-cmp-dim { grid-column: 1 / -1; padding-bottom: 0; background: #fafafc; }
+  .pz-cmp-row:first-child > .pz-cmp-dim { display: none; }
+  .pz-cmp-row > div { padding: 12px 14px; font-size: 13.5px; }
+  .pz-cmp-row > .pz-cmp-them, .pz-cmp-row > .pz-cmp-us { border-top: none; }
+  .pz-trust { grid-template-columns: 1fr; }
   .container { padding: 1.5rem 1rem; }
   .ag-grid { grid-template-columns: 1fr; }
-}
-@media (max-width: 560px) {
-  .ag-ways { grid-template-columns: 1fr; }
+  .pz-final { grid-template-columns: 1fr; padding: 36px 24px; margin-top: 64px; }
+  .pz-final h2 { font-size: 24px; }
 }
 </style>
 </head>
 <body>
 <div id="app" v-cloak>
-  <!-- 智能体主页 -->
+  <!-- 智能体工具广场 -->
   <div v-if="view === 'list'">
     <nav class="ag-top">
       <div class="ag-top-in">
         <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-        <span class="ag-nav">{{ T.title }}</span>
-        <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
+        <a class="ag-nav on" href="/agents">{{ T.plaza }}</a>
+        <a class="ag-nav hide-sm" href="/network">{{ T.navNetwork }}</a>
+        <a class="ag-nav hide-sm" href="/circles">{{ T.navCircles }}</a>
+        <div class="ag-top-r">
+          <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
+          <a class="ag-dl" href="/#download">{{ T.download }}</a>
+        </div>
       </div>
     </nav>
-    <main class="ag-page">
-      <header class="ag-hero">
-        <div class="ag-badge-top"><span>✦</span><span>{{ T.badge }}</span></div>
-        <h1>{{ T.headline }}</h1>
-        <p>{{ T.sub }}</p>
-      </header>
-      <!-- 广场先讲清四件事，再让人往下挑名片 -->
-      <ul class="ag-ways">
-        <li v-for="way in T.ways" :key="way.mark" class="ag-way" :class="{ lead: way.lead }">
-          <span class="ag-way-mark">{{ way.mark }}</span>
-          <div>
-            <strong>{{ way.title }}</strong>
-            <span>{{ way.text }}</span>
+
+    <!-- 首屏：一句话讲清「别人调好的，打开就用」 -->
+    <header class="pz-hero">
+      <div class="pz-grid-bg" aria-hidden="true"></div>
+      <div class="pz-hero-in">
+        <div>
+          <div class="pz-eyebrow"><b>AGENT PLAZA</b>{{ T.eyebrow }}</div>
+          <h1 class="pz-h1">{{ T.h1a }}<br><em>{{ T.h1b }}</em></h1>
+          <p class="pz-sub">{{ T.sub }}</p>
+          <form class="pz-search" role="search" @submit.prevent="jumpToList(true)">
+            <div class="pz-search-in">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input v-model="searchQuery" type="search" :placeholder="T.search" :aria-label="T.search">
+              <button type="submit">{{ T.find }}</button>
+            </div>
+          </form>
+          <div class="pz-tags">
+            <span>{{ T.tryLabel }}</span>
+            <button v-for="w in T.tryWords" :key="w" type="button" class="pz-tag" :class="{ on: searchQuery === w }" @click="searchQuery = w; jumpToList(false)">{{ w }}</button>
           </div>
-        </li>
-      </ul>
-      <div class="ag-bar">
-        <div class="ag-search">
-          <input v-model="searchQuery" @keyup.enter="loadTools" type="text" :placeholder="T.search">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         </div>
-        <div class="ag-chips">
-          <button type="button" @click="selectedScene = ''; loadTools()" :class="['ag-chip', { on: selectedScene === '' }]">{{ T.all }}</button>
-          <button v-for="scene in scenes" :key="scene.value" type="button" @click="selectedScene = scene.value; loadTools()" :class="['ag-chip', { on: selectedScene === scene.value }]">{{ sceneLabel(scene) }}</button>
+        <!-- 星图：中间是你，外圈是各地设备上的智能体，任务包来回跑 -->
+        <div class="pz-orbit" aria-hidden="true">
+          <svg viewBox="0 0 400 360">
+            <defs>
+              <radialGradient id="pzHub" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#a5f3fc"/><stop offset="55%" stop-color="#818cf8"/><stop offset="100%" stop-color="#6366f1" stop-opacity="0"/></radialGradient>
+              <linearGradient id="pzLine" x1="0" x2="1"><stop offset="0%" stop-color="#67e8f9" stop-opacity=".05"/><stop offset="50%" stop-color="#a78bfa" stop-opacity=".6"/><stop offset="100%" stop-color="#67e8f9" stop-opacity=".05"/></linearGradient>
+            </defs>
+            <ellipse cx="200" cy="180" rx="170" ry="140" fill="none" stroke="rgba(255,255,255,.07)" stroke-dasharray="2 6"/>
+            <ellipse cx="200" cy="180" rx="100" ry="82" fill="none" stroke="rgba(255,255,255,.09)" stroke-dasharray="2 5"/>
+            <g v-for="(n, i) in orbitNodes" :key="'l' + i">
+              <path :d="'M200 180 L' + n.x + ' ' + n.y" stroke="url(#pzLine)" stroke-width="1" fill="none"/>
+              <circle v-if="!reducedMotion && i < 6" r="2.4" :fill="i % 2 ? '#67e8f9' : '#c4b5fd'">
+                <animateMotion :dur="(2.6 + i * 0.45) + 's'" repeatCount="indefinite" :path="'M200 180 L' + n.x + ' ' + n.y" :keyPoints="i % 2 ? '0;1' : '1;0'" keyTimes="0;1" calcMode="linear" :begin="(i * 0.35) + 's'"/>
+              </circle>
+            </g>
+            <g v-for="(n, i) in orbitNodes" :key="'n' + i">
+              <circle :cx="n.x" :cy="n.y" :r="n.r * 2.6" :fill="i % 3 === 0 ? 'rgba(103,232,249,.12)' : 'rgba(167,139,250,.12)'"/>
+              <circle :cx="n.x" :cy="n.y" :r="n.r" :fill="i % 3 === 0 ? '#67e8f9' : '#a78bfa'" stroke="rgba(255,255,255,.55)" stroke-width=".8"/>
+              <text v-if="n.label" :x="n.x" :y="n.y + n.r + 16" text-anchor="middle" font-size="11" fill="rgba(224,231,255,.55)">{{ n.label }}</text>
+            </g>
+            <circle cx="200" cy="180" r="48" fill="url(#pzHub)" opacity=".55"/>
+            <circle cx="200" cy="180" r="22" fill="#0b1020" stroke="#a5b4fc" stroke-width="1.4"/>
+            <text x="200" y="184.5" text-anchor="middle" font-size="12" font-weight="700" fill="#e0e7ff">{{ T.you }}</text>
+          </svg>
         </div>
       </div>
-      <!-- 首屏名片。脚本加载后换成同一套卡片，不再另排文字链接 -->
-      <div v-if="!hydrated" class="ag-grid"><!--AGENT_CARDS--></div>
-      <template v-else>
-      <div v-if="loading" class="loading">{{ T.loading }}</div>
-      <div v-else-if="!tools.length" class="empty">{{ T.empty }}</div>
-      <div v-else class="ag-grid">
-        <a v-for="tool in tools" :key="tool.id" class="ag-card" :href="cardHref(tool)" @click="onCardClick(tool, $event)">
-          <div class="ag-h">
-            <span v-if="appIcon(tool)" class="ag-av brand"><img :src="appIcon(tool)" alt=""></span>
-            <span v-else class="ag-av" :style="{ background: avatarColor(tool.display_name) }">{{ (tool.display_name || '?').slice(0, 1) }}</span>
-            <div style="min-width:0;flex:1">
-              <div class="ag-name">{{ tool.display_name }}</div>
-              <div class="ag-meta">
-                <span v-if="tool.owner_nickname">@{{ tool.owner_nickname }}</span>
-                <span v-if="tool.owner_nickname && tool.runtime"> · </span>
-                <span v-if="tool.runtime">{{ tool.runtime }}</span>
+      <div class="pz-stats">
+        <div class="pz-stat"><div class="pz-stat-k"><i class="pz-live"></i>{{ T.statOnline }}</div><div class="pz-stat-v">{{ hydrated ? onlineCount : '—' }}</div></div>
+        <div class="pz-stat"><div class="pz-stat-k">{{ T.statListed }}</div><div class="pz-stat-v">{{ hydrated ? tools.length : '—' }}</div></div>
+        <div class="pz-stat"><div class="pz-stat-k">{{ T.statOwners }}</div><div class="pz-stat-v">{{ hydrated ? ownerCount : '—' }}</div></div>
+        <div class="pz-stat"><div class="pz-stat-k">{{ T.statSetup }}</div><div class="pz-stat-v">0<small>{{ T.statSetupUnit }}</small></div></div>
+      </div>
+    </header>
+
+    <main class="ag-page">
+      <!-- 三种人，三种用法：对应「打车」「私有云 + 分摊」「一个链接拉人」 -->
+      <section class="pz-sec" aria-labelledby="pz-why">
+        <div class="pz-head-c">
+          <div class="pz-kicker">{{ T.whyKicker }}</div>
+          <h2 id="pz-why" class="pz-h2">{{ T.whyTitle }}</h2>
+          <p class="pz-lead">{{ T.whyLead }}</p>
+        </div>
+        <div class="pz-roles">
+          <a v-for="r in T.roles" :key="r.key" :class="['pz-role', r.key]" :href="r.href" @click="r.href === '#agents' && ($event.preventDefault(), jumpToList(false))">
+            <div class="pz-role-top">
+              <span class="pz-ic" v-html="roleIcon(r.key)"></span>
+              <span class="pz-who">{{ r.who }}</span>
+            </div>
+            <h3>{{ r.title }}</h3>
+            <p>{{ r.text }}</p>
+            <div class="pz-analogy"><b>{{ r.analogyK }}</b>{{ r.analogy }}</div>
+            <ul class="pz-list"><li v-for="p in r.points" :key="p">{{ p }}</li></ul>
+            <span class="pz-cta">{{ r.cta }} <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+          </a>
+        </div>
+      </section>
+
+      <!-- 和通用 AI 助手比 -->
+      <section class="pz-sec" aria-labelledby="pz-cmp">
+        <div class="pz-head-c">
+          <div class="pz-kicker">{{ T.cmpKicker }}</div>
+          <h2 id="pz-cmp" class="pz-h2">{{ T.cmpTitle }}</h2>
+          <p class="pz-lead">{{ T.cmpLead }}</p>
+        </div>
+        <div class="pz-cmp" role="table">
+          <div class="pz-cmp-row" role="row">
+            <div class="pz-cmp-dim" role="columnheader"></div>
+            <div class="pz-cmp-them" role="columnheader"><div class="pz-cmp-h">{{ T.cmpThem }}<small>{{ T.cmpThemHint }}</small></div></div>
+            <div class="pz-cmp-us" role="columnheader"><div class="pz-cmp-h">{{ T.cmpUs }}<small>{{ T.cmpUsHint }}</small></div></div>
+          </div>
+          <div v-for="row in T.cmp" :key="row[0]" class="pz-cmp-row" role="row">
+            <div class="pz-cmp-dim" role="rowheader">{{ row[0] }}</div>
+            <div class="pz-cmp-them" role="cell"><i class="pz-x" aria-hidden="true">–</i><span>{{ row[1] }}</span></div>
+            <div class="pz-cmp-us" role="cell"><i class="pz-v" aria-hidden="true">✓</i><span>{{ row[2] }}</span></div>
+          </div>
+        </div>
+        <div class="pz-trust">
+          <div v-for="g in T.trust" :key="g[0]"><b>{{ g[0] }}</b><span>{{ g[1] }}</span></div>
+        </div>
+      </section>
+
+      <!-- 名片：首屏服务端已渲染，脚本加载后换成可筛选的同一套卡片 -->
+      <section id="agents" class="pz-sec" aria-labelledby="pz-list">
+        <div class="pz-list-head">
+          <div style="flex:1;min-width:0">
+            <div class="pz-kicker">{{ T.listKicker }}</div>
+            <h2 id="pz-list" class="pz-h2">{{ searchQuery && hydrated ? T.listFound.replace('{n}', tools.length) : T.listTitle }}</h2>
+          </div>
+          <div class="ag-chips">
+            <button v-if="searchQuery" type="button" class="ag-chip" @click="searchQuery = ''">{{ T.clear }} ×</button>
+            <button type="button" @click="selectedScene = ''; loadTools()" :class="['ag-chip', { on: selectedScene === '' }]">{{ T.all }}</button>
+            <button v-for="scene in scenes" :key="scene.value" type="button" @click="selectedScene = scene.value; loadTools()" :class="['ag-chip', { on: selectedScene === scene.value }]">{{ sceneLabel(scene) }}</button>
+          </div>
+        </div>
+        <div v-if="!hydrated" class="ag-grid"><!--AGENT_CARDS--></div>
+        <template v-else>
+        <div v-if="loading" class="loading">{{ T.loading }}</div>
+        <div v-else-if="!tools.length" class="pz-empty">
+          <b>{{ searchQuery ? T.emptySearch : T.empty }}</b>
+          <span>{{ searchQuery ? T.emptySearchHint : T.emptyHint }}</span>
+        </div>
+        <div v-else class="ag-grid">
+          <a v-for="tool in tools" :key="tool.id" class="ag-card" :href="cardHref(tool)" @click="onCardClick(tool, $event)">
+            <div class="ag-h">
+              <span v-if="appIcon(tool)" class="ag-av brand"><img :src="appIcon(tool)" alt=""></span>
+              <span v-else class="ag-av" :style="{ background: avatarColor(tool.display_name) }">{{ (tool.display_name || '?').slice(0, 1) }}</span>
+              <div style="min-width:0;flex:1">
+                <div class="ag-name">{{ tool.display_name }}</div>
+                <div class="ag-meta">
+                  <span v-if="tool.owner_nickname">@{{ tool.owner_nickname }}</span>
+                  <span v-if="tool.owner_nickname && tool.runtime"> · </span>
+                  <span v-if="tool.runtime">{{ tool.runtime }}</span>
+                </div>
               </div>
             </div>
-          </div>
-          <p class="ag-desc">{{ tool.description }}</p>
-          <div class="ag-foot">
-            <!-- 出租智能体用真实在线状态；平台条目没有节点，不标在线 -->
-            <template v-if="tool.source === 'network'">
-              <i class="ag-dot" :class="tool.online === false ? 'off' : 'ok'"></i>
-              <span>{{ tool.online === false ? T.offline : T.online }}</span>
-              <span class="ag-go">{{ tool.online === false ? T.history : T.use }} <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></span>
-            </template>
-            <span v-else class="ag-badge">{{ getBadgeText(tool.trust_level) }}</span>
-          </div>
-        </a>
-      </div>
-      </template>
+            <p class="ag-desc">{{ tool.description }}</p>
+            <div class="ag-foot">
+              <template v-if="tool.source === 'network'">
+                <i class="ag-dot" :class="tool.online === false ? 'off' : 'ok'"></i>
+                <span>{{ tool.online === false ? T.offline : T.online }}</span>
+                <span class="ag-go">{{ tool.online === false ? T.history : T.use }} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m9 18 6-6-6-6"/></svg></span>
+              </template>
+              <span v-else class="ag-badge">{{ getBadgeText(tool.trust_level) }}</span>
+            </div>
+          </a>
+        </div>
+        </template>
+      </section>
+
+      <!-- 收尾：转化成供给方 -->
+      <section class="pz-final">
+        <div>
+          <h2>{{ T.finalTitle }}</h2>
+          <p>{{ T.finalText }}</p>
+        </div>
+        <div class="pz-final-btns">
+          <a class="pz-btn pri" href="/#download">{{ T.finalCta }}</a>
+          <a class="pz-btn ghost" href="/network">{{ T.finalCta2 }}</a>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -351,40 +601,109 @@ createApp({
       currentTask: null,
       processing: false,
       pollTimer: null,
+      searchTimer: null,
+      reducedMotion: !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches),
     };
   },
   computed: {
     T() {
       if (this.lang === 'en') {
         return {
-          title: 'Agents', plaza: 'Agent plaza', badge: 'Agent plaza',
-          headline: 'Rent an agent and put it to work',
-          sub: 'Hand the task to an online agent. Share the chat with friends and keep going together, or poke it until a new idea shows up. Away from that computer, you can still open the agent running on it.',
-          ways: [
-            { lead: true, mark: '01', title: 'Rent it to work', text: 'Pick an online card and hand over the task. It runs on the computer that shared it.' },
-            { mark: '02', title: 'Share with friends', text: 'Send the link to this chat. Friends open it and see what was said.' },
-            { mark: '03', title: 'Collaborate, or provoke it', text: 'Everyone speaks in the same thread, in order. Or tease it and pull a new idea out.' },
-            { mark: '04', title: 'Use yours from anywhere', text: 'The agent stays on your computer. Open it from another device and continue.' },
+          title: 'Agents', plaza: 'Agent Plaza', navNetwork: 'Network', navCircles: 'Circles', download: 'Download',
+          eyebrow: 'Tuned by real people, running on real devices',
+          h1a: 'Agents others perfected,', h1b: 'ready the moment you open them',
+          sub: 'General AI assistants hand you a blank chat box and leave the skills, prompts and tools to you. Here is a crowd of expert agents already tuned. Pick one, the task runs on its owner\'s device, and you just get the result.',
+          search: 'What should an agent do? Write copy, review a contract, build slides…', find: 'Find', tryLabel: 'Try:',
+          tryWords: ['Writing', 'Coding', 'Translate', 'Design', 'Data'],
+          you: 'YOU', orbitLabels: ['Home PC', 'Office server', 'Laptop', "Friend's Mac", 'Studio'],
+          statOnline: 'Agents online', statListed: 'Listed', statOwners: 'Contributors', statSetup: 'Setup needed', statSetupUnit: ' steps',
+          whyKicker: 'WHY TOKEN BANK', whyTitle: 'Not just another AI assistant',
+          whyLead: 'Claude, Grok and WorkBuddy give you one assistant. Token Bank lets you use a crowd of assistants others have tuned — and lets more people use yours.',
+          roles: [
+            { key: 'r1', who: 'I just want it done', title: 'Hail an agent like a ride', text: 'No tuning on your side. Pick an agent an expert already polished, say what you need, and it gets to work.', analogyK: 'Ride vs. car: ', analogy: 'no car to buy, learn or maintain — just hail one and go.', points: ['No API keys, no setup, no prompt writing', 'Opens right in the browser, phone included', 'Pay per task, only for what you use'], cta: 'Try one', href: '#agents' },
+            { key: 'r2', who: 'I have computers / servers', title: 'Your agents, anywhere', text: 'Agents running on your home and office machines, managed in one place and reachable on the go.', analogyK: 'No networking skills: ', analogy: 'no public IP, tunnels or port forwarding — install the client and you are connected.', points: ['Dispatch to agents across all your devices', 'Open them to a circle or everyone; each use earns credits to split the bill', 'Tasks run on your machine and only results leave — skills and keys stay private'], cta: 'Get the client', href: '/#download' },
+            { key: 'r3', who: 'I want to play with friends', title: 'One link to play and create together', text: 'Send the chat link. Friends open it, join the same thread and pick up where you left off.', analogyK: 'As easy as a group chat: ', analogy: 'nothing to sign up for or configure — open the link, see the context, keep creating.', points: ['Join by link, no install', 'Take turns in one thread, or poke the agent for fresh ideas', 'Start a circle that only people you trust can see'], cta: 'Explore circles', href: '/circles' },
           ],
-          search: 'Search name, author, or use…', all: 'All', agents: 'Agents',
-          loading: 'Loading…', empty: 'No agents yet',
-          online: 'Online', offline: 'Offline', chat: 'Chat', use: 'Rent it', history: 'History',
+          cmpKicker: 'COMPARE', cmpTitle: 'How is this different from a general AI assistant?',
+          cmpLead: 'They shine at one person with one assistant. The gap shows when you need ready-made expertise, cross-device access, shared costs or a group.',
+          cmpThem: 'General AI assistant', cmpThemHint: 'e.g. Claude, Grok, WorkBuddy', cmpUs: 'Token Bank Agent Plaza', cmpUsHint: 'Shared · cross-device · collaborative',
+          cmp: [
+            ['Expertise', 'Write prompts, install skills / MCP, tune it yourself', 'Use finished agents tuned by experts'],
+            ['Getting started', 'Subscription + setup + trial and error', 'Zero setup, pay per task'],
+            ['Across devices', 'Local tools and setup stay on that machine', 'All your devices\' agents in one place, no networking'],
+            ['Cost', 'You carry the whole subscription', 'Share with a circle or everyone and earn credits'],
+            ['Know-how', 'Sharing means handing over your config and prompts', 'Only results leave; the recipe stays on your machine'],
+            ['Collaboration', 'Mostly single-user', 'One link brings people in to play and create'],
+          ],
+          trust: [['Recipe stays local', 'Skills, prompts and API keys never leave the provider\'s device'], ['Results only', 'Users get the output, not your configuration'], ['No install', 'Chat opens in the browser on phone or desktop'], ['Pay per use', 'No monthly minimum — each task is billed on its own']],
+          listKicker: 'LIVE NOW', listTitle: 'Agents open for business', listFound: '{n} agents found', clear: 'Clear', all: 'All', agents: 'Agents',
+          loading: 'Loading…', empty: 'The plaza just opened', emptyHint: 'Get the client and be the first to list an agent you have tuned.',
+          emptySearch: 'No matching agents', emptySearchHint: 'Try another keyword, or browse them all.',
+          online: 'Online', offline: 'Offline', chat: 'Chat', use: 'Use it', history: 'History',
+          finalTitle: 'The agent you tuned deserves more users',
+          finalText: 'Listing only shows its card. Tasks run on your device and the recipe stays private; every use earns credits that offset your own model and subscription spend.',
+          finalCta: 'Get the client to list', finalCta2: 'See the network',
         };
       }
       return {
-        title: '智能体', plaza: '智能体工具广场', badge: '智能体工具广场',
-        headline: '租个智能体，让它干活',
-        sub: '把任务交给在线的智能体。对话可以分享给朋友，一起接着聊，或者逗它一句，看能冒出什么主意。人在外面，也能用跑在自己电脑上的那一个。',
-        ways: [
-          { lead: true, mark: '01', title: '租来干活', text: '挑一张在线名片，把任务交出去。它在分享者的电脑上开工。' },
-          { mark: '02', title: '分享给朋友', text: '把这场对话的链接发出去。朋友打开，就能看见你们说过的话。' },
-          { mark: '03', title: '一起协作，或挑逗一下', text: '大家按时间接在同一场里。也可以故意逗它，把新点子逼出来。' },
-          { mark: '04', title: '远程用自己的', text: '智能体留在你的电脑上。换一台设备打开，接着用。' },
+        title: '智能体', plaza: '智能体广场', navNetwork: '社区网络', navCircles: '圈子', download: '下载客户端',
+        eyebrow: '智能体工具广场 · 由真人调教，跑在真实设备上',
+        h1a: '别人调好的智能体，', h1b: '打开就能用',
+        sub: '通用 AI 助手给你一个空白对话框，Skill、提示词、工具都得自己配。这里是一群已经调教好的专家智能体：挑一个，任务在它主人的设备上跑完，你只拿结果。',
+        search: '你想让智能体帮你做什么？写文案、审合同、做 PPT…', find: '找智能体', tryLabel: '试试：',
+        tryWords: ['写作', '编程', '翻译', '设计', '数据分析'],
+        you: '你', orbitLabels: ['家里电脑', '公司服务器', '笔记本', '朋友的 Mac', '工作室'],
+        statOnline: '在线智能体', statListed: '已上架', statOwners: '贡献者', statSetup: '上手配置', statSetupUnit: ' 步',
+        whyKicker: 'WHY TOKEN BANK', whyTitle: '不只是又一个 AI 助手',
+        whyLead: 'Claude、Grok、WorkBuddy 让你拥有一个助手；Token Bank 让你用上一群别人调好的助手，也让你的助手被更多人用起来。',
+        roles: [
+          { key: 'r1', who: '我只想把事办成', title: '像打车一样用智能体', text: '不用自己调教。挑一个高手打磨好的智能体，说清要做什么，它就开工。', analogyK: '打车而不是买车：', analogy: '不用买车、学车、养车，叫一辆就走。', points: ['不买 API Key，不装环境，不写提示词', '浏览器直接打开对话，手机也能用', '按次计费，用多少付多少'], cta: '挑一个试试', href: '#agents' },
+          { key: 'r2', who: '我有电脑 / 服务器', title: '你的智能体，随时随地用', text: '家里、公司各个终端上正在跑的智能体，一处集中管理，出门在外也能调用。', analogyK: '不懂网络也行：', analogy: '无需公网 IP、内网穿透、端口转发，装好客户端就接入。', points: ['多台设备上的智能体统一调度', '开放给圈子或全网，别人用你得积分，分摊订阅费', '任务在你机器上执行，只交付结果，Skill 与 Key 不外泄'], cta: '下载客户端接入', href: '/#download' },
+          { key: 'r3', who: '我想和朋友一起玩', title: '一个链接，拉人一起玩', text: '把对话链接发出去，朋友点开就加入同一场，大家按顺序接着聊。', analogyK: '像拉群一样简单：', analogy: '对方不用注册配置，打开链接就能看到上下文、接着创作。', points: ['分享链接即可加入，免安装', '多人接龙同一场对话，或故意逗它激发新点子', '建个圈子，只对信任的人开放'], cta: '去看看圈子', href: '/circles' },
         ],
-        search: '搜索名称、作者或用途…', all: '全部', agents: '智能体',
-        loading: '加载中…', empty: '暂时没有智能体',
-        online: '在线', offline: '离线', chat: '对话', use: '租来干活', history: '记录',
+        cmpKicker: 'COMPARE', cmpTitle: '和直接用通用 AI 助手有什么不同',
+        cmpLead: '它们擅长「一个人 + 一个助手」。当你需要现成的专业能力、跨设备使用、分摊成本或多人协作时，差别就出来了。',
+        cmpThem: '通用 AI 助手', cmpThemHint: '如 Claude、Grok、WorkBuddy 等', cmpUs: 'Token Bank 智能体广场', cmpUsHint: '共享 · 跨设备 · 可协作',
+        cmp: [
+          ['专业能力', '自己写提示词、装 Skill / MCP，慢慢调', '直接用高手调好的成品智能体'],
+          ['上手成本', '订阅 + 配置 + 反复试错', '0 配置，按次付费'],
+          ['跨设备', '本机的工具和环境，换台设备就得重配', '各终端的智能体集中调度，无需任何网络配置'],
+          ['费用', '一个人承担全部订阅', '分享给圈子 / 全网，别人用你得积分'],
+          ['核心知识', '想分享就得交出配置和提示词', '只交付结果，配方留在你的机器上'],
+          ['协作', '基本是一个人用', '一个链接拉人进来，一起玩、一起创作'],
+        ],
+        trust: [['配方不离机', 'Skill、提示词、API Key 始终留在出租方设备上'], ['只交付结果', '对方拿到的是结果，不是你的配置'], ['免安装即用', '浏览器打开就能对话，手机电脑都行'], ['按次计费', '没有月费门槛，用一次算一次']],
+        listKicker: 'LIVE NOW', listTitle: '正在营业的智能体', listFound: '找到 {n} 个智能体', clear: '清除', all: '全部', agents: '智能体',
+        loading: '加载中…', empty: '广场刚开张', emptyHint: '下载客户端，把你调教好的智能体第一个放上来。',
+        emptySearch: '没找到匹配的智能体', emptySearchHint: '换个关键词，或者看看全部。',
+        online: '在线', offline: '离线', chat: '对话', use: '去使用', history: '记录',
+        finalTitle: '你调教的智能体，值得被更多人用',
+        finalText: '上架只公开名片。任务在你的设备上执行，配方不外泄；别人每用一次你就得积分，抵扣自己的模型和订阅开销。',
+        finalCta: '下载客户端上架', finalCta2: '看看社区网络',
       };
+    },
+    onlineCount() {
+      return this.tools.filter(t => t.source === 'network' && t.online !== false).length;
+    },
+    ownerCount() {
+      return new Set(this.tools.map(t => t.owner_nickname).filter(Boolean)).size;
+    },
+    orbitNodes() {
+      const pos = [
+        { x: 70, y: 70, r: 6 }, { x: 300, y: 48, r: 7 }, { x: 368, y: 178, r: 5 },
+        { x: 318, y: 300, r: 7 }, { x: 110, y: 312, r: 6 }, { x: 34, y: 190, r: 5 },
+        { x: 210, y: 22, r: 4 }, { x: 386, y: 84, r: 3.5 },
+      ];
+      const labels = this.T.orbitLabels || [];
+      return pos.map((p, i) => ({ ...p, label: i < 5 ? labels[i] : '' }));
+    },
+  },
+  watch: {
+    // 边输边搜：停顿一下再查，避免每个字都打接口
+    searchQuery() {
+      if (!this.hydrated) return;
+      clearTimeout(this.searchTimer);
+      this.searchTimer = setTimeout(() => this.loadTools(), 350);
     },
   },
   mounted() {
@@ -405,6 +724,18 @@ createApp({
     if (this.pollTimer) clearInterval(this.pollTimer);
   },
   methods: {
+    // 搜索或点「挑一个试试」后滚到名片区
+    jumpToList(load) {
+      if (load) { clearTimeout(this.searchTimer); this.loadTools(); }
+      const el = document.getElementById('agents');
+      if (el) el.scrollIntoView({ behavior: this.reducedMotion ? 'auto' : 'smooth', block: 'start' });
+    },
+    roleIcon(key) {
+      const a = 'width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
+      if (key === 'r2') return '<svg ' + a + '><rect x="2.75" y="4.5" width="12.5" height="9" rx="1.5"/><path d="M6 17h6M9 13.5V17"/><rect x="16.5" y="8" width="4.75" height="10.5" rx="1.2"/></svg>';
+      if (key === 'r3') return '<svg ' + a + '><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>';
+      return '<svg ' + a + '><path d="M5 16.5h14M6.5 16.5l1.3-4.6A2 2 0 0 1 9.7 10.5h4.6a2 2 0 0 1 1.9 1.4l1.3 4.6"/><path d="M4.5 16.5v2.25M19.5 16.5v2.25"/><circle cx="8" cy="16.5" r="1"/><circle cx="16" cy="16.5" r="1"/><path d="M12 3.5v3M9.5 5h5"/></svg>';
+    },
     toggleLang() {
       this.lang = this.lang === 'zh' ? 'en' : 'zh';
       localStorage.setItem('tb_lang', this.lang);
@@ -571,6 +902,6 @@ createApp({
     },
   },
 }).mount('#app');
-</script></script>
+</script>
 </body>
 </html>
