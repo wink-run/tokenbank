@@ -7,7 +7,7 @@
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9160155823114008"
      crossorigin="anonymous"></script>
 <title>模型试用 · Token Bank</title>
-<meta name="description" content="在智能体广场试用社区共享的模型">
+<meta name="description" content="在资源市场试用开发者共享的模型">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -22,7 +22,7 @@
   <nav class="cnav">
     <div class="cnav-in">
       <a class="brand" href="/"><img src="/static/logo.svg" alt="Token Bank"><span>Token Bank</span></a>
-      <a class="nav-back" href="/agents#models">{{ T.backNetwork }}</a>
+      <a class="nav-back" href="/market#models">{{ T.backNetwork }}</a>
       <div class="nav-right">
         <span v-if="loggedIn && profile" class="credit">💎 {{ Number(profile.credits_balance || 0).toFixed(1) }}</span>
         <span v-if="loggedIn && currentUserLabel" class="who" :title="currentUserLabel">{{ currentUserLabel }}</span>
@@ -37,7 +37,7 @@
     <div class="av lg" style="background:#0a0a0a;margin:0 auto">?</div>
     <h2>{{ T.unavailable }}</h2>
     <p>{{ T.badModel }}</p>
-    <a class="btn" href="/agents#models">{{ T.backNet }}</a>
+    <a class="btn" href="/market#models">{{ T.backNet }}</a>
   </div>
 
   <main v-else class="cmain">
@@ -97,7 +97,7 @@
           <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap;justify-content:center">
             <button v-if="modelStatus === 'circle' && !loggedIn" type="button" class="btn" @click="openAuth('login')">{{ T.login }}</button>
             <a v-if="modelStatus === 'circle' && loggedIn" class="btn" href="/circles">{{ T.browseCircles }}</a>
-            <a class="btn" :class="{ ghost: modelStatus === 'circle' }" href="/agents#models" :style="modelStatus === 'circle' ? 'background:#fff;color:#0a0a0a;border:1px solid #e7e4e1' : ''">{{ T.allModels }}</a>
+            <a class="btn" :class="{ ghost: modelStatus === 'circle' }" href="/market#models" :style="modelStatus === 'circle' ? 'background:#fff;color:#0a0a0a;border:1px solid #e7e4e1' : ''">{{ T.allModels }}</a>
           </div>
           <template v-if="alternatives.length">
             <p style="margin-top:26px;font-size:12px;color:var(--text-faint)">{{ T.tryThese }}</p>
@@ -257,7 +257,7 @@ createApp({
     const lang = ref(storageGet('tb_lang') || ((navigator.language || '').startsWith('zh') ? 'zh' : 'en'))
     const i18n = {
       zh: {
-        unavailable: '无法试用', badModel: '暂无可用模型', backNet: '返回智能体广场', backNetwork: '← 智能体广场',
+        unavailable: '无法试用', badModel: '暂无可用模型', backNet: '返回资源市场', backNetwork: '← 资源市场',
         meta: '未登录可试用一轮；登录后按积分规则多轮对话，可随时切换模型。',
         metaImage: '图像模型用于文生图：需登录，按正常积分扣费。',
         creditsRate: '{n} 积分/千Token',
@@ -315,7 +315,7 @@ createApp({
         ],
       },
       en: {
-        unavailable: 'Unavailable', badModel: 'No models available', backNet: 'Back to Agent Plaza', backNetwork: '← Agent Plaza',
+        unavailable: 'Unavailable', badModel: 'No models available', backNet: 'Back to the market', backNetwork: '← Market',
         meta: 'Guests get one free turn; sign in for multi-turn chat with normal credits.',
         metaImage: 'Image models require sign-in and use normal credit billing.',
         creditsRate: '{n} credits / 1K tokens',

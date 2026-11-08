@@ -243,6 +243,18 @@ async def network_page():
     return FileResponse("static/network.html")
 
 
+@app.get("/dev")
+async def dev_page():
+    """公开：开发者中心（统一管理、分享与收益、资源市场的入口）"""
+    return FileResponse("static/dev.html")
+
+
+@app.get("/market")
+async def market_page():
+    """公开：资源市场（开发者分享的模型、Skill、提示词、智能体模板）"""
+    return FileResponse("static/market.html")
+
+
 @app.get("/harness")
 async def harness_page():
     """公开：OneHarness，多个智能体平台一处纳管、统一接口"""

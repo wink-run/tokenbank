@@ -13,6 +13,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/community.css">
+<script src="/static/plaza-nav.js?v=6"></script>
 <script src="/static/vue.global.prod.js"></script>
 <script src="/static/app-runtime-icon.js"></script>
 <style>
@@ -30,7 +31,8 @@
 .member-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 3px;border-radius:999px;background:var(--bg);border:1px solid var(--border);font-size:12px}
 .req{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid #fde68a80}
 .req:first-of-type{border-top:none}
-.navlinks{min-width:0;overflow-x:auto;scrollbar-width:none}
+.navsep{width:1px;height:16px;background:var(--border);margin:0 6px;flex-shrink:0}
+.navlinks{align-items:center;min-width:0;overflow-x:auto;scrollbar-width:none}
 .navlinks::-webkit-scrollbar{display:none}
 .sides{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:28px}
 .side{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:18px 20px;border-radius:var(--radius-lg);border:1px solid var(--border);background:var(--bg)}
@@ -50,10 +52,13 @@
     <div class="topnav-in">
       <a class="brand" href="/"><img src="/static/logo.svg" alt=""><span class="bt">Token Bank</span></a>
       <div class="navlinks">
-        <a href="/agents">{{ T.navPlaza }}</a>
-        <a href="/harness">OneHarness</a>
-        <a href="/network">{{ T.navNetwork }}</a>
-        <a class="on" href="/circles" aria-current="page">{{ T.navCircles }}</a>
+        <a href="/agents">{{ N.modeUse }}</a>
+        <a href="/dev">{{ N.modeDev }}</a>
+        <span class="navsep" aria-hidden="true"></span>
+        <a href="/harness">{{ N.dManage }}</a>
+        <a href="/network">{{ N.dShare }}</a>
+        <a href="/market">{{ N.dMarket }}</a>
+        <a class="on" href="/circles" aria-current="page">{{ N.dCircles }}</a>
       </div>
       <div class="nav-right">
         <button class="btn ghost sm" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
@@ -312,7 +317,7 @@
     </template>
   </main>
 
-  <footer class="footer"><span>Token Bank · {{ T.footer }}</span><a href="/">{{ T.home }}</a><a href="/agents">{{ T.navPlaza }}</a><a href="/network">{{ T.navNetwork }}</a></footer>
+  <footer class="footer"><span>Token Bank · {{ T.footer }}</span><a href="/">{{ T.home }}</a><a href="/agents">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/network">{{ N.dShare }}</a></footer>
 
   <!-- 登录 / 注册 -->
   <div v-if="showAuth" class="mask" @click.self="showAuth = false">
@@ -404,7 +409,7 @@ createApp({
         navPlaza: '智能体广场', navNetwork: '共享网络', navCircles: '圈子', account: '我的账户', logout: '退出', login: '登录', register: '注册',
         title: '圈子', subtitle: '和信任的人一起用：圈里的模型和智能体只对圈内成员开放。邀请好友入圈，双方都得积分。',
         sideUseK: '我想用', sideUseT: '加入圈子，用到圈内独享的智能体', sideUseD: '朋友发来邀请链接或邀请码，加入后就能用圈里分享的模型和智能体；也可以在下面申请加入公开圈子。', sideUseLink: '浏览公开圈子',
-        sideShareK: '我想分享', sideShareT: '建个圈子，只给自己人用', sideShareD: '在客户端上架时把范围选成这个圈子，圈外的人看不到；积分结算和公开分享一样。', sideShareLink: '怎么上架',
+        sideShareK: '我想分享', sideShareT: '建个圈子，只给自己人用', sideShareD: '在客户端上架时把范围选成这个圈子，圈外的人看不到；积分结算和公开分享一样。', sideShareLink: '分享与收益',
         joinByCode: '用邀请码加入', create: '创建圈子', mine: '我的圈子', discover: '发现公开圈子',
         discoverHint: '申请后由圈主审批', searchPh: '搜索圈子名称或简介…',
         signinTitle: '登录后管理你的圈子', signinDesc: '创建圈子、审批入圈申请、查看圈内共享的模型与智能体',
@@ -435,7 +440,7 @@ createApp({
         navPlaza: 'Agent Plaza', navNetwork: 'Share & earn', navCircles: 'Circles', account: 'My account', logout: 'Log out', login: 'Sign in', register: 'Sign up',
         title: 'Circles', subtitle: 'Use AI with people you trust: models and agents shared in a circle are only open to its members. Invites earn both sides credits.',
         sideUseK: 'I WANT TO USE', sideUseT: 'Join a circle, use what it shares', sideUseD: 'Got an invite link or code from a friend? Join and use the models and agents shared inside — or apply to a public circle below.', sideUseLink: 'Browse public circles',
-        sideShareK: 'I WANT TO SHARE', sideShareT: 'Start a circle just for your people', sideShareD: 'When listing in the app, set the scope to this circle — outsiders can\'t see it, and credits settle the same as public sharing.', sideShareLink: 'How listing works',
+        sideShareK: 'I WANT TO SHARE', sideShareT: 'Start a circle just for your people', sideShareD: 'When listing in the app, set the scope to this circle — outsiders can\'t see it, and credits settle the same as public sharing.', sideShareLink: 'Share & earn',
         joinByCode: 'Join with code', create: 'Create circle', mine: 'My circles', discover: 'Discover public circles',
         discoverHint: 'Owners approve join requests', searchPh: 'Search circles…',
         signinTitle: 'Sign in to manage your circles', signinDesc: 'Create circles, approve requests, and see what members share',
@@ -464,6 +469,7 @@ createApp({
       },
     }
     const T = computed(() => i18n[lang.value] || i18n.zh)
+    const N = computed(() => (window.TBNAV || {})[lang.value] || window.TBNAV.zh)
     function toggleLang() {
       lang.value = lang.value === 'zh' ? 'en' : 'zh'
       storageSet('tb_lang', lang.value)
@@ -815,6 +821,7 @@ createApp({
     })
 
     return {
+      N,
       lang, T, toggleLang, toast, loggedIn, profile, showAuth, openAuth, needAuth, authTab, authLoading, authErr, form, submitAuth, logout,
       view, mine, requestCounts, totalPending, loadingMine, browseQ, shownBrowse, loadingBrowse, applyingId, busy, modal,
       createForm, createCircle, joinInput, joinPreview, joinErr, previewJoin, confirmJoin, closeJoin, apply, pct, color,

@@ -3,13 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OneHarness · Token Bank</title>
+<title>统一管理 · Token Bank</title>
 <meta name="description" content="OneHarness：Claude Code、Codex、Cursor、WorkBuddy、Kimi Code 等智能体平台一处纳管。统一接口，换一个 harness_id 就换一个智能体；主 Agent 按特点派活；人在外面也能用自己设备上的智能体。">
 <link rel="icon" href="/static/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=5">
+<link rel="stylesheet" href="/static/plaza.css?v=6">
+<script src="/static/plaza-nav.js?v=6"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -23,15 +24,18 @@ a { color: inherit; text-decoration: none; }
   <nav class="ag-top">
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="ag-navs">
-        <a class="ag-nav" href="/agents">{{ T.navPlaza }}</a>
-        <a class="ag-nav on" href="/harness" aria-current="page">OneHarness</a>
-        <a class="ag-nav" href="/network">{{ T.navNetwork }}</a>
-        <a class="ag-nav" href="/circles">{{ T.navCircles }}</a>
+      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/dev">{{ N.modeDev }}</a></div>
+      <div class="ag-navs ag-devnav">
+        <a class="ag-nav" href="/dev">{{ N.dOverview }}</a>
+        <a class="ag-nav on" href="/harness" aria-current="page">{{ N.dManage }}</a>
+        <a class="ag-nav" href="/network">{{ N.dShare }}</a>
+        <a class="ag-nav" href="/market">{{ N.dMarket }}</a>
+        <a class="ag-nav" href="/circles">{{ N.dCircles }}</a>
       </div>
       <div class="ag-top-r">
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
-        <a class="ag-dl hide-sm" href="/#download">{{ T.download }}</a>
+        <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
+        <a class="ag-dl hide-sm" href="/#download">{{ N.download }}</a>
       </div>
     </div>
   </nav>
@@ -39,6 +43,7 @@ a { color: inherit; text-decoration: none; }
   <!-- 首屏：多个智能体平台 → 一个入口 -->
   <header class="pz-hero">
     <div class="pz-grid-bg" aria-hidden="true"></div>
+    <div class="dv-subm"><a href="/dev">{{ N.dOverview }}</a><a class="on" href="/harness">{{ N.dManage }}</a><a href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a><a href="/circles">{{ N.dCircles }}</a></div>
     <div class="pz-hero-in hs-hero-in" style="padding-bottom:72px">
       <div>
         <div class="pz-eyebrow"><b>ONEHARNESS</b>{{ T.eyebrow }}</div>
@@ -155,10 +160,10 @@ a { color: inherit; text-decoration: none; }
     </section>
 
     <!-- 你是哪种用户 -->
-    <section class="pz-sec pz-rv" aria-labelledby="pz-map">
-      <div class="pz-head-c"><div class="pz-kicker">{{ T.mapKicker }}</div><h2 id="pz-map" class="pz-h2">{{ T.mapTitle }}</h2></div>
-      <div class="pz-map">
-        <a v-for="m in T.map" :key="m[3]" :href="m[3]" :class="['pz-map-i', { on: m[3] === '/harness' }]"><em>{{ m[0] }}</em><b>{{ m[1] }}</b><span>{{ m[2] }}</span></a>
+    <section class="pz-sec pz-rv" aria-labelledby="pz-dev">
+      <div class="pz-head-c"><div class="pz-kicker">{{ N.devKicker }}</div><h2 id="pz-dev" class="pz-h2">{{ N.devTitle }}</h2></div>
+      <div class="pz-dev3">
+        <a v-for="d in N.dev" :key="d.href" :href="d.href" :class="{ on: d.href === '/harness' }"><em>{{ d.n }}</em><b>{{ d.t }}</b><span>{{ d.d }}</span></a>
       </div>
     </section>
 
@@ -166,11 +171,11 @@ a { color: inherit; text-decoration: none; }
       <div><h2>{{ T.finalTitle }}</h2><p>{{ T.finalText }}</p></div>
       <div class="pz-final-btns">
         <a class="pz-btn pri" href="/#download">{{ T.ctaStart }}</a>
-        <a class="pz-btn ghost" href="/agents">{{ T.finalCta2 }}</a>
+        <a class="pz-btn ghost" href="/market">{{ T.finalCta2 }}</a>
       </div>
     </section>
   </main>
-  <footer class="nw-foot"><span>Token Bank · OneHarness</span><a href="/">{{ T.home }}</a><a href="/agents">{{ T.navPlaza }}</a><a href="/network">{{ T.navNetwork }}</a><a href="/circles">{{ T.navCircles }}</a></footer>
+  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/harness">{{ N.dManage }}</a><a href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a><a href="/circles">{{ N.dCircles }}</a></footer>
 </div>
 
 <script>
@@ -188,14 +193,14 @@ createApp({
     const i18n = {
       zh: {
         navPlaza: '智能体广场', navNetwork: '共享网络', navCircles: '圈子', download: '下载客户端', home: '首页',
-        title: 'OneHarness', eyebrow: '给手上 AI 工具很多的人',
+        title: '统一管理', eyebrow: '开发者 · 统一管理',
         h1a: '智能体平台再多，', h1b: '一个入口全管起来',
-        sub: 'Claude Code、Codex、Cursor、WorkBuddy、Kimi……每个都有自己的配置、账单和接口。OneHarness 把它们接到同一个本地网关：一处管理，同一套接口，按特点派活。',
-        promise: ['一键纳管，随时还原', '同一套接口', '按特点派活', '人在外面也能用'],
+        sub: 'Pi、Claude Code、Cursor、Codex、WorkBuddy……每个 runtime 都有自己的配置和接口；模型也散在 Ollama、免费 API、订阅、按量和社区共享里。OneHarness 把它们接到同一个本地网关：客户端里一个界面管，程序里一套接口调。',
+        promise: ['runtime 和模型一处管', '界面和接口都统一', '按特点派活', '一键纳管，随时还原'],
         ctaStart: '下载客户端', ctaApi: '看统一接口',
-        heroOut: ['你的任务', '社区智能体', '模型'],
-        appsKicker: 'WORKS WITH', appsTitle: '你已经在用的，都能接进来', appsLead: '不改使用习惯：装好的应用自动出现在列表里，点一下纳管，不想用了一键还原官方配置。',
-        groups: { cli: ['透明托管', '自动注入网关地址，命令照常敲'], cfg: ['配置写入', '一键改写配置文件，指向本地网关'], stats: ['用量统计', '读取会话记录，Token 和费用照样看得清'] },
+        heroOut: ['界面', '接口', '你的任务'],
+        appsKicker: 'WORKS WITH', appsTitle: '你的 runtime 和模型来源，都能接进来', appsLead: '不改使用习惯：装好的应用自动出现在列表里，点一下纳管，不想用了一键还原；模型来源本地优先，必要时自动走社区共享。',
+        groups: { cli: ['智能体 runtime · 透明托管', '自动注入网关地址，命令照常敲'], cfg: ['智能体 runtime · 配置写入', '一键改写配置文件，指向本地网关'], stats: ['智能体 runtime · 用量统计', '读取会话记录，Token 和费用照样看得清'], models: ['模型供应商', '本地源优先，按路由切换，原生模型名不变'] },
         capKicker: 'ONE PLACE', capTitle: '管起来之后，能省掉哪些事',
         caps: [
           { pain: '每个工具一套配置，切换全靠手改', t: '一处纳管，随时还原', d: '所有应用指向同一个本地地址。换模型、换路由在一个地方改，不想用了一键恢复官方配置，零残留。' },
@@ -208,7 +213,7 @@ createApp({
         routes: [['定位并修复 bug', 'Codex（本机）', 'local'], ['跑测试、整理提交', 'Claude Code（本机）', 'local'], ['写更新说明', '内容创作教练（社区）', 'community'], ['生成封面图', 'gemini-2.5-flash-image', 'model']],
         kind: { local: '本机应用', community: '社区智能体 · 在对方设备执行', model: '社区模型' },
         routeNote: '示例。派给谁由主 Agent 根据你纳管和雇佣的名单决定，过程中的每次工具调用都看得到，可以随时停下或接着做。',
-        apiKicker: 'ONE INTERFACE', apiTitle: '换一个 id，就换一个智能体', apiLead: '本机应用、社区智能体走同一个任务接口，只有 harness_id 不同；模型走标准补全接口，原生模型名不变。写一次集成，后面随便换。',
+        apiKicker: 'ONE INTERFACE', apiTitle: '换一个 id，就换一个智能体', apiLead: '客户端里点选管理，程序里用接口调用。本机 runtime、社区智能体走同一个任务接口，只有 harness_id 不同；模型走标准补全接口，原生模型名不变。写一次集成，后面随便换。',
         copy: '复制', copied: '已复制',
         exLabels: ['本机 Claude Code', '本机 Codex', '社区智能体', '模型'],
         exNotes: [
@@ -221,18 +226,18 @@ createApp({
         facts: [['同一个请求体', 'input + metadata.harness_id，stream 打开就按 SSE 逐段返回'], ['任务可查可停', 'GET / cancel 同一个任务 id，断线重连接着收'], ['协议自动转换', 'Anthropic、OpenAI、Codex 三种协议互通，原生模型名不变']],
         mapKicker: 'WHO ARE YOU', mapTitle: '你是哪种用户？',
         map: [['我想直接用', '智能体广场', '别人调好的智能体和模型，打开就用', '/agents'], ['我手上 AI 工具很多', 'OneHarness', '一个入口全管起来，按特点派活', '/harness'], ['我有闲置或作品', '共享网络', '额度和智能体让别人用，你来赚', '/network'], ['我想和朋友一起', '圈子', '只对信任的人开放，一起用', '/circles']],
-        finalTitle: '把你手上的智能体，接成一个团队', finalText: '下载客户端，已装的应用自动出现。先纳管一个试试，不喜欢一键还原。', finalCta2: '先去广场逛逛',
+        finalTitle: '把你手上的智能体，接成一个团队', finalText: '下载客户端，已装的应用自动出现。先纳管一个试试，不喜欢一键还原。', finalCta2: '逛逛资源市场',
       },
       en: {
         navPlaza: 'Agent Plaza', navNetwork: 'Share & earn', navCircles: 'Circles', download: 'Download', home: 'Home',
-        title: 'OneHarness', eyebrow: 'For people with too many AI tools',
+        title: 'Manage', eyebrow: 'Developers · manage',
         h1a: 'However many agent platforms,', h1b: 'one place to run them all',
-        sub: 'Claude Code, Codex, Cursor, WorkBuddy, Kimi… each has its own config, bill and API. OneHarness plugs them into one local gateway: manage in one place, call through one interface, hand each job to the right one.',
-        promise: ['One-click onboard, one-click restore', 'One interface', 'Route by strength', 'Works while you\'re out'],
+        sub: 'Pi, Claude Code, Cursor, Codex, WorkBuddy… each runtime has its own config and API, and models are scattered across Ollama, free APIs, subscriptions, pay-as-you-go and the community. OneHarness plugs them all into one local gateway: one UI in the app, one interface in your code.',
+        promise: ['Runtimes and models in one place', 'One UI, one API', 'Route by strength', 'One-click onboard and restore'],
         ctaStart: 'Download the client', ctaApi: 'See the interface',
-        heroOut: ['Your task', 'Community', 'Models'],
-        appsKicker: 'WORKS WITH', appsTitle: 'Bring the tools you already use', appsLead: 'Keep your habits: installed apps show up automatically, one click to onboard, one click to restore the official config.',
-        groups: { cli: ['Transparent wrap', 'Gateway address injected — run commands as usual'], cfg: ['Config patch', 'One click rewrites the config to point at the gateway'], stats: ['Usage tracking', 'Reads session logs so tokens and cost stay visible'] },
+        heroOut: ['UI', 'API', 'Your task'],
+        appsKicker: 'WORKS WITH', appsTitle: 'Bring your runtimes and model providers', appsLead: 'Keep your habits: installed apps show up automatically, one click to onboard or restore; model sources prefer local and fall back to the community.',
+        groups: { cli: ['Runtimes · transparent wrap', 'Gateway address injected — run commands as usual'], cfg: ['Runtimes · config patch', 'One click rewrites the config to point at the gateway'], stats: ['Runtimes · usage tracking', 'Reads session logs so tokens and cost stay visible'], models: ['Model providers', 'Local first, switched by route, native model names kept'] },
         capKicker: 'ONE PLACE', capTitle: 'What you stop doing once it\'s all managed',
         caps: [
           { pain: 'Every tool has its own config; switching means editing by hand', t: 'Onboard in one place, restore any time', d: 'Every app points at one local address. Change models and routes in one spot, or restore the official config with zero leftovers.' },
@@ -245,7 +250,7 @@ createApp({
         routes: [['Find and fix the bug', 'Codex (local)', 'local'], ['Run tests, tidy the commit', 'Claude Code (local)', 'local'], ['Write release notes', 'Content coach (community)', 'community'], ['Make the cover image', 'gemini-2.5-flash-image', 'model']],
         kind: { local: 'Local app', community: 'Community agent · runs on their device', model: 'Community model' },
         routeNote: 'Example. Who gets what depends on the agents you have onboarded and hired; every tool call is visible and you can stop or resume any time.',
-        apiKicker: 'ONE INTERFACE', apiTitle: 'Change one id, change the agent', apiLead: 'Local apps and community agents share one task endpoint — only harness_id differs. Models use the standard completion endpoints with their native names. Integrate once, swap freely.',
+        apiKicker: 'ONE INTERFACE', apiTitle: 'Change one id, change the agent', apiLead: 'Manage by clicking in the app, call through the API in code. Local runtimes and community agents share one task endpoint — only harness_id differs. Models use the standard completion endpoints with native names. Integrate once, swap freely.',
         copy: 'Copy', copied: 'Copied',
         exLabels: ['Local Claude Code', 'Local Codex', 'Community agent', 'Model'],
         exNotes: [
@@ -258,10 +263,13 @@ createApp({
         facts: [['One request body', 'input + metadata.harness_id; set stream to get SSE chunks'], ['Inspect and cancel', 'GET or cancel by task id; reconnect and keep receiving'], ['Protocols translated', 'Anthropic, OpenAI and Codex protocols interoperate with native model names']],
         mapKicker: 'WHO ARE YOU', mapTitle: 'Which one are you?',
         map: [['I just want it done', 'Agent Plaza', 'Agents and models others tuned, ready to use', '/agents'], ['I juggle many AI tools', 'OneHarness', 'One place to run them, routed by strength', '/harness'], ['I have spare quota or a great agent', 'Share & earn', 'Others use it, you earn', '/network'], ['I want to do it with friends', 'Circles', 'Open only to people you trust', '/circles']],
-        finalTitle: 'Turn your agents into a team', finalText: 'Get the client and your installed apps show up. Onboard one to try it — restore with one click if you don\'t like it.', finalCta2: 'Browse the plaza first',
+        finalTitle: 'Turn your agents into a team', finalText: 'Get the client and your installed apps show up. Onboard one to try it — restore with one click if you don\'t like it.', finalCta2: 'Browse the market',
       },
     }
+    let loggedIn = false
+    try { loggedIn = !!localStorage.getItem('user_token') } catch {}
     const T = computed(() => i18n[lang.value] || i18n.zh)
+    const N = computed(() => (window.TBNAV || {})[lang.value] || window.TBNAV.zh)
     function toggleLang() {
       lang.value = lang.value === 'zh' ? 'en' : 'zh'
       try { localStorage.setItem('tb_lang', lang.value) } catch {}
@@ -273,8 +281,9 @@ createApp({
       cli: [['Claude Code', B + 'claudecode-color.svg'], ['Codex CLI', B + 'codex-color.svg'], ['Kimi Code', B + 'kimi-color.svg'], ['OpenCode'], ['Hermes'], ['Pi'], ['DeepSeek', B + 'deepseek-color.svg']],
       cfg: [['Claude Desktop', B + 'claude-color.svg'], ['Codex Desktop', B + 'openai.svg'], ['OpenClaw', B + 'openclaw-color.svg'], ['WorkBuddy']],
       stats: [['Cursor', B + 'cursor.svg'], ['Copilot', B + 'copilot-color.svg'], ['Qwen', B + 'qwen-color.svg'], ['Gemini CLI', B + 'geminicli-color.svg'], ['Grok'], ['Trae'], ['Antigravity']],
+      models: [['Ollama'], ['Groq'], ['GitHub Models'], ['DeepSeek', B + 'deepseek-color.svg'], ['火山引擎', B + 'volcengine-color.svg'], ['智谱', B + 'zhipu.svg'], ['Kimi', B + 'kimi-color.svg'], ['MiniMax', B + 'minimax.png'], ['Claude / ChatGPT 订阅', B + 'claude-color.svg'], ['社区共享', '/static/logo.svg']],
     }
-    const appGroups = computed(() => ['cli', 'cfg', 'stats'].map(key => ({
+    const appGroups = computed(() => ['cli', 'cfg', 'stats', 'models'].map(key => ({
       key, title: T.value.groups[key][0], desc: T.value.groups[key][1],
       apps: APPS[key].map(([name, icon]) => ({ name, icon: icon || '' })),
     })))
@@ -335,7 +344,7 @@ createApp({
       document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
       nextTick(setupReveal)
     })
-    return { lang, T, toggleLang, reduced, appGroups, heroApps, exIdx, examples, copied, copyCode }
+    return { N, loggedIn, lang, T, toggleLang, reduced, appGroups, heroApps, exIdx, examples, copied, copyCode }
   },
 }).mount('#app')
 </script>

@@ -3,13 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>共享网络 · Token Bank</title>
+<title>分享与收益 · Token Bank</title>
 <meta name="description" content="Token Bank 共享网络：把闲置的模型额度和调教好的智能体接入网络。无需公网 IP 和内网穿透，Skill 与 API Key 不离机，公开或只给圈子，每被用一次就得积分。">
 <link rel="icon" href="/static/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=5">
+<link rel="stylesheet" href="/static/plaza.css?v=6">
+<script src="/static/plaza-nav.js?v=6"></script>
 <script>
   // 旧链接：浏览类页签已并入智能体广场，圈子页签去圈子页
   (function () {
@@ -31,16 +32,18 @@ a { color: inherit; text-decoration: none; }
   <nav class="ag-top">
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="ag-navs">
-        <a class="ag-nav" href="/agents">{{ T.navPlaza }}</a>
-        <a class="ag-nav" href="/harness">OneHarness</a>
-        <a class="ag-nav on" href="/network" aria-current="page">{{ T.navNetwork }}</a>
-        <a class="ag-nav" href="/circles">{{ T.navCircles }}</a>
+      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/dev">{{ N.modeDev }}</a></div>
+      <div class="ag-navs ag-devnav">
+        <a class="ag-nav" href="/dev">{{ N.dOverview }}</a>
+        <a class="ag-nav" href="/harness">{{ N.dManage }}</a>
+        <a class="ag-nav on" href="/network" aria-current="page">{{ N.dShare }}</a>
+        <a class="ag-nav" href="/market">{{ N.dMarket }}</a>
+        <a class="ag-nav" href="/circles">{{ N.dCircles }}</a>
       </div>
       <div class="ag-top-r">
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
-        <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? T.account : T.signIn }}</a>
-        <a class="ag-dl hide-sm" href="/#download">{{ T.download }}</a>
+        <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
+        <a class="ag-dl hide-sm" href="/#download">{{ N.download }}</a>
       </div>
     </div>
   </nav>
@@ -48,6 +51,7 @@ a { color: inherit; text-decoration: none; }
   <!-- 首屏：给分享者的一句话 + 实时网络 -->
   <header class="pz-hero">
     <div class="pz-grid-bg" aria-hidden="true"></div>
+    <div class="dv-subm"><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a class="on" href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a><a href="/circles">{{ N.dCircles }}</a></div>
     <div class="pz-hero-in nw-hero-in" style="padding-bottom:64px">
       <div>
         <div class="pz-eyebrow"><b>SHARE NETWORK</b>{{ T.eyebrow }}</div>
@@ -111,7 +115,11 @@ a { color: inherit; text-decoration: none; }
         <div class="pz-kicker">{{ T.scopeKicker }}</div>
         <h2 id="nw-scope" class="pz-h2">{{ T.scopeTitle }}</h2>
       </div>
-      <div class="nw-scope">
+      <div class="nw-scope nw-scope3">
+        <div class="nw-sc self">
+          <span class="pz-ic" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/></svg></span>
+          <div><h3>{{ T.selfTitle }}</h3><p>{{ T.selfText }}</p><a href="/circles">{{ T.selfLink }} →</a></div>
+        </div>
         <div class="nw-sc pub">
           <span class="pz-ic" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.25"/><path d="M3.75 12h16.5M12 3.75c2.2 2.3 3.3 5 3.3 8.25s-1.1 5.95-3.3 8.25c-2.2-2.3-3.3-5-3.3-8.25S9.8 6.05 12 3.75Z"/></svg></span>
           <div><h3>{{ T.pubTitle }}</h3><p>{{ T.pubText }}</p><a href="/agents">{{ T.pubLink }} →</a></div>
@@ -190,15 +198,15 @@ a { color: inherit; text-decoration: none; }
             </div>
           </div>
           <div v-else class="nw-empty">{{ T.emptySupply }}</div>
-          <div class="nw-card-f">{{ T.supplyFoot.replace('{a}', String(agentCount)) }} <a href="/agents">{{ T.supplyLink }} →</a></div>
+          <div class="nw-card-f">{{ T.supplyFoot.replace('{a}', String(agentCount)) }} <a href="/market#models">{{ T.supplyLink }} →</a></div>
         </div>
       </div>
     </section>
 
-    <section class="pz-sec pz-rv" aria-labelledby="pz-map">
-      <div class="pz-head-c"><div class="pz-kicker">{{ T.mapKicker }}</div><h2 id="pz-map" class="pz-h2">{{ T.mapTitle }}</h2></div>
-      <div class="pz-map">
-        <a v-for="m in T.map" :key="m[3]" :href="m[3]" :class="['pz-map-i', { on: m[3] === '/network' }]"><em>{{ m[0] }}</em><b>{{ m[1] }}</b><span>{{ m[2] }}</span></a>
+    <section class="pz-sec pz-rv" aria-labelledby="pz-dev">
+      <div class="pz-head-c"><div class="pz-kicker">{{ N.devKicker }}</div><h2 id="pz-dev" class="pz-h2">{{ N.devTitle }}</h2></div>
+      <div class="pz-dev3">
+        <a v-for="d in N.dev" :key="d.href" :href="d.href" :class="{ on: d.href === '/network' }"><em>{{ d.n }}</em><b>{{ d.t }}</b><span>{{ d.d }}</span></a>
       </div>
     </section>
 
@@ -209,11 +217,11 @@ a { color: inherit; text-decoration: none; }
       </div>
       <div class="pz-final-btns">
         <a class="pz-btn pri" href="/#download">{{ T.ctaStart }}</a>
-        <a class="pz-btn ghost" href="/circles">{{ T.finalCta2 }}</a>
+        <a class="pz-btn ghost" href="/market">{{ T.finalCta2 }}</a>
       </div>
     </section>
   </main>
-  <footer class="nw-foot"><span>Token Bank · {{ T.footer }}</span><a href="/">{{ T.home }}</a><a href="/agents">{{ T.navPlaza }}</a><a href="/harness">OneHarness</a><a href="/circles">{{ T.navCircles }}</a></footer>
+  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/harness">{{ N.dManage }}</a><a href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a><a href="/circles">{{ N.dCircles }}</a></footer>
 </div>
 
 <script>
@@ -227,10 +235,10 @@ createApp({
     const i18n = {
       zh: {
         navPlaza: '智能体广场', navNetwork: '共享网络', navCircles: '圈子', account: '我的账户', signIn: '登录', download: '下载客户端',
-        title: '共享网络', eyebrow: '给分享者 · 上架赚积分',
-        h1a: '闲置的额度和智能体，', h1b: '让别人用，你来赚',
-        sub: '把电脑上用不完的模型额度、调教好的智能体接入网络。不用公网 IP，也不用内网穿透；任务在你的机器上跑，别人每用一次你就得积分。',
-        promise: ['无需网络配置', 'Skill 与 Key 不离机', '公开或只给圈子', '用一次结一次'],
+        title: '分享与收益', eyebrow: '开发者 · 分享与收益',
+        h1a: '调好的智能体和闲置额度，', h1b: '自己随处用，别人用你来赚',
+        sub: '把调教好的智能体、用不完的模型额度接入网络：先给自己用，人在外面也能打开；再分享给圈子一起协作，或上架给普通用户。不用公网 IP 和内网穿透，任务在你的机器上跑，别人每用一次你就得积分，分摊订阅和算力开销。',
+        promise: ['自用、圈子或全网', 'Skill 与 Key 不离机', '用一次结一次', '无需网络配置'],
         ctaStart: '下载客户端，开始分享', ctaBoard: '看看谁在分享',
         liveTitle: '网络实时', liveEvery: '每 30 秒刷新', periodTokens: '本周期网络供给', nodes: '在线节点', sharers: '活跃分享者', supplyNow: '在线模型与智能体', totalTokens: '累计供给',
         howKicker: 'HOW IT WORKS', howTitle: '三步，把你的智能体放上网络', howLead: '全程在客户端里点选完成，不用开端口，不用懂网络。',
@@ -240,8 +248,9 @@ createApp({
           ['保存并启动', '名片出现在智能体广场。别人每用一次，任务在你的机器上执行，积分自动结算到你的账户。'],
         ],
         scopeKicker: 'YOU DECIDE', scopeTitle: '分享给谁，你说了算',
-        pubTitle: '公开市场', pubText: '所有人都能在智能体广场看到并使用，接单机会最多，适合想多赚积分的分享者。', pubLink: '看看广场上有什么',
-        cirTitle: '指定圈子', cirText: '只对选中圈子的成员开放：同事、朋友、小团队。积分结算和公开一样，圈子之外的人看不到。', cirLink: '去建个圈子',
+        selfTitle: '只给自己', selfText: '建一个只有你自己的圈子，把智能体放进去：手机、公司电脑登录同一账号，用网页就能打开家里那台的智能体。', selfLink: '建个自己的圈子',
+        pubTitle: '公开给所有人', pubText: '出现在智能体广场，普通用户像打车一样直接用。接单机会最多，最能分摊费用。', pubLink: '看看广场上有什么',
+        cirTitle: '指定圈子', cirText: '只对圈内成员开放：同事、朋友、小团队一起用、一起改。积分照常结算，圈子之外的人看不到。', cirLink: '去建个圈子',
         safeKicker: '能力共享 · 配方私有', safeTitle: '别人能用，但拿不走',
         safeLead: '只公开名片和简介。对方发来任务、拿回结果，你的提示词、Skill 和 API Key 始终留在你的机器上。分享出去，不等于被抄走。',
         safeMe: '你的设备', safeMeName: '你调教的智能体', safeThem: '调用方', safeThemName: '对方能拿到的',
@@ -254,9 +263,9 @@ createApp({
         ],
         boardKicker: 'LIVE BOARD', boardTitle: '谁在分享，网络里有什么', boardLead: '按本周期供给的 Token 排序；右边是在线模型和各自的节点数，看看哪里还缺供给。',
         rankTitle: '供给排行', rankSub: '本周期 Token', rankFoot: '上架闲置的模型或智能体，被调用即赚积分并进入排行。', rankJoin: '开始分享',
-        supplyTitle: '在线模型', supplySub: '节点数', supplyFoot: '另有 {a} 个智能体在线。', supplyLink: '去智能体广场看看',
+        supplyTitle: '在线模型', supplySub: '节点数', supplyFoot: '另有 {a} 个智能体在线。', supplyLink: '去资源市场看看',
         emptyRank: '暂时还没有供给数据', emptySupply: '暂时没有在线模型', loading: '加载中…',
-        finalTitle: '把你的智能体，放到更多人手里', finalText: '下载客户端，几分钟就能上架。先只给圈子里的朋友用，也完全可以。', finalCta2: '先建个圈子',
+        finalTitle: '把你的智能体，放到更多人手里', finalText: '下载客户端，几分钟就能上架。先只给自己或圈子里的朋友用，也完全可以；缺素材就去资源市场拿模板加工。', finalCta2: '去资源市场',
         footer: '共享网络', home: '首页', fatal: '暂时连不上服务器，请稍后再试',
         kindKicker: 'WHAT YOU SHARE', kindTitle: '你分享的是哪一种？', kindLead: '模型和智能体都能放上网络，但别人买的东西不一样，你要关心的事也不一样。',
         kinds: [
@@ -268,10 +277,10 @@ createApp({
       },
       en: {
         navPlaza: 'Agent Plaza', navNetwork: 'Share & earn', navCircles: 'Circles', account: 'My account', signIn: 'Sign in', download: 'Download',
-        title: 'Share network', eyebrow: 'For sharers · list and earn',
-        h1a: 'Your spare quota and agents,', h1b: 'used by others, paid to you',
-        sub: 'Connect the model quota you don\'t use up and the agents you\'ve tuned. No public IP, no tunnels — tasks run on your machine and every use earns you credits.',
-        promise: ['No network setup', 'Skills and keys stay local', 'Public or circle-only', 'Settled per use'],
+        title: 'Share & earn', eyebrow: 'Developers · share & earn',
+        h1a: 'Your tuned agents and spare quota,', h1b: 'yours anywhere, paid when others use them',
+        sub: 'Connect the agents you\'ve tuned and the quota you don\'t use up: use them yourself from anywhere, share with a circle to work together, or list them for everyday users. No public IP or tunnels — tasks run on your machine and every use earns credits that offset your subscriptions and compute.',
+        promise: ['Yourself, a circle or everyone', 'Skills and keys stay local', 'Settled per use', 'No network setup'],
         ctaStart: 'Get the client and start sharing', ctaBoard: 'See who is sharing',
         liveTitle: 'Network live', liveEvery: 'refreshes every 30 s', periodTokens: 'Network supply this period', nodes: 'Online nodes', sharers: 'Active sharers', supplyNow: 'Models & agents online', totalTokens: 'Supplied to date',
         howKicker: 'HOW IT WORKS', howTitle: 'Three steps to put your agent on the network', howLead: 'All point-and-click in the app. No ports to open, no networking to learn.',
@@ -281,7 +290,8 @@ createApp({
           ['Save and start', 'Your card appears on the Agent Plaza. Each use runs on your machine and credits settle to your account automatically.'],
         ],
         scopeKicker: 'YOU DECIDE', scopeTitle: 'You choose who gets to use it',
-        pubTitle: 'Public market', pubText: 'Everyone can find and use it on the Agent Plaza — the most requests, best for earning.', pubLink: 'See what\'s on the plaza',
+        selfTitle: 'Just you', selfText: 'Make a circle with only yourself in it: sign in on your phone or office laptop and open your home machine\'s agent in the browser.', selfLink: 'Make your own circle',
+        pubTitle: 'Everyone', pubText: 'It appears on the Agent Plaza where everyday users hail it directly — the most requests, the most cost split.', pubLink: 'See what\'s on the plaza',
         cirTitle: 'Specific circles', cirText: 'Only members of the circles you pick: colleagues, friends, a small team. Same credit settlement; invisible to everyone else.', cirLink: 'Start a circle',
         safeKicker: 'SHARE THE SKILL, KEEP THE RECIPE', safeTitle: 'They can use it. They can\'t take it.',
         safeLead: 'Only the card and description are public. Callers send a task and get a result; your prompts, skills and API keys never leave your machine.',
@@ -295,9 +305,9 @@ createApp({
         ],
         boardKicker: 'LIVE BOARD', boardTitle: 'Who\'s sharing, and what\'s on the network', boardLead: 'Ranked by tokens served this period. On the right: online models and their node counts — spot where supply is thin.',
         rankTitle: 'Supply board', rankSub: 'Tokens this period', rankFoot: 'List idle models or agents — every call earns credits and a spot here.', rankJoin: 'Start sharing',
-        supplyTitle: 'Online models', supplySub: 'Nodes', supplyFoot: 'Plus {a} agents online.', supplyLink: 'Browse the Agent Plaza',
+        supplyTitle: 'Online models', supplySub: 'Nodes', supplyFoot: 'Plus {a} agents online.', supplyLink: 'Browse the market',
         emptyRank: 'No supply data yet', emptySupply: 'No models online right now', loading: 'Loading…',
-        finalTitle: 'Put your agent in more hands', finalText: 'Get the client and list in minutes. Sharing only with friends in a circle is fine too.', finalCta2: 'Start a circle',
+        finalTitle: 'Put your agent in more hands', finalText: 'Get the client and list in minutes. Keeping it to yourself or a circle is fine too; need a starting point? Remix a template from the market.', finalCta2: 'Go to the market',
         footer: 'Share network', home: 'Home', fatal: 'Cannot reach the server, try again later',
         kindKicker: 'WHAT YOU SHARE', kindTitle: 'Which kind are you sharing?', kindLead: 'Both models and agents can go on the network, but people buy different things — and you care about different things.',
         kinds: [
@@ -309,6 +319,7 @@ createApp({
       },
     }
     const T = computed(() => i18n[lang.value] || i18n.zh)
+    const N = computed(() => (window.TBNAV || {})[lang.value] || window.TBNAV.zh)
     function toggleLang() {
       lang.value = lang.value === 'zh' ? 'en' : 'zh'
       try { localStorage.setItem('tb_lang', lang.value) } catch {}
@@ -411,7 +422,7 @@ createApp({
 
     const icoModel = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9zM9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>'
     const icoAgent = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01M9.5 16.5h5"/></svg>'
-    return { icoModel, icoAgent, lang, T, toggleLang, loggedIn, loaded, fatal, summary, models, agentCount, supplyRows, maxNodes, topSharers, offerText, fmtTok, fmtMs, speedCls }
+    return { icoModel, icoAgent, N, lang, T, toggleLang, loggedIn, loaded, fatal, summary, models, agentCount, supplyRows, maxNodes, topSharers, offerText, fmtTok, fmtMs, speedCls }
   },
 }).mount('#app')
 </script>

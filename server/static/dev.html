@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>开发者 · Token Bank</title>
+<meta name="description" content="Token Bank 开发者中心：统一管理 Pi、Claude Code、Cursor 等智能体 runtime 和各家模型供应商（界面与接口）；把智能体分享给自己、圈子或全网分摊费用；从资源市场获取模型、Skill、智能体模板，自用或加工后上架。">
+<link rel="icon" href="/static/logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/plaza.css?v=6">
+<script src="/static/plaza-nav.js?v=6"></script>
+<script src="/static/vue.global.prod.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+[v-cloak] { display: none !important; }
+body { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; background: #fafafb; color: #0a0a0a; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+</style>
+</head>
+<body>
+<div id="app" v-cloak>
+  <nav class="ag-top">
+    <div class="ag-top-in">
+      <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
+      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/dev">{{ N.modeDev }}</a></div>
+      <div class="ag-navs ag-devnav">
+        <a class="ag-nav on" href="/dev" aria-current="page">{{ N.dOverview }}</a>
+        <a class="ag-nav" href="/harness">{{ N.dManage }}</a>
+        <a class="ag-nav" href="/network">{{ N.dShare }}</a>
+        <a class="ag-nav" href="/market">{{ N.dMarket }}</a>
+        <a class="ag-nav" href="/circles">{{ N.dCircles }}</a>
+      </div>
+      <div class="ag-top-r">
+        <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
+        <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
+        <a class="ag-dl hide-sm" href="/#download">{{ N.download }}</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="pz-hero">
+    <div class="pz-grid-bg" aria-hidden="true"></div>
+    <div class="dv-subm"><a class="on" href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a><a href="/circles">{{ N.dCircles }}</a></div>
+    <div class="pz-hero-in nw-hero-in" style="padding-bottom:64px">
+      <div>
+        <div class="pz-eyebrow"><b>FOR DEVELOPERS</b>{{ T.eyebrow }}</div>
+        <h1 class="pz-h1">{{ T.h1a }}<br><em>{{ T.h1b }}</em></h1>
+        <p class="pz-sub">{{ T.sub }}</p>
+        <ul class="pz-promise"><li v-for="p in T.promise" :key="p">{{ p }}</li></ul>
+        <div class="nw-ctas">
+          <a class="pz-btn pri" href="/#download">{{ N.download }}</a>
+          <a class="pz-btn ghost" href="/harness#api">{{ T.ctaApi }}</a>
+        </div>
+      </div>
+      <div class="nw-live" aria-live="polite">
+        <div class="nw-live-h"><i class="pz-live"></i>{{ T.liveTitle }}</div>
+        <div class="nw-kv" style="margin-top:14px">
+          <div><span>{{ T.kNodes }}</span><strong>{{ loaded ? nodes : '—' }}</strong></div>
+          <div><span>{{ T.kModels }}</span><strong>{{ loaded ? models : '—' }}</strong></div>
+          <div><span>{{ T.kAgents }}</span><strong>{{ loaded ? agents : '—' }}</strong></div>
+          <div><span>{{ T.kRes }}</span><strong>{{ loaded ? res : '—' }}</strong></div>
+        </div>
+        <p class="nw-big-k" style="margin-top:14px">{{ T.liveFoot }}</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="ag-page">
+    <section class="pz-sec" aria-labelledby="pz-dev">
+      <div class="pz-head-c"><div class="pz-kicker">{{ N.devKicker }}</div><h2 id="pz-dev" class="pz-h2">{{ N.devTitle }}</h2></div>
+      <div class="pz-dev3">
+        <a v-for="d in N.dev" :key="d.href" :href="d.href"><em>{{ d.n }}</em><b>{{ d.t }}</b><span>{{ d.d }}</span></a>
+      </div>
+    </section>
+
+    <!-- 循环：获取 → 加工 → 管理 → 上架 → 普通用户用 -->
+    <section class="pz-sec pz-rv" aria-labelledby="dv-loop">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.loopKicker }}</div>
+        <h2 id="dv-loop" class="pz-h2">{{ T.loopTitle }}</h2>
+        <p class="pz-lead">{{ T.loopLead }}</p>
+      </div>
+      <div class="dv-loop">
+        <a v-for="s in T.loop" :key="s.b" :href="s.href" :class="['dv-node', s.cls]"><small>{{ s.k }}</small><b>{{ s.b }}</b><span>{{ s.d }}</span></a>
+      </div>
+      <p class="dv-back">↺ {{ T.loopBack }}</p>
+    </section>
+
+    <!-- 一套接口 -->
+    <section class="pz-safe pz-rv" aria-labelledby="dv-api">
+      <div>
+        <div class="pz-kicker">{{ T.apiKicker }}</div>
+        <h2 id="dv-api" class="pz-h2">{{ T.apiTitle }}</h2>
+        <p class="pz-lead">{{ T.apiLead }}</p>
+        <div class="nw-ctas" style="margin-top:22px"><a class="pz-btn ghost" href="/harness#api">{{ T.apiMore }} →</a></div>
+      </div>
+      <div class="hs-code dv-code" style="margin:0;max-width:none">
+        <pre><code><span v-for="(ln, i) in T.apiLines" :key="i" :class="{ hl: ln[1] }">{{ ln[0] }}</span></code></pre>
+      </div>
+    </section>
+
+    <section class="pz-sec pz-rv" aria-labelledby="pz-who">
+      <div class="pz-head-c"><div class="pz-kicker">{{ N.whoKicker }}</div><h2 id="pz-who" class="pz-h2">{{ N.whoTitle }}</h2></div>
+      <div class="pz-who2">
+        <a v-for="w in N.who" :key="w.href" :href="w.href" :class="{ on: w.href === '/dev' }"><em>{{ w.k }}</em><b>{{ w.t }}</b><span>{{ w.d }}</span><i>{{ w.cta }} →</i></a>
+      </div>
+    </section>
+
+    <section class="pz-final pz-rv">
+      <div><h2>{{ T.finalTitle }}</h2><p>{{ T.finalText }}</p></div>
+      <div class="pz-final-btns">
+        <a class="pz-btn pri" href="/#download">{{ N.download }}</a>
+        <a class="pz-btn ghost" href="/market">{{ T.finalCta2 }}</a>
+      </div>
+    </section>
+  </main>
+  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/harness">{{ N.dManage }}</a><a href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a><a href="/circles">{{ N.dCircles }}</a></footer>
+</div>
+
+<script>
+const { createApp, ref, computed, onMounted, nextTick } = Vue
+createApp({
+  setup() {
+    let stored = ''
+    try { stored = localStorage.getItem('tb_lang') || '' } catch {}
+    const lang = ref(stored || ((navigator.language || '').startsWith('zh') ? 'zh' : 'en'))
+    let loggedIn = false
+    try { loggedIn = !!localStorage.getItem('user_token') } catch {}
+    const i18n = {
+      zh: {
+        title: '开发者', eyebrow: '给做智能体、用多个 runtime 的人',
+        h1a: '你的智能体和模型，', h1b: '管起来、分出去、再赚回来',
+        sub: 'Pi、Claude Code、Cursor 这些 runtime，加上本地 Ollama、免费 API、订阅、按量和社区共享这些模型来源，在一个界面、一套接口里管理。调好的智能体分享出去：自己随处用、圈子一起用，也能上架给普通用户，用积分分摊费用。',
+        promise: ['界面和接口都统一', 'Skill 与 Key 不离机', '自用、圈子或全网', '从市场拿来再加工'],
+        ctaApi: '看统一接口',
+        liveTitle: '网络里此刻有', kNodes: '在线节点', kModels: '可用模型', kAgents: '在线智能体', kRes: '技能与模板', liveFoot: '都来自开发者分享，你也可以拿来自用或加工。',
+        loopKicker: 'THE LOOP', loopTitle: '从拿来，到被普通用户用上', loopLead: '三件事连成一个循环：从市场获取，在本机加工和管理，再上架给普通用户。',
+        loop: [
+          { k: '获取', b: '资源市场', d: '别人分享的模型、Skill、提示词和智能体模板', href: '/market' },
+          { k: '加工', b: '在资产里改', d: '换模型、改提示词、加 Skill，调成你自己的智能体', href: '/market#paths' },
+          { k: '管理', b: '纳管到 runtime', d: '投射到 Pi、Claude Code、Cursor 等，用统一接口调试', href: '/harness' },
+          { k: '上架', b: '分享出去', d: '只给自己、只给圈子，或公开给所有人', href: '/network' },
+          { k: '使用', b: '普通用户', d: '在智能体广场像打车一样用，任务在你的设备上执行', href: '/agents', cls: 'user' },
+        ],
+        loopBack: '每次被使用都结算积分，分摊你的订阅和算力开销；用户反馈再回到你的下一版。',
+        apiKicker: 'ONE INTERFACE', apiTitle: '本机的、社区的、模型，同一套接口', apiLead: '智能体都走 /v1/agent/responses，只换 harness_id；模型走 /v1/chat/completions，原生模型名不变。写一次集成，后面随便换。',
+        apiMore: '看完整示例',
+        apiLines: [
+          ['# 本机 runtime：pi、claude-code、codex、cursor、kimi-code', false], ['"harness_id": "pi"', true],
+          ['# 雇来的社区智能体', false], ['"harness_id": "community:<id>@<owner>"', true],
+          ['# 任意来源的模型：网关按你的路由选本地源或社区共享', false], ['"model": "claude-sonnet-4-6"', true],
+        ],
+        finalTitle: '先把手上的 runtime 接进来', finalText: '下载客户端，已装的应用自动出现。纳管一个试试，不喜欢一键还原；再去市场看看别人分享了什么。', finalCta2: '逛逛资源市场',
+      },
+      en: {
+        title: 'Developers', eyebrow: 'For people building agents across runtimes',
+        h1a: 'Your agents and models —', h1b: 'managed, shared, paid back',
+        sub: 'Runtimes like Pi, Claude Code and Cursor, plus model sources from local Ollama and free APIs to subscriptions, pay-as-you-go and the community — one UI, one interface. Share the agents you tune: use them anywhere yourself, with a circle, or list them for everyday users and split the cost in credits.',
+        promise: ['One UI, one API', 'Skills and keys stay local', 'Yourself, a circle or everyone', 'Remix from the market'],
+        ctaApi: 'See the interface',
+        liveTitle: 'On the network right now', kNodes: 'Online nodes', kModels: 'Models', kAgents: 'Agents online', kRes: 'Skills & templates', liveFoot: 'All shared by developers — take them for yourself or remix them.',
+        loopKicker: 'THE LOOP', loopTitle: 'From sourcing to everyday users', loopLead: 'The three jobs form a loop: source from the market, remix and manage locally, then list for everyday users.',
+        loop: [
+          { k: 'Source', b: 'Market', d: 'Models, skills, prompts and agent templates others shared', href: '/market' },
+          { k: 'Remix', b: 'Edit in Assets', d: 'Swap models, tweak prompts, add skills — make it yours', href: '/market#paths' },
+          { k: 'Manage', b: 'Onboard to runtimes', d: 'Project to Pi, Claude Code, Cursor and test through one API', href: '/harness' },
+          { k: 'List', b: 'Share it', d: 'Just you, a circle, or everyone', href: '/network' },
+          { k: 'Use', b: 'Everyday users', d: 'They hail it on the Agent Plaza; tasks run on your device', href: '/agents', cls: 'user' },
+        ],
+        loopBack: 'Every use settles credits that offset your subscriptions and compute; feedback flows into your next version.',
+        apiKicker: 'ONE INTERFACE', apiTitle: 'Local, community and models — one interface', apiLead: 'Agents go through /v1/agent/responses with a different harness_id; models go through /v1/chat/completions with native names. Integrate once, swap freely.',
+        apiMore: 'Full examples',
+        apiLines: [
+          ['# local runtime: pi, claude-code, codex, cursor, kimi-code', false], ['"harness_id": "pi"', true],
+          ['# hired community agent', false], ['"harness_id": "community:<id>@<owner>"', true],
+          ['# any model: the gateway routes to local or community sources', false], ['"model": "claude-sonnet-4-6"', true],
+        ],
+        finalTitle: 'Start by plugging in your runtimes', finalText: 'Get the client and installed apps show up. Onboard one, restore with a click if you don\'t like it — then see what others shared on the market.', finalCta2: 'Browse the market',
+      },
+    }
+    const T = computed(() => i18n[lang.value] || i18n.zh)
+    const N = computed(() => (window.TBNAV || {})[lang.value] || window.TBNAV.zh)
+    function toggleLang() {
+      lang.value = lang.value === 'zh' ? 'en' : 'zh'
+      try { localStorage.setItem('tb_lang', lang.value) } catch {}
+      document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
+      document.title = T.value.title + ' · Token Bank'
+    }
+    const loaded = ref(false), nodes = ref(0), models = ref(0), agents = ref(0), res = ref(0)
+    async function load() {
+      try {
+        const [n, c] = await Promise.all([fetch('/public/network').catch(() => null), fetch('/api/community-catalog').catch(() => null)])
+        if (n && n.ok) {
+          const d = await n.json()
+          nodes.value = (d.summary && d.summary.online_workers) || 0
+          models.value = Array.isArray(d.available_models) ? d.available_models.length : 0
+          agents.value = Array.isArray(d.available_agents) ? d.available_agents.length : 0
+        }
+        if (c && c.ok) {
+          const cd = await c.json()
+          const rows = Array.isArray(cd && cd.resources) ? cd.resources : (Array.isArray(cd && cd.data && cd.data.resources) ? cd.data.resources : [])
+          res.value = rows.length
+        }
+      } catch {} finally { loaded.value = true }
+    }
+    function setupReveal() {
+      let reduced = false
+      try { reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches } catch {}
+      if (reduced || !('IntersectionObserver' in window)) return
+      document.documentElement.classList.add('pz-rv-on')
+      const obs = new IntersectionObserver((es) => es.forEach((en) => { if (en.isIntersecting) { en.target.classList.add('in'); obs.unobserve(en.target) } }), { rootMargin: '0px 0px -8% 0px', threshold: 0.08 })
+      document.querySelectorAll('.pz-rv').forEach(el => obs.observe(el))
+    }
+    onMounted(() => {
+      document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
+      document.title = T.value.title + ' · Token Bank'
+      nextTick(setupReveal)
+      load()
+    })
+    return { lang, T, N, toggleLang, loggedIn, loaded, nodes, models, agents, res }
+  },
+}).mount('#app')
+</script>
+</body>
+</html>
