@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=3">
+<link rel="stylesheet" href="/static/plaza.css?v=4">
 <script>
   // 旧链接：浏览类页签已并入智能体广场，圈子页签去圈子页
   (function () {
@@ -24,8 +24,6 @@
 [v-cloak] { display: none !important; }
 body { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; background: #fafafb; color: #0a0a0a; min-height: 100vh; -webkit-font-smoothing: antialiased; }
 a { color: inherit; text-decoration: none; }
-.nw-foot { max-width: 1200px; margin: 0 auto; padding: 0 24px 40px; display: flex; gap: 18px; font-size: 13px; color: #9a9aa6; }
-.nw-foot a:hover { color: #0a0a0f; }
 </style>
 </head>
 <body>
@@ -33,9 +31,12 @@ a { color: inherit; text-decoration: none; }
   <nav class="ag-top">
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <a class="ag-nav" href="/agents">{{ T.navPlaza }}</a>
-      <a class="ag-nav on" href="/network" aria-current="page">{{ T.navNetwork }}</a>
-      <a class="ag-nav hide-sm" href="/circles">{{ T.navCircles }}</a>
+      <div class="ag-navs">
+        <a class="ag-nav" href="/agents">{{ T.navPlaza }}</a>
+        <a class="ag-nav" href="/harness">OneHarness</a>
+        <a class="ag-nav on" href="/network" aria-current="page">{{ T.navNetwork }}</a>
+        <a class="ag-nav" href="/circles">{{ T.navCircles }}</a>
+      </div>
       <div class="ag-top-r">
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
         <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? T.account : T.signIn }}</a>
@@ -73,6 +74,25 @@ a { color: inherit; text-decoration: none; }
   </header>
 
   <main class="ag-page">
+    <!-- 两类供给：模型额度 和 智能体，关心的事不一样 -->
+    <section class="pz-sec" aria-labelledby="nw-kinds">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.kindKicker }}</div>
+        <h2 id="nw-kinds" class="pz-h2">{{ T.kindTitle }}</h2>
+        <p class="pz-lead">{{ T.kindLead }}</p>
+      </div>
+      <div class="nw-two">
+        <div v-for="k in T.kinds" :key="k.key" :class="['nw-kind', k.key]">
+          <span class="pz-ic" aria-hidden="true" v-html="k.key === 'm' ? icoModel : icoAgent"></span>
+          <span class="pz-who">{{ k.who }}</span>
+          <h3>{{ k.title }}</h3>
+          <p>{{ k.text }}</p>
+          <dl><template v-for="row in k.rows" :key="row[0]"><dt>{{ row[0] }}</dt><dd>{{ row[1] }}</dd></template></dl>
+          <div class="nw-live-n"><b>{{ loaded ? (k.key === 'm' ? models.length : agentCount) : '—' }}</b>{{ k.live }}</div>
+        </div>
+      </div>
+    </section>
+
     <!-- 三步上架 -->
     <section class="pz-sec pz-rv" aria-labelledby="nw-how">
       <div class="pz-head-c">
@@ -175,6 +195,13 @@ a { color: inherit; text-decoration: none; }
       </div>
     </section>
 
+    <section class="pz-sec pz-rv" aria-labelledby="pz-map">
+      <div class="pz-head-c"><div class="pz-kicker">{{ T.mapKicker }}</div><h2 id="pz-map" class="pz-h2">{{ T.mapTitle }}</h2></div>
+      <div class="pz-map">
+        <a v-for="m in T.map" :key="m[3]" :href="m[3]" :class="['pz-map-i', { on: m[3] === '/network' }]"><em>{{ m[0] }}</em><b>{{ m[1] }}</b><span>{{ m[2] }}</span></a>
+      </div>
+    </section>
+
     <section class="pz-final pz-rv">
       <div>
         <h2>{{ T.finalTitle }}</h2>
@@ -186,7 +213,7 @@ a { color: inherit; text-decoration: none; }
       </div>
     </section>
   </main>
-  <footer class="nw-foot"><span>Token Bank · {{ T.footer }}</span><a href="/">{{ T.home }}</a><a href="/agents">{{ T.navPlaza }}</a><a href="/circles">{{ T.navCircles }}</a></footer>
+  <footer class="nw-foot"><span>Token Bank · {{ T.footer }}</span><a href="/">{{ T.home }}</a><a href="/agents">{{ T.navPlaza }}</a><a href="/harness">OneHarness</a><a href="/circles">{{ T.navCircles }}</a></footer>
 </div>
 
 <script>
@@ -231,6 +258,13 @@ createApp({
         emptyRank: '暂时还没有供给数据', emptySupply: '暂时没有在线模型', loading: '加载中…',
         finalTitle: '把你的智能体，放到更多人手里', finalText: '下载客户端，几分钟就能上架。先只给圈子里的朋友用，也完全可以。', finalCta2: '先建个圈子',
         footer: '共享网络', home: '首页', fatal: '暂时连不上服务器，请稍后再试',
+        kindKicker: 'WHAT YOU SHARE', kindTitle: '你分享的是哪一种？', kindLead: '模型和智能体都能放上网络，但别人买的东西不一样，你要关心的事也不一样。',
+        kinds: [
+          { key: 'm', who: '分享模型', title: '用不完的额度、本地或内网模型', text: '别人买的是 Token：拿你的额度直接对话、生图，或接进他们的工具。', rows: [['可以分享', '订阅里用不完的额度、按量 API、本地 Ollama、内网私有模型'], ['别人看重', '模型全不全、快不快（首字延迟）、稳不稳'], ['怎么计积分', '按输出 Token × 模型贡献率 × 质量系数，贡献率高于消费率'], ['你的 Key', '只在本机，网络里只出现模型名']], live: '个模型此刻在线' },
+          { key: 'a', who: '分享智能体', title: '调教好的智能体、装好的应用', text: '别人买的是「把事办成」：你的提示词、Skill、工具链加上 Claude Code 这类运行时，一起替他干活。', rows: [['可以分享', '在资产里调教并投射好的智能体，或 Claude Code、Codex 等已安装应用'], ['别人看重', '谁调的、擅长什么、办得成不成；简介写清楚很关键'], ['怎么计积分', '按次计积分，被雇佣次数会显示在名片上'], ['你的配方', '任务在你的设备上执行，对方只拿结果']], live: '个智能体此刻在线' },
+        ],
+        mapKicker: 'WHO ARE YOU', mapTitle: '你是哪种用户？',
+        map: [['我想直接用', '智能体广场', '别人调好的智能体和模型，打开就用', '/agents'], ['我手上 AI 工具很多', 'OneHarness', '一个入口全管起来，按特点派活', '/harness'], ['我有闲置或作品', '共享网络', '额度和智能体让别人用，你来赚', '/network'], ['我想和朋友一起', '圈子', '只对信任的人开放，一起用', '/circles']],
       },
       en: {
         navPlaza: 'Agent Plaza', navNetwork: 'Share & earn', navCircles: 'Circles', account: 'My account', signIn: 'Sign in', download: 'Download',
@@ -265,6 +299,13 @@ createApp({
         emptyRank: 'No supply data yet', emptySupply: 'No models online right now', loading: 'Loading…',
         finalTitle: 'Put your agent in more hands', finalText: 'Get the client and list in minutes. Sharing only with friends in a circle is fine too.', finalCta2: 'Start a circle',
         footer: 'Share network', home: 'Home', fatal: 'Cannot reach the server, try again later',
+        kindKicker: 'WHAT YOU SHARE', kindTitle: 'Which kind are you sharing?', kindLead: 'Both models and agents can go on the network, but people buy different things — and you care about different things.',
+        kinds: [
+          { key: 'm', who: 'Share models', title: 'Spare quota, local or private models', text: 'People are buying tokens: they chat or generate images on your quota, or plug it into their own tools.', rows: [['You can share', 'Unused subscription quota, pay-as-you-go APIs, local Ollama, private in-house models'], ['They care about', 'Coverage, speed (first-token latency), reliability'], ['Credits', 'Output tokens × model rate × quality factor; earning rate beats spending rate'], ['Your keys', 'Stay on your machine; only model names show on the network']], live: 'models online now' },
+          { key: 'a', who: 'Share agents', title: 'Tuned agents and installed apps', text: 'People are buying a job done: your prompts, skills and toolchain plus a runtime like Claude Code, working for them.', rows: [['You can share', 'Agents tuned and projected in Assets, or installed apps like Claude Code and Codex'], ['They care about', 'Who tuned it, what it\'s good at, whether it delivers — a clear description matters'], ['Credits', 'Per task; hire counts show on your card'], ['Your recipe', 'Runs on your device; callers only get results']], live: 'agents online now' },
+        ],
+        mapKicker: 'WHO ARE YOU', mapTitle: 'Which one are you?',
+        map: [['I just want it done', 'Agent Plaza', 'Agents and models others tuned, ready to use', '/agents'], ['I juggle many AI tools', 'OneHarness', 'One place to run them, routed by strength', '/harness'], ['I have spare quota or a great agent', 'Share & earn', 'Others use it, you earn', '/network'], ['I want to do it with friends', 'Circles', 'Open only to people you trust', '/circles']],
       },
     }
     const T = computed(() => i18n[lang.value] || i18n.zh)
@@ -368,7 +409,9 @@ createApp({
       setInterval(load, 30000)
     })
 
-    return { lang, T, toggleLang, loggedIn, loaded, fatal, summary, models, agentCount, supplyRows, maxNodes, topSharers, offerText, fmtTok, fmtMs, speedCls }
+    const icoModel = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9zM9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>'
+    const icoAgent = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01M9.5 16.5h5"/></svg>'
+    return { icoModel, icoAgent, lang, T, toggleLang, loggedIn, loaded, fatal, summary, models, agentCount, supplyRows, maxNodes, topSharers, offerText, fmtTok, fmtMs, speedCls }
   },
 }).mount('#app')
 </script>

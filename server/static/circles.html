@@ -30,6 +30,8 @@
 .member-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 3px;border-radius:999px;background:var(--bg);border:1px solid var(--border);font-size:12px}
 .req{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid #fde68a80}
 .req:first-of-type{border-top:none}
+.navlinks{min-width:0;overflow-x:auto;scrollbar-width:none}
+.navlinks::-webkit-scrollbar{display:none}
 .sides{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:28px}
 .side{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:18px 20px;border-radius:var(--radius-lg);border:1px solid var(--border);background:var(--bg)}
 .side.use{background:linear-gradient(135deg,#eef2ff,#fff 70%)}
@@ -49,6 +51,7 @@
       <a class="brand" href="/"><img src="/static/logo.svg" alt=""><span class="bt">Token Bank</span></a>
       <div class="navlinks">
         <a href="/agents">{{ T.navPlaza }}</a>
+        <a href="/harness">OneHarness</a>
         <a href="/network">{{ T.navNetwork }}</a>
         <a class="on" href="/circles" aria-current="page">{{ T.navCircles }}</a>
       </div>

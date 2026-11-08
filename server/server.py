@@ -243,6 +243,12 @@ async def network_page():
     return FileResponse("static/network.html")
 
 
+@app.get("/harness")
+async def harness_page():
+    """公开：OneHarness，多个智能体平台一处纳管、统一接口"""
+    return FileResponse("static/harness.html")
+
+
 @app.get("/circles")
 @app.get("/circles/browse")
 async def circles_web_page():

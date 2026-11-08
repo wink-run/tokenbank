@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=3">
+<link rel="stylesheet" href="/static/plaza.css?v=4">
 <script src="/static/vue.global.prod.js"></script>
 <script src="/static/app-runtime-icon.js"></script>
 <style>
@@ -103,9 +103,12 @@ a { color: inherit; text-decoration: none; }
     <nav class="ag-top">
       <div class="ag-top-in">
         <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-        <a class="ag-nav on" href="/agents" aria-current="page">{{ T.plaza }}</a>
-        <a class="ag-nav" href="/network">{{ T.navNetwork }}</a>
-        <a class="ag-nav hide-sm" href="/circles">{{ T.navCircles }}</a>
+        <div class="ag-navs">
+          <a class="ag-nav on" href="/agents" aria-current="page">{{ T.plaza }}</a>
+          <a class="ag-nav" href="/harness">OneHarness</a>
+          <a class="ag-nav" href="/network">{{ T.navNetwork }}</a>
+          <a class="ag-nav" href="/circles">{{ T.navCircles }}</a>
+        </div>
         <div class="ag-top-r">
           <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
           <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? T.account : T.signIn }}</a>
@@ -315,6 +318,14 @@ a { color: inherit; text-decoration: none; }
         </div>
       </section>
 
+      <!-- 你是哪种用户 -->
+      <section class="pz-sec pz-rv" aria-labelledby="pz-map">
+        <div class="pz-head-c"><div class="pz-kicker">{{ T.mapKicker }}</div><h2 id="pz-map" class="pz-h2">{{ T.mapTitle }}</h2></div>
+        <div class="pz-map">
+          <a v-for="m in T.map" :key="m[3]" :href="m[3]" :class="['pz-map-i', { on: m[3] === '/agents' }]"><em>{{ m[0] }}</em><b>{{ m[1] }}</b><span>{{ m[2] }}</span></a>
+        </div>
+      </section>
+
       <!-- 收尾：想分享的人去共享网络 -->
       <section class="pz-final pz-rv">
         <div>
@@ -500,7 +511,7 @@ createApp({
           whyLead: 'They hand you a blank assistant — tuning, setup and renewals are on you. Here you just use it:',
           roles: [
             { key: 'r1', who: 'I just want it done', title: 'Hail an agent like a ride', quote: 'No car to buy, learn or maintain — call one and go.', points: ['Prompts, skills and toolchains an expert already polished', 'No keys, no setup — chat right in the browser', 'Pay per task, only for what you use'], cta: 'Try one', href: '#agents' },
-            { key: 'r2', who: 'Away from my desk', title: 'Your home machine\'s agents, on your phone', quote: 'No networking skills needed: install the client and your devices form your own mesh.', points: ['No public IP, tunnels or port forwarding', 'Agents on every device you own, opened from one place', 'Chats follow you — switch devices and keep going'], cta: 'Get the client', href: '/#download' },
+            { key: 'r2', who: 'Once you\'re hooked', title: 'Plug hired agents into your own tools', quote: 'With the client, hired agents show up in the Playground and inside Claude Code or Codex, next to your local agents.', points: ['Hire once, dispatch from the tools you already use', 'Same interface as local agents — change the id to switch', 'Tasks still run on their device; nothing of theirs lands on yours'], cta: 'About OneHarness', href: '/harness' },
             { key: 'r3', who: 'I want to play with friends', title: 'One link brings them in', quote: 'Like starting a group chat: they open the link and pick up the thread — no sign-up, no setup.', points: ['Take turns in one conversation and create together', 'Poke the agent to squeeze out fresh ideas', 'Start a circle only people you trust can see'], cta: 'Explore circles', href: '/circles' },
           ],
           safeKicker: 'SHARE THE SKILL, KEEP THE RECIPE', safeTitle: 'They can use it. They can\'t take it.',
@@ -513,9 +524,11 @@ createApp({
             ['Expertise', 'Tune prompts, skills and MCP yourself', 'Use agents experts already tuned'],
             ['Getting started', 'Subscription + setup + trial and error', 'Zero setup, open and use'],
             ['Paying', 'Monthly, whether you use it or not', 'Per task, only for what you use'],
-            ['Another device', 'Local tools stay on that machine', 'All your devices\' agents in one place'],
+            ['Many platforms', 'One config and one bill per platform', 'Local and community agents behind one interface'],
             ['With friends', 'Mostly single-user', 'One link brings people in'],
           ],
+          mapKicker: 'WHO ARE YOU', mapTitle: 'Which one are you?',
+          map: [['I just want it done', 'Agent Plaza', 'Agents and models others tuned, ready to use', '/agents'], ['I juggle many AI tools', 'OneHarness', 'One place to run them, routed by strength', '/harness'], ['I have spare quota or a great agent', 'Share & earn', 'Others use it, you earn', '/network'], ['I want to do it with friends', 'Circles', 'Open only to people you trust', '/circles']],
           finalTitle: 'Got a tuned agent or spare quota?',
           finalText: 'Put it on the share network: tasks run on your device, the recipe stays private, and every use earns you credits.',
           finalCta: 'How sharing pays', finalCta2: 'Start a circle',
@@ -548,7 +561,7 @@ createApp({
         whyLead: '它们给你一个空白的助手，调教、配置、续费全靠你自己。在这里，你只管用：',
         roles: [
           { key: 'r1', who: '只想把事办成', title: '像打车一样用智能体', quote: '不用买车、学车、养车，叫一辆就走。', points: ['高手打磨好的提示词、Skill、工具链，拿来就用', '不买 Key、不装环境，浏览器直接对话', '按次计费，用多少付多少'], cta: '挑一个试试', href: '#agents' },
-          { key: 'r2', who: '人在外面', title: '家里那台的智能体，手机上照样用', quote: '不懂网络也行：装好客户端，各终端上的智能体就连成你自己的一张网。', points: ['无需公网 IP、内网穿透、端口转发', '家里、公司各台设备上的智能体，一处打开', '对话记录跟着走，换设备接着聊'], cta: '下载客户端', href: '/#download' },
+          { key: 'r2', who: '用顺手了', title: '雇来的智能体，接进你自己的工具', quote: '装上客户端，雇佣的智能体直接出现在游乐场和 Claude Code、Codex 里，和本机的智能体一起听你调度。', points: ['雇一次，在自己常用的工具里就能派活', '和本机智能体同一套接口，换个 id 就换一个', '任务仍在对方设备执行，本机不落对方配置'], cta: '了解 OneHarness', href: '/harness' },
           { key: 'r3', who: '想和朋友一起玩', title: '一个链接，拉人进场', quote: '像拉群一样：对方点开链接就能接着聊，不用注册，也不用配置。', points: ['多人接龙同一场对话，一起创作', '故意逗它，把新点子逼出来', '建个圈子，只对信任的人开放'], cta: '去看看圈子', href: '/circles' },
         ],
         safeKicker: '能力共享 · 配方私有', safeTitle: '别人能用，但拿不走',
@@ -561,9 +574,11 @@ createApp({
           ['专业能力', '提示词、Skill、MCP 自己慢慢调', '直接用高手调好的成品'],
           ['上手成本', '订阅 + 配置 + 反复试错', '0 配置，打开就用'],
           ['怎么付费', '按月订阅，用不用都要付', '按次付费，用多少付多少'],
-          ['换台设备', '本机的工具和环境，换台设备就得重配', '自己各终端的智能体，一处打开'],
+          ['多个平台', '每个平台一套配置、一个账单', '本机和社区的智能体同一套接口调用'],
           ['和朋友一起', '基本是一个人用', '一个链接拉人进来，接着聊'],
         ],
+        mapKicker: 'WHO ARE YOU', mapTitle: '你是哪种用户？',
+        map: [['我想直接用', '智能体广场', '别人调好的智能体和模型，打开就用', '/agents'], ['我手上 AI 工具很多', 'OneHarness', '一个入口全管起来，按特点派活', '/harness'], ['我有闲置或作品', '共享网络', '额度和智能体让别人用，你来赚', '/network'], ['我想和朋友一起', '圈子', '只对信任的人开放，一起用', '/circles']],
         finalTitle: '你也有调教好的智能体，或用不完的额度？',
         finalText: '放到共享网络上：任务在你的设备上执行，配方不外泄，别人每用一次你就得积分。',
         finalCta: '了解怎么分享赚积分', finalCta2: '先建个圈子',

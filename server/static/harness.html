@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OneHarness · Token Bank</title>
+<meta name="description" content="OneHarness：Claude Code、Codex、Cursor、WorkBuddy、Kimi Code 等智能体平台一处纳管。统一接口，换一个 harness_id 就换一个智能体；主 Agent 按特点派活；人在外面也能用自己设备上的智能体。">
+<link rel="icon" href="/static/logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/plaza.css?v=4">
+<script src="/static/vue.global.prod.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+[v-cloak] { display: none !important; }
+body { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; background: #fafafb; color: #0a0a0a; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+</style>
+</head>
+<body>
+<div id="app" v-cloak>
+  <nav class="ag-top">
+    <div class="ag-top-in">
+      <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
+      <div class="ag-navs">
+        <a class="ag-nav" href="/agents">{{ T.navPlaza }}</a>
+        <a class="ag-nav on" href="/harness" aria-current="page">OneHarness</a>
+        <a class="ag-nav" href="/network">{{ T.navNetwork }}</a>
+        <a class="ag-nav" href="/circles">{{ T.navCircles }}</a>
+      </div>
+      <div class="ag-top-r">
+        <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
+        <a class="ag-dl hide-sm" href="/#download">{{ T.download }}</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- 首屏：多个智能体平台 → 一个入口 -->
+  <header class="pz-hero">
+    <div class="pz-grid-bg" aria-hidden="true"></div>
+    <div class="pz-hero-in hs-hero-in" style="padding-bottom:72px">
+      <div>
+        <div class="pz-eyebrow"><b>ONEHARNESS</b>{{ T.eyebrow }}</div>
+        <h1 class="pz-h1">{{ T.h1a }}<br><em>{{ T.h1b }}</em></h1>
+        <p class="pz-sub">{{ T.sub }}</p>
+        <ul class="pz-promise"><li v-for="p in T.promise" :key="p">{{ p }}</li></ul>
+        <div class="nw-ctas">
+          <a class="pz-btn pri" href="/#download">{{ T.ctaStart }}</a>
+          <a class="pz-btn ghost" href="#api">{{ T.ctaApi }}</a>
+        </div>
+      </div>
+      <div class="hs-merge" aria-hidden="true">
+        <svg viewBox="0 0 420 380">
+          <defs>
+            <linearGradient id="hsIn" x1="0" x2="1"><stop offset="0%" stop-color="#a78bfa" stop-opacity=".05"/><stop offset="100%" stop-color="#a78bfa" stop-opacity=".7"/></linearGradient>
+            <linearGradient id="hsOut" x1="0" x2="1"><stop offset="0%" stop-color="#67e8f9" stop-opacity=".8"/><stop offset="100%" stop-color="#67e8f9" stop-opacity=".08"/></linearGradient>
+            <radialGradient id="hsHub" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#a5f3fc"/><stop offset="55%" stop-color="#818cf8"/><stop offset="100%" stop-color="#6366f1" stop-opacity="0"/></radialGradient>
+          </defs>
+          <g v-for="(a, i) in heroApps" :key="a.id">
+            <path :d="'M62 ' + a.y + ' C 150 ' + a.y + ', 150 190, 210 190'" stroke="url(#hsIn)" stroke-width="1.2" fill="none"/>
+            <circle v-if="!reduced" r="2.4" fill="#c4b5fd"><animateMotion :dur="(2.2 + i * 0.25) + 's'" repeatCount="indefinite" :begin="(i * 0.3) + 's'" :path="'M62 ' + a.y + ' C 150 ' + a.y + ', 150 190, 210 190'"/></circle>
+            <rect x="14" :y="a.y - 17" width="48" height="34" rx="10" fill="rgba(255,255,255,.94)" stroke="rgba(165,180,252,.5)"/>
+            <image v-if="a.icon" :href="a.icon" x="27" :y="a.y - 11" width="22" height="22"/>
+            <text v-else x="38" :y="a.y + 4" text-anchor="middle" font-size="11" font-weight="700" fill="#4f46e5">{{ a.short }}</text>
+          </g>
+          <g v-for="(o, i) in T.heroOut" :key="o">
+            <path :d="'M232 190 C 290 190, 290 ' + (110 + i * 80) + ', 330 ' + (110 + i * 80)" stroke="url(#hsOut)" stroke-width="1.4" fill="none"/>
+            <rect x="330" :y="92 + i * 80" width="82" height="36" rx="11" fill="rgba(103,232,249,.08)" stroke="rgba(103,232,249,.35)"/>
+            <text x="371" :y="115 + i * 80" text-anchor="middle" font-size="12" font-weight="600" fill="#cffafe">{{ o }}</text>
+          </g>
+          <circle cx="221" cy="190" r="56" fill="url(#hsHub)" opacity=".55"/>
+          <circle cx="221" cy="190" r="30" fill="#0b1020" stroke="#a5b4fc" stroke-width="1.5"/>
+          <text x="221" y="186" text-anchor="middle" font-size="9.5" font-weight="700" fill="#e0e7ff" letter-spacing=".04em">ONE</text>
+          <text x="221" y="199" text-anchor="middle" font-size="9.5" font-weight="700" fill="#e0e7ff" letter-spacing=".04em">HARNESS</text>
+        </svg>
+      </div>
+    </div>
+  </header>
+
+  <main class="ag-page">
+    <!-- 支持的应用 -->
+    <section class="pz-sec" aria-labelledby="hs-apps">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.appsKicker }}</div>
+        <h2 id="hs-apps" class="pz-h2">{{ T.appsTitle }}</h2>
+        <p class="pz-lead">{{ T.appsLead }}</p>
+      </div>
+      <div class="hs-wall">
+        <div v-for="g in appGroups" :key="g.key" class="hs-group">
+          <div class="hs-group-h"><b>{{ g.title }}</b><span>{{ g.desc }}</span></div>
+          <div class="hs-chips">
+            <span v-for="a in g.apps" :key="a.name" class="hs-chip">
+              <img v-if="a.icon" :src="a.icon" alt=""><i v-else>{{ a.name.slice(0, 1) }}</i>{{ a.name }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 管起来之后能做什么 -->
+    <section class="pz-sec pz-rv" aria-labelledby="hs-cap">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.capKicker }}</div>
+        <h2 id="hs-cap" class="pz-h2">{{ T.capTitle }}</h2>
+      </div>
+      <div class="hs-caps">
+        <div v-for="c in T.caps" :key="c.t" class="hs-cap">
+          <div class="hs-pain">{{ c.pain }}</div>
+          <h3>{{ c.t }}</h3>
+          <p>{{ c.d }}</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 按特点派活 -->
+    <section class="pz-safe pz-rv hs-route" aria-labelledby="hs-route">
+      <div>
+        <div class="pz-kicker">{{ T.routeKicker }}</div>
+        <h2 id="hs-route" class="pz-h2">{{ T.routeTitle }}</h2>
+        <p class="pz-lead">{{ T.routeLead }}</p>
+      </div>
+      <div class="hs-plan">
+        <div class="hs-plan-h"><span class="hs-main">{{ T.mainAgent }}</span><span class="hs-task">“{{ T.routeTask }}”</span></div>
+        <div v-for="r in T.routes" :key="r[0]" class="hs-row">
+          <span class="hs-step">{{ r[0] }}</span>
+          <i class="hs-arrow" aria-hidden="true">→</i>
+          <span class="hs-to" :class="r[2]"><b>{{ r[1] }}</b><small>{{ T.kind[r[2]] }}</small></span>
+        </div>
+        <div class="hs-note">{{ T.routeNote }}</div>
+      </div>
+    </section>
+
+    <!-- 统一接口 -->
+    <section id="api" class="pz-sec pz-rv" aria-labelledby="hs-api">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.apiKicker }}</div>
+        <h2 id="hs-api" class="pz-h2">{{ T.apiTitle }}</h2>
+        <p class="pz-lead">{{ T.apiLead }}</p>
+      </div>
+      <div class="hs-code">
+        <div class="hs-code-tabs" role="tablist">
+          <button v-for="(ex, i) in examples" :key="ex.key" type="button" role="tab" :aria-selected="exIdx === i" :class="{ on: exIdx === i }" @click="exIdx = i">
+            <img v-if="ex.icon" :src="ex.icon" alt="">{{ ex.label }}
+          </button>
+          <button type="button" class="hs-copy" @click="copyCode">{{ copied ? T.copied : T.copy }}</button>
+        </div>
+        <pre><code><template v-for="(ln, i) in examples[exIdx].lines" :key="i"><span :class="{ hl: ln.hl }">{{ ln.t }}</span>
+</template></code></pre>
+        <div class="hs-code-f">{{ examples[exIdx].note }}</div>
+      </div>
+      <div class="hs-facts">
+        <div v-for="f in T.facts" :key="f[0]"><b>{{ f[0] }}</b><span>{{ f[1] }}</span></div>
+      </div>
+    </section>
+
+    <!-- 你是哪种用户 -->
+    <section class="pz-sec pz-rv" aria-labelledby="pz-map">
+      <div class="pz-head-c"><div class="pz-kicker">{{ T.mapKicker }}</div><h2 id="pz-map" class="pz-h2">{{ T.mapTitle }}</h2></div>
+      <div class="pz-map">
+        <a v-for="m in T.map" :key="m[3]" :href="m[3]" :class="['pz-map-i', { on: m[3] === '/harness' }]"><em>{{ m[0] }}</em><b>{{ m[1] }}</b><span>{{ m[2] }}</span></a>
+      </div>
+    </section>
+
+    <section class="pz-final pz-rv">
+      <div><h2>{{ T.finalTitle }}</h2><p>{{ T.finalText }}</p></div>
+      <div class="pz-final-btns">
+        <a class="pz-btn pri" href="/#download">{{ T.ctaStart }}</a>
+        <a class="pz-btn ghost" href="/agents">{{ T.finalCta2 }}</a>
+      </div>
+    </section>
+  </main>
+  <footer class="nw-foot"><span>Token Bank · OneHarness</span><a href="/">{{ T.home }}</a><a href="/agents">{{ T.navPlaza }}</a><a href="/network">{{ T.navNetwork }}</a><a href="/circles">{{ T.navCircles }}</a></footer>
+</div>
+
+<script>
+const { createApp, ref, computed, onMounted, nextTick } = Vue
+const B = '/static/brand-icons/'
+
+createApp({
+  setup() {
+    let stored = ''
+    try { stored = localStorage.getItem('tb_lang') || '' } catch {}
+    const lang = ref(stored || ((navigator.language || '').startsWith('zh') ? 'zh' : 'en'))
+    let reduced = false
+    try { reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches } catch {}
+
+    const i18n = {
+      zh: {
+        navPlaza: '智能体广场', navNetwork: '共享网络', navCircles: '圈子', download: '下载客户端', home: '首页',
+        title: 'OneHarness', eyebrow: '给手上 AI 工具很多的人',
+        h1a: '智能体平台再多，', h1b: '一个入口全管起来',
+        sub: 'Claude Code、Codex、Cursor、WorkBuddy、Kimi……每个都有自己的配置、账单和接口。OneHarness 把它们接到同一个本地网关：一处管理，同一套接口，按特点派活。',
+        promise: ['一键纳管，随时还原', '同一套接口', '按特点派活', '人在外面也能用'],
+        ctaStart: '下载客户端', ctaApi: '看统一接口',
+        heroOut: ['你的任务', '社区智能体', '模型'],
+        appsKicker: 'WORKS WITH', appsTitle: '你已经在用的，都能接进来', appsLead: '不改使用习惯：装好的应用自动出现在列表里，点一下纳管，不想用了一键还原官方配置。',
+        groups: { cli: ['透明托管', '自动注入网关地址，命令照常敲'], cfg: ['配置写入', '一键改写配置文件，指向本地网关'], stats: ['用量统计', '读取会话记录，Token 和费用照样看得清'] },
+        capKicker: 'ONE PLACE', capTitle: '管起来之后，能省掉哪些事',
+        caps: [
+          { pain: '每个工具一套配置，切换全靠手改', t: '一处纳管，随时还原', d: '所有应用指向同一个本地地址。换模型、换路由在一个地方改，不想用了一键恢复官方配置，零残留。' },
+          { pain: 'Skill、MCP、Prompt 到处复制，版本对不上', t: '资产一处纳管，投射到各个应用', d: '在资产库改一次，所有已纳管的智能体拿到的都是同一个版本；只投射到本机真的装了的应用。' },
+          { pain: '不知道哪个智能体擅长什么', t: '主 Agent 按特点派活', d: '把任务交给一个主 Agent，它拆步骤、派给最合适的那个：本机的 Claude Code、Codex，或雇来的社区智能体。' },
+          { pain: '离开那台电脑，智能体就用不了', t: '各终端的智能体，随处可用', d: '家里、公司每台设备上的智能体集中在一处，不用公网 IP 和内网穿透；用量和费用多设备合并，一眼看清。' },
+        ],
+        routeKicker: 'BY STRENGTH', routeTitle: '一句话，派给最擅长的那个', routeLead: '主 Agent 接住整件事，按每一步的特点挑执行者。本机的、雇来的、模型，都在同一张名单里。',
+        mainAgent: '主 Agent', routeTask: '把这个仓库的登录 bug 修了，再写篇更新说明配张封面',
+        routes: [['定位并修复 bug', 'Codex（本机）', 'local'], ['跑测试、整理提交', 'Claude Code（本机）', 'local'], ['写更新说明', '内容创作教练（社区）', 'community'], ['生成封面图', 'gemini-2.5-flash-image', 'model']],
+        kind: { local: '本机应用', community: '社区智能体 · 在对方设备执行', model: '社区模型' },
+        routeNote: '示例。派给谁由主 Agent 根据你纳管和雇佣的名单决定，过程中的每次工具调用都看得到，可以随时停下或接着做。',
+        apiKicker: 'ONE INTERFACE', apiTitle: '换一个 id，就换一个智能体', apiLead: '本机应用、社区智能体走同一个任务接口，只有 harness_id 不同；模型走标准补全接口，原生模型名不变。写一次集成，后面随便换。',
+        copy: '复制', copied: '已复制',
+        exLabels: ['本机 Claude Code', '本机 Codex', '社区智能体', '模型'],
+        exNotes: [
+          '本机网关监听 11430 端口，Authorization 用客户端里的本机网关 Key。',
+          '只改了 harness_id，其他一个字不用动。',
+          '社区智能体用 community:<id>@<分享者>，云端自动选对方在线的设备；任务在对方机器上执行，你只拿结果。',
+          '模型走 OpenAI 兼容接口（也支持 Anthropic Messages、Codex Responses）。网关按你的路由选本地源或社区共享。',
+        ],
+        prompt: '修一下登录页的报错',
+        facts: [['同一个请求体', 'input + metadata.harness_id，stream 打开就按 SSE 逐段返回'], ['任务可查可停', 'GET / cancel 同一个任务 id，断线重连接着收'], ['协议自动转换', 'Anthropic、OpenAI、Codex 三种协议互通，原生模型名不变']],
+        mapKicker: 'WHO ARE YOU', mapTitle: '你是哪种用户？',
+        map: [['我想直接用', '智能体广场', '别人调好的智能体和模型，打开就用', '/agents'], ['我手上 AI 工具很多', 'OneHarness', '一个入口全管起来，按特点派活', '/harness'], ['我有闲置或作品', '共享网络', '额度和智能体让别人用，你来赚', '/network'], ['我想和朋友一起', '圈子', '只对信任的人开放，一起用', '/circles']],
+        finalTitle: '把你手上的智能体，接成一个团队', finalText: '下载客户端，已装的应用自动出现。先纳管一个试试，不喜欢一键还原。', finalCta2: '先去广场逛逛',
+      },
+      en: {
+        navPlaza: 'Agent Plaza', navNetwork: 'Share & earn', navCircles: 'Circles', download: 'Download', home: 'Home',
+        title: 'OneHarness', eyebrow: 'For people with too many AI tools',
+        h1a: 'However many agent platforms,', h1b: 'one place to run them all',
+        sub: 'Claude Code, Codex, Cursor, WorkBuddy, Kimi… each has its own config, bill and API. OneHarness plugs them into one local gateway: manage in one place, call through one interface, hand each job to the right one.',
+        promise: ['One-click onboard, one-click restore', 'One interface', 'Route by strength', 'Works while you\'re out'],
+        ctaStart: 'Download the client', ctaApi: 'See the interface',
+        heroOut: ['Your task', 'Community', 'Models'],
+        appsKicker: 'WORKS WITH', appsTitle: 'Bring the tools you already use', appsLead: 'Keep your habits: installed apps show up automatically, one click to onboard, one click to restore the official config.',
+        groups: { cli: ['Transparent wrap', 'Gateway address injected — run commands as usual'], cfg: ['Config patch', 'One click rewrites the config to point at the gateway'], stats: ['Usage tracking', 'Reads session logs so tokens and cost stay visible'] },
+        capKicker: 'ONE PLACE', capTitle: 'What you stop doing once it\'s all managed',
+        caps: [
+          { pain: 'Every tool has its own config; switching means editing by hand', t: 'Onboard in one place, restore any time', d: 'Every app points at one local address. Change models and routes in one spot, or restore the official config with zero leftovers.' },
+          { pain: 'Skills, MCP and prompts copied everywhere, versions drift', t: 'One asset library, projected to every app', d: 'Edit once and every onboarded agent gets the same version — projected only to apps actually installed on this machine.' },
+          { pain: 'No idea which agent is good at what', t: 'A main agent routes by strength', d: 'Hand the job to a main agent; it splits the steps and dispatches each to the best fit — local Claude Code, Codex, or a hired community agent.' },
+          { pain: 'Leave that computer and the agent is gone', t: 'Every device\'s agents, anywhere', d: 'Agents on your home and office machines in one place, no public IP or tunnels; usage and cost merged across devices.' },
+        ],
+        routeKicker: 'BY STRENGTH', routeTitle: 'One sentence, sent to whoever does it best', routeLead: 'The main agent owns the whole job and picks an executor for each step. Local apps, hired agents and models sit on the same roster.',
+        mainAgent: 'Main agent', routeTask: 'Fix the login bug in this repo, then write release notes with a cover image',
+        routes: [['Find and fix the bug', 'Codex (local)', 'local'], ['Run tests, tidy the commit', 'Claude Code (local)', 'local'], ['Write release notes', 'Content coach (community)', 'community'], ['Make the cover image', 'gemini-2.5-flash-image', 'model']],
+        kind: { local: 'Local app', community: 'Community agent · runs on their device', model: 'Community model' },
+        routeNote: 'Example. Who gets what depends on the agents you have onboarded and hired; every tool call is visible and you can stop or resume any time.',
+        apiKicker: 'ONE INTERFACE', apiTitle: 'Change one id, change the agent', apiLead: 'Local apps and community agents share one task endpoint — only harness_id differs. Models use the standard completion endpoints with their native names. Integrate once, swap freely.',
+        copy: 'Copy', copied: 'Copied',
+        exLabels: ['Local Claude Code', 'Local Codex', 'Community agent', 'Model'],
+        exNotes: [
+          'The local gateway listens on port 11430; use the local gateway key from the app as Authorization.',
+          'Only harness_id changed. Nothing else.',
+          'Community agents use community:<id>@<owner>; the cloud picks an online device of theirs. The task runs on their machine and you get the result.',
+          'Models use the OpenAI-compatible endpoint (Anthropic Messages and Codex Responses work too). The gateway follows your routes across local and community sources.',
+        ],
+        prompt: 'Fix the error on the login page',
+        facts: [['One request body', 'input + metadata.harness_id; set stream to get SSE chunks'], ['Inspect and cancel', 'GET or cancel by task id; reconnect and keep receiving'], ['Protocols translated', 'Anthropic, OpenAI and Codex protocols interoperate with native model names']],
+        mapKicker: 'WHO ARE YOU', mapTitle: 'Which one are you?',
+        map: [['I just want it done', 'Agent Plaza', 'Agents and models others tuned, ready to use', '/agents'], ['I juggle many AI tools', 'OneHarness', 'One place to run them, routed by strength', '/harness'], ['I have spare quota or a great agent', 'Share & earn', 'Others use it, you earn', '/network'], ['I want to do it with friends', 'Circles', 'Open only to people you trust', '/circles']],
+        finalTitle: 'Turn your agents into a team', finalText: 'Get the client and your installed apps show up. Onboard one to try it — restore with one click if you don\'t like it.', finalCta2: 'Browse the plaza first',
+      },
+    }
+    const T = computed(() => i18n[lang.value] || i18n.zh)
+    function toggleLang() {
+      lang.value = lang.value === 'zh' ? 'en' : 'zh'
+      try { localStorage.setItem('tb_lang', lang.value) } catch {}
+      document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
+    }
+
+    // 与 app-handlers.yaml 对齐的应用清单（接入方式分三类）
+    const APPS = {
+      cli: [['Claude Code', B + 'claudecode-color.svg'], ['Codex CLI', B + 'codex-color.svg'], ['Kimi Code', B + 'kimi-color.svg'], ['OpenCode'], ['Hermes'], ['Pi'], ['DeepSeek', B + 'deepseek-color.svg']],
+      cfg: [['Claude Desktop', B + 'claude-color.svg'], ['Codex Desktop', B + 'openai.svg'], ['OpenClaw', B + 'openclaw-color.svg'], ['WorkBuddy']],
+      stats: [['Cursor', B + 'cursor.svg'], ['Copilot', B + 'copilot-color.svg'], ['Qwen', B + 'qwen-color.svg'], ['Gemini CLI', B + 'geminicli-color.svg'], ['Grok'], ['Trae'], ['Antigravity']],
+    }
+    const appGroups = computed(() => ['cli', 'cfg', 'stats'].map(key => ({
+      key, title: T.value.groups[key][0], desc: T.value.groups[key][1],
+      apps: APPS[key].map(([name, icon]) => ({ name, icon: icon || '' })),
+    })))
+    const heroApps = [
+      { id: 'cc', icon: B + 'claudecode-color.svg', y: 50 }, { id: 'cx', icon: B + 'codex-color.svg', y: 104 },
+      { id: 'cu', icon: B + 'cursor.svg', y: 158 }, { id: 'wb', short: 'WB', y: 212 },
+      { id: 'km', icon: B + 'kimi-color.svg', y: 266 }, { id: 'oc', icon: B + 'openclaw-color.svg', y: 320 },
+    ]
+
+    const exIdx = ref(0)
+    const examples = computed(() => {
+      const t = T.value
+      const agent = (id) => [
+        { t: 'curl http://127.0.0.1:11430/v1/agent/responses \\' },
+        { t: '  -H "Authorization: Bearer $TOKENBANK_KEY" \\' },
+        { t: '  -H "content-type: application/json" \\' },
+        { t: '  -d \'{' },
+        { t: '    "input": "' + t.prompt + '",' },
+        { t: '    "stream": true,' },
+        { t: '    "metadata": { "harness_id": "' + id + '" }', hl: true },
+        { t: '  }\'' },
+      ]
+      return [
+        { key: 'cc', label: t.exLabels[0], icon: B + 'claudecode-color.svg', lines: agent('claude-code'), note: t.exNotes[0] },
+        { key: 'cx', label: t.exLabels[1], icon: B + 'codex-color.svg', lines: agent('codex'), note: t.exNotes[1] },
+        { key: 'cm', label: t.exLabels[2], icon: '', lines: agent('community:<agent-id>@<owner>'), note: t.exNotes[2] },
+        { key: 'md', label: t.exLabels[3], icon: '', note: t.exNotes[3], lines: [
+          { t: 'curl http://127.0.0.1:11430/v1/chat/completions \\' },
+          { t: '  -H "Authorization: Bearer $TOKENBANK_KEY" \\' },
+          { t: '  -H "content-type: application/json" \\' },
+          { t: '  -d \'{' },
+          { t: '    "model": "claude-sonnet-4-6",', hl: true },
+          { t: '    "messages": [{ "role": "user", "content": "' + t.prompt + '" }]' },
+          { t: '  }\'' },
+        ] },
+      ]
+    })
+    const copied = ref(false)
+    async function copyCode() {
+      const text = examples.value[exIdx.value].lines.map(l => l.t).join('\n')
+      let ok = false
+      try { await navigator.clipboard.writeText(text); ok = true } catch {
+        const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'
+        document.body.appendChild(ta); ta.select(); try { ok = document.execCommand('copy') } catch { ok = false } ta.remove()
+      }
+      if (ok) { copied.value = true; setTimeout(() => { copied.value = false }, 1500) }
+    }
+
+    function setupReveal() {
+      if (reduced || !('IntersectionObserver' in window)) return
+      document.documentElement.classList.add('pz-rv-on')
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach((en) => { if (en.isIntersecting) { en.target.classList.add('in'); obs.unobserve(en.target) } })
+      }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 })
+      document.querySelectorAll('.pz-rv').forEach(el => obs.observe(el))
+    }
+    onMounted(() => {
+      document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
+      nextTick(setupReveal)
+    })
+    return { lang, T, toggleLang, reduced, appGroups, heroApps, exIdx, examples, copied, copyCode }
+  },
+}).mount('#app')
+</script>
+</body>
+</html>
