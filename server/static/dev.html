@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=23">
+<link rel="stylesheet" href="/static/plaza.css?v=24">
 <script src="/static/plaza-nav.js?v=18"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -297,7 +297,7 @@ createApp({
           const d = await n.json()
           nodes.value = (d.summary && d.summary.online_workers) || 0
           models.value = Array.isArray(d.available_models) ? d.available_models.length : 0
-          agents.value = Array.isArray(d.available_agents) ? d.available_agents.length : 0
+          agents.value = Array.isArray(d.available_agents) ? d.available_agents.filter(a => a.online !== false).length : 0
         }
         if (c && c.ok) {
           const cd = await c.json()

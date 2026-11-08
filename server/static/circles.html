@@ -13,7 +13,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/community.css">
-<link rel="stylesheet" href="/static/plaza.css?v=23">
+<link rel="stylesheet" href="/static/plaza.css?v=24">
 <script src="/static/plaza-nav.js?v=18"></script>
 <script src="/static/vue.global.prod.js"></script>
 <script src="/static/app-runtime-icon.js"></script>
@@ -22,7 +22,7 @@
 @media (max-width:720px){.srow{grid-template-columns:minmax(0,1fr) 84px}}
 .detail-hero{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:20px}
 .detail-hero .top{position:relative;padding:22px;display:flex;flex-wrap:wrap;align-items:flex-start;gap:16px}
-.detail-hero .top::before{content:"";position:absolute;inset:0 0 auto 0;height:72px;background:linear-gradient(90deg,#d1fae5aa,#f5ebff88 60%,transparent);pointer-events:none}
+.detail-hero .top::before{content:"";position:absolute;inset:0 0 auto 0;height:72px;background:linear-gradient(90deg,#fff1c4aa,transparent);pointer-events:none}
 .detail-hero .top>*{position:relative}
 .detail-hero .av{width:60px;height:60px;border-radius:18px;font-size:24px;box-shadow:0 0 0 4px #fff,0 6px 16px rgba(0,0,0,.08)}
 .detail-hero .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--border)}
@@ -44,7 +44,7 @@
 .side-t{width:100%;font-size:16px;font-weight:650;letter-spacing:-.01em}
 .side-d{width:100%;font-size:13px;color:var(--text-muted);margin-bottom:6px;line-height:1.6}
 @media (max-width:720px){.sides{grid-template-columns:1fr}.navlinks{-webkit-mask-image:linear-gradient(90deg,#000 82%,transparent);mask-image:linear-gradient(90deg,#000 82%,transparent);padding-right:18px}}
-.signin-card{display:flex;flex-wrap:wrap;align-items:center;gap:14px;background:linear-gradient(135deg,#f5ebff,#ecfdf5);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px}
+.signin-card{display:flex;flex-wrap:wrap;align-items:center;gap:14px;background:#fff7dc;border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px}
 </style>
 </head>
 <body>
@@ -317,7 +317,7 @@
     </template>
   </main>
 
-  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.navPlaza }}</a><a href="/dev">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
+  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
 
   <!-- 登录 / 注册 -->
   <div v-if="showAuth" class="mask" @click.self="showAuth = false">

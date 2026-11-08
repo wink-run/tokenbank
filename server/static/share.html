@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=23">
+<link rel="stylesheet" href="/static/plaza.css?v=24">
 <script src="/static/plaza-nav.js?v=18"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -335,7 +335,7 @@ createApp({
         summary.value = data.summary || {}
         workers.value = Array.isArray(data.workers) ? data.workers : []
         availableModels.value = Array.isArray(data.available_models) ? data.available_models : []
-        agentCount.value = Array.isArray(data.available_agents) ? data.available_agents.length : 0
+        agentCount.value = Array.isArray(data.available_agents) ? data.available_agents.filter(a => a.online !== false).length : 0
         fatal.value = ''
       } catch {
         if (!workers.value.length) fatal.value = T.value.fatal

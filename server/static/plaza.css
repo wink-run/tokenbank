@@ -1087,3 +1087,7 @@ body { background: #faf8f3 !important; color: var(--pz-ink); }
 }
 #features { scroll-margin-top: 40px; }
 @media (max-width: 1024px) { #features { scroll-margin-top: 40px; } }
+
+/* 线上走查修正 */
+.ag-page > .dv-arch:first-child { margin-top: 0; }
+.pz-safe .pz-h2 { word-break: keep-all; overflow-wrap: anywhere; }
