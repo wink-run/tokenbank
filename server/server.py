@@ -110,7 +110,7 @@ async def lifespan(app: FastAPI):
     await db.close_pool()
 
 
-# landing 页产品截图，需长期保留（与 landing.html data-tab / img_cache/{key}.webp 对齐）
+# 产品截图，需长期保留（统一管理页 /harness 按 img_cache/{key}.webp 引用）
 _LANDING_SCREENSHOTS = frozenset({
     "dashboard.webp", "gateway.webp", "provider.webp",
     "dashboard_en.webp", "gateway_en.webp", "provider_en.webp",
@@ -224,7 +224,8 @@ async def favicon():
 
 @app.get("/")
 async def landing():
-    return FileResponse("static/landing.html")
+    # 首页 = 开发者概览（含下载和常见问题）；广场供给丰富后再换成 /agents
+    return FileResponse("static/dev.html")
 
 
 @app.get("/app")
