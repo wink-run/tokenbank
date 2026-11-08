@@ -1769,6 +1769,11 @@ function providerSupportsResponses(provider) {
   return false;
 }
 
+/** ChatGPT Codex 订阅（OAuth）只接受 backend-api/codex/responses，不接受 chat/completions。 */
+function isCodexSubscriptionProvider(provider) {
+  return !!(provider && provider.auth_type === 'oauth' && provider.oauth_provider === 'codex');
+}
+
 /** 拼上游 URL：ChatGPT Codex backend 的 Responses 无 /v1 前缀。 */
 function resolveUpstreamUrl(baseUrl, reqPath) {
   const base = normBase(baseUrl);
@@ -2521,6 +2526,189 @@ function proxyResponsesViaAnthropic(provider, responsesBody, model, res) {
   });
 }
 
+// ── Chat Completions → Codex OAuth Responses ────────────────────────────────
+// applyAuth 会把 Codex 订阅的 base 改成 chatgpt.com/backend-api/codex。那里没有
+// /v1/chat/completions（拼出来是 /codex/v1/chat/completions，上游 404）。
+// 只在这条订阅路径上把 Chat 请求改写成 /responses，再把 SSE 转回 Chat。
+// 原生 /v1/responses、API Key 的 OpenAI、Claude 仍走各自原来的代理。
+function proxyChatViaCodexResponses(provider, chatBody, res) {
+  return new Promise((resolve, reject) => {
+    let responsesBody;
+    try {
+      responsesBody = codexTransform.chatToCodexResponses(chatBody);
+    } catch (err) {
+      return reject(err);
+    }
+    const clientStream = !!chatBody.stream;
+    const includeUsage = !clientStream || !chatBody.stream_options || chatBody.stream_options.include_usage === true;
+
+    let headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream',
+    };
+    let sendBody = responsesBody;
+    let effectiveBase = provider.base_url;
+    if (provider._oauth) {
+      const ap = provider._oauth.applyAuth({ headers, body: sendBody, credentials: provider.credentials });
+      headers = ap.headers;
+      if (ap.body) sendBody = ap.body;
+      if (ap.baseUrl) effectiveBase = ap.baseUrl;
+    } else if (provider.token) {
+      headers.Authorization = `Bearer ${provider.token}`;
+    }
+    applyP2pRouteHeader(headers, provider);
+    const bodyStr = JSON.stringify(sendBody);
+    headers['Content-Length'] = Buffer.byteLength(bodyStr);
+
+    let fullUrl;
+    let u;
+    try {
+      fullUrl = resolveUpstreamUrl(effectiveBase, '/v1/responses');
+      u = new URL(fullUrl);
+    } catch { return reject(new Error('invalid_url')); }
+
+    const mod = u.protocol === 'https:' ? https : http;
+    const t0 = Date.now();
+    let firstTokenMs = null;
+    let settled = false;
+    let clientGone = false;
+    const succeed = (value) => { if (!settled) { settled = true; resolve(value); } };
+    const fail = (err) => { if (!settled) { settled = true; reject(err); } };
+    const clientClosed = () => Object.assign(new Error('client_closed'), { code: 'client_closed', status: 499 });
+
+    const sm = new codexTransform.ResponsesToChatStream({
+      model: sendBody.model, streaming: clientStream, includeUsage,
+    });
+    const decoder = codexTransform.createResponsesSseDecoder();
+    let wrote = false;
+    const writeClient = (chunk) => {
+      if (!chunk || clientGone || res.writableEnded || res.destroyed) return;
+      if (!wrote) {
+        if (res.headersSent) { fail(new Error('headers_already_sent')); return; }
+        res.writeHead(200, {
+          'Content-Type': clientStream ? 'text/event-stream' : 'application/json',
+          'Cache-Control': 'no-cache',
+          'X-Accel-Buffering': 'no',
+          'Access-Control-Allow-Origin': '*',
+        });
+        wrote = true;
+      }
+      if (clientStream) res.write(chunk);
+    };
+    const noteToken = () => {
+      if (firstTokenMs === null) firstTokenMs = Date.now() - t0;
+    };
+    const usageResult = (status) => {
+      const stats = sm.usageStats();
+      return {
+        provider: provider.id,
+        latency: Date.now() - t0,
+        first_token_ms: firstTokenMs ?? Date.now() - t0,
+        input_tokens: stats.input_tokens,
+        output_tokens: stats.output_tokens,
+        cache_read_tokens: stats.cache_read_tokens,
+        message_id: stats.message_id,
+        status_code: status,
+      };
+    };
+    const feed = (events) => {
+      let pending = '';
+      for (const evt of events) {
+        const chunk = sm.handleEvent(evt);
+        if (chunk) noteToken();
+        pending += chunk;
+        if (sm.failure && !wrote && !sm.started) {
+          fail(sm.failure);
+          return false;
+        }
+      }
+      if (clientStream && pending) writeClient(pending);
+      return !sm.failure || wrote || sm.started;
+    };
+    const finishClient = (status) => {
+      if (clientGone && !wrote) return fail(clientClosed());
+      if (sm.failure && !wrote) return fail(sm.failure);
+      if (sm.failure && clientStream && wrote && !res.writableEnded) {
+        res.write(`data: ${JSON.stringify({ error: { message: sm.failure.message, type: sm.failure.code || 'upstream_error', code: sm.failure.code || null } })}\n\n`);
+        res.end();
+        return succeed(usageResult(status));
+      }
+      if (clientStream) {
+        const tail = sm.finish();
+        if (tail) noteToken();
+        writeClient(tail);
+        if (!res.writableEnded) res.end();
+      } else if (!res.headersSent && !res.writableEnded) {
+        const payload = JSON.stringify(sm.toChatCompletion());
+        noteToken();
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        wrote = true;
+        res.end(payload);
+      }
+      succeed(usageResult(status));
+    };
+
+    const proxyReq = mod.request({
+      hostname: u.hostname,
+      port: u.port || (u.protocol === 'https:' ? 443 : 80),
+      path: u.pathname + (u.search || ''),
+      method: 'POST',
+      headers,
+      timeout: 120_000,
+      agent: resolveProxyAgent(provider, fullUrl),
+    }, (proxyRes) => {
+      if (proxyRes.statusCode >= 400) {
+        proxyRes.on('error', () => fail(Object.assign(new Error(`HTTP_${proxyRes.statusCode}`), { status: proxyRes.statusCode })));
+        return readProxyError(proxyRes, fail);
+      }
+      proxyRes.on('data', (chunk) => {
+        if (settled) return;
+        try {
+          if (!feed(decoder.push(chunk))) {
+            try { proxyRes.destroy(); } catch {}
+          }
+        } catch (err) { fail(err); }
+      });
+      proxyRes.on('end', () => {
+        if (settled) return;
+        try {
+          if (!feed(decoder.flush())) return;
+          finishClient(proxyRes.statusCode);
+        } catch (err) { fail(err); }
+      });
+      proxyRes.on('error', (err) => {
+        if (clientGone) return fail(clientClosed());
+        fail(err);
+      });
+    });
+
+    const onClientGone = () => {
+      if (settled || res.writableEnded) return;
+      clientGone = true;
+      try { proxyReq.destroy(); } catch {}
+    };
+    res.on('close', onClientGone);
+    if (res.req) res.req.on('aborted', onClientGone);
+
+    let timedOut = false;
+    proxyReq.on('error', (err) => {
+      if (timedOut) return fail(Object.assign(new Error('timeout'), { code: 'timeout', status: 504 }));
+      if (clientGone) return fail(clientClosed());
+      fail(err);
+    });
+    proxyReq.on('timeout', () => {
+      timedOut = true;
+      try { proxyReq.destroy(); } catch {}
+      fail(Object.assign(new Error('timeout'), { code: 'timeout', status: 504 }));
+    });
+    proxyReq.write(bodyStr);
+    proxyReq.end();
+  });
+}
+
 // ── Route ─────────────────────────────────────────────────────────────────────
 
 // Claude Code 2.x 会在 /v1/messages body 里带较新的顶层参数（如 context_management 上下文自动编辑）。
@@ -2630,8 +2818,9 @@ async function callProvider(provider, isAnthropic, streaming, reqPath, body, att
   try {
     return await callProviderOnce(provider, isAnthropic, streaming, reqPath, reqBody, attemptModel, res, routeMeta);
   } catch (err) {
-    // 响应已开始写出则无法改参重试；429 等硬错误交给外层 cooldown 降级
+    // 响应已开始写出则无法改参重试；客户端取消也不再改参重试或降级
     if (res && res.headersSent) throw err;
+    if (err && err.code === 'client_closed') throw err;
 
     // thinking 多轮缺 reasoning_content：补占位后同源再试（修好后再 failover 到第二源才有意义）
     if (isMissingReasoningContentError(err)) {
@@ -2738,6 +2927,13 @@ async function callProviderOnce(provider, isAnthropic, streaming, reqPath, body,
       : (provider.type === 'p2p'
           ? await proxyP2PSync(provider, oaiBody, attemptModel, res)
           : await proxyConvertSync(provider, oaiBody, attemptModel, res));
+  }
+  // Codex 订阅没有 chat/completions。落到 proxyRequest 会把 /v1/chat/completions
+  // 拼到 chatgpt.com/backend-api/codex 后面，上游 404 all_providers_failed。
+  if (isCodexSubscriptionProvider(provider)
+      && (reqPath === '/v1/chat/completions' || reqPath === '/chat/completions')) {
+    console.log(`[gateway] → codex oauth chat→responses via "${provider.id}"`);
+    return await proxyChatViaCodexResponses(provider, attemptBody, res);
   }
   return await proxyRequest(provider, reqPath, attemptBody, res);
 }
@@ -3473,6 +3669,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
         recordRouteReward(routeReqCtx, c.model, 1);   // 自进化路由：成功 → reward 1（暖启动所有策略路由）
         return;
       } catch (err) {
+        if (err && err.code === 'client_closed') return;
         if (handleP2pFatal(c.provider, err, res, isResponses)) { lastErr = err; recordError(c.model, callerKey, lastErr, reqPath); return; }
         traceRouteProviderFail(err, {
           source: 'strategy_route',
@@ -3573,6 +3770,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
             recordRouteReward(ruleCtx, c.model, 1);   // 自进化路由：成功 → reward 1
             return;
           } catch (err) {
+            if (err && err.code === 'client_closed') return;
             if (handleP2pFatal(c.provider, err, res, isResponses)) { lastErr = err; recordError(c.model, callerKey, lastErr, reqPath); return; }
             traceRouteProviderFail(err, {
               source: 'scene_strategy_step',
@@ -3670,6 +3868,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
           stepSucceeded = true;
           return;
         } catch (err) {
+          if (err && err.code === 'client_closed') return;
           if (handleP2pFatal(provider, err, res, isResponses)) {
             lastErr = err;
             logRoute({
@@ -3810,6 +4009,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
       reportUsage(provider.id, model, directTok);
       return;
     } catch (err) {
+      if (err && err.code === 'client_closed') return;
       if (handleP2pFatal(provider, err, res, isResponses)) {
         lastErr = err;
         logRoute({

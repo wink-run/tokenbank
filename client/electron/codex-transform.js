@@ -1487,11 +1487,710 @@ class ChatToResponsesStream {
   getResponseId() { return this.responseId; }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// 4) Chat Completions → Codex Responses（ChatGPT 订阅 OAuth）
+// 上游 chatgpt.com/backend-api/codex 只接受 /responses，且要求 store:false、
+// stream:true、instructions 必填，并拒绝 max_output_tokens。Chat 客户端的
+// /v1/chat/completions 必须先换成这个形状，再把 Responses SSE 转回 Chat。
+// 表达不了的内容（图片、工具、结构化输出、未知 part）直接报错，不静默丢掉。
+// ════════════════════════════════════════════════════════════════════════════
+
+const CODEX_DEFAULT_INSTRUCTIONS = 'You are a helpful assistant.';
+
+function codexChatError(message) {
+  const err = new Error(message);
+  err.status = 400;
+  err.code = 'unsupported_codex_chat';
+  return err;
+}
+
+function chatIdFromResponseId(id) {
+  const raw = String(id || 'llmproxy');
+  if (raw.startsWith('chatcmpl')) return raw;
+  return 'chatcmpl-' + raw.replace(/^resp_/, '');
+}
+
+function asPlainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
+/** Chat content → Responses content parts。非文本无法表示时抛错，不替换成占位符。 */
+function chatPartsToResponses(content, { imageType, textType, where }) {
+  if (content == null || content === '') return [];
+  if (typeof content === 'string') {
+    return content ? [{ type: textType, text: content }] : [];
+  }
+  if (!Array.isArray(content)) {
+    throw codexChatError(`Codex subscription cannot represent ${where} content of type ${typeof content}`);
+  }
+  const parts = [];
+  for (const part of content) {
+    if (!part || typeof part !== 'object') {
+      throw codexChatError(`Codex subscription cannot represent ${where} content part`);
+    }
+    if (part.type === 'text' || part.type === textType || part.type === 'input_text' || part.type === 'output_text') {
+      if (part.text) parts.push({ type: textType, text: part.text });
+      continue;
+    }
+    if (part.type === 'image_url' || part.type === 'input_image') {
+      const raw = part.image_url;
+      const url = typeof raw === 'string' ? raw : (raw && raw.url);
+      if (!url) throw codexChatError(`Codex subscription cannot represent ${where} image_url without a url`);
+      const image = { type: imageType, image_url: String(url) };
+      const detail = typeof raw === 'object' && raw ? raw.detail : part.detail;
+      if (detail) image.detail = detail;
+      parts.push(image);
+      continue;
+    }
+    if (part.type === 'file' || part.type === 'input_file') {
+      const file = part.file || part;
+      const out = { type: 'input_file' };
+      if (file.file_id || part.file_id) out.file_id = file.file_id || part.file_id;
+      if (file.file_data || part.file_data) out.file_data = file.file_data || part.file_data;
+      if (file.filename || part.filename) out.filename = file.filename || part.filename;
+      if (!out.file_id && !out.file_data) {
+        throw codexChatError(`Codex subscription cannot represent ${where} file without file_id or file_data`);
+      }
+      parts.push(out);
+      continue;
+    }
+    if (part.type === 'refusal' && part.refusal) {
+      parts.push({ type: 'refusal', refusal: part.refusal });
+      continue;
+    }
+    throw codexChatError(`Codex subscription cannot represent ${where} content part type ${part.type || 'unknown'}`);
+  }
+  return parts;
+}
+
+function chatToolChoiceToResponses(choice) {
+  if (choice == null) return undefined;
+  if (choice === 'auto' || choice === 'none' || choice === 'required') return choice;
+  const obj = asPlainObject(choice);
+  if (obj && obj.type === 'function' && obj.function && obj.function.name) {
+    return { type: 'function', name: obj.function.name };
+  }
+  if (obj && obj.name && !obj.type) return { type: 'function', name: obj.name };
+  throw codexChatError('Codex subscription cannot represent tool_choice ' + JSON.stringify(choice));
+}
+
+function chatToolsToResponses(tools) {
+  if (tools == null) return undefined;
+  if (!Array.isArray(tools)) throw codexChatError('Codex subscription cannot represent tools; expected an array');
+  const out = [];
+  for (const tool of tools) {
+    if (!tool || tool.type !== 'function' || !tool.function || !tool.function.name) {
+      throw codexChatError(`Codex subscription cannot represent tool type ${(tool && tool.type) || 'unknown'}`);
+    }
+    const fn = tool.function;
+    const item = { type: 'function', name: fn.name };
+    if (typeof fn.description === 'string') item.description = fn.description;
+    if (fn.parameters && typeof fn.parameters === 'object') item.parameters = fn.parameters;
+    else item.parameters = { type: 'object', properties: {} };
+    if (typeof fn.strict === 'boolean') item.strict = fn.strict;
+    out.push(item);
+  }
+  return out;
+}
+
+function legacyFunctionsToTools(functions) {
+  if (!Array.isArray(functions)) throw codexChatError('Codex subscription cannot represent functions; expected an array');
+  return functions.map((fn) => {
+    if (!fn || !fn.name) throw codexChatError('Codex subscription cannot represent a function without a name');
+    return { type: 'function', function: fn };
+  });
+}
+
+function chatResponseFormatToText(fmt) {
+  if (fmt == null) return undefined;
+  const obj = asPlainObject(fmt);
+  if (!obj || !obj.type) throw codexChatError('Codex subscription cannot represent response_format ' + JSON.stringify(fmt));
+  if (obj.type === 'text') return undefined;
+  if (obj.type === 'json_object') return { format: { type: 'json_object' } };
+  if (obj.type === 'json_schema') {
+    const js = obj.json_schema;
+    if (!js || typeof js !== 'object' || !js.name || !js.schema || typeof js.schema !== 'object') {
+      throw codexChatError('Codex subscription cannot represent response_format json_schema without name and schema');
+    }
+    const format = { type: 'json_schema', name: js.name, schema: js.schema };
+    if (typeof js.strict === 'boolean') format.strict = js.strict;
+    if (typeof js.description === 'string') format.description = js.description;
+    return { format };
+  }
+  throw codexChatError(`Codex subscription cannot represent response_format type ${obj.type}`);
+}
+
+function pushFunctionCall(input, call, where) {
+  const id = call && (call.id || call.call_id);
+  const name = call && (call.function && call.function.name || call.name);
+  if (!id || !name) throw codexChatError(`Codex subscription cannot represent ${where} without an id and name`);
+  let args = call.function ? call.function.arguments : call.arguments;
+  if (args == null || args === '') args = '{}';
+  else if (typeof args !== 'string') args = JSON.stringify(args);
+  input.push({ type: 'function_call', id, call_id: id, name, arguments: args });
+}
+
+function toolOutputFromContent(content) {
+  if (typeof content === 'string' || content == null) return content == null ? '' : content;
+  const parts = chatPartsToResponses(content, { imageType: 'input_image', textType: 'input_text', where: 'tool result' });
+  if (!parts.length) return '';
+  if (parts.length === 1 && parts[0].type === 'input_text') return parts[0].text;
+  return parts;
+}
+
+/**
+ * Chat Completions 请求 → Codex 订阅 Responses 请求。
+ * 上游总是 stream:true / store:false。max_output_tokens 不转发：该后端会 400。
+ * @param {object} body
+ * @returns {object}
+ */
+function chatToCodexResponses(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw codexChatError('Codex subscription expected a Chat Completions JSON object');
+  }
+  if (!Array.isArray(body.messages)) {
+    throw codexChatError('Chat request is missing messages; refusing to drop the conversation');
+  }
+  if (body.n != null && Number(body.n) !== 1) {
+    throw codexChatError('Codex subscription does not support Chat parameter n other than 1');
+  }
+  if (body.logprobs === true || body.top_logprobs != null) {
+    throw codexChatError('Codex subscription does not support Chat logprobs');
+  }
+  if (body.logit_bias && typeof body.logit_bias === 'object' && Object.keys(body.logit_bias).length) {
+    throw codexChatError('Codex subscription does not support Chat parameter logit_bias');
+  }
+  for (const key of ['audio', 'modalities', 'prediction', 'web_search_options']) {
+    if (body[key] != null) throw codexChatError(`Codex subscription does not support Chat parameter ${key}`);
+  }
+  if (body.store === true) {
+    throw codexChatError('Codex subscription requires store=false and cannot honor store=true');
+  }
+  if (typeof body.stop === 'string' && body.stop) {
+    throw codexChatError('Codex subscription does not support Chat parameter stop');
+  }
+  if (Array.isArray(body.stop) && body.stop.length) {
+    throw codexChatError('Codex subscription does not support Chat parameter stop');
+  }
+  if (body.tools != null && body.functions != null) {
+    throw codexChatError('Codex subscription cannot represent both tools and legacy functions');
+  }
+  if (body.tool_choice != null && body.function_call != null) {
+    throw codexChatError('Codex subscription cannot represent both tool_choice and legacy function_call');
+  }
+
+  const guidance = [];
+  const input = [];
+  for (const message of body.messages) {
+    if (!message || typeof message !== 'object') {
+      throw codexChatError('Codex subscription cannot represent an empty chat message');
+    }
+    const role = message.role || '';
+    if (role === 'system' || role === 'developer') {
+      const parts = chatPartsToResponses(message.content, {
+        imageType: 'input_image', textType: 'input_text', where: `${role} message`,
+      });
+      const nonText = parts.filter((p) => p.type !== 'input_text');
+      if (nonText.length) {
+        throw codexChatError(`Codex subscription cannot represent ${nonText[0].type} content in ${role} messages`);
+      }
+      const text = parts.map((p) => p.text).filter(Boolean).join('\n');
+      if (text) guidance.push({ role, text });
+      continue;
+    }
+    if (role === 'user') {
+      const content = chatPartsToResponses(message.content, {
+        imageType: 'input_image', textType: 'input_text', where: 'user message',
+      });
+      if (content.length) input.push({ type: 'message', role: 'user', content });
+      continue;
+    }
+    if (role === 'assistant') {
+      const reasoning = typeof message.reasoning_content === 'string' ? message.reasoning_content.trim() : '';
+      if (reasoning) {
+        input.push({
+          type: 'reasoning',
+          summary: [{ type: 'summary_text', text: reasoning }],
+        });
+      }
+      const content = chatPartsToResponses(message.content, {
+        imageType: 'input_image', textType: 'output_text', where: 'assistant message',
+      });
+      if (content.some((part) => part.type !== 'output_text' && part.type !== 'refusal')) {
+        throw codexChatError('Codex subscription cannot represent non-text assistant content');
+      }
+      if (content.length) input.push({ type: 'message', role: 'assistant', content });
+      const calls = message.tool_calls || (message.function_call ? [message.function_call] : []);
+      for (const call of calls) pushFunctionCall(input, call, 'assistant tool call');
+      continue;
+    }
+    if (role === 'tool' || role === 'function') {
+      const callId = message.tool_call_id || message.id;
+      if (!callId) throw codexChatError('Codex subscription cannot represent a tool result without tool_call_id');
+      input.push({
+        type: 'function_call_output',
+        call_id: callId,
+        output: toolOutputFromContent(message.content),
+      });
+      continue;
+    }
+    throw codexChatError(`Codex subscription cannot represent chat message role ${role || 'unknown'}`);
+  }
+
+  const roles = new Set(guidance.map((g) => g.role));
+  const instructions = guidance.length
+    ? (roles.size > 1
+      ? guidance.map((g) => `[${g.role}]\n${g.text}`).join('\n\n')
+      : guidance.map((g) => g.text).join('\n\n'))
+    : CODEX_DEFAULT_INSTRUCTIONS;
+
+  const result = {
+    model: body.model,
+    instructions,
+    input,
+    stream: true,
+    store: false,
+  };
+  const tools = chatToolsToResponses(body.tools != null ? body.tools : (body.functions != null ? legacyFunctionsToTools(body.functions) : undefined));
+  if (tools && tools.length) result.tools = tools;
+  const choice = body.tool_choice != null ? body.tool_choice : body.function_call;
+  if (choice != null) {
+    if (!result.tools) throw codexChatError('Codex subscription cannot represent tool_choice without tools');
+    result.tool_choice = chatToolChoiceToResponses(choice);
+  }
+  if (typeof body.parallel_tool_calls === 'boolean' && result.tools) {
+    result.parallel_tool_calls = body.parallel_tool_calls;
+  }
+  const text = chatResponseFormatToText(body.response_format);
+  if (text) result.text = text;
+  for (const key of ['temperature', 'top_p', 'frequency_penalty', 'presence_penalty']) {
+    if (typeof body[key] === 'number' && Number.isFinite(body[key])) result[key] = body[key];
+  }
+  if (typeof body.user === 'string' && body.user) result.user = body.user;
+  const effort = typeof body.reasoning_effort === 'string'
+    ? body.reasoning_effort
+    : (body.reasoning && typeof body.reasoning.effort === 'string' ? body.reasoning.effort : '');
+  if (effort && !['none', 'off', 'disabled'].includes(effort.trim().toLowerCase())) {
+    const summary = body.reasoning && typeof body.reasoning.summary === 'string' ? body.reasoning.summary : 'auto';
+    result.reasoning = { effort, summary };
+  }
+  return result;
+}
+
+function responsesUsageToChat(usage) {
+  if (!usage || typeof usage !== 'object') {
+    return { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  }
+  const prompt = usage.input_tokens ?? usage.prompt_tokens ?? 0;
+  const completion = usage.output_tokens ?? usage.completion_tokens ?? 0;
+  const out = {
+    prompt_tokens: prompt,
+    completion_tokens: completion,
+    total_tokens: usage.total_tokens ?? (prompt + completion),
+  };
+  if (usage.input_tokens_details) out.prompt_tokens_details = usage.input_tokens_details;
+  else if (usage.prompt_tokens_details) out.prompt_tokens_details = usage.prompt_tokens_details;
+  if (usage.output_tokens_details) out.completion_tokens_details = usage.output_tokens_details;
+  else if (usage.completion_tokens_details) out.completion_tokens_details = usage.completion_tokens_details;
+  return out;
+}
+
+function snapshotMessageText(item) {
+  let text = '';
+  let refusal = '';
+  const content = item && Array.isArray(item.content) ? item.content : [];
+  for (const part of content) {
+    if (!part) continue;
+    if ((part.type === 'output_text' || part.type === 'text') && part.text) text += part.text;
+    if (part.type === 'refusal' && part.refusal) refusal += part.refusal;
+  }
+  return { text, refusal };
+}
+
+function finishReasonFor(status, incompleteReason, hasTools, hasRefusal) {
+  if (hasTools) return 'tool_calls';
+  if (incompleteReason === 'content_filter' || status === 'content_filter') return 'content_filter';
+  if (hasRefusal && !incompleteReason) return 'stop';
+  if (status === 'incomplete' || incompleteReason === 'max_output_tokens' || incompleteReason === 'length') return 'length';
+  return 'stop';
+}
+
+/**
+ * 把 Codex Responses SSE / JSON 收成 Chat Completions。
+ * 文本与工具参数只采用增量；完成事件里的快照仅在没有增量时补一次，避免 JSON 被重复拼接。
+ */
+class ResponsesToChatStream {
+  constructor(opts = {}) {
+    this.model = opts.model || '';
+    this.streaming = !!opts.streaming;
+    this.includeUsage = opts.includeUsage !== false;
+    this.responseId = null;
+    this.chatId = null;
+    this.created = Math.floor(Date.now() / 1000);
+    this.locked = false;
+    this.text = '';
+    this.sawText = false;
+    this.refusal = '';
+    this.sawRefusal = false;
+    this.reasoning = '';
+    this.sawReasoning = false;
+    this.tools = new Map();
+    this.nextToolIndex = 0;
+    this.usage = null;
+    this.status = null;
+    this.incompleteReason = null;
+    this.failure = null;
+    this.completed = false;
+    this.roleSent = false;
+    this.finishSent = false;
+  }
+
+  get started() {
+    return this.roleSent || this.sawText || this.sawRefusal || this.tools.size > 0;
+  }
+
+  _lockMeta() {
+    if (this.locked) return;
+    this.locked = true;
+    this.chatId = chatIdFromResponseId(this.responseId);
+  }
+
+  _chunk(delta, finish, extra) {
+    this._lockMeta();
+    const obj = {
+      id: this.chatId,
+      object: 'chat.completion.chunk',
+      created: this.created,
+      model: this.model,
+      choices: [{ index: 0, delta, finish_reason: finish }],
+    };
+    if (extra) Object.assign(obj, extra);
+    return `data: ${JSON.stringify(obj)}\n\n`;
+  }
+
+  _emitText(text) {
+    if (!text) return '';
+    this.text += text;
+    this.sawText = true;
+    if (!this.streaming) return '';
+    const delta = this.roleSent ? { content: text } : { role: 'assistant', content: text };
+    this.roleSent = true;
+    return this._chunk(delta, null);
+  }
+
+  _tool(outputIndex, callId) {
+    if (callId) {
+      for (const existing of this.tools.values()) {
+        if (existing.id === callId) return existing;
+      }
+    }
+    const key = outputIndex == null ? `anon-${this.nextToolIndex}` : outputIndex;
+    let tool = this.tools.get(key);
+    if (!tool) {
+      tool = {
+        index: this.nextToolIndex++, id: callId || '', name: '', arguments: '',
+        sawArgs: false, started: false, streamedArgsLen: 0,
+      };
+      this.tools.set(key, tool);
+    }
+    if (callId && !tool.id) tool.id = callId;
+    return tool;
+  }
+
+  _emitToolStart(tool) {
+    if (!this.streaming || tool.started || !tool.name) return '';
+    tool.started = true;
+    const entry = { index: tool.index, type: 'function', function: { name: tool.name, arguments: '' } };
+    if (tool.id) entry.id = tool.id;
+    const delta = this.roleSent ? { tool_calls: [entry] } : { role: 'assistant', tool_calls: [entry] };
+    this.roleSent = true;
+    let out = this._chunk(delta, null);
+    if (tool.arguments) {
+      out += this._chunk({ tool_calls: [{ index: tool.index, function: { arguments: tool.arguments } }] }, null);
+      tool.streamedArgsLen = tool.arguments.length;
+    }
+    return out;
+  }
+
+  _emitToolArgs(tool, delta) {
+    if (!delta) return '';
+    tool.arguments += delta;
+    tool.sawArgs = true;
+    let out = this._emitToolStart(tool);
+    const pending = tool.arguments.slice(tool.streamedArgsLen || 0);
+    if (pending && this.streaming && tool.started) {
+      tool.streamedArgsLen = tool.arguments.length;
+      out += this._chunk({ tool_calls: [{ index: tool.index, function: { arguments: pending } }] }, null);
+    }
+    return out;
+  }
+
+  _noteResponse(response) {
+    if (!response || typeof response !== 'object') return;
+    if (response.id) this.responseId = response.id;
+    if (response.model) this.model = response.model;
+    if (Number.isFinite(response.created_at)) {
+      this.created = response.created_at > 1e12 ? Math.floor(response.created_at / 1000) : response.created_at;
+    }
+    if (response.status) this.status = response.status;
+    const reason = response.incomplete_details && response.incomplete_details.reason;
+    if (reason) this.incompleteReason = reason;
+    if (response.usage) this.usage = response.usage;
+    if (response.error) this._fail(response.error);
+  }
+
+  _fail(error) {
+    const src = error && typeof error === 'object' ? error : { message: String(error || 'Codex response failed') };
+    const err = new Error(src.message || src.detail || 'Codex response failed');
+    err.status = src.status || 502;
+    err.code = src.code || src.type || 'upstream_error';
+    err.body = JSON.stringify(src);
+    this.failure = err;
+    this.completed = true;
+  }
+
+  _absorbOutputItem(item, { snapshot }) {
+    if (!item || typeof item !== 'object') return '';
+    if (item.type === 'function_call') {
+      const callId = item.call_id || item.id || '';
+      const tool = this._tool(item.output_index, callId);
+      if (callId) tool.id = callId;
+      if (item.name) tool.name = item.name;
+      let out = this._emitToolStart(tool);
+      if (snapshot && !tool.sawArgs && typeof item.arguments === 'string' && item.arguments) {
+        out += this._emitToolArgs(tool, item.arguments);
+      }
+      return out;
+    }
+    if (item.type === 'message' && snapshot && !this.sawText && !this.sawRefusal) {
+      const snap = snapshotMessageText(item);
+      let out = '';
+      if (snap.text) out += this._emitText(snap.text);
+      if (snap.refusal) {
+        this.refusal += snap.refusal;
+        this.sawRefusal = true;
+        if (this.streaming) {
+          const delta = this.roleSent ? { refusal: snap.refusal } : { role: 'assistant', refusal: snap.refusal };
+          this.roleSent = true;
+          out += this._chunk(delta, null);
+        }
+      }
+      return out;
+    }
+    if (item.type === 'reasoning' && snapshot && !this.sawReasoning) {
+      const text = extractReasoningSummaryText(item) || '';
+      if (text) {
+        this.reasoning += text;
+        this.sawReasoning = true;
+        if (this.streaming) {
+          const delta = this.roleSent
+            ? { reasoning_content: text }
+            : { role: 'assistant', reasoning_content: text };
+          this.roleSent = true;
+          return this._chunk(delta, null);
+        }
+      }
+    }
+    return '';
+  }
+
+  handleEvent(evt) {
+    if (!evt || typeof evt !== 'object' || this.finishSent) return '';
+    if (evt.type === 'done') {
+      this.completed = true;
+      return '';
+    }
+    if (evt.error && !evt.type) {
+      this._fail(evt.error);
+      return '';
+    }
+    const type = evt.type || '';
+    if (type === 'response.created' || type === 'response.in_progress' || type === 'response.queued') {
+      this._noteResponse(evt.response);
+      return '';
+    }
+    if (type === 'response.output_text.delta') {
+      const delta = typeof evt.delta === 'string' ? evt.delta : (evt.delta && evt.delta.text) || '';
+      return this._emitText(delta);
+    }
+    if (type === 'response.refusal.delta') {
+      const delta = typeof evt.delta === 'string' ? evt.delta : '';
+      if (!delta) return '';
+      this.refusal += delta;
+      this.sawRefusal = true;
+      if (!this.streaming) return '';
+      const chunkDelta = this.roleSent ? { refusal: delta } : { role: 'assistant', refusal: delta };
+      this.roleSent = true;
+      return this._chunk(chunkDelta, null);
+    }
+    if (type === 'response.reasoning_summary_text.delta' || type === 'response.reasoning_text.delta') {
+      const delta = typeof evt.delta === 'string' ? evt.delta : '';
+      if (!delta) return '';
+      this.reasoning += delta;
+      this.sawReasoning = true;
+      if (!this.streaming) return '';
+      const chunkDelta = this.roleSent ? { reasoning_content: delta } : { role: 'assistant', reasoning_content: delta };
+      this.roleSent = true;
+      return this._chunk(chunkDelta, null);
+    }
+    if (type === 'response.output_item.added') {
+      const item = evt.item ? { ...evt.item, output_index: evt.output_index } : null;
+      return this._absorbOutputItem(item, { snapshot: false });
+    }
+    if (type === 'response.function_call_arguments.delta') {
+      const tool = this._tool(evt.output_index, evt.item_id || '');
+      if (evt.item_id && !tool.id) tool.id = evt.item_id;
+      return this._emitToolArgs(tool, typeof evt.delta === 'string' ? evt.delta : '');
+    }
+    if (type === 'response.function_call_arguments.done') {
+      const tool = this._tool(evt.output_index, evt.item_id || '');
+      if (evt.name) tool.name = evt.name;
+      if (!tool.sawArgs && typeof evt.arguments === 'string') return this._emitToolArgs(tool, evt.arguments);
+      return this._emitToolStart(tool);
+    }
+    if (type === 'response.output_item.done') {
+      const item = evt.item ? { ...evt.item, output_index: evt.output_index } : null;
+      return this._absorbOutputItem(item, { snapshot: true });
+    }
+    if (type === 'response.completed' || type === 'response.incomplete') {
+      this._noteResponse(evt.response);
+      this.completed = true;
+      const output = evt.response && Array.isArray(evt.response.output) ? evt.response.output : [];
+      let out = '';
+      output.forEach((item, index) => {
+        out += this._absorbOutputItem({ ...item, output_index: item.output_index != null ? item.output_index : index }, { snapshot: true });
+      });
+      return out;
+    }
+    if (type === 'response.failed' || type === 'error' || type === 'response.error') {
+      this._noteResponse(evt.response);
+      this._fail(evt.response && evt.response.error || evt.error || evt);
+      return '';
+    }
+    return '';
+  }
+
+  toolList() {
+    return [...this.tools.values()].sort((a, b) => a.index - b.index).filter((t) => t.name || t.id);
+  }
+
+  _finishReason() {
+    return finishReasonFor(this.status, this.incompleteReason, this.toolList().length > 0, !!this.refusal);
+  }
+
+  finish() {
+    if (this.failure && !this.started) return '';
+    if (!this.streaming || this.finishSent) return '';
+    this.finishSent = true;
+    if (!this.roleSent) {
+      this.roleSent = true;
+      const prelude = this._chunk({ role: 'assistant', content: '' }, null);
+      const done = this._chunk({}, this._finishReason(), this.includeUsage ? { usage: responsesUsageToChat(this.usage) } : null);
+      return prelude + done + 'data: [DONE]\n\n';
+    }
+    const extra = this.includeUsage ? { usage: responsesUsageToChat(this.usage) } : null;
+    return this._chunk({}, this._finishReason(), extra) + 'data: [DONE]\n\n';
+  }
+
+  toChatCompletion() {
+    this._lockMeta();
+    const tools = this.toolList();
+    const message = { role: 'assistant', content: this.text || (tools.length ? null : '') };
+    if (this.refusal) message.refusal = this.refusal;
+    if (this.reasoning) message.reasoning_content = this.reasoning;
+    if (tools.length) {
+      message.tool_calls = tools.map((t) => ({
+        id: t.id || `call_${t.index}`,
+        type: 'function',
+        function: { name: t.name, arguments: t.arguments || '{}' },
+      }));
+    }
+    return {
+      id: this.chatId,
+      object: 'chat.completion',
+      created: this.created,
+      model: this.model,
+      choices: [{
+        index: 0,
+        message,
+        finish_reason: this._finishReason(),
+        logprobs: null,
+      }],
+      usage: responsesUsageToChat(this.usage),
+    };
+  }
+
+  usageStats() {
+    const usage = this.usage || {};
+    return {
+      input_tokens: usage.input_tokens || usage.prompt_tokens || 0,
+      output_tokens: usage.output_tokens || usage.completion_tokens || 0,
+      cache_read_tokens: usage.input_tokens_details?.cached_tokens
+        || usage.prompt_tokens_details?.cached_tokens || 0,
+      message_id: this.responseId || this.chatId,
+    };
+  }
+}
+
+/** Codex / Responses SSE 解码。残缺的 data 行直接报错，避免悄悄丢掉半截事件。 */
+function createResponsesSseDecoder() {
+  let buf = '';
+  const takeLine = (line) => {
+    if (!line.startsWith('data:')) return null;
+    const data = line.slice(5).replace(/^ /, '');
+    if (!data) return null;
+    if (data.trim() === '[DONE]') return { type: 'done' };
+    try { return JSON.parse(data); }
+    catch (err) {
+      const e = new Error('Malformed Codex SSE event');
+      e.status = 502;
+      e.code = 'malformed_sse';
+      e.cause = err;
+      throw e;
+    }
+  };
+  return {
+    push(chunk) {
+      buf += Buffer.isBuffer(chunk) ? chunk.toString() : String(chunk || '');
+      const events = [];
+      let idx;
+      while ((idx = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, idx).replace(/\r$/, '');
+        buf = buf.slice(idx + 1);
+        const evt = takeLine(line);
+        if (evt) events.push(evt);
+      }
+      return events;
+    },
+    flush() {
+      const rest = buf.replace(/\r$/, '').trim();
+      buf = '';
+      if (!rest) return [];
+      if (rest.startsWith('{')) {
+        try { return [JSON.parse(rest)]; }
+        catch (err) {
+          const e = new Error('Malformed Codex response');
+          e.status = 502;
+          e.code = 'malformed_sse';
+          e.cause = err;
+          throw e;
+        }
+      }
+      const evt = takeLine(rest);
+      return evt ? [evt] : [];
+    },
+  };
+}
+
 module.exports = {
   responsesToChat,
   chatToResponses,
+  chatToCodexResponses,
   chatErrorToResponseError,
   ChatToResponsesStream,
+  ResponsesToChatStream,
+  createResponsesSseDecoder,
+  CODEX_DEFAULT_INSTRUCTIONS,
   collectFreeformToolNames,
   buildCodexToolContext,
   summarizeResponsesTools,
