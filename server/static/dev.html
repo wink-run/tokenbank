@@ -9,8 +9,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=7">
-<script src="/static/plaza-nav.js?v=6"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=8">
+<script src="/static/plaza-nav.js?v=8"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -72,6 +72,18 @@ a { color: inherit; text-decoration: none; }
       <div class="pz-head-c"><div class="pz-kicker">{{ N.devKicker }}</div><h2 id="pz-dev" class="pz-h2">{{ N.devTitle }}</h2></div>
       <div class="pz-dev3">
         <a v-for="d in N.dev" :key="d.href" :href="d.href"><em>{{ d.n }}</em><b>{{ d.t }}</b><span>{{ d.d }}</span></a>
+      </div>
+    </section>
+
+    <!-- 统一管理里的功能 -->
+    <section class="pz-sec pz-rv" aria-labelledby="dv-feats">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.featKicker }}</div>
+        <h2 id="dv-feats" class="pz-h2">{{ T.featTitle }}</h2>
+        <p class="pz-lead">{{ T.featLead }}</p>
+      </div>
+      <div class="dv-feats">
+        <a v-for="f in T.feats" :key="f[0]" :href="'/harness#' + f[0]"><em>{{ f[1] }}</em><b>{{ f[2] }}</b><span>{{ f[3] }}</span></a>
       </div>
     </section>
 
@@ -149,6 +161,17 @@ createApp({
         promise: ['界面和接口都统一', 'Skill 与 Key 不离机', '自用、圈子或全网', '开源 · macOS / Windows / Linux'],
         ctaApi: '看统一接口',
         liveTitle: '网络里此刻有', kNodes: '在线节点', kModels: '可用模型', kAgents: '在线智能体', kRes: '技能与模板', liveFoot: '都来自开发者分享，你也可以拿来自用或加工。',
+        featKicker: 'MANAGE', featTitle: '统一管理里有什么', featLead: '桌面客户端里现成的功能，同一套能力也有接口。点任意一项看细节。',
+        feats: [
+          ['f-onboard', '01', '智能体纳管', 'Pi、Claude Code、Cursor 等一键纳管 / 还原，CLI 多账号按目录分发'],
+          ['f-swap', '02', '一键换模型', '原生模型名不变，协议自动转换，按应用独立绑定'],
+          ['f-route', '03', '场景路由', '场景与任务分型、供给链逐级命中、策略组与故障转移'],
+          ['f-trace', '04', 'Trace 管理', '网关实时 + 会话补录去重，步骤级 Session Trace'],
+          ['f-assets', '05', '资产管理', 'Skill / MCP / Prompt / Agent 一个库，投射到各 runtime'],
+          ['f-usage', '06', '用量看板', 'Token、费用、免费命中率，订阅与按量对照，托盘速览'],
+          ['f-devices', '07', '跨端归集', '多台设备用量云端合并，订阅与配置跨设备同步'],
+          ['f-orchestrate', '08', '智能体编排', '主 Agent 接任务，按特点派给本机或雇来的智能体'],
+        ],
         vsKicker: 'NOT JUST A GATEWAY', vsTitle: '不只是又一个模型网关', vsLead: 'cc-switch、Magpie 这类产品帮你切换模型和 Key；Token Bank 管的是整套智能体，并且管完还能分享、还能获取。',
         vs: [['管整套智能体', 'runtime、模型、Skill / MCP / Prompt 一起纳管，桌面看板一眼看清每个 Token。'], ['模型和智能体一套接口', '模型走补全接口，智能体走任务接口，本机和社区的换个 harness_id 就换。'], ['管完还能变现', '调好的智能体分享给自己、圈子或全网分摊费用；缺素材去资源市场拿。']],
         vsMore: '看完整对比',
@@ -177,6 +200,17 @@ createApp({
         promise: ['One UI, one API', 'Skills and keys stay local', 'Yourself, a circle or everyone', 'Open source · macOS / Windows / Linux'],
         ctaApi: 'See the interface',
         liveTitle: 'On the network right now', kNodes: 'Online nodes', kModels: 'Models', kAgents: 'Agents online', kRes: 'Skills & templates', liveFoot: 'All shared by developers — take them for yourself or remix them.',
+        featKicker: 'MANAGE', featTitle: 'What\'s inside Manage', featLead: 'Features that ship in the desktop app, with the same capabilities behind the API. Open any one for details.',
+        feats: [
+          ['f-onboard', '01', 'Agent onboarding', 'One-click onboard / restore for Pi, Claude Code, Cursor and more; multi-account CLIs per directory'],
+          ['f-swap', '02', 'One-click model swap', 'Native model names kept, protocols translated, bound per app'],
+          ['f-route', '03', 'Scene routing', 'Scenes and task types, a supply chain tried in order, policies and failover'],
+          ['f-trace', '04', 'Trace management', 'Live gateway + de-duplicated session back-fill, step-level Session Trace'],
+          ['f-assets', '05', 'Asset management', 'Skills, MCP, prompts and agents in one library, projected to each runtime'],
+          ['f-usage', '06', 'Usage dashboard', 'Tokens, cost, free-hit rate, subscription vs PAYG, tray glance'],
+          ['f-devices', '07', 'Cross-device roll-up', 'Usage from every device merged in the cloud, config synced'],
+          ['f-orchestrate', '08', 'Agent orchestration', 'A main agent takes the task and dispatches to local or hired agents'],
+        ],
         vsKicker: 'NOT JUST A GATEWAY', vsTitle: 'More than another model gateway', vsLead: 'Tools like cc-switch or Magpie switch models and keys for you. Token Bank manages your whole agent setup — and then lets you share and source.',
         vs: [['The whole agent setup', 'Runtimes, models, skills, MCP and prompts onboarded together, with desktop dashboards for every token.'], ['One interface for models and agents', 'Completion endpoints for models, a task endpoint for agents; swap local or community by harness_id.'], ['Then make it pay', 'Share tuned agents with yourself, a circle or everyone to split costs; source more from the market.']],
         vsMore: 'Full comparison',

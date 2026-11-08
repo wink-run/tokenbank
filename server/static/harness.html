@@ -9,8 +9,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=7">
-<script src="/static/plaza-nav.js?v=6"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=8">
+<script src="/static/plaza-nav.js?v=8"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -52,6 +52,7 @@ a { color: inherit; text-decoration: none; }
         <ul class="pz-promise"><li v-for="p in T.promise" :key="p">{{ p }}</li></ul>
         <div class="nw-ctas">
           <a class="pz-btn pri" href="/#download">{{ T.ctaStart }}</a>
+          <a class="pz-btn ghost" href="#features">{{ T.ctaFeat }}</a>
           <a class="pz-btn ghost" href="#api">{{ T.ctaApi }}</a>
         </div>
       </div>
@@ -103,36 +104,58 @@ a { color: inherit; text-decoration: none; }
       </div>
     </section>
 
-    <!-- 桌面客户端：每天用得上的工具看板 -->
-    <section id="boards" class="pz-sec" aria-labelledby="hs-boards">
+    <!-- 功能一览：按名字找到每个功能 -->
+    <section id="features" class="pz-sec" aria-labelledby="hs-feat">
       <div class="pz-head-c">
-        <div class="pz-kicker">{{ T.boardKicker }}</div>
-        <h2 id="hs-boards" class="pz-h2">{{ T.boardTitle }}</h2>
-        <p class="pz-lead">{{ T.boardLead }}</p>
+        <div class="pz-kicker">{{ T.featKicker }}</div>
+        <h2 id="hs-feat" class="pz-h2">{{ T.featTitle }}</h2>
+        <p class="pz-lead">{{ T.featLead }}</p>
       </div>
-      <div class="hs-boards">
-        <div class="hs-board-tabs" role="tablist">
-          <button v-for="(b, i) in boards" :key="b.key" type="button" role="tab" :aria-selected="boardIdx === i" :class="{ on: boardIdx === i }" @click="boardIdx = i">
-            <b>{{ b.h }}</b><span>{{ b.b }}</span>
-          </button>
-        </div>
-        <div class="hs-shot" :class="{ tall: boards[boardIdx].tall }">
-          <img :src="boardSrc(boards[boardIdx].key)" :alt="boards[boardIdx].h" loading="lazy">
-        </div>
-      </div>
+      <nav class="hs-index" :aria-label="T.featTitle">
+        <a v-for="f in T.features" :key="f.id" :href="'#' + f.id"><em>{{ f.n }}</em>{{ f.k }}</a>
+      </nav>
     </section>
 
-    <!-- 管起来之后能做什么 -->
-    <section class="pz-sec pz-rv" aria-labelledby="hs-cap">
-      <div class="pz-head-c">
-        <div class="pz-kicker">{{ T.capKicker }}</div>
-        <h2 id="hs-cap" class="pz-h2">{{ T.capTitle }}</h2>
+    <section v-for="(f, fi) in T.features" :key="f.id" :id="f.id" :class="['hs-feature', { flip: fi % 2 === 1 }]" :aria-labelledby="'h-' + f.id">
+      <div class="hs-f-text">
+        <div class="hs-f-n">{{ f.n }} · {{ f.k }}</div>
+        <h3 :id="'h-' + f.id">{{ f.t }}</h3>
+        <p class="hs-f-lead">{{ f.d }}</p>
+        <ul class="hs-f-points"><li v-for="pt in f.points" :key="pt[0]"><b>{{ pt[0] }}</b>{{ pt[1] }}</li></ul>
       </div>
-      <div class="hs-caps">
-        <div v-for="c in T.caps" :key="c.t" class="hs-cap">
-          <div class="hs-pain">{{ c.pain }}</div>
-          <h3>{{ c.t }}</h3>
-          <p>{{ c.d }}</p>
+      <div class="hs-f-visual">
+        <template v-if="f.shots">
+          <div v-if="f.shots.length > 1" class="hs-f-tabs" role="tablist">
+            <button v-for="(sh, si) in f.shots" :key="sh[0]" type="button" role="tab" :aria-selected="shotIdx(f.id) === si" :class="{ on: shotIdx(f.id) === si }" @click="setShot(f.id, si)">{{ sh[1] }}</button>
+          </div>
+          <div class="hs-shot" :class="{ tall: f.shots[shotIdx(f.id)][0] === 'device' }">
+            <img :src="boardSrc(f.shots[shotIdx(f.id)][0])" :alt="f.shots[shotIdx(f.id)][1]">
+          </div>
+        </template>
+        <div v-else-if="f.diagram === 'route'" class="hs-diag">
+          <div class="hs-d-row"><span class="hs-d-k">{{ T.dRoute.app }}</span><div class="hs-d-chips"><i v-for="x in T.dRoute.apps" :key="x">{{ x }}</i></div></div>
+          <div class="hs-d-arrow">↓ {{ T.dRoute.bind }}</div>
+          <div class="hs-d-row"><span class="hs-d-k">{{ T.dRoute.scene }}</span><div class="hs-d-chips"><i v-for="x in T.dRoute.scenes" :key="x">{{ x }}</i></div></div>
+          <div class="hs-d-arrow">↓ {{ T.dRoute.chainK }}</div>
+          <div class="hs-d-chain"><span v-for="(x, i) in T.dRoute.chain" :key="x" :class="{ p2p: i === T.dRoute.chain.length - 1 }">{{ x }}</span></div>
+          <div class="hs-d-arrow">↓ {{ T.dRoute.policyK }}</div>
+          <div class="hs-d-chips"><i v-for="x in T.dRoute.policies" :key="x" class="pol">{{ x }}</i></div>
+          <p class="hs-d-note">{{ T.dRoute.note }}</p>
+        </div>
+        <div v-else-if="f.diagram === 'devices'" class="hs-diag">
+          <div class="hs-dev3"><div v-for="d in T.dDev.devices" :key="d[0]" class="hs-dev"><b>{{ d[0] }}</b><span>{{ d[1] }}</span><small>{{ d[2] }}</small></div></div>
+          <div class="hs-d-arrow">↓ {{ T.dDev.up }}</div>
+          <div class="hs-cloud"><b>{{ T.dDev.cloud }}</b><span>{{ T.dDev.cloudD }}</span></div>
+          <div class="hs-d-arrow">↓ {{ T.dDev.down }}</div>
+          <div class="hs-d-chips"><i v-for="x in T.dDev.views" :key="x">{{ x }}</i></div>
+        </div>
+        <div v-else-if="f.diagram === 'orchestrate'" class="hs-plan hs-plan-light">
+          <div class="hs-plan-h"><span class="hs-main">{{ T.mainAgent }}</span><span class="hs-task">“{{ T.routeTask }}”</span></div>
+          <div v-for="r in T.routes" :key="r[0]" class="hs-row">
+            <span class="hs-step">{{ r[0] }}</span><i class="hs-arrow" aria-hidden="true">→</i>
+            <span class="hs-to" :class="r[2]"><b>{{ r[1] }}</b><small>{{ T.kind[r[2]] }}</small></span>
+          </div>
+          <div class="hs-note">{{ T.routeNote }}</div>
         </div>
       </div>
     </section>
@@ -155,24 +178,6 @@ a { color: inherit; text-decoration: none; }
           <div class="pz-cmp-them" role="cell"><i class="pz-x" aria-hidden="true">–</i><span>{{ row[1] }}</span></div>
           <div class="pz-cmp-us" role="cell"><i class="pz-v" aria-hidden="true">✓</i><span>{{ row[2] }}</span></div>
         </div>
-      </div>
-    </section>
-
-    <!-- 按特点派活 -->
-    <section class="pz-safe pz-rv hs-route" aria-labelledby="hs-route">
-      <div>
-        <div class="pz-kicker">{{ T.routeKicker }}</div>
-        <h2 id="hs-route" class="pz-h2">{{ T.routeTitle }}</h2>
-        <p class="pz-lead">{{ T.routeLead }}</p>
-      </div>
-      <div class="hs-plan">
-        <div class="hs-plan-h"><span class="hs-main">{{ T.mainAgent }}</span><span class="hs-task">“{{ T.routeTask }}”</span></div>
-        <div v-for="r in T.routes" :key="r[0]" class="hs-row">
-          <span class="hs-step">{{ r[0] }}</span>
-          <i class="hs-arrow" aria-hidden="true">→</i>
-          <span class="hs-to" :class="r[2]"><b>{{ r[1] }}</b><small>{{ T.kind[r[2]] }}</small></span>
-        </div>
-        <div class="hs-note">{{ T.routeNote }}</div>
       </div>
     </section>
 
@@ -237,7 +242,7 @@ createApp({
         h1a: '智能体平台再多，', h1b: '一个入口全管起来',
         sub: 'Pi、Claude Code、Cursor、Codex、WorkBuddy……每个 runtime 都有自己的配置和接口；模型也散在 Ollama、免费 API、订阅、按量和社区共享里。OneHarness 把它们接到同一个本地网关：客户端里一个界面管，程序里一套接口调。',
         promise: ['runtime 和模型一处管', '界面和接口都统一', '每个 Token 看得清', '开源 · 随时一键还原'],
-        ctaStart: '下载客户端', ctaApi: '看统一接口',
+        ctaStart: '下载客户端', ctaApi: '看统一接口', ctaFeat: '看全部功能',
         heroOut: ['界面', '接口', '你的任务'],
         appsKicker: 'WORKS WITH', appsTitle: '你的 runtime 和模型来源，都能接进来', appsLead: '不改使用习惯：装好的应用自动出现在列表里，点一下纳管，不想用了一键还原；模型来源本地优先，必要时自动走社区共享。',
         groups: { cli: ['智能体 runtime · 透明托管', '自动注入网关地址，命令照常敲'], cfg: ['智能体 runtime · 配置写入', '一键改写配置文件，指向本地网关'], stats: ['智能体 runtime · 用量统计', '读取会话记录，Token 和费用照样看得清'], models: ['模型供应商', '本地源优先，按路由切换，原生模型名不变'] },
@@ -250,18 +255,35 @@ createApp({
           { pain: 'Skill、MCP、Prompt 到处复制，版本对不上', t: '资产一处纳管，越用越懂你', d: '资产库改一次，所有已纳管的智能体拿到同一个版本；从你的使用习惯挖出工作画像，推荐下一批值得装的。' },
           { pain: '不知道哪个智能体擅长什么', t: '主 Agent 按特点派活', d: '把任务交给主 Agent，它拆步骤、派给最合适的那个：本机的 Pi、Claude Code、Codex，或雇来的社区智能体。' },
         ],
-        boardKicker: 'DESKTOP', boardTitle: '桌面客户端：每天都用得上的工具看板', boardLead: '界面和接口是同一套能力。这些是客户端里的真实页面，macOS、Windows、Linux 都能用。',
-        boards: [
-          { key: 'gateway', h: '网关 · 一键纳管', b: '已装的应用自动列出，逐个选路由或还原官方配置。' },
-          { key: 'dashboard', h: '盘点 · 看清花费', b: '请求、Token、免费命中率、费用估算与应用分布。' },
-          { key: 'sessions', h: '会话 · 跨应用追溯', b: '按应用过滤，查看 Token 与费用，支持交接与导出。' },
-          { key: 'trace', h: 'Session Trace', b: '步骤级工具、Skill、推理与 Token 明细。' },
-          { key: 'provider', h: '模型 · 个人 + 社区', b: '个人模型来源测速；社区算力按积分调用。' },
-          { key: 'assets', h: '资产 · 投射', b: 'Agent / Skill / Prompt / MCP 管理并投射到各 runtime。' },
-          { key: 'portrait', h: '画像 · 为你推荐', b: '从会话挖掘工作画像，给出为你推荐与社区精选。' },
-          { key: 'playground', h: '游乐场 · 聚合编排', b: '主 Agent 跑工具，把子任务并行派给 Codex、Kimi Code 等。' },
-          { key: 'device', h: '托盘 · 常驻速览', b: '网关状态、各应用路由、首字延迟和今日用量。', tall: true },
+        featKicker: 'FEATURES', featTitle: '统一管理，具体管哪些', featLead: '下面每一项都是桌面客户端里现成的功能，同一套能力也通过本机网关的接口提供。',
+        features: [
+          { id: 'f-onboard', n: '01', k: '智能体纳管', t: '不同智能体，一处纳管', d: 'Pi、Claude Code、Codex、Cursor、WorkBuddy、Kimi Code、OpenClaw……装好的自动出现在网关页，点一下纳管，不想用了一键还原官方配置。',
+            points: [['三种状态分开管：', '仅统计（官方订阅 + 会话补录）、走网关（绑定路由 + 实时代理）、还原（恢复原始配置）。'], ['三种接入方式：', 'CLI 透明托管自动注入环境变量；桌面应用一键改写配置文件；其余读会话记录做统计。'], ['CLI 多账号：', '同一个 Claude Code / Codex 挂多个登录账号，按启动目录自动分发，各项目保留自己的账号、额度和路由。']],
+            shots: [['gateway', '网关']] },
+          { id: 'f-swap', n: '02', k: '一键换模型', t: '一键换模型，智能体无感', d: '在路由下拉框里选一个模型或场景，配置自动改写，流量走本地网关；智能体继续用原生模型名，客户端不用改。',
+            points: [['原生模型名不变：', 'Claude Code 请求 claude-sonnet-4-6，网关透明改写到你选的模型，界面和校验照旧。'], ['协议自动转换：', 'Anthropic Messages、OpenAI Chat、Codex Responses 互通，含工具调用转发。'], ['按应用独立绑定：', 'Claude Code 走免费源，Codex 走本地 Ollama，互不影响；随时切回官方。'], ['视觉增强：', '不支持图片的模型也能接住截图，网关自动补上识图能力。']],
+            shots: [['provider', '模型'], ['gateway', '网关路由']] },
+          { id: 'f-route', n: '03', k: '场景路由', t: '场景路由，按任务选供给', d: '每个应用可以绑定自己的场景路由，全局供给链兜底。本地源优先，不够再走社区共享，对智能体全程透明。',
+            points: [['场景与任务分型：', '日常对话、代码补全、长文分析绑不同链；预置 design / repo-qa / chore / debug 等任务分型。'], ['供给链：', 'Ollama → 免费 API（Groq、GitHub Models）→ 订阅 / 按量 → 社区共享，逐级直到命中。'], ['策略组与故障转移：', 'fallback、round-robin、weighted、latency，按工具调用、上下文长度动态排序；上游不可用自动切换。'], ['来源 / 价格过滤：', '可限定只用个人源、只用社区、只用免费或只用付费。']],
+            diagram: 'route' },
+          { id: 'f-trace', n: '04', k: 'Trace 管理', t: '每一次调用，都能追溯', d: '不管智能体走不走网关，用量都记得下来：网关实时代理加本地会话补录，同一次调用只记一次。',
+            points: [['网关实时：', '记录路由链、真实模型、Token、延迟和费用。'], ['会话补录：', '扫描 ~/.claude、~/.codex、WorkBuddy Trace 等本地会话，补上没走网关的用量，自动去重。'], ['Session Trace：', '步骤级展开工具调用、Skill、推理过程和 Token 明细。'], ['会话管理：', '按应用过滤，看每场会话的 Token 和费用，可以交接给别的智能体或导出。']],
+            shots: [['sessions', '会话'], ['trace', 'Session Trace']] },
+          { id: 'f-assets', n: '05', k: '资产管理', t: 'Skill、MCP、Prompt、Agent，一个资产库', d: '散在各个目录的 AI 资产收进一处，再投射给需要的智能体，而不是到处复制。',
+            points: [['投射而不是复制：', '一处修改，所有已纳管的智能体拿到同一版本；只投射到已纳管且本机已装的应用，依赖自动级联，随时取消。'], ['用在哪里一目了然：', '每项资产都能看到投射到了哪些应用。'], ['内置 MCP 中转：', '没有 stdio 通道的应用，选好要绑定的 prompts / models / resources，复制中转配置就能用。'], ['画像推荐：', '从真实会话挖出工作画像，推荐下一批值得加的资产，也能拉取社区目录。']],
+            shots: [['assets', '资产'], ['portrait', '画像推荐']] },
+          { id: 'f-usage', n: '06', k: '用量看板', t: '花在哪、省了多少，一眼看清', d: '盘点页按应用、模型来源、模型、供给类型、设备、时间切片；托盘常驻，不开主面板也能看今天的状态。',
+            points: [['核心指标：', '请求数、Token、免费命中率、付费调用、估算费用和应用分布。'], ['订阅与按量对照：', 'APP 订阅、API 订阅、按量付费分栏，订阅按日折算加刊例价估算，和原始 Token 同屏。'], ['省了多少：', '无损压缩次数、节省 Token 与压缩比单独统计。'], ['托盘速览：', '网关状态、各应用路由、首字延迟和今日用量。']],
+            shots: [['dashboard', '盘点'], ['device', '托盘']] },
+          { id: 'f-devices', n: '07', k: '跨端归集', t: '多台设备的用量和配置，归到一个账号', d: '桌面版、CLI 版、服务器网关各自注册为独立设备，登录同一账号后用量自动上报、云端合并。',
+            points: [['设备注册：', '每台机器自动分配设备 id，心跳保持在线状态。'], ['盘点快照：', '按 1 / 7 / 30 天上报调用、Token、费用、本地源和社区分享分布、Top 模型与应用。'], ['云端合并：', '个人页和盘点页展示各设备占比、在线状态，独立明细和汇总视图随时切换。'], ['跨端一致：', '订阅账户、按量配置、工具清单登录后同步，换设备不用重新配。']],
+            diagram: 'devices' },
+          { id: 'f-orchestrate', n: '08', k: '智能体编排', t: '一句话，派给最擅长的那个', d: '在游乐场设一个主 Agent 作为入口：接收任务、规划步骤，再派发给其他已纳管或已雇佣的智能体，工具流全程可见。',
+            points: [['同一张名单：', '本机的 Pi、Claude Code、Codex，雇来的社区智能体，以及模型，都可以被派活。'], ['过程可控：', '工具调用、分块输出看得到，可以停下，也可以接着做。'], ['编排接口：', '内置 tokenbank-agent-bridge MCP，提供 tb_list_agents、tb_dispatch_agent。']],
+            diagram: 'orchestrate' },
         ],
+        dRoute: { app: '你的应用', apps: ['Claude Code', 'Codex', 'Cursor', 'Pi'], bind: '按应用绑定路由', scene: '场景 / 任务分型', scenes: ['日常对话', '代码补全', '长文分析', 'design', 'repo-qa', 'chore', 'debug'], chainK: '供给链，逐级直到命中', chain: ['Ollama', '免费 API', '订阅 / 按量', '社区共享'], policyK: '策略组', policies: ['fallback', 'round-robin', 'weighted', 'latency', 'direct'], note: '原生模型名不变，故障转移对智能体完全透明。' },
+        dDev: { devices: [['MacBook', '桌面版', '设备 A · 在线'], ['Windows 台式机', '桌面版', '设备 B · 在线'], ['Linux 服务器', 'CLI / Docker 网关', '设备 C · 在线']], up: '定时上报盘点快照', cloud: '你的账号', cloudD: '用量云端合并 · 订阅与配置同步', down: '在任意一台上查看', views: ['各设备占比', '在线状态', '独立明细', '汇总视图'] },
         vsKicker: 'NOT JUST A GATEWAY', vsTitle: '不只是又一个模型网关', vsLead: '模型网关和切换工具解决的是「换模型、换 Key」。Token Bank 管的是你整套智能体：runtime、模型、资产、调度，再往后是分享和获取。',
         vsThem: '纯模型网关 / 切换工具', vsThemHint: '如 cc-switch、Magpie 这类产品', vsUs: 'Token Bank 统一管理', vsUsHint: 'runtime + 模型 + 资产 + 分享',
         vs: [
@@ -298,7 +320,7 @@ createApp({
         h1a: 'However many agent platforms,', h1b: 'one place to run them all',
         sub: 'Pi, Claude Code, Cursor, Codex, WorkBuddy… each runtime has its own config and API, and models are scattered across Ollama, free APIs, subscriptions, pay-as-you-go and the community. OneHarness plugs them all into one local gateway: one UI in the app, one interface in your code.',
         promise: ['Runtimes and models in one place', 'One UI, one API', 'See every token', 'Open source · restore any time'],
-        ctaStart: 'Download the client', ctaApi: 'See the interface',
+        ctaStart: 'Download the client', ctaApi: 'See the interface', ctaFeat: 'All features',
         heroOut: ['UI', 'API', 'Your task'],
         appsKicker: 'WORKS WITH', appsTitle: 'Bring your runtimes and model providers', appsLead: 'Keep your habits: installed apps show up automatically, one click to onboard or restore; model sources prefer local and fall back to the community.',
         groups: { cli: ['Runtimes · transparent wrap', 'Gateway address injected — run commands as usual'], cfg: ['Runtimes · config patch', 'One click rewrites the config to point at the gateway'], stats: ['Runtimes · usage tracking', 'Reads session logs so tokens and cost stay visible'], models: ['Model providers', 'Local first, switched by route, native model names kept'] },
@@ -311,18 +333,35 @@ createApp({
           { pain: 'Skills, MCP and prompts copied everywhere, versions drift', t: 'One asset library that learns you', d: 'Edit once and every onboarded agent gets the same version; a work portrait mined from your sessions suggests what to add next.' },
           { pain: 'No idea which agent is good at what', t: 'A main agent routes by strength', d: 'Hand the job to a main agent; it splits the steps and dispatches each to the best fit — local Pi, Claude Code, Codex, or a hired community agent.' },
         ],
-        boardKicker: 'DESKTOP', boardTitle: 'The desktop app: dashboards you\'ll use every day', boardLead: 'The UI and the API are the same capabilities. These are real screens from the app, on macOS, Windows and Linux.',
-        boards: [
-          { key: 'gateway', h: 'Gateway · onboard', b: 'Installed apps listed automatically; pick a route or restore each one.' },
-          { key: 'dashboard', h: 'Usage · spend visibility', b: 'Requests, tokens, free-hit rate, cost estimates and per-app mix.' },
-          { key: 'sessions', h: 'Sessions · cross-app trace', b: 'Filter by app, inspect tokens and cost, hand off or export.' },
-          { key: 'trace', h: 'Session Trace', b: 'Step-level tools, skills, reasoning and token breakdown.' },
-          { key: 'provider', h: 'Models · personal + community', b: 'Speed-test personal sources; use community compute with credits.' },
-          { key: 'assets', h: 'Assets · projection', b: 'Manage agents, skills, prompts and MCP and project them to runtimes.' },
-          { key: 'portrait', h: 'Portrait · picks for you', b: 'A work portrait mined from your sessions, with picks and favorites.' },
-          { key: 'playground', h: 'Playground · orchestration', b: 'The main agent runs tools and dispatches sub-tasks to Codex, Kimi Code and more.' },
-          { key: 'device', h: 'Tray · always-on glance', b: 'Gateway status, per-app route, first-token latency and today\'s usage.', tall: true },
+        featKicker: 'FEATURES', featTitle: 'What "manage" actually covers', featLead: 'Each of these ships in the desktop app today, and the same capabilities are exposed through the local gateway API.',
+        features: [
+          { id: 'f-onboard', n: '01', k: 'Agent onboarding', t: 'Every agent runtime, onboarded in one place', d: 'Pi, Claude Code, Codex, Cursor, WorkBuddy, Kimi Code, OpenClaw… installed apps appear on the Gateway page; one click to onboard, one click to restore the official config.',
+            points: [['Three clear states: ', 'stats only (official subscription + session back-fill), via gateway (bound route + live proxy), restored (original config).'], ['Three access modes: ', 'CLIs get environment variables injected; desktop apps get their config patched; the rest are tracked from session logs.'], ['Multi-account CLIs: ', 'several sign-ins on one Claude Code or Codex, picked by launch directory so each project keeps its account, quota and route.']],
+            shots: [['gateway', 'Gateway']] },
+          { id: 'f-swap', n: '02', k: 'One-click model swap', t: 'Swap models in one click, invisible to the agent', d: 'Pick a model or scene from the route dropdown; the config is rewritten and traffic goes through the local gateway, while the agent keeps its native model name.',
+            points: [['Native names kept: ', 'Claude Code asks for claude-sonnet-4-6; the gateway rewrites it to your choice and the UI and checks stay the same.'], ['Protocols translated: ', 'Anthropic Messages, OpenAI Chat and Codex Responses interoperate, tool calls included.'], ['Bound per app: ', 'Claude Code on a free source, Codex on local Ollama, independently; switch back to official any time.'], ['Vision boost: ', 'models without image input can still take screenshots — the gateway adds image understanding.']],
+            shots: [['provider', 'Models'], ['gateway', 'Gateway routes']] },
+          { id: 'f-route', n: '03', k: 'Scene routing', t: 'Scene routing picks the supply for each task', d: 'Each app can bind its own scene route, with a global supply chain as fallback. Local first, the community when needed — fully transparent to the agent.',
+            points: [['Scenes and task types: ', 'chat, completion and long documents on different chains; built-in task types such as design, repo-qa, chore and debug.'], ['Supply chain: ', 'Ollama → free APIs (Groq, GitHub Models) → subscription / pay-as-you-go → community, until one answers.'], ['Policies and failover: ', 'fallback, round-robin, weighted, latency, ordered by tool use and context length; automatic switch when an upstream fails.'], ['Source / price filters: ', 'restrict to personal sources, community only, free only or paid only.']],
+            diagram: 'route' },
+          { id: 'f-trace', n: '04', k: 'Trace management', t: 'Every call, traceable', d: 'Whether or not an agent goes through the gateway, usage is recorded: live proxy plus local session back-fill, each call counted once.',
+            points: [['Live gateway: ', 'route chain, real model, tokens, latency and cost.'], ['Session back-fill: ', 'scans ~/.claude, ~/.codex, WorkBuddy traces and more for calls that skipped the gateway, de-duplicated.'], ['Session Trace: ', 'step-level tool calls, skills, reasoning and token breakdown.'], ['Session management: ', 'filter by app, see tokens and cost per session, hand off to another agent or export.']],
+            shots: [['sessions', 'Sessions'], ['trace', 'Session Trace']] },
+          { id: 'f-assets', n: '05', k: 'Asset management', t: 'Skills, MCP, prompts and agents in one library', d: 'AI assets scattered across folders, gathered in one place and projected to the agents that need them instead of copied around.',
+            points: [['Project, don\'t copy: ', 'edit once and every onboarded agent gets the same version; only to onboarded, installed apps, with dependencies cascading and undo any time.'], ['See where it\'s used: ', 'every asset shows which apps it is projected to.'], ['Built-in MCP relay: ', 'for apps without stdio, bind prompts / models / resources and copy the relay config.'], ['Portrait picks: ', 'a work portrait mined from real sessions suggests what to add next, alongside the community catalog.']],
+            shots: [['assets', 'Assets'], ['portrait', 'Portrait']] },
+          { id: 'f-usage', n: '06', k: 'Usage dashboard', t: 'Where it went and what you saved, at a glance', d: 'Usage slices by app, model source, model, supply type, device and time; the tray shows today\'s state without opening the main window.',
+            points: [['Core numbers: ', 'requests, tokens, free-hit rate, paid calls, estimated cost and per-app mix.'], ['Subscription vs pay-as-you-go: ', 'app subscriptions, API plans and metered usage side by side, prorated daily with list prices next to raw tokens.'], ['Savings: ', 'lossless compression runs, tokens saved and ratio tracked separately.'], ['Tray glance: ', 'gateway status, per-app route, first-token latency and today\'s usage.']],
+            shots: [['dashboard', 'Usage'], ['device', 'Tray']] },
+          { id: 'f-devices', n: '07', k: 'Cross-device roll-up', t: 'Usage and config from every device, in one account', d: 'Desktop, CLI and server gateways each register as a device; sign in to the same account and usage is reported and merged in the cloud.',
+            points: [['Device registration: ', 'each machine gets a device id and a heartbeat for online status.'], ['Usage snapshots: ', '1 / 7 / 30-day calls, tokens, cost, local vs community mix, top models and apps.'], ['Cloud merge: ', 'profile and usage pages show each device\'s share and status, per-device detail or the combined view.'], ['Consistent everywhere: ', 'subscriptions, pay-as-you-go settings and the tool list sync on sign-in — no reconfiguring.']],
+            diagram: 'devices' },
+          { id: 'f-orchestrate', n: '08', k: 'Agent orchestration', t: 'One sentence, sent to whoever does it best', d: 'Set a main agent in the Playground: it takes the task, plans steps and dispatches them to other onboarded or hired agents, with the tool stream visible throughout.',
+            points: [['One roster: ', 'local Pi, Claude Code, Codex, hired community agents and models can all be dispatched to.'], ['In control: ', 'tool calls and chunked output are visible; stop and resume any time.'], ['Orchestration API: ', 'the built-in tokenbank-agent-bridge MCP exposes tb_list_agents and tb_dispatch_agent.']],
+            diagram: 'orchestrate' },
         ],
+        dRoute: { app: 'Your apps', apps: ['Claude Code', 'Codex', 'Cursor', 'Pi'], bind: 'route bound per app', scene: 'Scene / task type', scenes: ['chat', 'completion', 'long docs', 'design', 'repo-qa', 'chore', 'debug'], chainK: 'supply chain, until one answers', chain: ['Ollama', 'Free APIs', 'Subscription / PAYG', 'Community'], policyK: 'Policy group', policies: ['fallback', 'round-robin', 'weighted', 'latency', 'direct'], note: 'Native model names kept; failover is fully transparent to the agent.' },
+        dDev: { devices: [['MacBook', 'Desktop', 'device A · online'], ['Windows PC', 'Desktop', 'device B · online'], ['Linux server', 'CLI / Docker gateway', 'device C · online']], up: 'usage snapshots reported', cloud: 'Your account', cloudD: 'usage merged · subscriptions and config synced', down: 'view from any device', views: ['share per device', 'online status', 'per-device detail', 'combined view'] },
         vsKicker: 'NOT JUST A GATEWAY', vsTitle: 'More than another model gateway', vsLead: 'Model gateways and switchers solve "change the model, change the key". Token Bank manages your whole agent setup: runtimes, models, assets and dispatch — and then sharing and sourcing.',
         vsThem: 'Model gateway / switcher', vsThemHint: 'products like cc-switch or Magpie', vsUs: 'Token Bank Manage', vsUsHint: 'runtimes + models + assets + sharing',
         vs: [
@@ -381,8 +420,9 @@ createApp({
       { id: 'km', icon: B + 'kimi-color.svg', y: 266 }, { id: 'oc', icon: B + 'openclaw-color.svg', y: 320 },
     ]
 
-    const boardIdx = ref(0)
-    const boards = computed(() => T.value.boards)
+    const shotSel = ref({})
+    const shotIdx = (id) => shotSel.value[id] || 0
+    const setShot = (id, i) => { shotSel.value = { ...shotSel.value, [id]: i } }
     const boardSrc = (key) => '/static/img_cache/' + key + (lang.value === 'en' ? '_en' : '') + '.webp'
     const exIdx = ref(0)
     const examples = computed(() => {
@@ -435,7 +475,7 @@ createApp({
       document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
       nextTick(setupReveal)
     })
-    return { N, loggedIn, boardIdx, boards, boardSrc, lang, T, toggleLang, reduced, appGroups, heroApps, exIdx, examples, copied, copyCode }
+    return { N, loggedIn, shotIdx, setShot, boardSrc, lang, T, toggleLang, reduced, appGroups, heroApps, exIdx, examples, copied, copyCode }
   },
 }).mount('#app')
 </script>
