@@ -13,7 +13,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/community.css">
-<script src="/static/plaza-nav.js?v=15"></script>
+<link rel="stylesheet" href="/static/app.css?v=16">
+<script src="/static/plaza-nav.js?v=16"></script>
 <script src="/static/vue.global.prod.js"></script>
 <script src="/static/app-runtime-icon.js"></script>
 <style>
@@ -48,24 +49,18 @@
 </head>
 <body>
 <div id="app" v-cloak>
-  <nav class="topnav">
-    <div class="topnav-in">
-      <a class="brand" href="/"><img src="/static/logo.svg" alt=""><span class="bt">Token Bank</span></a>
-      <div class="navlinks">
-        <a href="/agents">{{ N.modeUse }}</a>
-        <a href="/dev">{{ N.modeDev }}</a>
-        <span class="navsep" aria-hidden="true"></span>
-        <a href="/harness">{{ N.dManage }}</a>
-        <a href="/network">{{ N.dShare }}</a>
-        <a class="on" href="/market#circles" aria-current="page">{{ N.dMarket }}</a>
-      </div>
-      <div class="nav-right">
-        <button class="btn ghost sm" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
+  <nav class="app-top">
+    <div class="app-top-in">
+      <a class="app-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
+      <div class="app-tabs"><a href="/agents">{{ N.appPlaza }}</a><a href="/market">{{ N.appMarket }}</a><a href="/network">{{ N.appNetwork }}</a><a class="on" aria-current="page" href="/circles">{{ N.appCircles }}</a></div>
+      <div class="app-r">
+        <a class="hide-sm" href="/dev">{{ N.appAbout }}</a>
+        <button type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
         <template v-if="loggedIn">
-          <a class="btn sm" href="/app">{{ profile?.nickname || T.account }}</a>
-          <button class="btn ghost sm" type="button" @click="logout">{{ T.logout }}</button>
+          <a class="hide-sm" href="/app">{{ profile?.nickname || T.account }}</a>
+          <button type="button" @click="logout">{{ T.logout }}</button>
         </template>
-        <button v-else class="btn primary sm" type="button" @click="openAuth()">{{ T.login }}</button>
+        <button v-else class="app-login" type="button" @click="openAuth()">{{ T.login }}</button>
       </div>
     </div>
   </nav>
@@ -94,7 +89,7 @@
           <div class="side-t">{{ T.sideShareT }}</div>
           <div class="side-d">{{ T.sideShareD }}</div>
           <button class="btn sm primary" type="button" @click="needAuth(() => modal = 'create')">+ {{ T.create }}</button>
-          <a class="btn sm ghost" href="/network">{{ T.sideShareLink }}</a>
+          <a class="btn sm ghost" href="/share">{{ T.sideShareLink }}</a>
         </div>
       </div>
 
@@ -316,7 +311,7 @@
     </template>
   </main>
 
-  <footer class="footer"><span>Token Bank · {{ T.footer }}</span><a href="/">{{ T.home }}</a><a href="/agents">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/network">{{ N.dShare }}</a></footer>
+  <footer class="app-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/why">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/agents">{{ N.appPlaza }}</a><a href="/market">{{ N.appMarket }}</a><a href="/network">{{ N.appNetwork }}</a><a href="/circles">{{ N.appCircles }}</a></footer>
 
   <!-- 登录 / 注册 -->
   <div v-if="showAuth" class="mask" @click.self="showAuth = false">
@@ -406,9 +401,9 @@ createApp({
     const i18n = {
       zh: {
         navPlaza: '智能体广场', navNetwork: '共享网络', navCircles: '圈子', account: '我的账户', logout: '退出', login: '登录', register: '注册',
-        title: '管理圈子', subtitle: '圈子是资源市场的一种可见范围，只对成员开放。',
+        title: '圈子', subtitle: '只对成员可见的模型和智能体。在资源市场切到「我的圈子」查看圈内资源。',
         sideUseK: '我想用', sideUseT: '加入圈子，用到圈内独享的智能体', sideUseD: '用邀请码加入，或申请公开圈子。', sideUseLink: '浏览公开圈子',
-        sideShareK: '我想分享', sideShareT: '建个圈子，只给自己人用', sideShareD: '上架时选这个圈子，圈外看不到。', sideShareLink: '分享与收益',
+        sideShareK: '我想分享', sideShareT: '建个圈子，只给自己人用', sideShareD: '上架时选这个圈子，圈外看不到。', sideShareLink: '怎么分享',
         joinByCode: '用邀请码加入', create: '创建圈子', mine: '我的圈子', discover: '发现公开圈子',
         discoverHint: '申请后由圈主审批', searchPh: '搜索圈子名称或简介…',
         signinTitle: '登录后管理你的圈子', signinDesc: '创建圈子、审批入圈申请、查看圈内共享的模型与智能体',
@@ -437,7 +432,7 @@ createApp({
       },
       en: {
         navPlaza: 'Agent Plaza', navNetwork: 'Share & earn', navCircles: 'Circles', account: 'My account', logout: 'Log out', login: 'Sign in', register: 'Sign up',
-        title: 'Manage circles', subtitle: 'A circle is a visibility scope on the market — members only.',
+        title: 'Circles', subtitle: 'Members-only models and agents. Switch the market to "My circles" to browse them.',
         sideUseK: 'I WANT TO USE', sideUseT: 'Join a circle, use what it shares', sideUseD: 'Got an invite link or code from a friend? Join and use the models and agents shared inside — or apply to a public circle below.', sideUseLink: 'Browse public circles',
         sideShareK: 'I WANT TO SHARE', sideShareT: 'Start a circle just for your people', sideShareD: 'When listing in the app, set the scope to this circle — outsiders can\'t see it, and credits settle the same as public sharing.', sideShareLink: 'Share & earn',
         joinByCode: 'Join with code', create: 'Create circle', mine: 'My circles', discover: 'Discover public circles',

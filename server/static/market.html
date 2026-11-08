@@ -9,8 +9,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=15">
-<script src="/static/plaza-nav.js?v=15"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=16">
+<link rel="stylesheet" href="/static/app.css?v=16">
+<script src="/static/plaza-nav.js?v=16"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -22,54 +23,35 @@ a { color: inherit; text-decoration: none; }
 </head>
 <body>
 <div id="app" v-cloak>
-  <nav class="ag-top">
-    <div class="ag-top-in">
-      <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/dev">{{ N.modeDev }}</a></div>
-      <div class="ag-navs ag-devnav">
-        <a class="ag-nav" href="/dev">{{ N.dOverview }}</a>
-        <a class="ag-nav" href="/harness">{{ N.dManage }}</a>
-        <a class="ag-nav" href="/network">{{ N.dShare }}</a>
-        <a class="ag-nav on" href="/market" aria-current="page">{{ N.dMarket }}</a>
-      </div>
-      <div class="ag-top-r">
-        <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
-        <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
-        <a class="ag-dl hide-sm" href="/#download">{{ N.download }}</a>
+  <nav class="app-top">
+    <div class="app-top-in">
+      <a class="app-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
+      <div class="app-tabs"><a href="/agents">{{ N.appPlaza }}</a><a class="on" aria-current="page" href="/market">{{ N.appMarket }}</a><a href="/network">{{ N.appNetwork }}</a><a href="/circles">{{ N.appCircles }}</a></div>
+      <div class="app-r">
+        <a class="hide-sm" href="/dev">{{ N.appAbout }}</a>
+        <button type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
+        <a class="app-login" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
       </div>
     </div>
   </nav>
 
-  <header class="pz-hero">
-    <div class="pz-grid-bg" aria-hidden="true"></div>
-    <div class="dv-subm"><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/network">{{ N.dShare }}</a><a class="on" href="/market">{{ N.dMarket }}</a></div>
-    <div class="pz-hero-in" style="grid-template-columns:minmax(0,1fr);padding-bottom:8px">
-      <div>
-        <div class="pz-eyebrow"><b>MARKET</b>{{ T.eyebrow }}</div>
-        <h1 class="pz-h1">{{ T.h1a }}<br><em>{{ T.h1b }}</em></h1>
-        <p class="pz-sub" style="max-width:44rem">{{ T.sub }}</p>
-        <form class="pz-search" role="search" @submit.prevent="jump">
-          <div class="pz-search-in">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <input v-model="q" type="search" :placeholder="T.search" :aria-label="T.search">
-            <button type="submit">{{ T.find }}</button>
-          </div>
-        </form>
+  <!-- 使用页：只做，不讲。介绍在 /dev -->
+  <header class="app-head">
+    <h1>{{ N.appMarket }}</h1>
+    <p>{{ q ? T.found.replace('{n}', String(curCount)) : T.sub }}</p>
+    <div class="app-row">
+      <form class="app-search" role="search" @submit.prevent>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input v-model="q" type="search" :placeholder="T.search" :aria-label="T.search">
+      </form>
+      <div class="app-stats">
+        <span v-for="(st, i) in statRow" :key="st.k" :class="{ 'hide-sm': i > 1 }"><i v-if="i === 0" class="pz-live"></i><b>{{ loaded ? st.n : '—' }}</b>{{ st.label }}</span>
       </div>
-    </div>
-    <div class="pz-stats" style="grid-template-columns:repeat(4,1fr)">
-      <div v-for="(s, i) in statRow" :key="s.k" class="pz-stat"><div class="pz-stat-k"><i v-if="i === 0" class="pz-live"></i>{{ s.label }}</div><div class="pz-stat-v">{{ loaded ? s.n : '—' }}</div></div>
     </div>
   </header>
 
-  <main class="ag-page">
-    <section id="list" class="pz-sec" aria-labelledby="mk-list">
-      <div class="pz-list-head">
-        <div>
-          <div class="pz-kicker">{{ T.listKicker }}</div>
-          <h2 id="mk-list" class="pz-h2">{{ q ? T.found.replace('{n}', String(curCount)) : (scope === 'circle' ? T.circleTitle : T.listTitle) }}</h2>
-        </div>
-      </div>
+  <main class="app-main">
+    <section id="list" class="pz-sec" :aria-label="N.appMarket">
       <div class="mk-scope" role="radiogroup" :aria-label="T.scopeLabel">
         <button type="button" role="radio" :aria-checked="scope === 'public'" :class="{ on: scope === 'public' }" @click="setScope('public')">{{ T.scopePublic }}</button>
         <button type="button" role="radio" :aria-checked="scope === 'circle'" :class="{ on: scope === 'circle' }" @click="setScope('circle')">{{ T.scopeCircle }}<em v-if="loggedIn && circles.length">{{ circles.length }}</em></button>
@@ -150,33 +132,8 @@ a { color: inherit; text-decoration: none; }
       </template>
     </section>
 
-    <!-- 拿来之后的三条路 -->
-    <section id="paths" class="pz-sec pz-rv" aria-labelledby="mk-paths">
-      <div class="pz-head-c">
-        <div class="pz-kicker">{{ T.pathKicker }}</div>
-        <h2 id="mk-paths" class="pz-h2">{{ T.pathTitle }}</h2>
-      </div>
-      <div class="mk-paths">
-        <div v-for="p in T.paths" :key="p.k" :class="['mk-path', p.cls]"><em>{{ p.k }}</em><b>{{ p.t }}</b><span>{{ p.d }}</span></div>
-      </div>
-    </section>
-
-    <section class="pz-sec pz-rv" aria-labelledby="pz-dev">
-      <div class="pz-head-c"><div class="pz-kicker">{{ N.devKicker }}</div><h2 id="pz-dev" class="pz-h2">{{ N.devTitle }}</h2></div>
-      <div class="pz-dev3">
-        <a v-for="d in N.dev" :key="d.href" :href="d.href" :class="{ on: d.href === '/market' }"><em>{{ d.n }}</em><b>{{ d.t }}</b><span>{{ d.d }}</span></a>
-      </div>
-    </section>
-
-    <section class="pz-final pz-rv">
-      <div><h2>{{ T.finalTitle }}</h2><p>{{ T.finalText }}</p></div>
-      <div class="pz-final-btns">
-        <a class="pz-btn pri" href="/#download">{{ N.download }}</a>
-        <a class="pz-btn ghost" href="/network">{{ T.finalCta2 }}</a>
-      </div>
-    </section>
   </main>
-  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/harness">{{ N.dManage }}</a><a href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
+  <footer class="app-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/why">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/agents">{{ N.appPlaza }}</a><a href="/market">{{ N.appMarket }}</a><a href="/network">{{ N.appNetwork }}</a><a href="/circles">{{ N.appCircles }}</a></footer>
 </div>
 
 <script>
@@ -193,7 +150,7 @@ createApp({
       zh: {
         title: '资源市场', eyebrow: '开发者分享的模型、Skill 与智能体模板',
         h1a: '别人做好的，', h1b: '拿来就用，改改就上架',
-        sub: '公开的和圈子里的，同一个市场。',
+        sub: '开发者分享的模型、Skill、智能体模板。公开或只在圈子里可见。',
         search: '搜索模型、Skill、提示词或模板…', find: '搜索',
         sModels: '在线模型', sSkills: 'Skill', sTemplates: '智能体模板', sPrompts: '提示词',
         listKicker: 'BROWSE', listTitle: '市场里有什么', found: '找到 {n} 个结果',
@@ -224,7 +181,7 @@ createApp({
       en: {
         title: 'Market', eyebrow: 'Models, skills and agent templates shared by developers',
         h1a: 'Built by others —', h1b: 'use it now, remix it, list it',
-        sub: 'Public and circle-only, one market.',
+        sub: 'Models, skills and agent templates shared by developers — public or circle-only.',
         search: 'Search models, skills, prompts or templates…', find: 'Search',
         sModels: 'Models online', sSkills: 'Skills', sTemplates: 'Agent templates', sPrompts: 'Prompts',
         listKicker: 'BROWSE', listTitle: 'What\'s on the market', found: '{n} results',
@@ -326,7 +283,7 @@ createApp({
       return [{ k: 'm', label: t.sModels, n: models.value.length }, { k: 's', label: t.sSkills, n: count('skills') }, { k: 't', label: t.sTemplates, n: count('templates') }, { k: 'p', label: t.sPrompts, n: count('prompts') }]
     })
     const curCount = computed(() => scope.value === 'circle' ? shownCircleItems.value.length : (tab.value === 'models' ? shownModels.value.length : shownRes.value.length))
-    function jump() { document.getElementById('list')?.scrollIntoView({ block: 'start' }) }
+    
 
     async function load() {
       try {
@@ -388,7 +345,7 @@ createApp({
       load()
       if (scope.value === 'circle') loadCircles()
     })
-    return { lang, T, N, toggleLang, loggedIn, scope, setScope, circles, circleLoaded, circleId, circleItems, shownCircleItems, publicCircles, tab, setTab, q, mtype, limit, loaded, tabs, statRow, modelFilters, shownModels, shownRes, curCount, typeLabel, typeBadge, fmtMs, speedCls, color, jump }
+    return { lang, T, N, toggleLang, loggedIn, scope, setScope, circles, circleLoaded, circleId, circleItems, shownCircleItems, publicCircles, tab, setTab, q, mtype, limit, loaded, tabs, statRow, modelFilters, shownModels, shownRes, curCount, typeLabel, typeBadge, fmtMs, speedCls, color }
   },
 }).mount('#app')
 </script>

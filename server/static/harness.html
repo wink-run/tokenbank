@@ -9,8 +9,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=15">
-<script src="/static/plaza-nav.js?v=15"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=16">
+<script src="/static/plaza-nav.js?v=16"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -24,16 +24,15 @@ a { color: inherit; text-decoration: none; }
   <nav class="ag-top">
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/dev">{{ N.modeDev }}</a></div>
+      <div class="ag-modes"><a class="ag-mode" href="/why">{{ N.modeUse }}</a><a class="ag-mode on" href="/dev">{{ N.modeDev }}</a></div>
       <div class="ag-navs ag-devnav">
         <a class="ag-nav" href="/dev">{{ N.dOverview }}</a>
         <a class="ag-nav on" href="/harness" aria-current="page">{{ N.dManage }}</a>
-        <a class="ag-nav" href="/network">{{ N.dShare }}</a>
-        <a class="ag-nav" href="/market">{{ N.dMarket }}</a>
+        <a class="ag-nav" href="/share">{{ N.dShare }}</a>
       </div>
       <div class="ag-top-r">
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
-        <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
+        <a class="ag-nav hide-sm" href="/market">{{ N.appMarket }}</a>
         <a class="ag-dl hide-sm" href="/#download">{{ N.download }}</a>
       </div>
     </div>
@@ -42,7 +41,7 @@ a { color: inherit; text-decoration: none; }
   <!-- 首屏：多个智能体平台 → 一个入口 -->
   <header class="pz-hero">
     <div class="pz-grid-bg" aria-hidden="true"></div>
-    <div class="dv-subm"><a href="/dev">{{ N.dOverview }}</a><a class="on" href="/harness">{{ N.dManage }}</a><a href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></div>
+    <div class="dv-subm"><a href="/dev">{{ N.dOverview }}</a><a class="on" href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a></div>
     <div class="pz-hero-in hs-hero-in" style="padding-bottom:72px">
       <div>
         <div class="pz-eyebrow"><b>ONEHARNESS</b>{{ T.eyebrow }}</div>
@@ -214,7 +213,7 @@ a { color: inherit; text-decoration: none; }
       </div>
     </section>
   </main>
-  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/harness">{{ N.dManage }}</a><a href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
+  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/why">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a href="/agents">{{ N.appPlaza }}</a><a href="/market">{{ N.appMarket }}</a><a href="/network">{{ N.appNetwork }}</a></footer>
 </div>
 
 <script>

@@ -9,8 +9,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=15">
-<script src="/static/plaza-nav.js?v=15"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=16">
+<script src="/static/plaza-nav.js?v=16"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -24,16 +24,15 @@ a { color: inherit; text-decoration: none; }
   <nav class="ag-top">
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/dev">{{ N.modeDev }}</a></div>
+      <div class="ag-modes"><a class="ag-mode" href="/why">{{ N.modeUse }}</a><a class="ag-mode on" href="/dev">{{ N.modeDev }}</a></div>
       <div class="ag-navs ag-devnav">
         <a class="ag-nav on" href="/dev" aria-current="page">{{ N.dOverview }}</a>
         <a class="ag-nav" href="/harness">{{ N.dManage }}</a>
-        <a class="ag-nav" href="/network">{{ N.dShare }}</a>
-        <a class="ag-nav" href="/market">{{ N.dMarket }}</a>
+        <a class="ag-nav" href="/share">{{ N.dShare }}</a>
       </div>
       <div class="ag-top-r">
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
-        <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
+        <a class="ag-nav hide-sm" href="/market">{{ N.appMarket }}</a>
         <a class="ag-dl hide-sm" href="/#download">{{ N.download }}</a>
       </div>
     </div>
@@ -41,7 +40,7 @@ a { color: inherit; text-decoration: none; }
 
   <header class="pz-hero">
     <div class="pz-grid-bg" aria-hidden="true"></div>
-    <div class="dv-subm"><a class="on" href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></div>
+    <div class="dv-subm"><a class="on" href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a></div>
     <div class="pz-hero-in nw-hero-in" style="padding-bottom:64px">
       <div>
         <div class="pz-eyebrow"><b>FOR DEVELOPERS</b>{{ T.eyebrow }}</div>
@@ -140,7 +139,7 @@ a { color: inherit; text-decoration: none; }
       </div>
     </section>
   </main>
-  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/harness">{{ N.dManage }}</a><a href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
+  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/why">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a href="/agents">{{ N.appPlaza }}</a><a href="/market">{{ N.appMarket }}</a><a href="/network">{{ N.appNetwork }}</a></footer>
 </div>
 
 <script>
@@ -162,7 +161,7 @@ createApp({
         stackKicker: 'THE FACTORY', stackTitle: '六层现成能力', stackLead: '纯模型网关只做最底下那一层。这里从执行引擎到分发，每一层都已经搭好，你只管在最上面做应用。',
         stackTop: '你的应用', stackApps: ['你的产品后台', '网页智能体', '团队内部工具', '你的 Claude Code 工作流'],
         layers: [
-          ['分发层', '上架、市场、圈子', '上架即得网页应用，有没有公网 IP 都能对外服务', '/network'],
+          ['分发层', '上架、市场、圈子', '上架即得网页应用，有没有公网 IP 都能对外服务', '/share'],
           ['观测层', 'Trace、用量、跨端', '每次调用可追溯，多设备归集', '/harness#f-trace'],
           ['接口层', '统一任务接口 + 模型接口', '换一个 harness_id 就换一个智能体', '/harness#api'],
           ['资产层', 'Skill、MCP、Prompt', '组合进智能体，投射到各个 runtime', '/harness#f-assets'],
@@ -172,7 +171,7 @@ createApp({
         buildKicker: 'BUILD ON TOP', buildTitle: '在上面架应用，三条路', buildLead: '选哪条都不用从零写 runtime、计费和网页。',
         builds: [
           { k: '路线 A', t: '用接口做进你的产品', d: '后端调 /v1/agent/responses，选 runtime 执行。', get: ['runtime 随时换，代码不动', '模型路由、计量、Trace 自带', '任务可查询、可取消、断线续接'], cta: '看接口', href: '/harness#api' },
-          { k: '路线 B', t: '组一个智能体，上架就是网页应用', d: 'runtime + 模型 + Skill，保存上架即可。', get: ['自带网页对话页，支持图片和文件', '可被搜索的介绍页和分享链接', '跑在你局域网的机器上，有没有公网 IP 都行', '未登录试一轮、多人接龙、按次计费'], cta: '怎么上架', href: '/network' },
+          { k: '路线 B', t: '组一个智能体，上架就是网页应用', d: 'runtime + 模型 + Skill，保存上架即可。', get: ['自带网页对话页，支持图片和文件', '可被搜索的介绍页和分享链接', '跑在你局域网的机器上，有没有公网 IP 都行', '未登录试一轮、多人接龙、按次计费'], cta: '怎么上架', href: '/share' },
           { k: '路线 C', t: '把你已有的应用接进来', d: '「新建应用」以 API 接入，同享路由和观测。', get: ['绑定场景路由，原生模型名不变', '用量进盘点，调用进 Trace', '多设备归集到同一个账号'], cta: '看统一管理', href: '/harness#f-onboard' },
         ],
         liveTitle: '网络里此刻有', kNodes: '在线节点', kModels: '可用模型', kAgents: '在线智能体', kRes: '技能与模板', liveFoot: '都来自开发者分享，你也可以拿来自用或加工。',
@@ -193,7 +192,7 @@ createApp({
           { k: '获取', b: '资源市场', d: '别人分享的模型、Skill、提示词和智能体模板', href: '/market' },
           { k: '加工', b: '在资产里改', d: '换模型、改提示词、加 Skill，调成你自己的智能体', href: '/market#paths' },
           { k: '管理', b: '纳管到 runtime', d: '投射到 Pi、Claude Code、Cursor 等，用统一接口调试', href: '/harness' },
-          { k: '上架', b: '分享出去', d: '只给自己、只给圈子，或公开给所有人', href: '/network' },
+          { k: '上架', b: '分享出去', d: '只给自己、只给圈子，或公开给所有人', href: '/share' },
           { k: '使用', b: '普通用户', d: '在智能体广场像打车一样用，任务在你的设备上执行', href: '/agents', cls: 'user' },
         ],
         loopBack: '每次被使用都结算积分，分摊你的订阅和算力开销；用户反馈再回到你的下一版。',
@@ -215,7 +214,7 @@ createApp({
         stackKicker: 'THE FACTORY', stackTitle: 'Six layers, ready', stackLead: 'A model gateway only covers the bottom layer. Here every layer from execution to distribution is built — you work on the top.',
         stackTop: 'Your apps', stackApps: ['Your product backend', 'Web agents', 'Internal team tools', 'Your Claude Code workflow'],
         layers: [
-          ['Distribution', 'Listing, market, circles', 'List it, get a web app; serve with or without a public IP', '/network'],
+          ['Distribution', 'Listing, market, circles', 'List it, get a web app; serve with or without a public IP', '/share'],
           ['Observability', 'Trace, usage, devices', 'Every call traceable, rolled up across devices', '/harness#f-trace'],
           ['Interface', 'Agent task API + model APIs', 'Change harness_id to change agent', '/harness#api'],
           ['Assets', 'Skills, MCP, prompts', 'Composed into agents, projected to runtimes', '/harness#f-assets'],
@@ -225,7 +224,7 @@ createApp({
         buildKicker: 'BUILD ON TOP', buildTitle: 'Three ways to build on top', buildLead: 'None of them needs you to write a runtime, billing or a web front end from scratch.',
         builds: [
           { k: 'Path A', t: 'Build it into your product', d: 'Your backend calls /v1/agent/responses and picks a runtime.', get: ['Swap runtimes without touching code', 'Model routing, metering and trace built in', 'Tasks can be queried, cancelled and resumed'], cta: 'See the API', href: '/harness#api' },
-          { k: 'Path B', t: 'Compose an agent, list it as a web app', d: 'Runtime + model + skills, saved and listed.', get: ['A web chat page with images and files', 'A searchable intro page and share links', 'Runs on your LAN machine, public IP or not', 'Guest trial, shared threads, per-use billing'], cta: 'How to list', href: '/network' },
+          { k: 'Path B', t: 'Compose an agent, list it as a web app', d: 'Runtime + model + skills, saved and listed.', get: ['A web chat page with images and files', 'A searchable intro page and share links', 'Runs on your LAN machine, public IP or not', 'Guest trial, shared threads, per-use billing'], cta: 'How to list', href: '/share' },
           { k: 'Path C', t: 'Plug in the apps you already have', d: '"New app" connects it via API with the same routing and observability.', get: ['Scene routes, native model names kept', 'Usage in the dashboard, calls in Trace', 'Rolled up across devices in one account'], cta: 'See Manage', href: '/harness#f-onboard' },
         ],
         liveTitle: 'On the network right now', kNodes: 'Online nodes', kModels: 'Models', kAgents: 'Agents online', kRes: 'Skills & templates', liveFoot: 'All shared by developers — take them for yourself or remix them.',
@@ -246,7 +245,7 @@ createApp({
           { k: 'Source', b: 'Market', d: 'Models, skills, prompts and agent templates others shared', href: '/market' },
           { k: 'Remix', b: 'Edit in Assets', d: 'Swap models, tweak prompts, add skills — make it yours', href: '/market#paths' },
           { k: 'Manage', b: 'Onboard to runtimes', d: 'Project to Pi, Claude Code, Cursor and test through one API', href: '/harness' },
-          { k: 'List', b: 'Share it', d: 'Just you, a circle, or everyone', href: '/network' },
+          { k: 'List', b: 'Share it', d: 'Just you, a circle, or everyone', href: '/share' },
           { k: 'Use', b: 'Everyday users', d: 'They hail it on the Agent Plaza; tasks run on your device', href: '/agents', cls: 'user' },
         ],
         loopBack: 'Every use settles credits that offset your subscriptions and compute; feedback flows into your next version.',

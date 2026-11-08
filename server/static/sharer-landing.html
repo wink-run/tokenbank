@@ -117,7 +117,7 @@ createApp({
     const lang = ref(localStorage.getItem('tb_lang') || ((navigator.language || '').startsWith('zh') ? 'zh' : 'en'))
     const i18n = {
       zh: {
-        loading: '加载中…', offline: '贡献者当前离线', backNet: '分享与收益',
+        loading: '加载中…', offline: '贡献者当前离线', backNet: '共享网络',
         subtitle: '贡献者主页 · 查看并试用其分享的模型与智能体',
         nodes: '在线节点', tokens: '本周期 Token', latency: '平均延迟',
         modelsTitle: '分享的模型', agentsTitle: '分享的智能体',
@@ -127,7 +127,7 @@ createApp({
         notFound: '未找到该贡献者，或节点已离线。',
       },
       en: {
-        loading: 'Loading…', offline: 'Contributor offline', backNet: 'Share & earn',
+        loading: 'Loading…', offline: 'Contributor offline', backNet: 'Network',
         subtitle: 'Contributor profile · try their shared models and agents',
         nodes: 'Online nodes', tokens: 'Period tokens', latency: 'Avg latency',
         modelsTitle: 'Shared models', agentsTitle: 'Shared agents',
