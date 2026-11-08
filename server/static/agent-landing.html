@@ -558,19 +558,65 @@ createApp({
       // 各端都用这一份发言时间。完成时间是打开页面的设备自己盖的，不拿来排序
       return Number(m && m.at) || 0
     }
+    function sameUserLine(a, b) {
+      if (!a || !b || a.role !== 'user' || b.role !== 'user') return false
+      if (String(a.content || '').trim() !== String(b.content || '').trim()) return false
+      const left = String(a.author || '')
+      const right = String(b.author || '')
+      return !left || !right || left === right
+    }
+    // 这条回复前面的那句用户消息。用来判断两句回复是不是同一轮
+    function userBefore(list, index) {
+      for (let i = index - 1; i >= 0; i -= 1) {
+        if (list[i] && list[i].role === 'user') return list[i]
+      }
+      return null
+    }
     function sameLine(a, b) {
       if (!a || !b || a.role !== b.role) return false
-      if (String(a.content || '').trim() !== String(b.content || '').trim()) return false
-      if (a.author && b.author && a.author !== b.author) return false
-      const arts = (m) => (Array.isArray(m.artifacts) ? m.artifacts.map(x => (x && x.name) || '').join('|') : '')
-      if (arts(a) !== arts(b)) return false
+      if (a.role === 'user') return sameUserLine(a, b)
+      if (lineText(a) !== lineText(b)) return false
       return true
     }
-    // 刷新时本地留着带工具的回复，云端还有任务结束时写的纯正文。相邻的这两条是同一句
+    // 刷新时本地留着带工具的回复，云端还有任务结束时写的纯正文。正文换成中转地址后仍是同一句
     function replyText(m) {
       const parts = Array.isArray(m && m.parts) ? m.parts : []
       const fromParts = parts.filter(p => p && p.type === 'text' && String(p.text || '').trim()).map(p => String(p.text).trim()).join('\n')
       return String(fromParts || (m && m.content) || '').trim()
+    }
+    // 中转地址和磁盘上的文件名，比的时候当成同一个词
+    function lineText(m) {
+      let text = String(m && m.role === 'user' ? (m.content || '') : replyText(m))
+      const arts = Array.isArray(m && m.artifacts) ? m.artifacts : []
+      for (const f of arts) {
+        const url = String(f && f.url || '')
+        const name = String(f && f.name || '').trim()
+        if (url && name) text = text.split(url).join(name)
+      }
+      text = text.replace(/https?:\/\/\S+?\/media\/agent\/[A-Za-z0-9_-]+\/([^\s?#]+)/g, (_, name) => {
+        try { return decodeURIComponent(name) } catch { return name }
+      })
+      return text.trim()
+    }
+    function replyRichness(m) {
+      const parts = Array.isArray(m && m.parts) ? m.parts : []
+      const tools = parts.filter(p => p && p.type === 'tool')
+      return tools.filter(p => p.result).length * 100 + parts.length
+    }
+    // 两条回复是不是同一轮。userA / userB 是各自前面的那句用户消息
+    function sameAnswer(a, b, userA, userB) {
+      if (!a || !b || a.role !== 'assistant' || b.role !== 'assistant') return false
+      // 还在执行的占位只和同一任务合并，避免把下一句用户消息卷进去
+      if (a.pending || b.pending) return !!(a.taskId && a.taskId === b.taskId)
+      if (a.taskId && b.taskId && a.taskId === b.taskId) return true
+      // 两次提问时间不同，就算正文一样也各留一句。时间相同才是同一句被写了两遍
+      const atA = Number(userA && userA.at) || 0
+      const atB = Number(userB && userB.at) || 0
+      if (atA && atB && atA !== atB) return false
+      const ta = lineText(a)
+      const tb = lineText(b)
+      if (ta && tb && ta === tb) return true
+      return isPlainTwin(a, b)
     }
     function hasReplyParts(m) {
       return Array.isArray(m && m.parts) && m.parts.some(p => p && (p.type === 'tool' || p.type === 'text' || p.type === 'thinking'))
@@ -621,7 +667,11 @@ createApp({
         rich.taskId = undefined
         rich.liveTurn = false
       }
-      if ((!rich.artifacts || !rich.artifacts.length) && other.artifacts && other.artifacts.length) rich.artifacts = other.artifacts
+      if (other.artifacts && other.artifacts.length) {
+        rich.artifacts = (!rich.artifacts || !rich.artifacts.length)
+          ? other.artifacts
+          : mergeArtifacts([].concat(rich.artifacts, other.artifacts), [])
+      }
       if (!rich.at && other.at) rich.at = other.at
       if (!rich.startedAt && other.startedAt) rich.startedAt = other.startedAt
       if (!rich.finishedAt && other.finishedAt) rich.finishedAt = other.finishedAt
@@ -631,25 +681,45 @@ createApp({
     }
     function foldPlainReplies(list) {
       const out = []
+      // 重复的那句用户先拿着。后面的回复能并进旧的，这句就丢掉；并不进才补上
+      let heldUser = null
+      const flushUser = () => {
+        if (!heldUser) return
+        out.push(heldUser)
+        heldUser = null
+      }
       for (const m of list || []) {
-        const prev = out[out.length - 1]
-        if (prev && isPlainTwin(prev, m)) {
-          out[out.length - 1] = keepRichReply(prev, m)
+        if (!m) continue
+        if (m.role === 'user') {
+          flushUser()
+          const again = out.some((item, i) => item && item.role === 'user' && sameUserLine(item, m)
+            && out.slice(i + 1).some(row => row && row.role === 'assistant'))
+          if (again) heldUser = m
+          else out.push(m)
           continue
         }
-        // 同一句用户被写了两遍：前面是纯正文，后面是带工具的回复
-        const plain = out.length >= 2 ? out[out.length - 2] : null
-        const firstUser = out.length >= 3 ? out[out.length - 3] : null
-        const sameUser = firstUser && prev && firstUser.role === 'user' && prev.role === 'user'
-          && String(firstUser.content || '').trim() === String(prev.content || '').trim()
-          && (!firstUser.author || !prev.author || firstUser.author === prev.author)
-        if (sameUser && m && plain && m.role === 'assistant' && plain.role === 'assistant' && isPlainTwin(plain, m)) {
-          out.pop()
-          out[out.length - 1] = keepRichReply(plain, m)
-          continue
+        if (m.role === 'assistant') {
+          const asked = heldUser || userBefore(out, out.length)
+          let hit = -1
+          for (let i = out.length - 1; i >= 0; i -= 1) {
+            if (!out[i] || out[i].role !== 'assistant') continue
+            const askedBefore = userBefore(out, i)
+            if (!sameUserLine(askedBefore, asked)) continue
+            if (!sameAnswer(out[i], m, askedBefore, asked)) continue
+            hit = i
+            break
+          }
+          if (hit >= 0) {
+            out[hit] = keepRichReply(out[hit], m)
+            // 这句用户已经在前面留过，才丢掉重复的那条。正在执行的这句必须留着
+            if (heldUser && !m.pending && out.some(item => item && item.role === 'user' && sameUserLine(item, heldUser))) heldUser = null
+            continue
+          }
         }
+        flushUser()
         out.push(m)
       }
+      flushUser()
       // 刷新时同一轮可能留下两条「正在执行」。留下有工具的那条
       const folded = []
       for (const m of out) {
@@ -663,16 +733,18 @@ createApp({
             }
           }
           const prev = prevAt >= 0 ? folded[prevAt] : null
-          const sameTask = prev && (!m.taskId || !prev.taskId || m.taskId === prev.taskId)
+          // 没任务号的两条「正在执行」不是同一轮。不能把后面的用户消息一起丢掉
+          const sameTask = prev && m.taskId && prev.taskId && m.taskId === prev.taskId
           if (sameTask) {
             const richer = (m.parts && m.parts.length) ? m : prev
             const other = richer === m ? prev : m
             if (!richer.taskId && other.taskId) richer.taskId = other.taskId
             folded[prevAt] = richer
-            const between = folded[prevAt + 1]
-            if (between && between.role === 'user' && folded[prevAt - 1] && folded[prevAt - 1].role === 'user'
-              && String(between.content || '').trim() === String(folded[prevAt - 1].content || '').trim()) {
-              folded.pop()
+            const betweenAt = prevAt + 1
+            const between = folded[betweenAt]
+            const priorUser = folded[prevAt - 1]
+            if (between && between.role === 'user' && priorUser && priorUser.role === 'user' && sameUserLine(between, priorUser)) {
+              folded.splice(betweenAt, 1)
             }
             continue
           }
@@ -710,7 +782,8 @@ createApp({
         if (ta && tb && ta !== tb) return ta - tb
         return a.i - b.i
       })
-      return placeRepliesAfterUsers(rest.map(x => x.m)).concat(pending.map(x => x.m))
+      // 按时间排完，同一轮可能才挨到一起，再收一次重复
+      return foldPlainReplies(placeRepliesAfterUsers(rest.map(x => x.m)).concat(pending.map(x => x.m)))
     }
     function takeParticipants(pack) {
       const list = Array.isArray(pack && pack.participants) ? pack.participants : null
@@ -758,6 +831,29 @@ createApp({
       takeParticipants(pack)
       const author = String(pack.author || '').slice(0, 40)
       const used = new Set()
+      let serverUser = null
+      // 重复的用户先拿着。后面的回复若能并进已有的那条，这句用户就不另占一行
+      let heldUser = null
+      const flushUser = () => {
+        if (!heldUser) return
+        into.push(heldUser)
+        heldUser = null
+      }
+      const takeHit = (row, hitAt) => {
+        used.add(hitAt)
+        if (row.role === 'assistant' && (isPlainTwin(into[hitAt], row) || replyRichness(row) > replyRichness(into[hitAt]))) {
+          into[hitAt] = keepRichReply(into[hitAt], row)
+        } else if (row.role === 'assistant' && row.artifacts && row.artifacts.length) {
+          into[hitAt].artifacts = mergeArtifacts([].concat(into[hitAt].artifacts || [], row.artifacts), [row.content])
+        }
+        const hit = into[hitAt]
+        if (!hit.author && row.author) hit.author = row.author
+        // 服务端记下的发言时间覆盖本机后来盖上的完成时间
+        if (row.at) hit.at = row.at
+        if (!hit.durationMs && row.durationMs) hit.durationMs = row.durationMs
+        if (!hit.startedAt && row.startedAt) hit.startedAt = row.startedAt
+        if (!hit.finishedAt && row.finishedAt) hit.finishedAt = row.finishedAt
+      }
       pack.messages.forEach((raw) => {
         if (!raw || (raw.role !== 'user' && raw.role !== 'assistant')) return
         const row = {
@@ -768,6 +864,18 @@ createApp({
           finishedAt: Number(raw.finishedAt) || undefined,
           shared: true,
         }
+        if (row.role === 'user') {
+          flushUser()
+          serverUser = row
+          for (let n = 0; n < into.length; n += 1) {
+            if (used.has(n) || !sameLine(into[n], row)) continue
+            takeHit(row, n)
+            return
+          }
+          heldUser = row
+          return
+        }
+        serverUser = heldUser || serverUser
         let hitAt = -1
         for (let n = 0; n < into.length; n += 1) {
           if (used.has(n)) continue
@@ -775,26 +883,31 @@ createApp({
             hitAt = n
             break
           }
-          // 只合并这一轮末尾的「工具回复 + 纯正文」，更早的回复别卷进来
-          if (!isPlainTwin(into[n], row)) continue
-          if (into.slice(n + 1).some(item => item && item.role === 'user')) continue
+          // 同一句用户下，工具回复和后来的纯正文是同一条，不管它排在第几轮
+          const askedBefore = userBefore(into, n)
+          if (!into[n] || into[n].role !== 'assistant' || !sameAnswer(into[n], row, askedBefore, serverUser)) continue
+          if (!sameUserLine(askedBefore, serverUser)) continue
           hitAt = n
           break
         }
+        if (hitAt < 0 && serverUser) {
+          for (let n = 0; n < into.length; n += 1) {
+            const askedBefore = userBefore(into, n)
+            if (!into[n] || into[n].role !== 'assistant' || !sameAnswer(into[n], row, askedBefore, serverUser)) continue
+            if (!sameUserLine(askedBefore, serverUser)) continue
+            hitAt = n
+            break
+          }
+        }
         if (hitAt >= 0) {
-          used.add(hitAt)
-          if (isPlainTwin(into[hitAt], row)) into[hitAt] = keepRichReply(into[hitAt], row)
-          const hit = into[hitAt]
-          if (!hit.author && row.author) hit.author = row.author
-          // 服务端记下的发言时间覆盖本机后来盖上的完成时间
-          if (row.at) hit.at = row.at
-          if (!hit.durationMs && row.durationMs) hit.durationMs = row.durationMs
-          if (!hit.startedAt && row.startedAt) hit.startedAt = row.startedAt
-          if (!hit.finishedAt && row.finishedAt) hit.finishedAt = row.finishedAt
+          heldUser = null
+          takeHit(row, hitAt)
           return
         }
+        flushUser()
         into.push(row)
       })
+      flushUser()
       const folded = foldPlainReplies(into)
       if (folded.length !== into.length) {
         into.splice(0, into.length, ...folded)
@@ -1820,11 +1933,11 @@ createApp({
       }
       if (!user) {
         messages.value.push({ role: 'user', content: live.text, author: live.author, at: live.at, liveTurn: true, shared: true })
-      } else {
-        user.content = live.text
-        user.author = live.author
+      } else if (user.liveTurn) {
+        // 临时插上的那句可以改字。已经在对话里的用户消息不要标成临时的，否则下一拍刷新会先把它拿掉
+        if (live.text) user.content = live.text
+        user.author = live.author || user.author
         if (!user.at) user.at = live.at
-        user.liveTurn = true
       }
       if (!asst) {
         messages.value.push({ role: 'assistant', content: '', pending: true, liveTurn: true, shared: true, startedAt: live.at })
@@ -1946,6 +2059,29 @@ createApp({
         return { ...h, messages: snapshot, preview: preview || h.preview }
       })
     }
+    // 屏幕上这句用户还没有同样的正文和时间，合并结果里不能把它弄没
+    function restoreScreenUsers(prev, next) {
+      const out = (next || []).slice()
+      const have = (text, at) => out.some((m) => {
+        if (!m || m.role !== 'user') return false
+        if (String(m.content || '').trim() !== text) return false
+        const bt = Number(m.at) || 0
+        return !at || !bt || at === bt
+      })
+      for (const m of prev || []) {
+        if (!m || m.role !== 'user' || m.liveTurn) continue
+        const text = String(m.content || '').trim()
+        if (!text || have(text, Number(m.at) || 0)) continue
+        let anchor = null
+        const i = (prev || []).indexOf(m)
+        for (let k = i + 1; k < (prev || []).length; k += 1) {
+          if (out.indexOf(prev[k]) >= 0) { anchor = prev[k]; break }
+        }
+        const at = anchor ? out.indexOf(anchor) : out.length
+        out.splice(at < 0 ? out.length : at, 0, m)
+      }
+      return out
+    }
     // 轮询只改已有气泡或在末尾补句。整表换成新对象会让图片和正文重新加载，并把视口拽到底
     function adoptKept(kept, keepLive) {
       const live = keepLive ? messages.value.filter(m => m && m.liveTurn) : []
@@ -1988,7 +2124,10 @@ createApp({
           if (r.ok && data) {
             absorbShare(kept, data)
             // 分享里后写上的句子带时间。按时间排，不要把后到的旧回复堆在最底下
-            const ordered = sortMessages(kept)
+            const ordered = restoreScreenUsers(
+              (sameScreen ? messages.value : []).filter(m => m && !m.liveTurn),
+              sortMessages(kept),
+            )
             if (ordered.length !== kept.length || ordered.some((row, i) => row !== kept[i])) {
               kept.splice(0, kept.length, ...ordered)
             }
