@@ -641,30 +641,6 @@ a.nw-rk:hover { background: #fafaff; }
 .dv-b a { margin-top: auto; padding-top: 18px; font-size: 14px; font-weight: 650; color: var(--pz-indigo); }
 @media (max-width: 1024px) { .dv-build { grid-template-columns: 1fr; } .dv-layer { grid-template-columns: 1fr; gap: 4px; } }
 
-/* 开发者：局域网就是机房 */
-.dv-lan { margin-top: 88px; }
-.dv-lan-x { list-style: none; margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.dv-lan-x li { display: flex; align-items: center; gap: 9px; font-size: 14px; color: rgba(224,231,255,.88); }
-.dv-lan-x li::before { content: '✕'; flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; background: rgba(244,114,182,.18); color: #f9a8d4; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
-.dv-lan-x li:last-child::before { content: '✓'; background: rgba(52,211,153,.18); color: #6ee7b7; }
-.dv-lan-map { display: grid; gap: 8px; }
-.dv-lan-box { padding: 16px 18px; border-radius: 16px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); }
-.dv-lan-box h4 { font-size: 13px; font-weight: 700; color: rgba(199,210,254,.8); margin-bottom: 10px; }
-.dv-lan-box.cloud { text-align: center; background: linear-gradient(135deg, rgba(99,102,241,.35), rgba(139,92,246,.22)); border-color: rgba(165,180,252,.4); }
-.dv-lan-box.cloud h4 { color: #fff; font-size: 16px; margin-bottom: 2px; }
-.dv-lan-box.cloud span { font-size: 12.5px; color: rgba(224,231,255,.75); }
-.dv-lan-box.lan { border-style: dashed; border-color: rgba(103,232,249,.4); background: rgba(103,232,249,.05); }
-.dv-lan-box small { display: block; margin-top: 10px; font-size: 12px; color: #6ee7b7; }
-.dv-lan-arrow { text-align: center; font-size: 12.5px; color: #67e8f9; }
-.dv-lan-arrow.up { color: #f0abfc; }
-@media (max-width: 768px) { .dv-lan-x { grid-template-columns: 1fr; } }
 
-.dv-lan-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
-.dv-lane { display: grid; gap: 8px; padding: 14px; border-radius: 18px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.08); }
-.dv-lane-h em { display: inline-block; font-style: normal; font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 6px; background: rgba(103,232,249,.15); color: #a5f3fc; }
-.dv-lane.relay .dv-lane-h em { background: rgba(240,171,252,.15); color: #f5d0fe; }
-.dv-lane-h b { display: block; margin-top: 6px; font-size: 14.5px; }
-.dv-lane .dv-lan-box { padding: 12px 14px; }
-.dv-lane .dv-lan-box h4 { margin-bottom: 8px; }
-.dv-lane.direct .dv-lan-box.lan { border-color: rgba(103,232,249,.45); }
-@media (max-width: 1024px) { .dv-lan-2 { grid-template-columns: 1fr; } }
+
+

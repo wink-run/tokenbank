@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=11">
+<link rel="stylesheet" href="/static/plaza.css?v=12">
 <script src="/static/plaza-nav.js?v=9"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -78,29 +78,6 @@ a { color: inherit; text-decoration: none; }
       <div class="dv-stack">
         <div class="dv-apps"><span>{{ T.stackTop }}</span><i v-for="a in T.stackApps" :key="a">{{ a }}</i></div>
         <a v-for="(l, i) in T.layers" :key="l[0]" :href="l[3]" :class="['dv-layer', 'l' + i]"><em>{{ l[0] }}</em><b>{{ l[1] }}</b><span>{{ l[2] }}</span></a>
-      </div>
-    </section>
-
-    <!-- 局域网算力直接对外服务 -->
-    <section class="pz-safe pz-rv dv-lan" aria-labelledby="dv-lan">
-      <div>
-        <div class="pz-kicker">{{ T.lanKicker }}</div>
-        <h2 id="dv-lan" class="pz-h2">{{ T.lanTitle }}</h2>
-        <p class="pz-lead">{{ T.lanLead }}</p>
-        <ul class="dv-lan-x"><li v-for="x in T.lanNo" :key="x">{{ x }}</li></ul>
-      </div>
-      <div class="dv-lan-2" aria-hidden="true">
-        <div v-for="ln in T.lanes" :key="ln.k" :class="['dv-lane', ln.cls]">
-          <div class="dv-lane-h"><em>{{ ln.k }}</em><b>{{ ln.t }}</b></div>
-          <div class="dv-lan-box users"><h4>{{ T.lanUsers }}</h4><div class="hs-d-chips"><i v-for="u in ln.users" :key="u">{{ u }}</i></div></div>
-          <template v-if="ln.cls === 'relay'">
-            <div class="dv-lan-arrow">↓ {{ T.lanIn }}</div>
-            <div class="dv-lan-box cloud"><h4>Token Bank</h4><span>{{ T.lanCloud }}</span></div>
-            <div class="dv-lan-arrow up">↑ {{ T.lanOut }}</div>
-          </template>
-          <div v-else class="dv-lan-arrow">↓ {{ ln.via }}</div>
-          <div class="dv-lan-box lan"><h4>{{ ln.box }}</h4><div class="hs-d-chips"><i v-for="m in ln.machines" :key="m">{{ m }}</i></div><small>{{ ln.note }}</small></div>
-        </div>
       </div>
     </section>
 
@@ -210,7 +187,7 @@ createApp({
         title: '开发者', eyebrow: '智能体应用工厂',
         h1a: '不只是管理智能体，', h1b: '还能把应用架在上面',
         sub: 'Token Bank 是一套智能体应用的基础设施：Pi、Claude Code、Codex、Cursor 这些 runtime 直接当执行引擎，各家模型统一接入，Skill 和 MCP 组合成你的智能体；再用统一接口做进自己的产品，或者一键上架成网页应用，计费、权限、分发都现成。',
-        promise: ['不用自己造 harness', '一套接口调智能体和模型', '局域网算力直接对外服务', '上架即得网页应用'],
+        promise: ['不用自己造 harness', '一套接口调智能体和模型', '上架即得网页应用', '开源 · macOS / Windows / Linux'],
         ctaApi: '看统一接口',
         stackKicker: 'THE FACTORY', stackTitle: '一座智能体应用工厂，六层现成能力', stackLead: '纯模型网关只做最底下那一层。这里从执行引擎到分发，每一层都已经搭好，你只管在最上面做应用。',
         stackTop: '你的应用', stackApps: ['你的产品后台', '网页智能体', '团队内部工具', '你的 Claude Code 工作流'],
@@ -221,13 +198,6 @@ createApp({
           ['资产层', 'Skill、MCP、Prompt', '一个资产库，组合进智能体，投射到各个 runtime', '/harness#f-assets'],
           ['模型层', '各家模型 + 场景路由', '本地、免费、订阅、按量、社区共享，按场景选、自动兜底', '/harness#f-route'],
           ['运行时层', 'Pi、Claude Code、Codex、Cursor…', '已经装好的 runtime 直接当执行引擎，不用重写 harness', '/harness#f-onboard'],
-        ],
-        lanKicker: 'SERVE FROM YOUR LAN', lanTitle: '你的局域网，就是你的机房', lanLead: '家里的 GPU、公司内网的服务器、跑着 Ollama 或私有模型的那台机器，接进来就是你应用的服务算力。有公网 IP 就让用户直连你的网关；没有也不要紧，机器主动连出来，由 Token Bank 中转。',
-        lanNo: ['不用申请公网 IP', '不用买云服务器', '不用折腾内网穿透和端口转发', 'Key、模型和数据留在你的内网'],
-        lanUsers: '你的用户', lanIn: '请求', lanCloud: '中转 · 计费 · 权限 · 分发', lanOut: '出站长连接，任务和结果走这条线',
-        lanes: [
-          { k: '方式一', t: '有公网 IP：直连你的网关', cls: 'direct', users: ['你的产品', '团队成员', '你的脚本'], via: '直接请求 :11430，用网关 Key 鉴权', box: '你的网关', machines: ['CLI / Docker 网关', '监听 0.0.0.0'], note: 'OpenAI 兼容接口和智能体任务接口都在，不经过 Token Bank' },
-          { k: '方式二', t: '没有公网 IP：经 Token Bank 中转', cls: 'relay', users: ['网页应用', '智能体广场', '你的产品接口'], box: '你的局域网', machines: ['家里的 GPU 主机', '公司内网服务器', 'Ollama / 私有模型', 'Claude Code 等 runtime'], note: '没有入站端口，路由器和防火墙不用动' },
         ],
         buildKicker: 'BUILD ON TOP', buildTitle: '在上面架应用，三条路', buildLead: '选哪条都不用从零写 runtime、计费和网页。',
         builds: [
@@ -272,7 +242,7 @@ createApp({
         title: 'Developers', eyebrow: 'An agent app factory',
         h1a: 'Don\'t just manage agents —', h1b: 'build apps on top of them',
         sub: 'Token Bank is infrastructure for agent apps: runtimes like Pi, Claude Code, Codex and Cursor serve as execution engines, every model provider plugs in, and skills and MCP compose into your agents. Build them into your own product through one interface, or list them as web apps with billing, access control and distribution ready.',
-        promise: ['No harness to build', 'One API for agents and models', 'Serve from your LAN', 'List it, get a web app'],
+        promise: ['No harness to build', 'One API for agents and models', 'List it, get a web app', 'Open source · macOS / Windows / Linux'],
         ctaApi: 'See the interface',
         stackKicker: 'THE FACTORY', stackTitle: 'An agent app factory, six layers ready', stackLead: 'A model gateway only covers the bottom layer. Here every layer from execution to distribution is built — you work on the top.',
         stackTop: 'Your apps', stackApps: ['Your product backend', 'Web agents', 'Internal team tools', 'Your Claude Code workflow'],
@@ -283,13 +253,6 @@ createApp({
           ['Assets', 'Skills, MCP, prompts', 'One library, composed into agents and projected to each runtime', '/harness#f-assets'],
           ['Models', 'Every provider + scene routing', 'Local, free, subscription, PAYG and community, routed by scene with fallback', '/harness#f-route'],
           ['Runtimes', 'Pi, Claude Code, Codex, Cursor…', 'Installed runtimes become execution engines — no harness to rewrite', '/harness#f-onboard'],
-        ],
-        lanKicker: 'SERVE FROM YOUR LAN', lanTitle: 'Your LAN is your data centre', lanLead: 'The GPU at home, the server on your office network, the box running Ollama or a private model — connect it and it becomes compute for your app. With a public IP, users connect straight to your gateway; without one, the machine dials out and Token Bank relays.',
-        lanNo: ['No public IP to request', 'No cloud server to rent', 'No tunnels or port forwarding', 'Keys, models and data stay on your network'],
-        lanUsers: 'Your users', lanIn: 'requests', lanCloud: 'relay · billing · access · distribution', lanOut: 'outbound long-lived connection carries tasks and results',
-        lanes: [
-          { k: 'Option 1', t: 'Public IP: connect to your gateway', cls: 'direct', users: ['Your product', 'Your team', 'Your scripts'], via: 'call :11430 directly with a gateway key', box: 'Your gateway', machines: ['CLI / Docker gateway', 'listening on 0.0.0.0'], note: 'OpenAI-compatible and agent task endpoints, no Token Bank in between' },
-          { k: 'Option 2', t: 'No public IP: relay through Token Bank', cls: 'relay', users: ['Web app', 'Agent Plaza', 'Your product API'], box: 'Your LAN', machines: ['GPU box at home', 'Office server', 'Ollama / private models', 'Claude Code and other runtimes'], note: 'No inbound ports; leave the router and firewall alone' },
         ],
         buildKicker: 'BUILD ON TOP', buildTitle: 'Three ways to build on top', buildLead: 'None of them needs you to write a runtime, billing or a web front end from scratch.',
         builds: [
