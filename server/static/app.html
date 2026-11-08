@@ -26,6 +26,8 @@
   --mono:'Space Mono',ui-monospace,monospace;
 }
 body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px;min-height:100vh;-webkit-font-smoothing:antialiased}
+/* Vue 挂上之前先藏住，避免刷新时闪出登录模板 */
+[v-cloak]{display:none!important}
 .auth-overlay{position:fixed;inset:0;background:var(--bg-subtle);display:flex;align-items:center;justify-content:center;padding:24px}
 .auth-box{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);padding:36px 40px;width:400px;max-width:100%;box-shadow:0 8px 24px rgba(0,0,0,.04)}
 .auth-box h2{font-size:22px;margin-bottom:4px;color:var(--text);text-align:center;font-weight:700;letter-spacing:-.02em}
@@ -150,7 +152,7 @@ td{padding:10px 12px;vertical-align:middle}
 </style>
 </head>
 <body>
-<div id="app">
+<div id="app" v-cloak>
 
   <!-- Auth -->
   <div v-if="!loggedIn" class="auth-overlay">

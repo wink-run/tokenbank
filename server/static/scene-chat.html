@@ -17,6 +17,7 @@
   --radius:10px;--radius-lg:18px;--font:'Inter',-apple-system,sans-serif;--serif:'Noto Serif SC',serif;
 }
 body{font-family:var(--font);background:var(--bg-subtle);color:var(--text);font-size:14px;-webkit-font-smoothing:antialiased}
+[v-cloak]{display:none!important}
 button,input,textarea{font:inherit}
 .shell{max-width:760px;margin:0 auto;padding:16px}
 .chat{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;display:flex;flex-direction:column;height:calc(100vh - 32px)}
@@ -48,7 +49,7 @@ button,input,textarea{font:inherit}
 </style>
 </head>
 <body>
-<div id="app" class="shell">
+<div id="app" class="shell" v-cloak>
   <div v-if="fatal" class="center">{{ fatal }} · <a href="/circles">去登录</a></div>
   <div v-else class="chat">
     <div class="chat-head">

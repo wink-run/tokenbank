@@ -15,7 +15,8 @@ html{scroll-behavior:smooth}
 body{font-family:var(--font);background:var(--bg-subtle);color:var(--text);font-size:14px;line-height:1.5;min-height:100vh;-webkit-font-smoothing:antialiased}
 a{color:inherit;text-decoration:none}
 button,input,textarea,select{font:inherit;color:inherit}
-[v-cloak]{display:none}
+/* 后面的布局会改 display。不用 important 时，刷新会先闪出还没编译的模板 */
+[v-cloak]{display:none!important}
 
 /* ── 顶部导航 ── */
 .topnav{position:sticky;top:0;z-index:40;background:rgba(250,249,245,.82);backdrop-filter:saturate(180%) blur(12px);-webkit-backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--border)}

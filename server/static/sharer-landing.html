@@ -24,6 +24,8 @@
 }
 body{font-family:var(--font);background:var(--bg-subtle);color:var(--text);font-size:14px;min-height:100vh;-webkit-font-smoothing:antialiased}
 a{color:inherit;text-decoration:none}
+/* .shell 会把 display 设成 flex，不用 important 会先闪出未编译模板 */
+[v-cloak]{display:none!important}
 .shell{max-width:720px;margin:0 auto;padding:24px 16px 48px;min-height:100vh;display:flex;flex-direction:column}
 header{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:600}
@@ -50,7 +52,7 @@ header{display:flex;align-items:center;justify-content:space-between;margin-bott
 </style>
 </head>
 <body>
-<div id="app" class="shell">
+<div id="app" class="shell" v-cloak>
   <header>
     <a class="brand" href="/network">
       <img class="brand-mark" src="/static/logo.svg" alt="Token Bank" width="28" height="28">

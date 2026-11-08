@@ -277,6 +277,7 @@
               <span v-for="p in chatPeople" :key="p.name" class="pav" :title="p.name">
                 <img v-if="p.avatar" :src="p.avatar" :alt="p.name">
                 <i v-else :style="{ background: avatarColor(p.name) }">{{ p.name.slice(0, 1).toUpperCase() }}</i>
+                <em>{{ p.name }}</em>
               </span>
             </div>
             <button v-if="running && !hasDraft" type="button" class="send stop" :title="T.pause" @click="pauseRun">
@@ -834,7 +835,7 @@ createApp({
       for (const p of known.values()) {
         if (!seen.has(p.name)) order.push(p)
       }
-      return order.slice(0, 8)
+      return order
     })
     function absorbShare(into, pack) {
       if (!pack || !Array.isArray(pack.messages)) return

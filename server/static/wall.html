@@ -14,6 +14,8 @@
   --text:#c8d0e0;--muted:#5a6480;--green:#22c55e;--red:#f87171;
 }
 html,body{min-height:100%;overflow-x:hidden}
+/* #app 下面把 display 设成 flex，不用 important 会盖掉隐藏 */
+[v-cloak]{display:none!important}
 body{
   font-family:"JetBrains Mono",monospace;background:var(--bg);color:var(--text);font-size:13px;
   background-image:
@@ -191,7 +193,7 @@ body{
 </style>
 </head>
 <body>
-<div id="app">
+<div id="app" v-cloak>
   <div class="topbar">
     <div class="topbar-logo">Local <span>LLM</span> Proxy
       <span style="color:var(--muted);font-size:12px;margin-left:8px;font-family:sans-serif">
