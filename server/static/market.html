@@ -25,10 +25,9 @@ a { color: inherit; text-decoration: none; }
   <nav class="ag-top">
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/dev">{{ N.modeDev }}</a></div>
+      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/">{{ N.modeDev }}</a></div>
       <div class="ag-navs ag-devnav">
-        <a class="ag-nav" href="/dev">{{ N.dOverview }}</a>
-        <a class="ag-nav" href="/harness">{{ N.dManage }}</a>
+        <a class="ag-nav" href="/">{{ N.dOverview }}</a>
         <a class="ag-nav" href="/share">{{ N.dShare }}</a>
         <a class="ag-nav on" href="/market" aria-current="page">{{ N.dMarket }}</a>
       </div>
@@ -36,7 +35,7 @@ a { color: inherit; text-decoration: none; }
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
         <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
         <a class="ag-dl hide-sm" href="/#download">{{ N.download }}</a>
-        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><em>{{ N.modeUse }}</em><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a></div><div class="ag-menu-g"><em>{{ N.modeDev }}</em><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a class="on" aria-current="page" href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a href="/app">{{ loggedIn ? N.account : N.signIn }}</a><a class="dl" href="/#download">{{ N.download }}</a></div></div></details>
+        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><em>{{ N.modeUse }}</em><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a></div><div class="ag-menu-g"><em>{{ N.modeDev }}</em><a href="/">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a class="on" aria-current="page" href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a href="/app">{{ loggedIn ? N.account : N.signIn }}</a><a class="dl" href="/#download">{{ N.download }}</a></div></div></details>
       </div>
     </div>
   </nav>
@@ -184,7 +183,7 @@ a { color: inherit; text-decoration: none; }
     </section>
 
   </main>
-  <footer class="nw-foot"><span>Token Bank</span><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
+  <footer class="nw-foot"><span>Token Bank</span><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a><a href="/">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
 </div>
 
 <script>

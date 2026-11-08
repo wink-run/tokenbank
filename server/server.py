@@ -270,8 +270,8 @@ async def market_page():
 
 @app.get("/harness")
 async def harness_page():
-    """公开：OneHarness，多个智能体平台一处纳管、统一接口"""
-    return FileResponse("static/harness.html")
+    """统一管理已并入首页；浏览器跳转时会保留 #f-route 这类锚点"""
+    return RedirectResponse("/", status_code=301)
 
 
 @app.get("/circles")

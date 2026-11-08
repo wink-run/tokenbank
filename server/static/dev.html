@@ -27,10 +27,9 @@ a { color: inherit; text-decoration: none; }
   <nav class="ag-top">
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/dev">{{ N.modeDev }}</a></div>
+      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/">{{ N.modeDev }}</a></div>
       <div class="ag-navs ag-devnav">
-        <a class="ag-nav on" href="/dev" aria-current="page">{{ N.dOverview }}</a>
-        <a class="ag-nav" href="/harness">{{ N.dManage }}</a>
+        <a class="ag-nav on" href="/" aria-current="page">{{ N.dOverview }}</a>
         <a class="ag-nav" href="/share">{{ N.dShare }}</a>
         <a class="ag-nav" href="/market">{{ N.dMarket }}</a>
       </div>
@@ -38,7 +37,7 @@ a { color: inherit; text-decoration: none; }
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
         <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
         <a class="ag-dl hide-sm" href="#download">{{ N.download }}</a>
-        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><em>{{ N.modeUse }}</em><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a></div><div class="ag-menu-g"><em>{{ N.modeDev }}</em><a class="on" aria-current="page" href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a href="/app">{{ loggedIn ? N.account : N.signIn }}</a><a class="dl" href="/#download">{{ N.download }}</a></div></div></details>
+        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><em>{{ N.modeUse }}</em><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a></div><div class="ag-menu-g"><em>{{ N.modeDev }}</em><a class="on" aria-current="page" href="/">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a href="/app">{{ loggedIn ? N.account : N.signIn }}</a><a class="dl" href="#download">{{ N.download }}</a></div></div></details>
       </div>
     </div>
   </nav>
@@ -53,7 +52,7 @@ a { color: inherit; text-decoration: none; }
         <ul class="pz-promise"><li v-for="p in T.promise" :key="p">{{ p }}</li></ul>
         <div class="nw-ctas">
           <a class="pz-btn pri" href="#download">{{ N.download }}</a>
-          <a class="pz-btn ghost" href="/harness#api">{{ T.ctaApi }}</a>
+          <a class="pz-btn ghost" href="#api">{{ T.ctaApi }}</a>
         </div>
         <a class="dv-user-door" href="/agents"><span>{{ T.userDoorK }}</span>{{ T.userDoor }} →</a>
       </div>
@@ -77,7 +76,7 @@ a { color: inherit; text-decoration: none; }
         <div class="dv-arch-head">
           <div class="pz-kicker">{{ T.stackKicker }}</div>
           <h2 id="dv-stack">{{ T.stackTitle }}</h2>
-          <a class="dv-arch-link" href="/harness#vs">{{ T.vsMore }} →</a>
+          <a class="dv-arch-link" href="#vs">{{ T.vsMore }} →</a>
         </div>
         <div class="dv-arch-grid" @mouseleave="archHover = false">
           <div class="dv-iso" aria-hidden="true">
@@ -104,6 +103,88 @@ a { color: inherit; text-decoration: none; }
     </section>
 
     <!-- 在上面架应用：三条路 -->
+    <!-- 支持的应用 -->
+    <section class="pz-sec" aria-labelledby="hs-apps">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ H.appsKicker }}</div>
+        <h2 id="hs-apps" class="pz-h2">{{ H.appsTitle }}</h2>
+      </div>
+      <div class="hs-wall">
+        <div v-for="g in appGroups" :key="g.key" class="hs-group">
+          <div class="hs-group-h"><b>{{ g.title }}</b><span>{{ g.desc }}</span></div>
+          <div class="hs-chips">
+            <span v-for="a in g.apps" :key="a.name" class="hs-chip">
+              <img v-if="a.icon" :src="a.icon" alt=""><i v-else>{{ a.name.slice(0, 1) }}</i>{{ a.name }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 功能一览：按名字找到每个功能 -->
+    <section id="features" class="pz-sec" aria-labelledby="hs-feat">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ H.featKicker }}</div>
+        <h2 id="hs-feat" class="pz-h2">{{ H.featTitle }}</h2>
+      </div>
+      <div class="hs-car" :class="{ paused: featPaused }" @mouseenter="featPaused = true" @mouseleave="featPaused = false" @focusin="featPaused = true" @focusout="featPaused = false">
+      <div class="hs-index" role="tablist" :aria-label="H.featTitle" @keydown.right.prevent="goFeat(featIdx + 1, true)" @keydown.left.prevent="goFeat(featIdx - 1, true)">
+        <button v-for="(f, fi) in H.features" :key="f.id" type="button" role="tab" :aria-selected="featIdx === fi" :tabindex="featIdx === fi ? 0 : -1" :class="{ on: featIdx === fi }" @click="goFeat(fi, true)">
+          <em>{{ f.n }}</em>{{ f.k }}
+          <i v-if="featIdx === fi" :key="'p' + featTick" class="hs-prog" @animationend="goFeat(featIdx + 1)"></i>
+        </button>
+      </div>
+      <div class="hs-stage">
+      <button type="button" class="hs-car-btn prev" :aria-label="H.prev" @click="goFeat(featIdx - 1, true)">‹</button>
+      <button type="button" class="hs-car-btn next" :aria-label="H.next" @click="goFeat(featIdx + 1, true)">›</button>
+      <Transition name="hs-slide" mode="out-in">
+    <div v-for="f in [H.features[featIdx]]" :key="f.id" class="hs-feature in" role="tabpanel" :aria-labelledby="'h-' + f.id">
+      <div class="hs-f-text">
+        <div class="hs-f-n">{{ f.n }} · {{ f.k }}</div>
+        <h3 :id="'h-' + f.id">{{ f.t }}</h3>
+        <ul class="hs-f-points"><li v-for="pt in f.points" :key="pt[0]"><b>{{ pt[0] }}</b>{{ pt[1] }}</li></ul>
+      </div>
+      <div class="hs-f-visual">
+        <template v-if="f.shots">
+          <div v-if="f.shots.length > 1" class="hs-f-tabs" role="tablist">
+            <button v-for="(sh, si) in f.shots" :key="sh[0]" type="button" role="tab" :aria-selected="shotIdx(f.id) === si" :class="{ on: shotIdx(f.id) === si }" @click="setShot(f.id, si)">{{ sh[1] }}</button>
+          </div>
+          <div class="hs-shot" :class="{ tall: f.shots[shotIdx(f.id)][0] === 'device' }">
+            <img :src="boardSrc(f.shots[shotIdx(f.id)][0])" :alt="f.shots[shotIdx(f.id)][1]">
+          </div>
+        </template>
+        <div v-else-if="f.diagram === 'route'" class="hs-diag">
+          <div class="hs-d-row"><span class="hs-d-k">{{ H.dRoute.app }}</span><div class="hs-d-chips"><i v-for="x in H.dRoute.apps" :key="x">{{ x }}</i></div></div>
+          <div class="hs-d-arrow">↓ {{ H.dRoute.bind }}</div>
+          <div class="hs-d-row"><span class="hs-d-k">{{ H.dRoute.scene }}</span><div class="hs-d-chips"><i v-for="x in H.dRoute.scenes" :key="x">{{ x }}</i></div></div>
+          <div class="hs-d-arrow">↓ {{ H.dRoute.chainK }}</div>
+          <div class="hs-d-chain"><span v-for="(x, i) in H.dRoute.chain" :key="x" :class="{ p2p: i === H.dRoute.chain.length - 1 }">{{ x }}</span></div>
+          <div class="hs-d-arrow">↓ {{ H.dRoute.policyK }}</div>
+          <div class="hs-d-chips"><i v-for="x in H.dRoute.policies" :key="x" class="pol">{{ x }}</i></div>
+          <p class="hs-d-note">{{ H.dRoute.note }}</p>
+        </div>
+        <div v-else-if="f.diagram === 'devices'" class="hs-diag">
+          <div class="hs-dev3"><div v-for="d in H.dDev.devices" :key="d[0]" class="hs-dev"><b>{{ d[0] }}</b><span>{{ d[1] }}</span><small>{{ d[2] }}</small></div></div>
+          <div class="hs-d-arrow">↓ {{ H.dDev.up }}</div>
+          <div class="hs-cloud"><b>{{ H.dDev.cloud }}</b><span>{{ H.dDev.cloudD }}</span></div>
+          <div class="hs-d-arrow">↓ {{ H.dDev.down }}</div>
+          <div class="hs-d-chips"><i v-for="x in H.dDev.views" :key="x">{{ x }}</i></div>
+        </div>
+        <div v-else-if="f.diagram === 'orchestrate'" class="hs-plan hs-plan-light">
+          <div class="hs-plan-h"><span class="hs-main">{{ H.mainAgent }}</span><span class="hs-task">“{{ H.routeTask }}”</span></div>
+          <div v-for="r in H.routes" :key="r[0]" class="hs-row">
+            <span class="hs-step">{{ r[0] }}</span><i class="hs-arrow" aria-hidden="true">→</i>
+            <span class="hs-to" :class="r[2]"><b>{{ r[1] }}</b><small>{{ H.kind[r[2]] }}</small></span>
+          </div>
+          <div class="hs-note">{{ H.routeNote }}</div>
+        </div>
+      </div>
+    </div>
+      </Transition>
+      </div>
+      </div>
+    </section>
+
     <section class="pz-sec pz-rv" aria-labelledby="dv-build">
       <div class="pz-head-c">
         <div class="pz-kicker">{{ T.buildKicker }}</div>
@@ -120,17 +201,28 @@ a { color: inherit; text-decoration: none; }
 
 
     <!-- 统一管理里的功能 -->
-    <section class="pz-sec pz-rv" aria-labelledby="dv-feats">
+
+    <!-- 循环：获取 → 加工 → 管理 → 上架 → 普通用户用 -->
+    <!-- 和纯模型网关的区别 -->
+    <section id="vs" class="pz-sec pz-rv" aria-labelledby="hs-vs">
       <div class="pz-head-c">
-        <div class="pz-kicker">{{ T.featKicker }}</div>
-        <h2 id="dv-feats" class="pz-h2">{{ T.featTitle }}</h2>
+        <div class="pz-kicker">{{ H.vsKicker }}</div>
+        <h2 id="hs-vs" class="pz-h2">{{ H.vsTitle }}</h2>
       </div>
-      <div class="dv-feats">
-        <a v-for="f in T.feats" :key="f[0]" :href="'/harness#' + f[0]"><em>{{ f[1] }}</em><b>{{ f[2] }}</b><span>{{ f[3] }}</span></a>
+      <div class="pz-cmp" role="table">
+        <div class="pz-cmp-row" role="row">
+          <div class="pz-cmp-dim" role="columnheader"></div>
+          <div class="pz-cmp-them" role="columnheader"><div class="pz-cmp-h">{{ H.vsThem }}<small>{{ H.vsThemHint }}</small></div></div>
+          <div class="pz-cmp-us" role="columnheader"><div class="pz-cmp-h">{{ H.vsUs }}<small>{{ H.vsUsHint }}</small></div></div>
+        </div>
+        <div v-for="row in H.vs" :key="row[0]" class="pz-cmp-row" role="row">
+          <div class="pz-cmp-dim" role="rowheader">{{ row[0] }}</div>
+          <div class="pz-cmp-them" role="cell"><i class="pz-x" aria-hidden="true">–</i><span>{{ row[1] }}</span></div>
+          <div class="pz-cmp-us" role="cell"><i class="pz-v" aria-hidden="true">✓</i><span>{{ row[2] }}</span></div>
+        </div>
       </div>
     </section>
 
-    <!-- 循环：获取 → 加工 → 管理 → 上架 → 普通用户用 -->
     <section class="pz-sec pz-rv" aria-labelledby="dv-loop">
       <div class="pz-head-c">
         <div class="pz-kicker">{{ T.loopKicker }}</div>
@@ -142,17 +234,29 @@ a { color: inherit; text-decoration: none; }
     </section>
 
     <!-- 一套接口 -->
-    <section class="pz-safe pz-rv" aria-labelledby="dv-api">
-      <div>
-        <div class="pz-kicker">{{ T.apiKicker }}</div>
-        <h2 id="dv-api" class="pz-h2">{{ T.apiTitle }}</h2>
-        <p class="pz-lead">{{ T.apiLead }}</p>
-        <div class="nw-ctas" style="margin-top:22px"><a class="pz-btn ghost" href="/harness#api">{{ T.apiMore }} →</a></div>
+    <!-- 统一接口 -->
+    <section id="api" class="pz-sec pz-rv" aria-labelledby="hs-api">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ H.apiKicker }}</div>
+        <h2 id="hs-api" class="pz-h2">{{ H.apiTitle }}</h2>
+        <p class="pz-lead">{{ H.apiLead }}</p>
       </div>
-      <div class="hs-code dv-code" style="margin:0;max-width:none">
-        <pre><code><span v-for="(ln, i) in T.apiLines" :key="i" :class="{ hl: ln[1] }">{{ ln[0] }}</span></code></pre>
+      <div class="hs-code">
+        <div class="hs-code-tabs" role="tablist">
+          <button v-for="(ex, i) in examples" :key="ex.key" type="button" role="tab" :aria-selected="exIdx === i" :class="{ on: exIdx === i }" @click="exIdx = i">
+            <img v-if="ex.icon" :src="ex.icon" alt="">{{ ex.label }}
+          </button>
+          <button type="button" class="hs-copy" @click="copyCode">{{ copied ? H.copied : H.copy }}</button>
+        </div>
+        <pre><code><template v-for="(ln, i) in examples[exIdx].lines" :key="i"><span :class="{ hl: ln.hl }">{{ ln.t }}</span>
+</template></code></pre>
+        <div class="hs-code-f">{{ examples[exIdx].note }}</div>
+      </div>
+      <div class="hs-facts">
+        <div v-for="f in H.facts" :key="f[0]"><b>{{ f[0] }}</b><span>{{ f[1] }}</span></div>
       </div>
     </section>
+
 
 
     <!-- 下载（原首页 #download，站内「下载客户端」都指向这里） -->
@@ -181,11 +285,12 @@ a { color: inherit; text-decoration: none; }
       </div>
     </section>
   </main>
-  <footer class="nw-foot"><span>Token Bank</span><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
+  <footer class="nw-foot"><span>Token Bank</span><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a><a href="/">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
 </div>
 
 <script>
 const { createApp, ref, computed, onMounted, nextTick } = Vue
+const B = '/static/brand-icons/'
 createApp({
   setup() {
     let stored = ''
@@ -205,17 +310,17 @@ createApp({
         stackTop: '你的应用', stackApps: ['你的产品后台', '网页智能体', '团队内部工具', '你的 Claude Code 工作流'],
         layers: [
           ['分发层', '上架、市场、圈子', '上架即得网页应用，有没有公网 IP 都能对外服务', '/share'],
-          ['观测层', 'Trace、用量、跨端', '每次调用可追溯，多设备归集', '/harness#f-trace'],
-          ['接口层', '智能体任务 + 三种模型协议', '换一个 harness_id 换智能体，三种协议互通', '/harness#api'],
-          ['资产层', 'Skill、MCP、Prompt', '组合进智能体，投射到各个运行时', '/harness#f-assets'],
-          ['运行时层', 'Pi、Claude Code、Codex、Cursor、GrokBot、Muse…', '已装好的运行时直接当执行引擎', '/harness#f-onboard'],
-          ['模型层', '各家模型 + 场景路由', '本地、免费、订阅、按量、社区，自动兜底', '/harness#f-route'],
+          ['观测层', 'Trace、用量、跨端', '每次调用可追溯，多设备归集', '#f-trace'],
+          ['接口层', '智能体任务 + 三种模型协议', '换一个 harness_id 换智能体，三种协议互通', '#api'],
+          ['资产层', 'Skill、MCP、Prompt', '组合进智能体，投射到各个运行时', '#f-assets'],
+          ['运行时层', 'Pi、Claude Code、Codex、Cursor、GrokBot、Muse…', '已装好的运行时直接当执行引擎', '#f-onboard'],
+          ['模型层', '各家模型 + 场景路由', '本地、免费、订阅、按量、社区，自动兜底', '#f-route'],
         ],
         buildKicker: 'BUILD ON TOP', buildTitle: '在上面架应用，三条路', buildLead: '选哪条都不用从零写运行时、计费和网页。',
         builds: [
-          { k: '路线 A', t: '用接口做进你的产品', d: '后端调 /v1/agent/responses，选运行时执行。', get: ['运行时随时换，代码不动', '模型路由、计量、Trace 自带', '任务可查询、可取消、断线续接'], cta: '看接口', href: '/harness#api' },
+          { k: '路线 A', t: '用接口做进你的产品', d: '后端调 /v1/agent/responses，选运行时执行。', get: ['运行时随时换，代码不动', '模型路由、计量、Trace 自带', '任务可查询、可取消、断线续接'], cta: '看接口', href: '#api' },
           { k: '路线 B', t: '组一个智能体，上架就是网页应用', d: '运行时 + 模型 + Skill，保存上架即可。', get: ['自带网页对话页，支持图片和文件', '可被搜索的介绍页和分享链接', '跑在你局域网的机器上，有没有公网 IP 都行', '未登录试一轮、多人接龙、按次计费'], cta: '怎么上架', href: '/share' },
-          { k: '路线 C', t: '把你已有的应用接进来', d: '「新建应用」以 API 接入，同享路由和观测。', get: ['绑定场景路由，原生模型名不变', '用量进盘点，调用进 Trace', '多设备归集到同一个账号'], cta: '看统一管理', href: '/harness#f-onboard' },
+          { k: '路线 C', t: '把你已有的应用接进来', d: '「新建应用」以 API 接入，同享路由和观测。', get: ['绑定场景路由，原生模型名不变', '用量进盘点，调用进 Trace', '多设备归集到同一个账号'], cta: '看统一管理', href: '#f-onboard' },
         ],
         liveTitle: '网络里此刻有', kNodes: '在线节点', kModels: '可用模型', kAgents: '在线智能体', kRes: '技能与模板', liveFoot: '都来自开发者分享，你也可以拿来自用或加工。',
         featKicker: 'MANAGE', featTitle: '统一管理里有什么', featLead: '桌面客户端里现成的功能，同一套能力也有接口。点任意一项看细节。',
@@ -234,7 +339,7 @@ createApp({
         loop: [
           { k: '获取', b: '资源市场', d: '别人分享的模型、Skill、提示词和智能体模板', href: '/market' },
           { k: '加工', b: '在资产里改', d: '换模型、改提示词、加 Skill，调成你自己的智能体', href: '/market#paths' },
-          { k: '管理', b: '纳管到运行时', d: '投射到 Pi、Claude Code、Cursor 等，用统一接口调试', href: '/harness' },
+          { k: '管理', b: '纳管到运行时', d: '投射到 Pi、Claude Code、Cursor 等，用统一接口调试', href: '#features' },
           { k: '上架', b: '分享出去', d: '只给自己、只给圈子，或公开给所有人', href: '/share' },
           { k: '使用', b: '普通用户', d: '在智能体广场像打车一样用，任务在你的设备上执行', href: '/agents', cls: 'user' },
         ],
@@ -272,17 +377,17 @@ createApp({
         stackTop: 'Your apps', stackApps: ['Your product backend', 'Web agents', 'Internal team tools', 'Your Claude Code workflow'],
         layers: [
           ['Distribution', 'Listing, market, circles', 'List it, get a web app; serve with or without a public IP', '/share'],
-          ['Observability', 'Trace, usage, devices', 'Every call traceable, rolled up across devices', '/harness#f-trace'],
-          ['Interface', 'Agent tasks + three model protocols', 'Change harness_id to change agent; protocols interoperate', '/harness#api'],
-          ['Assets', 'Skills, MCP, prompts', 'Composed into agents, projected to runtimes', '/harness#f-assets'],
-          ['Runtimes', 'Pi, Claude Code, Codex, Cursor, GrokBot, Muse…', 'Installed runtimes as execution engines', '/harness#f-onboard'],
-          ['Models', 'Every provider + scene routing', 'Local, free, subscription, PAYG, community, with fallback', '/harness#f-route'],
+          ['Observability', 'Trace, usage, devices', 'Every call traceable, rolled up across devices', '#f-trace'],
+          ['Interface', 'Agent tasks + three model protocols', 'Change harness_id to change agent; protocols interoperate', '#api'],
+          ['Assets', 'Skills, MCP, prompts', 'Composed into agents, projected to runtimes', '#f-assets'],
+          ['Runtimes', 'Pi, Claude Code, Codex, Cursor, GrokBot, Muse…', 'Installed runtimes as execution engines', '#f-onboard'],
+          ['Models', 'Every provider + scene routing', 'Local, free, subscription, PAYG, community, with fallback', '#f-route'],
         ],
         buildKicker: 'BUILD ON TOP', buildTitle: 'Three ways to build on top', buildLead: 'None of them needs you to write a runtime, billing or a web front end from scratch.',
         builds: [
-          { k: 'Path A', t: 'Build it into your product', d: 'Your backend calls /v1/agent/responses and picks a runtime.', get: ['Swap runtimes without touching code', 'Model routing, metering and trace built in', 'Tasks can be queried, cancelled and resumed'], cta: 'See the API', href: '/harness#api' },
+          { k: 'Path A', t: 'Build it into your product', d: 'Your backend calls /v1/agent/responses and picks a runtime.', get: ['Swap runtimes without touching code', 'Model routing, metering and trace built in', 'Tasks can be queried, cancelled and resumed'], cta: 'See the API', href: '#api' },
           { k: 'Path B', t: 'Compose an agent, list it as a web app', d: 'Runtime + model + skills, saved and listed.', get: ['A web chat page with images and files', 'A searchable intro page and share links', 'Runs on your LAN machine, public IP or not', 'Guest trial, shared threads, per-use billing'], cta: 'How to list', href: '/share' },
-          { k: 'Path C', t: 'Plug in the apps you already have', d: '"New app" connects it via API with the same routing and observability.', get: ['Scene routes, native model names kept', 'Usage in the dashboard, calls in Trace', 'Rolled up across devices in one account'], cta: 'See Manage', href: '/harness#f-onboard' },
+          { k: 'Path C', t: 'Plug in the apps you already have', d: '"New app" connects it via API with the same routing and observability.', get: ['Scene routes, native model names kept', 'Usage in the dashboard, calls in Trace', 'Rolled up across devices in one account'], cta: 'See Manage', href: '#f-onboard' },
         ],
         liveTitle: 'On the network right now', kNodes: 'Online nodes', kModels: 'Models', kAgents: 'Agents online', kRes: 'Skills & templates', liveFoot: 'All shared by developers — take them for yourself or remix them.',
         featKicker: 'MANAGE', featTitle: 'What\'s inside Manage', featLead: 'Features that ship in the desktop app, with the same capabilities behind the API. Open any one for details.',
@@ -301,7 +406,7 @@ createApp({
         loop: [
           { k: 'Source', b: 'Market', d: 'Models, skills, prompts and agent templates others shared', href: '/market' },
           { k: 'Remix', b: 'Edit in Assets', d: 'Swap models, tweak prompts, add skills — make it yours', href: '/market#paths' },
-          { k: 'Manage', b: 'Onboard to runtimes', d: 'Project to Pi, Claude Code, Cursor and test through one API', href: '/harness' },
+          { k: 'Manage', b: 'Onboard to runtimes', d: 'Project to Pi, Claude Code, Cursor and test through one API', href: '#features' },
           { k: 'List', b: 'Share it', d: 'Just you, a circle, or everyone', href: '/share' },
           { k: 'Use', b: 'Everyday users', d: 'They hail it on the Agent Plaza; tasks run on your device', href: '/agents', cls: 'user' },
         ],
@@ -329,7 +434,174 @@ createApp({
         finalTitle: 'Start by plugging in your runtimes', finalText: 'Installed apps show up; restore with one click.', finalCta2: 'Browse the market',
       },
     }
+    const hi18n = {
+      zh: {
+        navPlaza: '智能体广场', navNetwork: '共享网络', navCircles: '圈子', download: '下载客户端', home: '首页',
+        title: '统一管理', eyebrow: '开发者 · 统一管理',
+        h1a: '智能体平台再多，', h1b: '一个入口全管起来',
+        sub: '各家运行时和模型来源，接到同一个本地网关。界面里管，接口里调。',
+        promise: ['运行时和模型一处管', '界面和接口都统一', '每个 Token 看得清', '开源 · 随时一键还原'],
+        ctaStart: '下载客户端', ctaApi: '看统一接口', ctaFeat: '看全部功能',
+        heroOut: ['界面', '接口', '你的任务'],
+        appsKicker: 'WORKS WITH', appsTitle: '你的运行时和模型来源，都能接进来', appsLead: '不改使用习惯：装好的应用自动出现在列表里，点一下纳管，不想用了一键还原；模型来源本地优先，必要时自动走社区共享。',
+        groups: { cli: ['智能体运行时 · 透明托管', '自动注入网关地址，命令照常敲'], cfg: ['智能体运行时 · 配置写入', '一键改写配置文件，指向本地网关'], stats: ['智能体运行时 · 用量统计', '读取会话记录，Token 和费用照样看得清'], models: ['模型供应商', '本地源优先，按路由切换，原生模型名不变'] },
+        capKicker: 'ONE PLACE', capTitle: '管起来之后，能省掉哪些事',
+        caps: [
+          { pain: '每个工具一套配置，切换全靠手改', t: '一处纳管，随时还原', d: '所有运行时指向同一个本地地址；换模型、换路由在一个地方改，不想用了一键恢复官方配置，零残留。' },
+          { pain: '账单越来越长，Token 花在哪说不清', t: '每个 Token 都看得清', d: '网关实时记录加会话补录，自动去重：哪个应用、哪个模型、多少 Token、多少钱。多设备汇总，订阅和按量同屏对照。' },
+          { pain: '免费额度闲着，付费却在涨', t: '用得更省', d: '智能路由本地和免费来源优先，必要时走社区共享；原生模型名不变，协议自动转换，还能开无损压缩省输入 Token。' },
+          { pain: '一个 CLI 多个账号，互相抢配置', t: 'CLI 多账号按目录分发', d: 'Claude Code、Codex 可以挂多个登录账号，网关按启动目录自动选，各项目保留自己的账号、额度和路由。' },
+          { pain: 'Skill、MCP、Prompt 到处复制，版本对不上', t: '资产一处纳管，越用越懂你', d: '资产库改一次，所有已纳管的智能体拿到同一个版本；从你的使用习惯挖出工作画像，推荐下一批值得装的。' },
+          { pain: '不知道哪个智能体擅长什么', t: '主 Agent 按特点派活', d: '把任务交给主 Agent，它拆步骤、派给最合适的那个：本机的 Pi、Claude Code、Codex，或雇来的社区智能体。' },
+        ],
+        prev: '上一项', next: '下一项', featKicker: 'FEATURES', featTitle: '统一管理，具体管哪些', featLead: '下面每一项都是桌面客户端里现成的功能，同一套能力也通过本机网关的接口提供。',
+        features: [
+          { id: 'f-onboard', n: '01', k: '智能体纳管', t: '不同智能体，一处纳管', d: 'Pi、Claude Code、Codex、Cursor、WorkBuddy、Kimi Code、GrokBot、Muse、OpenClaw……装好的自动出现在网关页，点一下纳管，不想用了一键还原官方配置。',
+            points: [['三种状态：', '仅统计 / 走网关 / 还原'], ['三种接入：', 'CLI 托管、改写配置、读会话记录'], ['CLI 多账号：', '按启动目录自动分发']],
+            shots: [['gateway', '网关']] },
+          { id: 'f-swap', n: '02', k: '一键换模型', t: '一键换模型，智能体无感', d: '在路由下拉框里选一个模型或场景，配置自动改写，流量走本地网关；智能体继续用原生模型名，客户端不用改。',
+            points: [['原生模型名不变：', '客户端无感'], ['协议互通：', 'Anthropic / OpenAI / Codex，含工具调用'], ['按应用绑定：', '各走各的，随时切回官方'], ['视觉增强：', '不支持图片的模型也能看图']],
+            shots: [['provider', '模型'], ['gateway', '网关路由']] },
+          { id: 'f-route', n: '03', k: '场景路由', t: '场景路由，按任务选供给', d: '每个应用可以绑定自己的场景路由，全局供给链兜底。本地源优先，不够再走社区共享，对智能体全程透明。',
+            points: [['场景与任务分型：', 'design / repo-qa / chore / debug 等'], ['供给链：', '本地 → 免费 → 订阅 / 按量 → 社区'], ['策略组：', 'fallback、round-robin、weighted、latency'], ['过滤：', '只用个人源 / 社区 / 免费 / 付费']],
+            diagram: 'route' },
+          { id: 'f-trace', n: '04', k: 'Trace 管理', t: '每一次调用，都能追溯', d: '不管智能体走不走网关，用量都记得下来：网关实时代理加本地会话补录，同一次调用只记一次。',
+            points: [['网关实时：', '路由、模型、Token、延迟、费用'], ['会话补录：', '没走网关的也记上，自动去重'], ['Session Trace：', '步骤级工具、Skill、推理'], ['会话管理：', '过滤、交接、导出']],
+            shots: [['sessions', '会话'], ['trace', 'Session Trace']] },
+          { id: 'f-assets', n: '05', k: '资产管理', t: 'Skill、MCP、Prompt、Agent，一个资产库', d: '散在各个目录的 AI 资产收进一处，再投射给需要的智能体，而不是到处复制。',
+            points: [['投射而不是复制：', '改一处，处处同步'], ['用在哪一目了然：', '每项资产的投射去向'], ['内置 MCP 中转：', '没有 stdio 的应用也能用'], ['画像推荐：', '按你的习惯推荐']],
+            shots: [['assets', '资产'], ['portrait', '画像推荐']] },
+          { id: 'f-usage', n: '06', k: '用量看板', t: '花在哪、省了多少，一眼看清', d: '盘点页按应用、模型来源、模型、供给类型、设备、时间切片；托盘常驻，不开主面板也能看今天的状态。',
+            points: [['核心指标：', '请求、Token、免费命中率、费用'], ['订阅与按量：', '同屏对照'], ['省了多少：', '压缩节省单独统计'], ['托盘速览：', '不开主面板也能看']],
+            shots: [['dashboard', '盘点'], ['device', '托盘']] },
+          { id: 'f-devices', n: '07', k: '跨端归集', t: '多台设备的用量和配置，归到一个账号', d: '桌面版、CLI 版、服务器网关各自注册为独立设备，登录同一账号后用量自动上报、云端合并。',
+            points: [['设备注册：', '自动分配，心跳在线'], ['盘点快照：', '1 / 7 / 30 天上报'], ['云端合并：', '分设备或汇总查看'], ['跨端一致：', '订阅与配置登录即同步']],
+            diagram: 'devices' },
+          { id: 'f-orchestrate', n: '08', k: '智能体编排', t: '一句话，派给最擅长的那个', d: '在游乐场设一个主 Agent 作为入口：接收任务、规划步骤，再派发给其他已纳管或已雇佣的智能体，工具流全程可见。',
+            points: [['同一张名单：', '本机、雇来的、模型'], ['过程可控：', '看得见，可停可续'], ['编排接口：', 'tb_list_agents、tb_dispatch_agent']],
+            diagram: 'orchestrate' },
+        ],
+        dRoute: { app: '你的应用', apps: ['Claude Code', 'Codex', 'Cursor', 'Pi'], bind: '按应用绑定路由', scene: '场景 / 任务分型', scenes: ['日常对话', '代码补全', '长文分析', 'design', 'repo-qa', 'chore', 'debug'], chainK: '供给链，逐级直到命中', chain: ['Ollama', '免费 API', '订阅 / 按量', '社区共享'], policyK: '策略组', policies: ['fallback', 'round-robin', 'weighted', 'latency', 'direct'], note: '' },
+        dDev: { devices: [['MacBook', '桌面版', '设备 A · 在线'], ['Windows 台式机', '桌面版', '设备 B · 在线'], ['Linux 服务器', 'CLI / Docker 网关', '设备 C · 在线']], up: '定时上报盘点快照', cloud: '你的账号', cloudD: '用量云端合并 · 订阅与配置同步', down: '在任意一台上查看', views: ['各设备占比', '在线状态', '独立明细', '汇总视图'] },
+        vsKicker: 'NOT JUST A GATEWAY', vsTitle: '模型网关是一层，这里是一座智能体应用工厂', vsLead: '',
+        vsThem: '纯模型网关 / 切换工具', vsThemHint: '只做模型转发和 Key 切换', vsUs: 'Token Bank', vsUsHint: '智能体应用工厂',
+        vs: [
+          ['管什么', '主要是模型供应商和 Key 的切换、转发', 'Pi、Claude Code、Cursor 等运行时，加上模型、Skill、MCP、Prompt'],
+          ['接口', '模型补全接口', '模型接口，加上智能体任务接口：本机和社区智能体同一套，换 harness_id 就换'],
+          ['看得见', '多数只管转发', '全链路 Trace、会话补录、多设备盘点、订阅与按量对照'],
+          ['调度', '按模型路由', '按模型路由，加主 Agent 按特点把步骤派给不同智能体'],
+          ['资产', '一般不涉及', '一处纳管，投射到每个已装的运行时，画像推荐'],
+          ['能在上面做应用吗', '它本身就是终点', '统一任务接口做进你的产品；或者上架成网页应用，对话页、分享、试用、计费现成'],
+          ['对外提供服务', '多为本机使用；要对外得自己解决公网 IP、服务器或穿透', '有公网 IP 就让用户直连你的网关（CLI / Docker 可监听 0.0.0.0）；没有就让局域网机器出站连 Token Bank，不开端口也能服务'],
+          ['之后', '到此为止', '调好的智能体分享出去分摊费用；从资源市场拿模板再加工'],
+        ],
+        routeKicker: 'BY STRENGTH', routeTitle: '一句话，派给最擅长的那个', routeLead: '主 Agent 接住整件事，按每一步的特点挑执行者。本机的、雇来的、模型，都在同一张名单里。',
+        mainAgent: '主 Agent', routeTask: '把这个仓库的登录 bug 修了，再写篇更新说明配张封面',
+        routes: [['定位并修复 bug', 'Codex（本机）', 'local'], ['跑测试、整理提交', 'Claude Code（本机）', 'local'], ['写更新说明', '内容创作教练（社区）', 'community'], ['生成封面图', 'gemini-2.5-flash-image', 'model']],
+        kind: { local: '本机应用', community: '社区智能体 · 在对方设备执行', model: '社区模型' },
+        routeNote: '示例',
+        apiKicker: 'ONE INTERFACE', apiTitle: '一个网关：智能体任务 + 三种模型协议', apiLead: '本机和社区智能体同一个任务接口；模型保持原生名。',
+        copy: '复制', copied: '已复制',
+        exLabels: ['本机 Claude Code', '本机 Codex', '社区智能体', '模型 · OpenAI', '模型 · Anthropic', '模型 · Codex'],
+        exNotes: [
+          '本机网关监听 11430 端口，Authorization 用客户端里的本机网关 Key。',
+          '只改了 harness_id，其他一个字不用动。',
+          '社区智能体用 community:<id>@<分享者>，云端自动选对方在线的设备；任务在对方机器上执行，你只拿结果。',
+          'OpenAI Chat 协议。模型名照常写，网关按你的路由选本地源、订阅或社区共享。',
+          'Anthropic Messages 协议，x-api-key 和 Authorization 都可以。Claude Code 这类客户端原样接入。',
+          'Codex Responses 协议，含工具调用转发。三种协议之间可以互相转换，同一个模型换个协议也能用。',
+        ],
+        prompt: '修一下登录页的报错',
+        facts: [['同一个请求体', 'input + metadata.harness_id，stream 打开就按 SSE 逐段返回'], ['任务可查可停', 'GET / cancel 同一个任务 id，断线重连接着收'], ['协议自动转换', 'Anthropic、OpenAI、Codex 三种协议互通，原生模型名不变']],
+        mapKicker: 'WHO ARE YOU', mapTitle: '你是哪种用户？',
+        finalTitle: '把你手上的智能体，接成一个团队', finalText: '下载客户端，已装的应用自动出现。先纳管一个试试，不喜欢一键还原。', finalCta2: '逛逛资源市场',
+      },
+      en: {
+        navPlaza: 'Agent Plaza', navNetwork: 'Share & earn', navCircles: 'Circles', download: 'Download', home: 'Home',
+        title: 'Manage', eyebrow: 'Developers · manage',
+        h1a: 'However many agent platforms,', h1b: 'one place to run them all',
+        sub: 'Every runtime and model source on one local gateway. Manage in the UI, call through the API.',
+        promise: ['Runtimes and models in one place', 'One UI, one API', 'See every token', 'Open source · restore any time'],
+        ctaStart: 'Download the client', ctaApi: 'See the interface', ctaFeat: 'All features',
+        heroOut: ['UI', 'API', 'Your task'],
+        appsKicker: 'WORKS WITH', appsTitle: 'Bring your runtimes and model providers', appsLead: 'Keep your habits: installed apps show up automatically, one click to onboard or restore; model sources prefer local and fall back to the community.',
+        groups: { cli: ['Runtimes · transparent wrap', 'Gateway address injected — run commands as usual'], cfg: ['Runtimes · config patch', 'One click rewrites the config to point at the gateway'], stats: ['Runtimes · usage tracking', 'Reads session logs so tokens and cost stay visible'], models: ['Model providers', 'Local first, switched by route, native model names kept'] },
+        capKicker: 'ONE PLACE', capTitle: 'What you stop doing once it\'s all managed',
+        caps: [
+          { pain: 'Every tool has its own config; switching means editing by hand', t: 'Onboard in one place, restore any time', d: 'Every runtime points at one local address. Change models and routes in one spot, or restore the official config with zero leftovers.' },
+          { pain: 'Bills keep growing and nobody knows where tokens go', t: 'See every token', d: 'Live gateway logs plus session back-fill, de-duplicated: which app, which model, how many tokens, how much. Merged across devices, subscriptions next to pay-as-you-go.' },
+          { pain: 'Free quota sits idle while paid usage climbs', t: 'Spend less', d: 'Routes prefer local and free sources and fall back to the community; native model names stay, protocols are translated, and lossless compression trims input tokens.' },
+          { pain: 'Several accounts on one CLI fight over config', t: 'CLI accounts per directory', d: 'Claude Code and Codex can hold several sign-ins; the gateway picks by launch directory so each project keeps its own account, quota and route.' },
+          { pain: 'Skills, MCP and prompts copied everywhere, versions drift', t: 'One asset library that learns you', d: 'Edit once and every onboarded agent gets the same version; a work portrait mined from your sessions suggests what to add next.' },
+          { pain: 'No idea which agent is good at what', t: 'A main agent routes by strength', d: 'Hand the job to a main agent; it splits the steps and dispatches each to the best fit — local Pi, Claude Code, Codex, or a hired community agent.' },
+        ],
+        prev: 'Previous', next: 'Next', featKicker: 'FEATURES', featTitle: 'What "manage" actually covers', featLead: 'Each of these ships in the desktop app today, and the same capabilities are exposed through the local gateway API.',
+        features: [
+          { id: 'f-onboard', n: '01', k: 'Agent onboarding', t: 'Every agent runtime, onboarded in one place', d: 'Pi, Claude Code, Codex, Cursor, WorkBuddy, Kimi Code, GrokBot, Muse, OpenClaw… installed apps appear on the Gateway page; one click to onboard, one click to restore the official config.',
+            points: [['Three clear states: ', 'stats only (official subscription + session back-fill), via gateway (bound route + live proxy), restored (original config).'], ['Three access modes: ', 'CLIs get environment variables injected; desktop apps get their config patched; the rest are tracked from session logs.'], ['Multi-account CLIs: ', 'several sign-ins on one Claude Code or Codex, picked by launch directory so each project keeps its account, quota and route.']],
+            shots: [['gateway', 'Gateway']] },
+          { id: 'f-swap', n: '02', k: 'One-click model swap', t: 'Swap models in one click, invisible to the agent', d: 'Pick a model or scene from the route dropdown; the config is rewritten and traffic goes through the local gateway, while the agent keeps its native model name.',
+            points: [['Native names kept: ', 'Claude Code asks for claude-sonnet-4-6; the gateway rewrites it to your choice and the UI and checks stay the same.'], ['Protocols translated: ', 'Anthropic Messages, OpenAI Chat and Codex Responses interoperate, tool calls included.'], ['Bound per app: ', 'Claude Code on a free source, Codex on local Ollama, independently; switch back to official any time.'], ['Vision boost: ', 'models without image input can still take screenshots — the gateway adds image understanding.']],
+            shots: [['provider', 'Models'], ['gateway', 'Gateway routes']] },
+          { id: 'f-route', n: '03', k: 'Scene routing', t: 'Scene routing picks the supply for each task', d: 'Each app can bind its own scene route, with a global supply chain as fallback. Local first, the community when needed — fully transparent to the agent.',
+            points: [['Scenes and task types: ', 'chat, completion and long documents on different chains; built-in task types such as design, repo-qa, chore and debug.'], ['Supply chain: ', 'Ollama → free APIs (Groq, GitHub Models) → subscription / pay-as-you-go → community, until one answers.'], ['Policies and failover: ', 'fallback, round-robin, weighted, latency, ordered by tool use and context length; automatic switch when an upstream fails.'], ['Source / price filters: ', 'restrict to personal sources, community only, free only or paid only.']],
+            diagram: 'route' },
+          { id: 'f-trace', n: '04', k: 'Trace management', t: 'Every call, traceable', d: 'Whether or not an agent goes through the gateway, usage is recorded: live proxy plus local session back-fill, each call counted once.',
+            points: [['Live gateway: ', 'route chain, real model, tokens, latency and cost.'], ['Session back-fill: ', 'scans ~/.claude, ~/.codex, WorkBuddy traces and more for calls that skipped the gateway, de-duplicated.'], ['Session Trace: ', 'step-level tool calls, skills, reasoning and token breakdown.'], ['Session management: ', 'filter by app, see tokens and cost per session, hand off to another agent or export.']],
+            shots: [['sessions', 'Sessions'], ['trace', 'Session Trace']] },
+          { id: 'f-assets', n: '05', k: 'Asset management', t: 'Skills, MCP, prompts and agents in one library', d: 'AI assets scattered across folders, gathered in one place and projected to the agents that need them instead of copied around.',
+            points: [['Project, don\'t copy: ', 'edit once and every onboarded agent gets the same version; only to onboarded, installed apps, with dependencies cascading and undo any time.'], ['See where it\'s used: ', 'every asset shows which apps it is projected to.'], ['Built-in MCP relay: ', 'for apps without stdio, bind prompts / models / resources and copy the relay config.'], ['Portrait picks: ', 'a work portrait mined from real sessions suggests what to add next, alongside the community catalog.']],
+            shots: [['assets', 'Assets'], ['portrait', 'Portrait']] },
+          { id: 'f-usage', n: '06', k: 'Usage dashboard', t: 'Where it went and what you saved, at a glance', d: 'Usage slices by app, model source, model, supply type, device and time; the tray shows today\'s state without opening the main window.',
+            points: [['Core numbers: ', 'requests, tokens, free-hit rate, paid calls, estimated cost and per-app mix.'], ['Subscription vs pay-as-you-go: ', 'app subscriptions, API plans and metered usage side by side, prorated daily with list prices next to raw tokens.'], ['Savings: ', 'lossless compression runs, tokens saved and ratio tracked separately.'], ['Tray glance: ', 'gateway status, per-app route, first-token latency and today\'s usage.']],
+            shots: [['dashboard', 'Usage'], ['device', 'Tray']] },
+          { id: 'f-devices', n: '07', k: 'Cross-device roll-up', t: 'Usage and config from every device, in one account', d: 'Desktop, CLI and server gateways each register as a device; sign in to the same account and usage is reported and merged in the cloud.',
+            points: [['Device registration: ', 'each machine gets a device id and a heartbeat for online status.'], ['Usage snapshots: ', '1 / 7 / 30-day calls, tokens, cost, local vs community mix, top models and apps.'], ['Cloud merge: ', 'profile and usage pages show each device\'s share and status, per-device detail or the combined view.'], ['Consistent everywhere: ', 'subscriptions, pay-as-you-go settings and the tool list sync on sign-in — no reconfiguring.']],
+            diagram: 'devices' },
+          { id: 'f-orchestrate', n: '08', k: 'Agent orchestration', t: 'One sentence, sent to whoever does it best', d: 'Set a main agent in the Playground: it takes the task, plans steps and dispatches them to other onboarded or hired agents, with the tool stream visible throughout.',
+            points: [['One roster: ', 'local Pi, Claude Code, Codex, hired community agents and models can all be dispatched to.'], ['In control: ', 'tool calls and chunked output are visible; stop and resume any time.'], ['Orchestration API: ', 'the built-in tokenbank-agent-bridge MCP exposes tb_list_agents and tb_dispatch_agent.']],
+            diagram: 'orchestrate' },
+        ],
+        dRoute: { app: 'Your apps', apps: ['Claude Code', 'Codex', 'Cursor', 'Pi'], bind: 'route bound per app', scene: 'Scene / task type', scenes: ['chat', 'completion', 'long docs', 'design', 'repo-qa', 'chore', 'debug'], chainK: 'supply chain, until one answers', chain: ['Ollama', 'Free APIs', 'Subscription / PAYG', 'Community'], policyK: 'Policy group', policies: ['fallback', 'round-robin', 'weighted', 'latency', 'direct'], note: 'Native model names kept; failover is fully transparent to the agent.' },
+        dDev: { devices: [['MacBook', 'Desktop', 'device A · online'], ['Windows PC', 'Desktop', 'device B · online'], ['Linux server', 'CLI / Docker gateway', 'device C · online']], up: 'usage snapshots reported', cloud: 'Your account', cloudD: 'usage merged · subscriptions and config synced', down: 'view from any device', views: ['share per device', 'online status', 'per-device detail', 'combined view'] },
+        vsKicker: 'NOT JUST A GATEWAY', vsTitle: 'A gateway is one layer; this is an agent app factory', vsLead: '',
+        vsThem: 'Model gateway / switcher', vsThemHint: 'model forwarding and key switching', vsUs: 'Token Bank', vsUsHint: 'an agent app factory',
+        vs: [
+          ['What it manages', 'Mostly switching and forwarding model providers and keys', 'Runtimes like Pi, Claude Code and Cursor, plus models, skills, MCP and prompts'],
+          ['Interface', 'Model completion endpoints', 'Model endpoints plus an agent task endpoint: local and community agents alike, switch by harness_id'],
+          ['Visibility', 'Usually forwarding only', 'Full trace, session back-fill, multi-device usage, subscription vs pay-as-you-go'],
+          ['Dispatch', 'Routes by model', 'Routes by model, plus a main agent sending each step to a different agent'],
+          ['Assets', 'Usually out of scope', 'One library projected to every installed runtime, with personalised picks'],
+          ['Build apps on it?', 'It is the end of the line', 'Put the task API in your product, or list agents as web apps with chat, sharing, trial and billing ready'],
+          ['Serving users', 'Mostly local; serving others means sorting out a public IP, server or tunnel yourself', 'With a public IP, users connect straight to your gateway (CLI / Docker can listen on 0.0.0.0); without one, LAN machines dial out to Token Bank and serve with no open ports'],
+          ['Afterwards', 'That\'s it', 'Share tuned agents to split costs; remix templates from the market'],
+        ],
+        routeKicker: 'BY STRENGTH', routeTitle: 'One sentence, sent to whoever does it best', routeLead: 'The main agent owns the whole job and picks an executor for each step. Local apps, hired agents and models sit on the same roster.',
+        mainAgent: 'Main agent', routeTask: 'Fix the login bug in this repo, then write release notes with a cover image',
+        routes: [['Find and fix the bug', 'Codex (local)', 'local'], ['Run tests, tidy the commit', 'Claude Code (local)', 'local'], ['Write release notes', 'Content coach (community)', 'community'], ['Make the cover image', 'gemini-2.5-flash-image', 'model']],
+        kind: { local: 'Local app', community: 'Community agent · runs on their device', model: 'Community model' },
+        routeNote: 'Example. Who gets what depends on the agents you have onboarded and hired; every tool call is visible and you can stop or resume any time.',
+        apiKicker: 'ONE INTERFACE', apiTitle: 'One gateway: agent tasks + three model protocols', apiLead: 'One task endpoint for local and community agents; models keep native names.',
+        copy: 'Copy', copied: 'Copied',
+        exLabels: ['Local Claude Code', 'Local Codex', 'Community agent', 'Model · OpenAI', 'Model · Anthropic', 'Model · Codex'],
+        exNotes: [
+          'The local gateway listens on port 11430; use the local gateway key from the app as Authorization.',
+          'Only harness_id changed. Nothing else.',
+          'Community agents use community:<id>@<owner>; the cloud picks an online device of theirs. The task runs on their machine and you get the result.',
+          'OpenAI Chat protocol. Write the model name as usual; the gateway routes to local, subscription or community sources.',
+          'Anthropic Messages protocol; x-api-key or Authorization both work. Clients like Claude Code connect as is.',
+          'Codex Responses protocol, tool calls included. The three protocols translate into each other, so any model works on any of them.',
+        ],
+        prompt: 'Fix the error on the login page',
+        facts: [['One request body', 'input + metadata.harness_id; set stream to get SSE chunks'], ['Inspect and cancel', 'GET or cancel by task id; reconnect and keep receiving'], ['Protocols translated', 'Anthropic, OpenAI and Codex protocols interoperate with native model names']],
+        mapKicker: 'WHO ARE YOU', mapTitle: 'Which one are you?',
+        finalTitle: 'Turn your agents into a team', finalText: 'Get the client and your installed apps show up. Onboard one to try it — restore with one click if you don\'t like it.', finalCta2: 'Browse the market',
+      },
+    }
     const T = computed(() => i18n[lang.value] || i18n.zh)
+    const H = computed(() => hi18n[lang.value] || hi18n.zh)
+    let reduced = false
+    try { reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches } catch {}
     const N = computed(() => (window.TBNAV || {})[lang.value] || window.TBNAV.zh)
     function toggleLang() {
       lang.value = lang.value === 'zh' ? 'en' : 'zh'
@@ -337,6 +609,99 @@ createApp({
       document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
       document.title = (location.pathname === '/' ? T.value.homeTitle : T.value.title + ' · Token Bank')
     }
+    // 与 app-handlers.yaml 对齐的应用清单（接入方式分三类）
+    const APPS = {
+      cli: [['Claude Code', B + 'claudecode-color.svg'], ['Codex CLI', B + 'codex-color.svg'], ['Kimi Code', B + 'kimi-color.svg'], ['OpenCode', B + 'opencode.svg'], ['Hermes', B + 'hermesagent.svg'], ['GrokBot', B + 'grok.svg'], ['Muse'], ['Pi'], ['DeepSeek', B + 'deepseek-color.svg']],
+      cfg: [['Claude Desktop', B + 'claude-color.svg'], ['Codex Desktop', B + 'openai.svg'], ['OpenClaw', B + 'openclaw-color.svg'], ['WorkBuddy', B + 'codebuddy-color.svg']],
+      stats: [['Cursor', B + 'cursor.svg'], ['Copilot', B + 'copilot-color.svg'], ['Qwen', B + 'qwen-color.svg'], ['Gemini CLI', B + 'geminicli-color.svg'], ['Grok', B + 'grok.svg'], ['Trae', B + 'trae-color.svg'], ['Antigravity', B + 'antigravity-color.svg']],
+      models: [['Ollama', B + 'ollama.svg'], ['Groq', B + 'groq.svg'], ['GitHub Models'], ['DeepSeek', B + 'deepseek-color.svg'], ['火山引擎', B + 'volcengine-color.svg'], ['智谱', B + 'zhipu.svg'], ['Kimi', B + 'kimi-color.svg'], ['MiniMax', B + 'minimax.png'], ['Claude / ChatGPT 订阅', B + 'claude-color.svg'], ['社区共享', '/static/logo.svg']],
+    }
+    const appGroups = computed(() => ['cli', 'cfg', 'stats', 'models'].map(key => ({
+      key, title: H.value.groups[key][0], desc: H.value.groups[key][1],
+      apps: APPS[key].map(([name, icon]) => ({ name, icon: icon || '' })),
+    })))
+
+    const shotSel = ref({})
+    const shotIdx = (id) => shotSel.value[id] || 0
+    const setShot = (id, i) => { shotSel.value = { ...shotSel.value, [id]: i } }
+    const boardSrc = (key) => '/static/img_cache/' + key + (lang.value === 'en' ? '_en' : '') + '.webp'
+    // 功能轮播：进度条走完自动下一项；悬停/聚焦暂停；用户点过就停在那一项
+    const featIdx = ref(0), featTick = ref(0), featPaused = ref(false)
+    function goFeat(i, user) {
+      const n = H.value.features.length
+      featIdx.value = (i + n) % n
+      featTick.value++
+      if (user) featPaused.value = true
+      nextTick(() => {
+        const bar = document.querySelector('.hs-index'), b = bar && bar.children[featIdx.value]
+        if (bar && b && bar.scrollWidth > bar.clientWidth) bar.scrollTo({ left: b.offsetLeft - 16, behavior: 'smooth' })
+      })
+    }
+    function featFromHash() {
+      const i = H.value.features.findIndex(f => '#' + f.id === location.hash)
+      if (i < 0) return
+      goFeat(i, true)
+      nextTick(() => { const el = document.getElementById('features'); if (el) el.scrollIntoView() })
+    }
+    const exIdx = ref(0)
+    const examples = computed(() => {
+      const t = H.value
+      const agent = (id) => [
+        { t: 'curl http://127.0.0.1:11430/v1/agent/responses \\' },
+        { t: '  -H "Authorization: Bearer $TOKENBANK_KEY" \\' },
+        { t: '  -H "content-type: application/json" \\' },
+        { t: '  -d \'{' },
+        { t: '    "input": "' + t.prompt + '",' },
+        { t: '    "stream": true,' },
+        { t: '    "metadata": { "harness_id": "' + id + '" }', hl: true },
+        { t: '  }\'' },
+      ]
+      return [
+        { key: 'cc', label: t.exLabels[0], icon: B + 'claudecode-color.svg', lines: agent('claude-code'), note: t.exNotes[0] },
+        { key: 'cx', label: t.exLabels[1], icon: B + 'codex-color.svg', lines: agent('codex'), note: t.exNotes[1] },
+        { key: 'cm', label: t.exLabels[2], icon: '', lines: agent('community:<agent-id>@<owner>'), note: t.exNotes[2] },
+        { key: 'oa', label: t.exLabels[3], icon: B + 'openai.svg', note: t.exNotes[3], lines: [
+          { t: 'curl http://127.0.0.1:11430/v1/chat/completions \\' },
+          { t: '  -H "Authorization: Bearer $TOKENBANK_KEY" \\' },
+          { t: '  -H "content-type: application/json" \\' },
+          { t: '  -d \'{' },
+          { t: '    "model": "gpt-5",', hl: true },
+          { t: '    "messages": [{ "role": "user", "content": "' + t.prompt + '" }]' },
+          { t: '  }\'' },
+        ] },
+        { key: 'an', label: t.exLabels[4], icon: B + 'anthropic.svg', note: t.exNotes[4], lines: [
+          { t: 'curl http://127.0.0.1:11430/v1/messages \\' },
+          { t: '  -H "x-api-key: $TOKENBANK_KEY" \\' },
+          { t: '  -H "anthropic-version: 2023-06-01" \\' },
+          { t: '  -H "content-type: application/json" \\' },
+          { t: '  -d \'{' },
+          { t: '    "model": "claude-sonnet-4-6",', hl: true },
+          { t: '    "max_tokens": 1024,' },
+          { t: '    "messages": [{ "role": "user", "content": "' + t.prompt + '" }]' },
+          { t: '  }\'' },
+        ] },
+        { key: 'rs', label: t.exLabels[5], icon: B + 'codex-color.svg', note: t.exNotes[5], lines: [
+          { t: 'curl http://127.0.0.1:11430/v1/responses \\' },
+          { t: '  -H "Authorization: Bearer $TOKENBANK_KEY" \\' },
+          { t: '  -H "content-type: application/json" \\' },
+          { t: '  -d \'{' },
+          { t: '    "model": "gpt-5-codex",', hl: true },
+          { t: '    "input": "' + t.prompt + '"' },
+          { t: '  }\'' },
+        ] },
+      ]
+    })
+    const copied = ref(false)
+    async function copyCode() {
+      const text = examples.value[exIdx.value].lines.map(l => l.t).join('\n')
+      let ok = false
+      try { await navigator.clipboard.writeText(text); ok = true } catch {
+        const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'
+        document.body.appendChild(ta); ta.select(); try { ok = document.execCommand('copy') } catch { ok = false } ta.remove()
+      }
+      if (ok) { copied.value = true; setTimeout(() => { copied.value = false }, 1500) }
+    }
+
     const loaded = ref(false), nodes = ref(0), models = ref(0), agents = ref(0), res = ref(0)
     async function load() {
       try {
@@ -378,8 +743,9 @@ createApp({
       document.title = (location.pathname === '/' ? T.value.homeTitle : T.value.title + ' · Token Bank')
       nextTick(setupReveal)
       load()
+      featFromHash(); addEventListener('hashchange', featFromHash)
     })
-    return { lang, T, N, toggleLang, loggedIn, loaded, nodes, models, agents, res, archIdx, archHover, hoverLayer, chipText, chipIcon, chipBadge, plateIcons }
+    return { H, featIdx, featTick, featPaused, goFeat, shotIdx, setShot, boardSrc, appGroups, exIdx, examples, copied, copyCode, reduced, lang, T, N, toggleLang, loggedIn, loaded, nodes, models, agents, res, archIdx, archHover, hoverLayer, chipText, chipIcon, chipBadge, plateIcons }
   },
 }).mount('#app')
 </script>

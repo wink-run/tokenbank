@@ -112,7 +112,7 @@ a { color: inherit; text-decoration: none; }
     <nav class="ag-top">
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="ag-modes"><a class="ag-mode on" href="/agents">{{ N.modeUse }}</a><a class="ag-mode" href="/dev">{{ N.modeDev }}</a></div>
+      <div class="ag-modes"><a class="ag-mode on" href="/agents">{{ N.modeUse }}</a><a class="ag-mode" href="/">{{ N.modeDev }}</a></div>
       <div class="ag-navs ag-devnav">
         <a class="ag-nav on" href="/agents" aria-current="page">{{ N.navPlaza }}</a>
         <a class="ag-nav" href="/why">{{ N.navWhy }}</a>
@@ -120,7 +120,7 @@ a { color: inherit; text-decoration: none; }
       <div class="ag-top-r">
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
         <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
-        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><em>{{ N.modeUse }}</em><a class="on" aria-current="page" href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a></div><div class="ag-menu-g"><em>{{ N.modeDev }}</em><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a href="/app">{{ loggedIn ? N.account : N.signIn }}</a><a class="dl" href="/#download">{{ N.download }}</a></div></div></details>
+        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><em>{{ N.modeUse }}</em><a class="on" aria-current="page" href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a></div><div class="ag-menu-g"><em>{{ N.modeDev }}</em><a href="/">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a href="/app">{{ loggedIn ? N.account : N.signIn }}</a><a class="dl" href="/#download">{{ N.download }}</a></div></div></details>
       </div>
     </div>
   </nav>
@@ -246,7 +246,7 @@ a { color: inherit; text-decoration: none; }
       </section>
 
     </main>
-    <footer class="nw-foot"><span>Token Bank</span><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
+    <footer class="nw-foot"><span>Token Bank</span><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a><a href="/">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
     <div class="pz-toast" :class="{ on: toast }" role="status" aria-live="polite"><i aria-hidden="true">✓</i>{{ toast }}</div>
   </div>
 
@@ -442,7 +442,6 @@ createApp({
             ['With friends', 'Mostly single-user', 'One link brings people in'],
           ],
           mapKicker: 'WHO ARE YOU', mapTitle: 'Which one are you?',
-          map: [['I just want it done', 'Agent Plaza', 'Agents and models others tuned, ready to use', '/agents'], ['I juggle many AI tools', 'OneHarness', 'One place to run them, routed by strength', '/harness'], ['I have spare quota or a great agent', 'Share & earn', 'Others use it, you earn', '/network'], ['I want to do it with friends', 'Circles', 'Open only to people you trust', '/circles']],
           finalTitle: 'Are you a developer?',
           finalText: 'Manage runtimes and models, build apps on top, list them here.',
           finalCta: 'Open the developer hub', finalCta2: 'Browse the market',
@@ -495,7 +494,6 @@ createApp({
           ['和朋友一起', '基本是一个人用', '一个链接拉人进来，接着聊'],
         ],
         mapKicker: 'WHO ARE YOU', mapTitle: '你是哪种用户？',
-        map: [['我想直接用', '智能体广场', '别人调好的智能体和模型，打开就用', '/agents'], ['我手上 AI 工具很多', 'OneHarness', '一个入口全管起来，按特点派活', '/harness'], ['我有闲置或作品', '共享网络', '额度和智能体让别人用，你来赚', '/network'], ['我想和朋友一起', '圈子', '只对信任的人开放，一起用', '/circles']],
         finalTitle: '你是开发者？',
         finalText: '管理运行时和模型，把应用架在上面，上架到这里。',
         finalCta: '进入开发者中心', finalCta2: '逛逛资源市场',

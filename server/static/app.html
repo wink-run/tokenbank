@@ -224,7 +224,7 @@ td{padding:10px 12px;vertical-align:middle}
       <div class="header-title"><img class="brand-mark" src="/static/logo.svg" alt="Token Bank" width="28" height="28"> Token Bank <span>{{ T.portalTitle }}</span></div>
       <div class="header-user">
         <a class="btn-sm" href="/agents" style="text-decoration:none">{{ T.navPlaza }}</a>
-        <a class="btn-sm" href="/dev" style="text-decoration:none">{{ T.navDev }}</a>
+        <a class="btn-sm" href="/" style="text-decoration:none">{{ T.navDev }}</a>
         <span class="credit-badge">💎 {{ profile.credits_balance?.toFixed(1) ?? '…' }}</span>
         <span class="email">{{ profile.email }}</span>
         <button class="btn-lang" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中' }}</button>

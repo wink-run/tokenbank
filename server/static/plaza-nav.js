@@ -9,11 +9,11 @@
       whoKicker: 'WHO ARE YOU', whoTitle: '你是哪一类用户？',
       who: [
         { href: '/why', k: '普通用户', t: '让智能体帮我把事办成', d: '像打车一样：挑一个高手调好的智能体，说清要做什么，网页里就能用。', cta: '去智能体广场' },
-        { href: '/dev', k: '开发者', t: '智能体应用工厂', d: '统一管理运行时和模型，把应用架在上面；分享出去分摊费用，从市场拿资源加工后上架。', cta: '进入开发者中心' },
+        { href: '/', k: '开发者', t: '智能体应用工厂', d: '统一管理运行时和模型，把应用架在上面；分享出去分摊费用，从市场拿资源加工后上架。', cta: '进入开发者中心' },
       ],
       devKicker: 'FOR DEVELOPERS', devTitle: '开发者的三件事',
       dev: [
-        { href: '/harness', n: '01', t: '统一管理', d: '智能体纳管、一键换模型、场景路由、Trace、资产、用量看板、跨端归集，一个界面、一套接口。' },
+        { href: '/#features', n: '01', t: '统一管理', d: '智能体纳管、一键换模型、场景路由、Trace、资产、用量看板、跨端归集，一个界面、一套接口。' },
         { href: '/share', n: '02', t: '分享与收益', d: '把智能体和模型分享给自己、圈子或全网，分摊费用，一起协作。' },
         { href: '/market', n: '03', t: '资源市场', d: '公开或圈子内的模型、Skill、模板，自用或加工上架。' },
       ],
@@ -25,11 +25,11 @@
       whoKicker: 'WHO ARE YOU', whoTitle: 'Which kind of user are you?',
       who: [
         { href: '/why', k: 'Everyday user', t: 'Get an agent to do the job', d: 'Like hailing a ride: pick an agent an expert tuned, say what you need, use it in the browser.', cta: 'Go to the Agent Plaza' },
-        { href: '/dev', k: 'Developer', t: 'An agent app factory', d: 'Manage runtimes and models and build apps on top; share to split costs, remix market resources and list them.', cta: 'Open the developer hub' },
+        { href: '/', k: 'Developer', t: 'An agent app factory', d: 'Manage runtimes and models and build apps on top; share to split costs, remix market resources and list them.', cta: 'Open the developer hub' },
       ],
       devKicker: 'FOR DEVELOPERS', devTitle: 'Three things developers do here',
       dev: [
-        { href: '/harness', n: '01', t: 'Manage', d: 'Agent onboarding, model swap, scene routing, trace, assets, usage dashboards and cross-device roll-up — one UI, one API.' },
+        { href: '/#features', n: '01', t: 'Manage', d: 'Agent onboarding, model swap, scene routing, trace, assets, usage dashboards and cross-device roll-up — one UI, one API.' },
         { href: '/share', n: '02', t: 'Share & earn', d: 'Share agents and models with yourself, a circle or everyone; split costs and collaborate.' },
         { href: '/market', n: '03', t: 'Market', d: 'Public or circle-only models, skills and templates to use or remix.' },
       ],
