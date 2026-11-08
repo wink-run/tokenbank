@@ -1172,28 +1172,11 @@ body { background: #faf8f3 !important; color: var(--pz-ink); }
 .pz-why-door { margin-top: 18px; border-color: rgba(255,201,74,.4); background: rgba(255,201,74,.08); }
 .pz-why-door span { color: var(--pz-y); }
 
-/* ── 广场首屏：买车 vs 打车 对比卡（通往 /why） ── */
-.pz-vs { position: relative; overflow: hidden; margin-top: 22px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: stretch; gap: 0; max-width: 640px; border-radius: 18px; border: 1px solid rgba(255,201,74,.35); background: rgba(255,255,255,.03); box-shadow: 0 20px 50px -30px rgba(255,201,74,.45); transition: transform .25s var(--pz-ease), border-color .25s, box-shadow .25s; }
-.pz-vs::before { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(110deg, transparent 30%, rgba(255,201,74,.16) 50%, transparent 70%); background-size: 250% 100%; animation: pz-vs-sweep 4.5s ease-in-out infinite; }
-@keyframes pz-vs-sweep { 0%, 35% { background-position: 130% 0; } 75%, 100% { background-position: -30% 0; } }
-.pz-vs:hover { transform: translateY(-2px); border-color: var(--pz-y); box-shadow: 0 26px 60px -30px rgba(255,201,74,.7); }
-.pz-vs-a, .pz-vs-b { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 16px 18px 46px; }
-.pz-vs-a em, .pz-vs-b em { font-style: normal; font-size: 13px; font-weight: 700; margin-bottom: 2px; }
-.pz-vs-a em { color: rgba(255,255,255,.45); }
-.pz-vs-b em { color: var(--pz-y); }
-.pz-vs-a span { font-size: 13px; color: rgba(255,255,255,.38); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.25); }
-.pz-vs-b { background: linear-gradient(135deg, rgba(255,201,74,.16), rgba(255,201,74,.04)); }
-.pz-vs-b span { font-size: 13.5px; font-weight: 600; color: #fff; padding-left: 20px; position: relative; }
-.pz-vs-b span::before { content: '✓'; position: absolute; left: 0; top: 0; color: var(--pz-y); font-weight: 800; }
-.pz-vs-x { align-self: center; z-index: 1; width: 34px; height: 34px; margin: 0 -17px; display: grid; place-items: center; border-radius: 50%; font-size: 11px; font-weight: 800; letter-spacing: .02em; color: #1c1a17; background: var(--pz-y); box-shadow: 0 0 0 5px rgba(23,21,15,.9), 0 0 24px rgba(255,201,74,.6); }
-.pz-vs-go { position: absolute; right: 16px; bottom: 13px; font-style: normal; font-size: 13.5px; font-weight: 700; color: #1c1a17; background: var(--pz-y); padding: 6px 12px; border-radius: 999px; }
-@media (max-width: 640px) {
-  .pz-vs { grid-template-columns: 1fr; }
-  .pz-vs-x { margin: -17px auto; }
-  .pz-vs-a { padding-bottom: 22px; }
-  .pz-vs-b { padding-top: 22px; }
-}
-@media (prefers-reduced-motion: reduce) { .pz-vs::before { animation: none; display: none; } }
-.pz-vs-b { padding-left: 32px; }
-.pz-vs-a { padding-right: 28px; }
-@media (max-width: 640px) { .pz-vs-b { padding-left: 18px; } .pz-vs-a { padding-right: 18px; } }
+/* ── 广场首屏：「买车不如打车」入口（通往 /why） ── */
+.pz-ride { margin-top: 22px; display: inline-flex; align-items: center; gap: 14px; max-width: 100%; padding: 12px 12px 12px 14px; border-radius: 16px; border: 1px solid rgba(255,201,74,.45); background: linear-gradient(135deg, rgba(255,201,74,.16), rgba(255,201,74,.04)); box-shadow: 0 18px 44px -28px rgba(255,201,74,.6); transition: transform .2s var(--pz-ease), border-color .2s, box-shadow .2s; }
+.pz-ride:hover { transform: translateY(-2px); border-color: var(--pz-y); box-shadow: 0 22px 50px -26px rgba(255,201,74,.8); }
+.pz-ride-ic { flex-shrink: 0; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: #1c1a17; background: var(--pz-y); }
+.pz-ride span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pz-ride b { font-size: 16px; font-weight: 750; color: #fff; }
+.pz-ride small { font-size: 13px; color: rgba(255,255,255,.62); }
+.pz-ride em { flex-shrink: 0; margin-left: 10px; font-style: normal; font-size: 13.5px; font-weight: 700; color: #1c1a17; background: var(--pz-y); padding: 7px 13px; border-radius: 999px; }
