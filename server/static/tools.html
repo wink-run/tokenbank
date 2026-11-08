@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=31">
+<link rel="stylesheet" href="/static/plaza.css?v=32">
 <script>
   // 模型、技能等开发者资源移到了资源市场
   (function () {
@@ -141,11 +141,6 @@ a { color: inherit; text-decoration: none; }
             <span>{{ T.tryLabel }}</span>
             <button v-for="w in T.tryWords" :key="w" type="button" class="pz-tag" :class="{ on: searchQuery === w }" @click="searchQuery = (searchQuery === w ? '' : w); jumpToList(false)">{{ w }}</button>
           </div>
-          <a class="pz-ride" href="/why">
-            <i class="pz-ride-ic" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 16.5h14M6.5 16.5l1.3-4.6A2 2 0 0 1 9.7 10.5h4.6a2 2 0 0 1 1.9 1.4l1.3 4.6"/><path d="M4.5 16.5v2.25M19.5 16.5v2.25"/><circle cx="8" cy="16.5" r="1"/><circle cx="16" cy="16.5" r="1"/></svg></i>
-            <span><b>{{ T.rideT }}</b><small>{{ T.rideD }}</small></span>
-            <em>{{ T.rideGo }} →</em>
-          </a>
         </div>
         <div class="pz-orbit">
           <svg viewBox="0 0 440 400" role="img" :aria-label="T.orbitCap">
@@ -247,6 +242,14 @@ a { color: inherit; text-decoration: none; }
       </section>
 
     </main>
+    <!-- 底部通栏：买车不如打车 → 为什么用 -->
+    <a class="pz-ride-band" href="/why">
+      <div class="pz-ride-in">
+        <i class="pz-ride-ic" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 16.5h14M6.5 16.5l1.3-4.6A2 2 0 0 1 9.7 10.5h4.6a2 2 0 0 1 1.9 1.4l1.3 4.6"/><path d="M4.5 16.5v2.25M19.5 16.5v2.25"/><circle cx="8" cy="16.5" r="1"/><circle cx="16" cy="16.5" r="1"/></svg></i>
+        <span><b>{{ T.rideT }}</b><small>{{ T.rideD }}</small></span>
+        <em>{{ T.rideGo }} →</em>
+      </div>
+    </a>
     <footer class="nw-foot"><span>Token Bank</span><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a><a href="/">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
     <div class="pz-toast" :class="{ on: toast }" role="status" aria-live="polite"><i aria-hidden="true">✓</i>{{ toast }}</div>
   </div>
