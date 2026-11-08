@@ -644,3 +644,18 @@ a.nw-rk:hover { background: #fafaff; }
 
 
 
+
+/* ── 首屏入场：文字依次上浮，右侧视觉与指标稍后淡入 ── */
+@keyframes pz-up { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes pz-fade { from { opacity: 0; } to { opacity: 1; } }
+.pz-hero-in > div:first-child > * { animation: pz-up .7s var(--pz-ease) both; }
+.pz-hero-in > div:first-child > *:nth-child(2) { animation-delay: .06s; }
+.pz-hero-in > div:first-child > *:nth-child(3) { animation-delay: .12s; }
+.pz-hero-in > div:first-child > *:nth-child(4) { animation-delay: .18s; }
+.pz-hero-in > div:first-child > *:nth-child(5) { animation-delay: .24s; }
+.pz-hero-in > div:first-child > *:nth-child(n+6) { animation-delay: .3s; }
+.pz-hero-in > *:nth-child(2) { animation: pz-fade 1s .25s ease both; }
+.pz-hero .pz-stats { animation: pz-fade .8s .35s ease both; }
+@media (prefers-reduced-motion: reduce) {
+  .pz-hero-in > div:first-child > *, .pz-hero-in > *:nth-child(2), .pz-hero .pz-stats { animation: none; }
+}
