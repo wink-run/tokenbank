@@ -565,6 +565,15 @@ createApp({
       const right = String(b.author || '')
       return !left || !right || left === right
     }
+    // 同一句发言。时间都在且不同，就是另一次提问，不能并成一条
+    function sameUtterance(a, b) {
+      if (!a || !b || a.role !== 'user' || b.role !== 'user') return false
+      if (String(a.content || '').trim() !== String(b.content || '').trim()) return false
+      const atA = Number(a.at) || 0
+      const atB = Number(b.at) || 0
+      if (atA && atB) return atA === atB
+      return sameUserLine(a, b)
+    }
     // 这条回复前面的那句用户消息。用来判断两句回复是不是同一轮
     function userBefore(list, index) {
       for (let i = index - 1; i >= 0; i -= 1) {
@@ -685,15 +694,16 @@ createApp({
       let heldUser = null
       const flushUser = () => {
         if (!heldUser) return
-        out.push(heldUser)
+        // 同一句已经在上面。正在回复时也不要再占一行，等输出结束才收会先闪成两条
+        if (!out.some(item => item && sameUtterance(item, heldUser))) out.push(heldUser)
         heldUser = null
       }
       for (const m of list || []) {
         if (!m) continue
         if (m.role === 'user') {
           flushUser()
-          const again = out.some((item, i) => item && item.role === 'user' && sameUserLine(item, m)
-            && out.slice(i + 1).some(row => row && row.role === 'assistant'))
+          // 这句已经在上面了。先拿着，别先画成第二条；正在回复时也是同一句
+          const again = out.some(item => item && sameUtterance(item, m))
           if (again) heldUser = m
           else out.push(m)
           continue
@@ -711,8 +721,8 @@ createApp({
           }
           if (hit >= 0) {
             out[hit] = keepRichReply(out[hit], m)
-            // 这句用户已经在前面留过，才丢掉重复的那条。正在执行的这句必须留着
-            if (heldUser && !m.pending && out.some(item => item && item.role === 'user' && sameUserLine(item, heldUser))) heldUser = null
+            // 同一句已经留过就丢掉。回复还在进行也一样，不要等它结束才收成一条
+            if (heldUser && out.some(item => item && sameUtterance(item, heldUser))) heldUser = null
             continue
           }
         }
@@ -1930,6 +1940,11 @@ createApp({
       if (!user && asst) {
         const prev = messages.value[messages.value.indexOf(asst) - 1]
         if (prev && prev.role === 'user') user = prev
+      }
+      // 刷新后这句已经在本地记录里。输出过程中不要再插一条，结束时再消失
+      if (!user && live.text) {
+        const spoken = { role: 'user', content: live.text, at: live.at, author: live.author }
+        user = [...messages.value].reverse().find(m => m && sameUtterance(m, spoken)) || null
       }
       if (!user) {
         messages.value.push({ role: 'user', content: live.text, author: live.author, at: live.at, liveTurn: true, shared: true })
