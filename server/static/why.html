@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>用智能体 · Token Bank</title>
+<meta name="description" content="别人调好的智能体，打开就能用：不买 Key、不装环境、不写提示词，按次付费。各家引擎和模型一个入口，一个链接拉朋友一起用。">
+<link rel="icon" href="/static/logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/plaza.css?v=17">
+<script src="/static/plaza-nav.js?v=17"></script>
+<script src="/static/vue.global.prod.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+[v-cloak] { display: none !important; }
+body { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; color: #0a0a0a; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+</style>
+</head>
+<body>
+<!-- 普通用户介绍页：只讲，不做业务。使用在 /agents -->
+<div id="app" v-cloak>
+  <nav class="ag-top">
+    <div class="ag-top-in">
+      <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
+      <div class="ag-modes"><a class="ag-mode on" href="/agents">{{ N.modeUse }}</a><a class="ag-mode" href="/dev">{{ N.modeDev }}</a></div>
+      <div class="ag-navs ag-devnav">
+        <a class="ag-nav" href="/agents">{{ N.navPlaza }}</a>
+        <a class="ag-nav on" href="/why" aria-current="page">{{ N.navWhy }}</a>
+      </div>
+      <div class="ag-top-r">
+        <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
+        <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
+      </div>
+    </div>
+    <div class="ag-sub"><a href="/agents">{{ N.navPlaza }}</a><a class="on" href="/why">{{ N.navWhy }}</a></div>
+  </nav>
+
+    <!-- 首屏：一句话 + 四个承诺 + 搜索；右边星图里的节点就是线上的智能体 -->
+    <header class="pz-hero">
+      <div class="pz-grid-bg" aria-hidden="true"></div>
+      <div class="pz-hero-in">
+        <div>
+          <div class="pz-eyebrow"><b>WHY</b>{{ T.whyEyebrow }}</div>
+          <h1 class="pz-h1">{{ T.whyH1a }}<br><em>{{ T.whyH1b }}</em></h1>
+          <p class="pz-sub">{{ T.whySub }}</p>
+          <ul class="pz-promise"><li v-for="p in T.promise" :key="p">{{ p }}</li></ul>
+          <div class="nw-ctas">
+            <a class="pz-btn pri" href="/agents">{{ N.openPlaza }}</a>
+            <a class="pz-btn ghost" href="#pz-cmp">{{ T.ctaCompare }}</a>
+          </div>
+        </div>
+        <div class="pz-orbit">
+          <svg viewBox="0 0 440 400" role="img" :aria-label="T.orbitCap">
+            <defs>
+              <radialGradient id="pzHub" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#FFE08A"/><stop offset="55%" stop-color="#FFD055" stop-opacity=".55"/><stop offset="100%" stop-color="#FFD055" stop-opacity="0"/></radialGradient>
+              <linearGradient id="pzLine" x1="0" x2="1"><stop offset="0%" stop-color="#FFD055" stop-opacity=".05"/><stop offset="50%" stop-color="#FFD055" stop-opacity=".45"/><stop offset="100%" stop-color="#FFD055" stop-opacity=".05"/></linearGradient>
+            </defs>
+            <ellipse cx="220" cy="190" rx="190" ry="150" fill="none" stroke="rgba(255,255,255,.07)" stroke-dasharray="2 6"/>
+            <ellipse cx="220" cy="190" rx="110" ry="88" fill="none" stroke="rgba(255,255,255,.09)" stroke-dasharray="2 5"/>
+            <g v-for="(n, i) in orbitNodes" :key="'l' + i">
+              <path :d="'M220 190 L' + n.x + ' ' + n.y" stroke="url(#pzLine)" :stroke-opacity="n.online ? 1 : .35" stroke-width="1" fill="none"/>
+              <circle v-if="!reducedMotion && n.online" r="2.6" :fill="i % 2 ? '#FFD055' : '#ffffff'">
+                <animateMotion :dur="(2.4 + i * 0.4) + 's'" repeatCount="indefinite" :path="'M220 190 L' + n.x + ' ' + n.y" :keyPoints="i % 2 ? '0;1' : '1;0'" keyTimes="0;1" calcMode="linear" :begin="(i * 0.3) + 's'"/>
+              </circle>
+            </g>
+            <a v-for="(n, i) in orbitNodes" :key="'n' + i" :href="n.href || '/agents'">
+              <title>{{ n.title }}</title>
+              <circle :cx="n.x" :cy="n.y" :r="n.r * 2.8" :fill="n.online ? 'rgba(255,208,85,.12)' : 'rgba(255,255,255,.04)'"/>
+              <circle class="pz-node-dot" :cx="n.x" :cy="n.y" :r="n.r" :fill="n.online ? '#FFD055' : '#4a4a4c'" stroke="rgba(255,255,255,.55)" stroke-width=".8"/>
+              <text v-if="n.label" :x="n.x" :y="n.y + n.r + 16" text-anchor="middle" font-size="11.5" :fill="n.online ? 'rgba(255,255,255,.78)' : 'rgba(255,255,255,.35)'">{{ n.label }}</text>
+            </a>
+            <circle cx="220" cy="190" r="52" fill="url(#pzHub)" opacity=".55"/>
+            <circle cx="220" cy="190" r="24" fill="#111" stroke="#FFD055" stroke-width="1.4"/>
+            <text x="220" y="194.5" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">{{ T.you }}</text>
+          </svg>
+        </div>
+      </div>
+    </header>
+
+  <main class="ag-page">
+      <!-- 为什么不直接用通用助手：三种人，三种用法 -->
+      <section class="pz-sec pz-rv" aria-labelledby="pz-why">
+        <div class="pz-head-c">
+          <div class="pz-kicker">{{ T.whyKicker }}</div>
+          <h2 id="pz-why" class="pz-h2">{{ T.whyTitle }}</h2>
+          <p class="pz-lead">{{ T.whyLead }}</p>
+        </div>
+        <div class="pz-roles">
+          <a v-for="r in T.roles" :key="r.key" :class="['pz-role', r.key]" :href="r.href">
+            <div class="pz-role-top">
+              <span class="pz-ic" v-html="roleIcon(r.key)"></span>
+              <span class="pz-who">{{ r.who }}</span>
+            </div>
+            <h3>{{ r.title }}</h3>
+            <p class="pz-quote">{{ r.quote }}</p>
+            <ul class="pz-list"><li v-for="p in r.points" :key="p">{{ p }}</li></ul>
+            <span class="pz-cta">{{ r.cta }} <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+          </a>
+        </div>
+      </section>
+
+      <!-- 和通用 AI 助手比 -->
+      <section class="pz-sec pz-rv" aria-labelledby="pz-cmp">
+        <div class="pz-head-c">
+          <div class="pz-kicker">{{ T.cmpKicker }}</div>
+          <h2 id="pz-cmp" class="pz-h2">{{ T.cmpTitle }}</h2>
+        </div>
+        <div class="pz-cmp" role="table">
+          <div class="pz-cmp-row" role="row">
+            <div class="pz-cmp-dim" role="columnheader"></div>
+            <div class="pz-cmp-them" role="columnheader"><div class="pz-cmp-h">{{ T.cmpThem }}<small>{{ T.cmpThemHint }}</small></div></div>
+            <div class="pz-cmp-us" role="columnheader"><div class="pz-cmp-h">{{ T.cmpUs }}<small>{{ T.cmpUsHint }}</small></div></div>
+          </div>
+          <div v-for="row in T.cmp" :key="row[0]" class="pz-cmp-row" role="row">
+            <div class="pz-cmp-dim" role="rowheader">{{ row[0] }}</div>
+            <div class="pz-cmp-them" role="cell"><i class="pz-x" aria-hidden="true">–</i><span>{{ row[1] }}</span></div>
+            <div class="pz-cmp-us" role="cell"><i class="pz-v" aria-hidden="true">✓</i><span>{{ row[2] }}</span></div>
+          </div>
+        </div>
+      </section>
+
+
+      <!-- 收尾：想分享的人去共享网络 -->
+      <section class="pz-final pz-rv">
+        <div>
+          <h2>{{ T.finalTitle }}</h2>
+          <p>{{ T.finalText }}</p>
+        </div>
+        <div class="pz-final-btns">
+          <a class="pz-btn pri" href="/dev">{{ T.finalCta }}</a>
+          <a class="pz-btn ghost" href="/market">{{ T.finalCta2 }}</a>
+        </div>
+      </section>
+  </main>
+  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
+</div>
+
+<script>
+const { createApp } = Vue
+createApp({
+  data() {
+    let lang = ''
+    try { lang = localStorage.getItem('tb_lang') || '' } catch (e) {}
+    return {
+      lang: lang || ((navigator.language || '').startsWith('zh') ? 'zh' : 'en'),
+      tools: [], loaded: false, loggedIn: (() => { try { return !!localStorage.getItem('user_token'); } catch (e) { return false; } })(),
+      reducedMotion: !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches),
+    }
+  },
+  computed: {
+    T() {
+      if (this.lang === 'en') {
+        return {
+          whyEyebrow: 'Why Token Bank', whyH1a: 'Ride, don\'t buy —', whyH1b: 'agents work the same way', whySub: 'No subscription to run, no setup to learn. Pick one an expert tuned and pay per use.', ctaCompare: 'See the comparison',
+          title: 'Agents', plaza: 'Agent Plaza', navNetwork: 'Share & earn', navCircles: 'Circles', download: 'Download', account: 'My account', signIn: 'Sign in',
+          eyebrow: 'Tuned by people, running on real devices',
+          h1a: 'Expert-tuned agents,', h1b: 'ready when you are',
+          sub: 'No keys, no setup, no prompting. Pick one and go.',
+          promise: ['Zero setup', 'Pay per task', 'Every vendor, one door', 'One link to bring friends'],
+          search: 'What do you need done?', find: 'Find', tryLabel: 'Try:',
+          tryWords: ['Copy', 'Images', 'Video', 'Meals'],
+          you: 'YOU', orbitCap: 'Each dot is a live agent on someone\'s device',
+          statOnline: 'Online now', statListed: 'Ready to hire', statModels: 'Models to try', statRuntimes: 'Engines covered', statOwners: 'Developers who tuned them', statOwnersUnit: '',
+          listKicker: 'LIVE NOW', listTitle: 'Ready to use', listFound: '{n} results',
+          listLead: { agents: 'Open one to chat. Offline agents still show their history; the link icon copies a share link.', models: 'Models shared by community nodes — chat or generate images in the browser, no API key of your own.', resources: 'Skills, prompts and scenes: scenes open in the browser, skills and prompts install into the app in one click.' },
+          tabAgents: 'Agents', tabModels: 'Models', tabResources: 'Skills & scenes',
+          modelHint: 'Lower first-token latency is faster', resHint: '', colModel: 'Model', colNodes: 'Nodes', colLatency: 'First token', nodesN: '{n} nodes',
+          tryChat: 'Chat', tryImage: 'Image', apiOnly: 'API only', typeChat: 'Text', typeVision: 'Vision', typeImage: 'Image', typeEmbedding: 'Embedding',
+          rtSkill: 'Skill', rtPrompt: 'Prompt', rtAssistant: 'Agent', rtScene: 'Scene', rtPlugin: 'Plugin',
+          official: 'Official', userShare: 'User share', sharedBy: 'by @{handle}', useInApp: 'Adopt in the app', useRes: 'Use', noDesc: 'No description',
+          showMore: 'Show all {n}', appDesc: 'A general coding agent on {app}: writes code, fixes bugs, runs scripts — on the sharer\'s machine.', emptyModels: 'No models online right now', emptyModelsHint: 'They show up here as nodes come online.', emptyRes: 'No resources yet',
+          filterLabel: 'Filter', all: 'All', onlineOnly: 'Online', agents: 'Agents', showAll: 'Show all',
+          loading: 'Loading…', empty: 'The plaza just opened', emptyHint: 'Get the client and be the first to list an agent you have tuned.',
+          emptySearch: 'No matching agents', emptySearchHint: 'Try another keyword or filter.',
+          online: 'Online', offline: 'Offline', chat: 'Chat', use: 'Use it', history: 'History',
+          shareTitle: 'Copy share link', copied: 'Link copied — send it and friends can jump straight in',
+          whyKicker: 'WHY TOKEN BANK', whyTitle: 'Why not just use Claude or WorkBuddy?',
+          whyLead: 'A car you buy, learn and maintain; a ride you just hail.',
+          roles: [
+            { key: 'r1', who: 'I just want it done', title: 'Hail an agent like a ride', quote: 'No car to buy, learn or maintain — call one and go.', points: ['Prompts, skills and toolchains an expert already polished', 'No keys, no setup — chat right in the browser', 'Pay per task, only for what you use'], cta: 'Try one', href: '/agents' },
+            { key: 'r2', who: 'Any vendor', title: 'Every vendor\'s strengths, one door', quote: 'Many engines and models, one account, one credit balance.', points: ['Coding to a Codex agent, copy to a content expert, images to an image model', 'One credit balance, not locked into one vendor\'s plan', 'Rare models and expert agents, by the task'], cta: 'Try one', href: '/agents' },
+            { key: 'r3', who: 'I want to play with friends', title: 'One link brings them in', quote: 'Like a group chat — open the link and join in.', points: ['Take turns in one conversation and create together', 'Poke the agent to squeeze out fresh ideas', 'Start a circle only people you trust can see'], cta: 'Explore circles', href: '/circles' },
+          ],
+          safeKicker: 'SHARE THE SKILL, KEEP THE RECIPE', safeTitle: 'They can use it. They can\'t take it.',
+          safeLead: 'Tasks run on your device. Callers send a request and get a result — your prompts, skills and API keys never leave the machine, so sharing never means being copied.',
+          safeMe: 'Your device', safeMeName: 'Your agent', safeThem: 'Caller', safeThemName: 'What they get',
+          safeVault: ['Prompts', 'Skills', 'API keys'], safeGets: 'The result', safePipe: 'task ⇄ result',
+          cmpKicker: 'BUY OR RIDE', cmpTitle: 'Versus your own subscription',
+          cmpThem: 'Buy: a subscription of your own', cmpThemHint: 'e.g. Claude, WorkBuddy', cmpUs: 'Ride: the Agent Plaza', cmpUsHint: 'Hail one when you need it',
+          cmp: [
+            ['Getting it', 'Sign up and subscribe — sometimes limited by region or payment', 'Open in a browser; one free turn before signing in'],
+            ['Learning it', 'Learn prompting, install skills, wire up tools', 'An expert already tuned it — just say what you need'],
+            ['Paying', 'Monthly, whether you use it or not', 'Per task, only for what you use'],
+            ['Flexibility', 'One subscription, one vendor\'s abilities', 'Every engine and model here — pick the best fit for each job'],
+            ['Rare abilities', 'Top models and expert agents out of reach', 'Rare models and expert agents others share, by the task'],
+            ['With friends', 'Mostly single-user', 'One link brings people in'],
+          ],
+          mapKicker: 'WHO ARE YOU', mapTitle: 'Which one are you?',
+          map: [['I just want it done', 'Agent Plaza', 'Agents and models others tuned, ready to use', '/agents'], ['I juggle many AI tools', 'OneHarness', 'One place to run them, routed by strength', '/harness'], ['I have spare quota or a great agent', 'Share & earn', 'Others use it, you earn', '/network'], ['I want to do it with friends', 'Circles', 'Open only to people you trust', '/circles']],
+          finalTitle: 'Are you a developer?',
+          finalText: 'Manage runtimes and models, build apps on top, list them here.',
+          finalCta: 'Open the developer hub', finalCta2: 'Browse the market',
+        };
+      }
+      return {
+        whyEyebrow: '为什么用 Token Bank', whyH1a: '买车不如打车，', whyH1b: '用智能体也是', whySub: '不用自己开订阅、学配置。挑一个高手调好的，按次用。', ctaCompare: '看对比',
+        title: '智能体', plaza: '智能体广场', navNetwork: '共享网络', navCircles: '圈子', download: '下载客户端', account: '我的账户', signIn: '登录',
+        eyebrow: '智能体工具广场 · 真人调教，真机运行',
+        h1a: '别人调好的智能体，', h1b: '打开就能用',
+        sub: '不买 Key，不装环境，不写提示词。挑一个，直接用。',
+        promise: ['0 配置', '按次付费', '各家能力一个入口', '一个链接拉朋友'],
+        search: '想让智能体帮你做什么？', find: '找智能体', tryLabel: '试试：',
+        tryWords: ['文案', '配图', '视频', '三餐'],
+        you: '你', orbitCap: '每个光点，都是一台设备上正在运行的智能体',
+        statOnline: '此刻在线', statListed: '可以雇佣', statModels: '可试用模型', statRuntimes: '覆盖的引擎', statOwners: '调教它们的开发者', statOwnersUnit: '位',
+        listKicker: 'LIVE NOW', listTitle: '现在就能用', listFound: '找到 {n} 个结果',
+        listLead: { agents: '点开就能对话；离线的也能看历史记录。点链接图标，复制分享链接发给朋友。', models: '社区节点共享的模型，网页里直接对话或生图，不用自己买 Key。', resources: '技能、提示词和场景：场景可直接网页使用，技能和提示词在客户端一键纳管。' },
+        tabAgents: '智能体', tabModels: '模型', tabResources: '技能与场景',
+        modelHint: '首字延迟越低越快', resHint: '', colModel: '模型', colNodes: '节点', colLatency: '首字延迟', nodesN: '{n} 个节点',
+        tryChat: '对话', tryImage: '生图', apiOnly: '仅 API', typeChat: '文本', typeVision: '图文', typeImage: '生图', typeEmbedding: '嵌入',
+        rtSkill: '技能', rtPrompt: '提示词', rtAssistant: '智能体', rtScene: '场景', rtPlugin: '插件',
+        official: '官方', userShare: '用户分享', sharedBy: '@{handle} 分享', useInApp: '在客户端纳管', useRes: '使用', noDesc: '暂无简介',
+        showMore: '显示全部 {n} 个', appDesc: '基于 {app} 的通用编程智能体：写代码、改 bug、跑脚本，任务在分享者的电脑上完成。', emptyModels: '暂时没有在线模型', emptyModelsHint: '节点上线后会出现在这里。', emptyRes: '暂时没有资源',
+        filterLabel: '筛选', all: '全部', onlineOnly: '在线', agents: '智能体', showAll: '看全部',
+        loading: '加载中…', empty: '广场刚开张', emptyHint: '下载客户端，把你调教好的智能体第一个放上来。',
+        emptySearch: '没找到匹配的智能体', emptySearchHint: '换个关键词或筛选条件试试。',
+        online: '在线', offline: '离线', chat: '对话', use: '去使用', history: '看记录',
+        shareTitle: '复制分享链接', copied: '链接已复制，发给朋友就能直接一起用',
+        whyKicker: 'WHY TOKEN BANK', whyTitle: '为什么不直接用 Claude、WorkBuddy？',
+        whyLead: '买车要先买、先学、再养；打车只要说去哪。',
+        roles: [
+          { key: 'r1', who: '只想把事办成', title: '像打车一样用智能体', quote: '不用买车、学车、养车，叫一辆就走。', points: ['高手打磨好的提示词、Skill、工具链，拿来就用', '不买 Key、不装环境，浏览器直接对话', '按次计费，用多少付多少'], cta: '挑一个试试', href: '/agents' },
+          { key: 'r2', who: '不挑平台', title: '各家能力，一个入口', quote: '不同引擎、各家模型，一个账号、一份积分全能用。', points: ['写代码找 Codex 系，写文案找内容专家，配图找生图模型', '一份积分通用，不被某一家的套餐绑住', '稀有模型和专家智能体，按次就能用上'], cta: '挑一个试试', href: '/agents' },
+          { key: 'r3', who: '想和朋友一起玩', title: '一个链接，拉人进场', quote: '像拉群一样，点开链接就接着聊。', points: ['多人接龙同一场对话，一起创作', '故意逗它，把新点子逼出来', '建个圈子，只对信任的人开放'], cta: '去看看圈子', href: '/circles' },
+        ],
+        safeKicker: '能力共享 · 配方私有', safeTitle: '别人能用，但拿不走',
+        safeLead: '任务在你的设备上执行。对方发来任务、拿回结果，你的提示词、Skill 和 API Key 始终不离机。分享出去，不等于被抄走。',
+        safeMe: '你的设备', safeMeName: '你调教的智能体', safeThem: '调用方', safeThemName: '对方能拿到的',
+        safeVault: ['提示词', 'Skill', 'API Key'], safeGets: '任务结果', safePipe: '任务 ⇄ 结果',
+        cmpKicker: 'BUY OR RIDE', cmpTitle: '和自己开一份订阅比',
+        cmpThem: '买车：自己开一份订阅', cmpThemHint: '如 Claude、WorkBuddy 等', cmpUs: '打车：智能体广场', cmpUsHint: '要用的时候叫一个',
+        cmp: [
+          ['拿到手', '要注册、开通订阅，有的还受地区和支付方式限制', '浏览器打开就能用，没登录也能先试一轮'],
+          ['学会用', '自己学提示词、装 Skill、配工具', '高手已经调好，说清要做什么就行'],
+          ['花多少', '按月固定付，用不用都扣', '按次付，用多少付多少'],
+          ['够不够灵活', '一份订阅，只有一家的能力', '各家引擎和模型都在，每件事挑最合适的那个'],
+          ['稀缺能力', '好模型、专家智能体，够不着', '别人分享的稀有模型和专家智能体，按次就能用'],
+          ['和朋友一起', '基本是一个人用', '一个链接拉人进来，接着聊'],
+        ],
+        mapKicker: 'WHO ARE YOU', mapTitle: '你是哪种用户？',
+        map: [['我想直接用', '智能体广场', '别人调好的智能体和模型，打开就用', '/agents'], ['我手上 AI 工具很多', 'OneHarness', '一个入口全管起来，按特点派活', '/harness'], ['我有闲置或作品', '共享网络', '额度和智能体让别人用，你来赚', '/network'], ['我想和朋友一起', '圈子', '只对信任的人开放，一起用', '/circles']],
+        finalTitle: '你是开发者？',
+        finalText: '管理 runtime 和模型，把应用架在上面，上架到这里。',
+        finalCta: '进入开发者中心', finalCta2: '逛逛资源市场',
+      };
+    },
+    N() { return (window.TBNAV || {})[this.lang] || window.TBNAV.zh; },
+    onlineCount() {
+      return this.tools.filter(t => t.source === 'network' && t.online !== false).length;
+    },
+    runtimes() {
+      const m = new Map();
+      for (const t of this.tools) {
+        const id = String(t.runtime || '').trim();
+        if (!id) continue;
+        m.set(id, (m.get(id) || 0) + 1);
+      }
+      return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([id, n]) => ({ id, n, label: this.runtimeLabel(id) }));
+    },
+    orbitNodes() {
+      const pos = [
+        { x: 72, y: 74, r: 7 }, { x: 330, y: 50, r: 7.5 }, { x: 404, y: 196, r: 6 },
+        { x: 344, y: 330, r: 7.5 }, { x: 116, y: 338, r: 6.5 }, { x: 38, y: 204, r: 5.5 },
+        { x: 214, y: 22, r: 4.5 }, { x: 222, y: 366, r: 4.5 },
+      ];
+      const list = [...this.tools].sort((a, b) => (b.online !== false) - (a.online !== false));
+      return pos.map((p, i) => {
+        const t = list[i];
+        if (!t) return { ...p, online: i < 3, label: '', title: '', href: '' };
+        const name = this.cleanName(t);
+        return {
+          ...p,
+          online: t.online !== false,
+          label: i < 6 ? (name.length > 7 ? name.slice(0, 7) + '…' : name) : '',
+          title: name,
+          href: this.cardHref(t),
+        };
+      });
+    },
+  },
+  mounted() {
+    document.documentElement.lang = this.lang === 'zh' ? 'zh-CN' : 'en';
+    document.title = (this.lang === 'zh' ? '用智能体' : 'Use agents') + ' · Token Bank';
+    fetch('/api/tools/discover?limit=50').then(r => r.ok ? r.json() : null).then(d => { this.tools = (d && d.tools) || []; }).catch(() => {}).finally(() => { this.loaded = true; });
+    this.$nextTick(() => this.setupReveal());
+  },
+  methods: {
+    splitName(tool) {
+      const name = String((tool && tool.display_name) || '').trim();
+      let owner = String((tool && tool.owner_nickname) || '').trim();
+      if (owner) {
+        if (name.startsWith(owner + '的') && name.length > owner.length + 1) return { name: name.slice(owner.length + 1).trim(), owner };
+        return { name, owner };
+      }
+      // 离线名片没有作者字段时，按「作者的名字」拆开
+      const m = name.match(/^(.{1,24}?)的(.+)$/);
+      return m ? { name: m[2].trim(), owner: m[1].trim() } : { name, owner: '' };
+    },
+    cleanName(tool) { return this.splitName(tool).name; },
+    runtimeLabel(id) {
+      const k = String(id || '').trim().toLowerCase();
+      const map = { 'claude-code': 'Claude Code', codex: 'Codex', pi: 'Pi', cursor: 'Cursor', gemini: 'Gemini CLI', 'gemini-cli': 'Gemini CLI', openclaw: 'OpenClaw', hermes: 'Hermes', kimi: 'Kimi', qwen: 'Qwen Code', opencode: 'OpenCode' };
+      return map[k] || (k ? k.charAt(0).toUpperCase() + k.slice(1) : '');
+    },
+    setupReveal() {
+      if (this.reducedMotion || !('IntersectionObserver' in window)) return;
+      if (this.revealObs) this.revealObs.disconnect();
+      document.documentElement.classList.add('pz-rv-on');
+      this.revealObs = new IntersectionObserver((entries) => {
+        entries.forEach((en) => {
+          if (en.isIntersecting) { en.target.classList.add('in'); this.revealObs.unobserve(en.target); }
+        });
+      }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+      document.querySelectorAll('.pz-rv').forEach((el) => this.revealObs.observe(el));
+    },
+    roleIcon(key) {
+      const a = 'width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
+      if (key === 'r2') return '<svg ' + a + '><rect x="2.75" y="4.5" width="12.5" height="9" rx="1.5"/><path d="M6 17h6M9 13.5V17"/><rect x="16.5" y="8" width="4.75" height="10.5" rx="1.2"/></svg>';
+      if (key === 'r3') return '<svg ' + a + '><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>';
+      return '<svg ' + a + '><path d="M5 16.5h14M6.5 16.5l1.3-4.6A2 2 0 0 1 9.7 10.5h4.6a2 2 0 0 1 1.9 1.4l1.3 4.6"/><path d="M4.5 16.5v2.25M19.5 16.5v2.25"/><circle cx="8" cy="16.5" r="1"/><circle cx="16" cy="16.5" r="1"/><path d="M12 3.5v3M9.5 5h5"/></svg>';
+    },
+    cardHref(tool) {
+      const aid = tool && (tool.assistant_id || '');
+      if (tool && tool.source === 'network' && aid) return '/agents/' + encodeURIComponent(aid);
+      return '/tools/' + encodeURIComponent(tool && tool.id || '');
+    },
+    toggleLang() {
+      this.lang = this.lang === 'zh' ? 'en' : 'zh';
+      try { localStorage.setItem('tb_lang', this.lang); } catch (e) {}
+      document.documentElement.lang = this.lang === 'zh' ? 'zh-CN' : 'en';
+    },
+  },
+}).mount('#app');
+</script>
+</body>
+</html>

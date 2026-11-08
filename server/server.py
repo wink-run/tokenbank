@@ -243,6 +243,18 @@ async def network_page():
     return FileResponse("static/network.html")
 
 
+@app.get("/why")
+async def why_page():
+    """介绍页：给普通用户（使用在 /agents）"""
+    return FileResponse("static/why.html")
+
+
+@app.get("/share")
+async def share_page():
+    """介绍页：分享与收益（供给排行在 /market#board）"""
+    return FileResponse("static/share.html")
+
+
 @app.get("/dev")
 async def dev_page():
     """公开：开发者中心（统一管理、分享与收益、资源市场的入口）"""

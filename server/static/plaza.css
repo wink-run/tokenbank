@@ -886,3 +886,14 @@ body { background: #faf8f3 !important; color: var(--pz-ink); }
   .pz-rv-on .pz-rv :is(.pz-role, .dv-b, .dv-node, .nw-step, .nw-gain, .dv-feats a, .mk-path, .pz-dev3 a) { opacity: 1; transform: none; transition: none; }
   .pz-btn.pri::after, .pz-search button::after { display: none; }
 }
+
+/* ── 统一导航：窄屏时当前模式的条目放第二行 ── */
+.ag-sub { display: none; gap: 6px; padding: 0 12px 10px; overflow-x: auto; scrollbar-width: none; }
+.ag-sub::-webkit-scrollbar { display: none; }
+.ag-sub a { flex-shrink: 0; white-space: nowrap; height: 30px; padding: 0 12px; display: inline-flex; align-items: center; border-radius: 999px; font-size: 13px; font-weight: 600; color: rgba(255,255,255,.7); background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); }
+.ag-sub a.on { background: var(--pz-y); color: #1c1a17; border-color: var(--pz-y); }
+.dv-subm { display: none !important; }
+@media (max-width: 1024px) {
+  .ag-sub { display: flex; }
+  .pz-hero { margin-top: 0; padding-top: 0; }
+}

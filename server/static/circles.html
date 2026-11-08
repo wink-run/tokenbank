@@ -13,7 +13,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/community.css">
-<script src="/static/plaza-nav.js?v=15"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=17">
+<script src="/static/plaza-nav.js?v=17"></script>
 <script src="/static/vue.global.prod.js"></script>
 <script src="/static/app-runtime-icon.js"></script>
 <style>
@@ -48,26 +49,26 @@
 </head>
 <body>
 <div id="app" v-cloak>
-  <nav class="topnav">
-    <div class="topnav-in">
-      <a class="brand" href="/"><img src="/static/logo.svg" alt=""><span class="bt">Token Bank</span></a>
-      <div class="navlinks">
-        <a href="/agents">{{ N.modeUse }}</a>
-        <a href="/dev">{{ N.modeDev }}</a>
-        <span class="navsep" aria-hidden="true"></span>
-        <a href="/harness">{{ N.dManage }}</a>
-        <a href="/network">{{ N.dShare }}</a>
-        <a class="on" href="/market#circles" aria-current="page">{{ N.dMarket }}</a>
+  <nav class="ag-top">
+    <div class="ag-top-in">
+      <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
+      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/dev">{{ N.modeDev }}</a></div>
+      <div class="ag-navs ag-devnav">
+        <a class="ag-nav" href="/dev">{{ N.dOverview }}</a>
+        <a class="ag-nav" href="/harness">{{ N.dManage }}</a>
+        <a class="ag-nav" href="/share">{{ N.dShare }}</a>
+        <a class="ag-nav on" href="/market#circles" aria-current="page">{{ N.dMarket }}</a>
       </div>
-      <div class="nav-right">
-        <button class="btn ghost sm" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
+      <div class="ag-top-r">
+        <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
         <template v-if="loggedIn">
-          <a class="btn sm" href="/app">{{ profile?.nickname || T.account }}</a>
-          <button class="btn ghost sm" type="button" @click="logout">{{ T.logout }}</button>
+          <a class="ag-nav hide-sm" href="/app">{{ profile?.nickname || T.account }}</a>
+          <button class="ag-lang" type="button" @click="logout">{{ T.logout }}</button>
         </template>
-        <button v-else class="btn primary sm" type="button" @click="openAuth()">{{ T.login }}</button>
+        <button v-else class="ag-dl" type="button" @click="openAuth()">{{ T.login }}</button>
       </div>
     </div>
+    <div class="ag-sub"><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a class="on" href="/market#circles">{{ N.dMarket }}</a></div>
   </nav>
 
   <main class="page">
@@ -94,7 +95,7 @@
           <div class="side-t">{{ T.sideShareT }}</div>
           <div class="side-d">{{ T.sideShareD }}</div>
           <button class="btn sm primary" type="button" @click="needAuth(() => modal = 'create')">+ {{ T.create }}</button>
-          <a class="btn sm ghost" href="/network">{{ T.sideShareLink }}</a>
+          <a class="btn sm ghost" href="/share">{{ T.sideShareLink }}</a>
         </div>
       </div>
 
@@ -316,7 +317,7 @@
     </template>
   </main>
 
-  <footer class="footer"><span>Token Bank · {{ T.footer }}</span><a href="/">{{ T.home }}</a><a href="/agents">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/network">{{ N.dShare }}</a></footer>
+  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.navPlaza }}</a><a href="/dev">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
 
   <!-- 登录 / 注册 -->
   <div v-if="showAuth" class="mask" @click.self="showAuth = false">
