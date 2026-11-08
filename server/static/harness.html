@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=13">
+<link rel="stylesheet" href="/static/plaza.css?v=14">
 <script src="/static/plaza-nav.js?v=9"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -58,24 +58,24 @@ a { color: inherit; text-decoration: none; }
       <div class="hs-merge" aria-hidden="true">
         <svg viewBox="0 0 420 380">
           <defs>
-            <linearGradient id="hsIn" x1="0" x2="1"><stop offset="0%" stop-color="#a78bfa" stop-opacity=".05"/><stop offset="100%" stop-color="#a78bfa" stop-opacity=".7"/></linearGradient>
-            <linearGradient id="hsOut" x1="0" x2="1"><stop offset="0%" stop-color="#67e8f9" stop-opacity=".8"/><stop offset="100%" stop-color="#67e8f9" stop-opacity=".08"/></linearGradient>
-            <radialGradient id="hsHub" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#a5f3fc"/><stop offset="55%" stop-color="#818cf8"/><stop offset="100%" stop-color="#6366f1" stop-opacity="0"/></radialGradient>
+            <linearGradient id="hsIn" x1="0" x2="1"><stop offset="0%" stop-color="#ffffff" stop-opacity=".05"/><stop offset="100%" stop-color="#ffffff" stop-opacity=".45"/></linearGradient>
+            <linearGradient id="hsOut" x1="0" x2="1"><stop offset="0%" stop-color="#FFD055" stop-opacity=".85"/><stop offset="100%" stop-color="#FFD055" stop-opacity=".1"/></linearGradient>
+            <radialGradient id="hsHub" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#FFE08A"/><stop offset="55%" stop-color="#FFD055" stop-opacity=".5"/><stop offset="100%" stop-color="#FFD055" stop-opacity="0"/></radialGradient>
           </defs>
           <g v-for="(a, i) in heroApps" :key="a.id">
             <path :d="'M62 ' + a.y + ' C 150 ' + a.y + ', 150 190, 210 190'" stroke="url(#hsIn)" stroke-width="1.2" fill="none"/>
-            <circle v-if="!reduced" r="2.4" fill="#c4b5fd"><animateMotion :dur="(2.2 + i * 0.25) + 's'" repeatCount="indefinite" :begin="(i * 0.3) + 's'" :path="'M62 ' + a.y + ' C 150 ' + a.y + ', 150 190, 210 190'"/></circle>
-            <rect x="14" :y="a.y - 17" width="48" height="34" rx="10" fill="rgba(255,255,255,.94)" stroke="rgba(165,180,252,.5)"/>
+            <circle v-if="!reduced" r="2.4" fill="#FFD055"><animateMotion :dur="(2.2 + i * 0.25) + 's'" repeatCount="indefinite" :begin="(i * 0.3) + 's'" :path="'M62 ' + a.y + ' C 150 ' + a.y + ', 150 190, 210 190'"/></circle>
+            <rect x="14" :y="a.y - 17" width="48" height="34" rx="10" fill="rgba(255,255,255,.94)" stroke="rgba(255,255,255,.2)"/>
             <image v-if="a.icon" :href="a.icon" x="27" :y="a.y - 11" width="22" height="22"/>
-            <text v-else x="38" :y="a.y + 4" text-anchor="middle" font-size="11" font-weight="700" fill="#4f46e5">{{ a.short }}</text>
+            <text v-else x="38" :y="a.y + 4" text-anchor="middle" font-size="11" font-weight="700" fill="#0a0a0a">{{ a.short }}</text>
           </g>
           <g v-for="(o, i) in T.heroOut" :key="o">
             <path :d="'M232 190 C 290 190, 290 ' + (110 + i * 80) + ', 330 ' + (110 + i * 80)" stroke="url(#hsOut)" stroke-width="1.4" fill="none"/>
-            <rect x="330" :y="92 + i * 80" width="82" height="36" rx="11" fill="rgba(103,232,249,.08)" stroke="rgba(103,232,249,.35)"/>
-            <text x="371" :y="115 + i * 80" text-anchor="middle" font-size="12" font-weight="600" fill="#cffafe">{{ o }}</text>
+            <rect x="330" :y="92 + i * 80" width="82" height="36" rx="11" fill="rgba(255,208,85,.08)" stroke="rgba(255,208,85,.45)"/>
+            <text x="371" :y="115 + i * 80" text-anchor="middle" font-size="12" font-weight="600" fill="#FFE8A3">{{ o }}</text>
           </g>
           <circle cx="221" cy="190" r="56" fill="url(#hsHub)" opacity=".55"/>
-          <circle cx="221" cy="190" r="30" fill="#0b1020" stroke="#a5b4fc" stroke-width="1.5"/>
+          <circle cx="221" cy="190" r="30" fill="#111" stroke="#FFD055" stroke-width="1.5"/>
           <text x="221" y="186" text-anchor="middle" font-size="9.5" font-weight="700" fill="#e0e7ff" letter-spacing=".04em">ONE</text>
           <text x="221" y="199" text-anchor="middle" font-size="9.5" font-weight="700" fill="#e0e7ff" letter-spacing=".04em">HARNESS</text>
         </svg>
@@ -89,7 +89,6 @@ a { color: inherit; text-decoration: none; }
       <div class="pz-head-c">
         <div class="pz-kicker">{{ T.appsKicker }}</div>
         <h2 id="hs-apps" class="pz-h2">{{ T.appsTitle }}</h2>
-        <p class="pz-lead">{{ T.appsLead }}</p>
       </div>
       <div class="hs-wall">
         <div v-for="g in appGroups" :key="g.key" class="hs-group">
@@ -108,7 +107,6 @@ a { color: inherit; text-decoration: none; }
       <div class="pz-head-c">
         <div class="pz-kicker">{{ T.featKicker }}</div>
         <h2 id="hs-feat" class="pz-h2">{{ T.featTitle }}</h2>
-        <p class="pz-lead">{{ T.featLead }}</p>
       </div>
       <nav class="hs-index" :aria-label="T.featTitle">
         <a v-for="f in T.features" :key="f.id" :href="'#' + f.id"><em>{{ f.n }}</em>{{ f.k }}</a>
@@ -119,7 +117,6 @@ a { color: inherit; text-decoration: none; }
       <div class="hs-f-text">
         <div class="hs-f-n">{{ f.n }} · {{ f.k }}</div>
         <h3 :id="'h-' + f.id">{{ f.t }}</h3>
-        <p class="hs-f-lead">{{ f.d }}</p>
         <ul class="hs-f-points"><li v-for="pt in f.points" :key="pt[0]"><b>{{ pt[0] }}</b>{{ pt[1] }}</li></ul>
       </div>
       <div class="hs-f-visual">
@@ -164,7 +161,6 @@ a { color: inherit; text-decoration: none; }
       <div class="pz-head-c">
         <div class="pz-kicker">{{ T.vsKicker }}</div>
         <h2 id="hs-vs" class="pz-h2">{{ T.vsTitle }}</h2>
-        <p class="pz-lead">{{ T.vsLead }}</p>
       </div>
       <div class="pz-cmp" role="table">
         <div class="pz-cmp-row" role="row">
@@ -239,7 +235,7 @@ createApp({
         navPlaza: '智能体广场', navNetwork: '共享网络', navCircles: '圈子', download: '下载客户端', home: '首页',
         title: '统一管理', eyebrow: '开发者 · 统一管理',
         h1a: '智能体平台再多，', h1b: '一个入口全管起来',
-        sub: 'Pi、Claude Code、Cursor、Codex、WorkBuddy……每个 runtime 都有自己的配置和接口；模型也散在 Ollama、免费 API、订阅、按量和社区共享里。OneHarness 把它们接到同一个本地网关：客户端里一个界面管，程序里一套接口调。',
+        sub: '各家 runtime 和模型来源，接到同一个本地网关。界面里管，接口里调。',
         promise: ['runtime 和模型一处管', '界面和接口都统一', '每个 Token 看得清', '开源 · 随时一键还原'],
         ctaStart: '下载客户端', ctaApi: '看统一接口', ctaFeat: '看全部功能',
         heroOut: ['界面', '接口', '你的任务'],
@@ -257,34 +253,34 @@ createApp({
         featKicker: 'FEATURES', featTitle: '统一管理，具体管哪些', featLead: '下面每一项都是桌面客户端里现成的功能，同一套能力也通过本机网关的接口提供。',
         features: [
           { id: 'f-onboard', n: '01', k: '智能体纳管', t: '不同智能体，一处纳管', d: 'Pi、Claude Code、Codex、Cursor、WorkBuddy、Kimi Code、OpenClaw……装好的自动出现在网关页，点一下纳管，不想用了一键还原官方配置。',
-            points: [['三种状态分开管：', '仅统计（官方订阅 + 会话补录）、走网关（绑定路由 + 实时代理）、还原（恢复原始配置）。'], ['三种接入方式：', 'CLI 透明托管自动注入环境变量；桌面应用一键改写配置文件；其余读会话记录做统计。'], ['CLI 多账号：', '同一个 Claude Code / Codex 挂多个登录账号，按启动目录自动分发，各项目保留自己的账号、额度和路由。']],
+            points: [['三种状态：', '仅统计 / 走网关 / 还原'], ['三种接入：', 'CLI 托管、改写配置、读会话记录'], ['CLI 多账号：', '按启动目录自动分发']],
             shots: [['gateway', '网关']] },
           { id: 'f-swap', n: '02', k: '一键换模型', t: '一键换模型，智能体无感', d: '在路由下拉框里选一个模型或场景，配置自动改写，流量走本地网关；智能体继续用原生模型名，客户端不用改。',
-            points: [['原生模型名不变：', 'Claude Code 请求 claude-sonnet-4-6，网关透明改写到你选的模型，界面和校验照旧。'], ['协议自动转换：', 'Anthropic Messages、OpenAI Chat、Codex Responses 互通，含工具调用转发。'], ['按应用独立绑定：', 'Claude Code 走免费源，Codex 走本地 Ollama，互不影响；随时切回官方。'], ['视觉增强：', '不支持图片的模型也能接住截图，网关自动补上识图能力。']],
+            points: [['原生模型名不变：', '客户端无感'], ['协议互通：', 'Anthropic / OpenAI / Codex，含工具调用'], ['按应用绑定：', '各走各的，随时切回官方'], ['视觉增强：', '不支持图片的模型也能看图']],
             shots: [['provider', '模型'], ['gateway', '网关路由']] },
           { id: 'f-route', n: '03', k: '场景路由', t: '场景路由，按任务选供给', d: '每个应用可以绑定自己的场景路由，全局供给链兜底。本地源优先，不够再走社区共享，对智能体全程透明。',
-            points: [['场景与任务分型：', '日常对话、代码补全、长文分析绑不同链；预置 design / repo-qa / chore / debug 等任务分型。'], ['供给链：', 'Ollama → 免费 API（Groq、GitHub Models）→ 订阅 / 按量 → 社区共享，逐级直到命中。'], ['策略组与故障转移：', 'fallback、round-robin、weighted、latency，按工具调用、上下文长度动态排序；上游不可用自动切换。'], ['来源 / 价格过滤：', '可限定只用个人源、只用社区、只用免费或只用付费。']],
+            points: [['场景与任务分型：', 'design / repo-qa / chore / debug 等'], ['供给链：', '本地 → 免费 → 订阅 / 按量 → 社区'], ['策略组：', 'fallback、round-robin、weighted、latency'], ['过滤：', '只用个人源 / 社区 / 免费 / 付费']],
             diagram: 'route' },
           { id: 'f-trace', n: '04', k: 'Trace 管理', t: '每一次调用，都能追溯', d: '不管智能体走不走网关，用量都记得下来：网关实时代理加本地会话补录，同一次调用只记一次。',
-            points: [['网关实时：', '记录路由链、真实模型、Token、延迟和费用。'], ['会话补录：', '扫描 ~/.claude、~/.codex、WorkBuddy Trace 等本地会话，补上没走网关的用量，自动去重。'], ['Session Trace：', '步骤级展开工具调用、Skill、推理过程和 Token 明细。'], ['会话管理：', '按应用过滤，看每场会话的 Token 和费用，可以交接给别的智能体或导出。']],
+            points: [['网关实时：', '路由、模型、Token、延迟、费用'], ['会话补录：', '没走网关的也记上，自动去重'], ['Session Trace：', '步骤级工具、Skill、推理'], ['会话管理：', '过滤、交接、导出']],
             shots: [['sessions', '会话'], ['trace', 'Session Trace']] },
           { id: 'f-assets', n: '05', k: '资产管理', t: 'Skill、MCP、Prompt、Agent，一个资产库', d: '散在各个目录的 AI 资产收进一处，再投射给需要的智能体，而不是到处复制。',
-            points: [['投射而不是复制：', '一处修改，所有已纳管的智能体拿到同一版本；只投射到已纳管且本机已装的应用，依赖自动级联，随时取消。'], ['用在哪里一目了然：', '每项资产都能看到投射到了哪些应用。'], ['内置 MCP 中转：', '没有 stdio 通道的应用，选好要绑定的 prompts / models / resources，复制中转配置就能用。'], ['画像推荐：', '从真实会话挖出工作画像，推荐下一批值得加的资产，也能拉取社区目录。']],
+            points: [['投射而不是复制：', '改一处，处处同步'], ['用在哪一目了然：', '每项资产的投射去向'], ['内置 MCP 中转：', '没有 stdio 的应用也能用'], ['画像推荐：', '按你的习惯推荐']],
             shots: [['assets', '资产'], ['portrait', '画像推荐']] },
           { id: 'f-usage', n: '06', k: '用量看板', t: '花在哪、省了多少，一眼看清', d: '盘点页按应用、模型来源、模型、供给类型、设备、时间切片；托盘常驻，不开主面板也能看今天的状态。',
-            points: [['核心指标：', '请求数、Token、免费命中率、付费调用、估算费用和应用分布。'], ['订阅与按量对照：', 'APP 订阅、API 订阅、按量付费分栏，订阅按日折算加刊例价估算，和原始 Token 同屏。'], ['省了多少：', '无损压缩次数、节省 Token 与压缩比单独统计。'], ['托盘速览：', '网关状态、各应用路由、首字延迟和今日用量。']],
+            points: [['核心指标：', '请求、Token、免费命中率、费用'], ['订阅与按量：', '同屏对照'], ['省了多少：', '压缩节省单独统计'], ['托盘速览：', '不开主面板也能看']],
             shots: [['dashboard', '盘点'], ['device', '托盘']] },
           { id: 'f-devices', n: '07', k: '跨端归集', t: '多台设备的用量和配置，归到一个账号', d: '桌面版、CLI 版、服务器网关各自注册为独立设备，登录同一账号后用量自动上报、云端合并。',
-            points: [['设备注册：', '每台机器自动分配设备 id，心跳保持在线状态。'], ['盘点快照：', '按 1 / 7 / 30 天上报调用、Token、费用、本地源和社区分享分布、Top 模型与应用。'], ['云端合并：', '个人页和盘点页展示各设备占比、在线状态，独立明细和汇总视图随时切换。'], ['跨端一致：', '订阅账户、按量配置、工具清单登录后同步，换设备不用重新配。']],
+            points: [['设备注册：', '自动分配，心跳在线'], ['盘点快照：', '1 / 7 / 30 天上报'], ['云端合并：', '分设备或汇总查看'], ['跨端一致：', '订阅与配置登录即同步']],
             diagram: 'devices' },
           { id: 'f-orchestrate', n: '08', k: '智能体编排', t: '一句话，派给最擅长的那个', d: '在游乐场设一个主 Agent 作为入口：接收任务、规划步骤，再派发给其他已纳管或已雇佣的智能体，工具流全程可见。',
-            points: [['同一张名单：', '本机的 Pi、Claude Code、Codex，雇来的社区智能体，以及模型，都可以被派活。'], ['过程可控：', '工具调用、分块输出看得到，可以停下，也可以接着做。'], ['编排接口：', '内置 tokenbank-agent-bridge MCP，提供 tb_list_agents、tb_dispatch_agent。']],
+            points: [['同一张名单：', '本机、雇来的、模型'], ['过程可控：', '看得见，可停可续'], ['编排接口：', 'tb_list_agents、tb_dispatch_agent']],
             diagram: 'orchestrate' },
         ],
-        dRoute: { app: '你的应用', apps: ['Claude Code', 'Codex', 'Cursor', 'Pi'], bind: '按应用绑定路由', scene: '场景 / 任务分型', scenes: ['日常对话', '代码补全', '长文分析', 'design', 'repo-qa', 'chore', 'debug'], chainK: '供给链，逐级直到命中', chain: ['Ollama', '免费 API', '订阅 / 按量', '社区共享'], policyK: '策略组', policies: ['fallback', 'round-robin', 'weighted', 'latency', 'direct'], note: '原生模型名不变，故障转移对智能体完全透明。' },
+        dRoute: { app: '你的应用', apps: ['Claude Code', 'Codex', 'Cursor', 'Pi'], bind: '按应用绑定路由', scene: '场景 / 任务分型', scenes: ['日常对话', '代码补全', '长文分析', 'design', 'repo-qa', 'chore', 'debug'], chainK: '供给链，逐级直到命中', chain: ['Ollama', '免费 API', '订阅 / 按量', '社区共享'], policyK: '策略组', policies: ['fallback', 'round-robin', 'weighted', 'latency', 'direct'], note: '' },
         dDev: { devices: [['MacBook', '桌面版', '设备 A · 在线'], ['Windows 台式机', '桌面版', '设备 B · 在线'], ['Linux 服务器', 'CLI / Docker 网关', '设备 C · 在线']], up: '定时上报盘点快照', cloud: '你的账号', cloudD: '用量云端合并 · 订阅与配置同步', down: '在任意一台上查看', views: ['各设备占比', '在线状态', '独立明细', '汇总视图'] },
-        vsKicker: 'NOT JUST A GATEWAY', vsTitle: '模型网关是一层，这里是一座智能体应用工厂', vsLead: '模型网关和切换工具解决的是「换模型、换 Key」。Token Bank 管的是整套智能体：runtime、模型、资产、调度、观测，并且能直接在上面架应用。',
-        vsThem: '纯模型网关 / 切换工具', vsThemHint: '如 cc-switch、Magpie 这类产品', vsUs: 'Token Bank', vsUsHint: '智能体应用工厂',
+        vsKicker: 'NOT JUST A GATEWAY', vsTitle: '模型网关是一层，这里是一座智能体应用工厂', vsLead: '',
+        vsThem: '纯模型网关 / 切换工具', vsThemHint: '只做模型转发和 Key 切换', vsUs: 'Token Bank', vsUsHint: '智能体应用工厂',
         vs: [
           ['管什么', '主要是模型供应商和 Key 的切换、转发', 'Pi、Claude Code、Cursor 等 runtime，加上模型、Skill、MCP、Prompt'],
           ['接口', '模型补全接口', '模型接口，加上智能体任务接口：本机和社区智能体同一套，换 harness_id 就换'],
@@ -299,8 +295,8 @@ createApp({
         mainAgent: '主 Agent', routeTask: '把这个仓库的登录 bug 修了，再写篇更新说明配张封面',
         routes: [['定位并修复 bug', 'Codex（本机）', 'local'], ['跑测试、整理提交', 'Claude Code（本机）', 'local'], ['写更新说明', '内容创作教练（社区）', 'community'], ['生成封面图', 'gemini-2.5-flash-image', 'model']],
         kind: { local: '本机应用', community: '社区智能体 · 在对方设备执行', model: '社区模型' },
-        routeNote: '示例。派给谁由主 Agent 根据你纳管和雇佣的名单决定，过程中的每次工具调用都看得到，可以随时停下或接着做。',
-        apiKicker: 'ONE INTERFACE', apiTitle: '换一个 id，就换一个智能体', apiLead: '客户端里点选管理，程序里用接口调用。本机 runtime、社区智能体走同一个任务接口，只有 harness_id 不同；模型走标准补全接口，原生模型名不变。写一次集成，后面随便换。',
+        routeNote: '示例',
+        apiKicker: 'ONE INTERFACE', apiTitle: '换一个 id，就换一个智能体', apiLead: '本机和社区智能体同一个任务接口；模型保持原生名。',
         copy: '复制', copied: '已复制',
         exLabels: ['本机 Claude Code', '本机 Codex', '社区智能体', '模型'],
         exNotes: [
@@ -319,7 +315,7 @@ createApp({
         navPlaza: 'Agent Plaza', navNetwork: 'Share & earn', navCircles: 'Circles', download: 'Download', home: 'Home',
         title: 'Manage', eyebrow: 'Developers · manage',
         h1a: 'However many agent platforms,', h1b: 'one place to run them all',
-        sub: 'Pi, Claude Code, Cursor, Codex, WorkBuddy… each runtime has its own config and API, and models are scattered across Ollama, free APIs, subscriptions, pay-as-you-go and the community. OneHarness plugs them all into one local gateway: one UI in the app, one interface in your code.',
+        sub: 'Every runtime and model source on one local gateway. Manage in the UI, call through the API.',
         promise: ['Runtimes and models in one place', 'One UI, one API', 'See every token', 'Open source · restore any time'],
         ctaStart: 'Download the client', ctaApi: 'See the interface', ctaFeat: 'All features',
         heroOut: ['UI', 'API', 'Your task'],
@@ -363,8 +359,8 @@ createApp({
         ],
         dRoute: { app: 'Your apps', apps: ['Claude Code', 'Codex', 'Cursor', 'Pi'], bind: 'route bound per app', scene: 'Scene / task type', scenes: ['chat', 'completion', 'long docs', 'design', 'repo-qa', 'chore', 'debug'], chainK: 'supply chain, until one answers', chain: ['Ollama', 'Free APIs', 'Subscription / PAYG', 'Community'], policyK: 'Policy group', policies: ['fallback', 'round-robin', 'weighted', 'latency', 'direct'], note: 'Native model names kept; failover is fully transparent to the agent.' },
         dDev: { devices: [['MacBook', 'Desktop', 'device A · online'], ['Windows PC', 'Desktop', 'device B · online'], ['Linux server', 'CLI / Docker gateway', 'device C · online']], up: 'usage snapshots reported', cloud: 'Your account', cloudD: 'usage merged · subscriptions and config synced', down: 'view from any device', views: ['share per device', 'online status', 'per-device detail', 'combined view'] },
-        vsKicker: 'NOT JUST A GATEWAY', vsTitle: 'A gateway is one layer; this is an agent app factory', vsLead: 'Model gateways and switchers solve "change the model, change the key". Token Bank manages the whole agent setup — runtimes, models, assets, dispatch, observability — and lets you build apps right on top.',
-        vsThem: 'Model gateway / switcher', vsThemHint: 'products like cc-switch or Magpie', vsUs: 'Token Bank', vsUsHint: 'an agent app factory',
+        vsKicker: 'NOT JUST A GATEWAY', vsTitle: 'A gateway is one layer; this is an agent app factory', vsLead: '',
+        vsThem: 'Model gateway / switcher', vsThemHint: 'model forwarding and key switching', vsUs: 'Token Bank', vsUsHint: 'an agent app factory',
         vs: [
           ['What it manages', 'Mostly switching and forwarding model providers and keys', 'Runtimes like Pi, Claude Code and Cursor, plus models, skills, MCP and prompts'],
           ['Interface', 'Model completion endpoints', 'Model endpoints plus an agent task endpoint: local and community agents alike, switch by harness_id'],
@@ -380,7 +376,7 @@ createApp({
         routes: [['Find and fix the bug', 'Codex (local)', 'local'], ['Run tests, tidy the commit', 'Claude Code (local)', 'local'], ['Write release notes', 'Content coach (community)', 'community'], ['Make the cover image', 'gemini-2.5-flash-image', 'model']],
         kind: { local: 'Local app', community: 'Community agent · runs on their device', model: 'Community model' },
         routeNote: 'Example. Who gets what depends on the agents you have onboarded and hired; every tool call is visible and you can stop or resume any time.',
-        apiKicker: 'ONE INTERFACE', apiTitle: 'Change one id, change the agent', apiLead: 'Manage by clicking in the app, call through the API in code. Local runtimes and community agents share one task endpoint — only harness_id differs. Models use the standard completion endpoints with native names. Integrate once, swap freely.',
+        apiKicker: 'ONE INTERFACE', apiTitle: 'Change one id, change the agent', apiLead: 'One task endpoint for local and community agents; models keep native names.',
         copy: 'Copy', copied: 'Copied',
         exLabels: ['Local Claude Code', 'Local Codex', 'Community agent', 'Model'],
         exNotes: [

@@ -36,10 +36,10 @@
 .navlinks::-webkit-scrollbar{display:none}
 .sides{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:28px}
 .side{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:18px 20px;border-radius:var(--radius-lg);border:1px solid var(--border);background:var(--bg)}
-.side.use{background:linear-gradient(135deg,#eef2ff,#fff 70%)}
-.side.share{background:linear-gradient(135deg,#fdf4ff,#fff 70%)}
-.side-k{width:100%;font-size:12px;font-weight:700;letter-spacing:.08em;color:#6366f1}
-.side.share .side-k{color:#c026d3}
+.side.use{background:#fff}
+.side.share{background:#fff6d6;border-color:#f0e2ad}
+.side-k{width:100%;font-size:12px;font-weight:700;letter-spacing:.08em;color:#8a6a00}
+.side.share .side-k{color:#8a6a00}
 .side-t{width:100%;font-size:16px;font-weight:650;letter-spacing:-.01em}
 .side-d{width:100%;font-size:13px;color:var(--text-muted);margin-bottom:6px;line-height:1.6}
 @media (max-width:720px){.sides{grid-template-columns:1fr}.navlinks{-webkit-mask-image:linear-gradient(90deg,#000 82%,transparent);mask-image:linear-gradient(90deg,#000 82%,transparent);padding-right:18px}}
@@ -408,8 +408,8 @@ createApp({
       zh: {
         navPlaza: '智能体广场', navNetwork: '共享网络', navCircles: '圈子', account: '我的账户', logout: '退出', login: '登录', register: '注册',
         title: '圈子', subtitle: '和信任的人一起用：圈里的模型和智能体只对圈内成员开放。邀请好友入圈，双方都得积分。',
-        sideUseK: '我想用', sideUseT: '加入圈子，用到圈内独享的智能体', sideUseD: '朋友发来邀请链接或邀请码，加入后就能用圈里分享的模型和智能体；也可以在下面申请加入公开圈子。', sideUseLink: '浏览公开圈子',
-        sideShareK: '我想分享', sideShareT: '建个圈子，只给自己人用', sideShareD: '在客户端上架时把范围选成这个圈子，圈外的人看不到；积分结算和公开分享一样。', sideShareLink: '分享与收益',
+        sideUseK: '我想用', sideUseT: '加入圈子，用到圈内独享的智能体', sideUseD: '用邀请码加入，或申请公开圈子。', sideUseLink: '浏览公开圈子',
+        sideShareK: '我想分享', sideShareT: '建个圈子，只给自己人用', sideShareD: '上架时选这个圈子，圈外看不到。', sideShareLink: '分享与收益',
         joinByCode: '用邀请码加入', create: '创建圈子', mine: '我的圈子', discover: '发现公开圈子',
         discoverHint: '申请后由圈主审批', searchPh: '搜索圈子名称或简介…',
         signinTitle: '登录后管理你的圈子', signinDesc: '创建圈子、审批入圈申请、查看圈内共享的模型与智能体',

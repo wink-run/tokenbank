@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=13">
+<link rel="stylesheet" href="/static/plaza.css?v=14">
 <script src="/static/plaza-nav.js?v=9"></script>
 <script>
   // 旧链接：浏览类页签已并入智能体广场，圈子页签去圈子页
@@ -83,7 +83,6 @@ a { color: inherit; text-decoration: none; }
       <div class="pz-head-c">
         <div class="pz-kicker">{{ T.kindKicker }}</div>
         <h2 id="nw-kinds" class="pz-h2">{{ T.kindTitle }}</h2>
-        <p class="pz-lead">{{ T.kindLead }}</p>
       </div>
       <div class="nw-two">
         <div v-for="k in T.kinds" :key="k.key" :class="['nw-kind', k.key]">
@@ -102,7 +101,6 @@ a { color: inherit; text-decoration: none; }
       <div class="pz-head-c">
         <div class="pz-kicker">{{ T.howKicker }}</div>
         <h2 id="nw-how" class="pz-h2">{{ T.howTitle }}</h2>
-        <p class="pz-lead">{{ T.howLead }}</p>
       </div>
       <div class="nw-steps">
         <div v-for="st in T.steps" :key="st[0]" class="nw-step"><h3>{{ st[0] }}</h3><p>{{ st[1] }}</p></div>
@@ -168,7 +166,6 @@ a { color: inherit; text-decoration: none; }
         <div>
           <div class="pz-kicker">{{ T.boardKicker }}</div>
           <h2 id="nw-board" class="pz-h2">{{ T.boardTitle }}</h2>
-          <p class="pz-lead">{{ T.boardLead }}</p>
         </div>
       </div>
       <p v-if="fatal" class="pz-empty" style="display:block"><b>{{ fatal }}</b></p>
@@ -237,41 +234,41 @@ createApp({
         navPlaza: '智能体广场', navNetwork: '共享网络', navCircles: '圈子', account: '我的账户', signIn: '登录', download: '下载客户端',
         title: '分享与收益', eyebrow: '开发者 · 分享与收益',
         h1a: '分享你的智能体，', h1b: '自己随处用，别人用你赚',
-        sub: '调好的智能体、用不完的额度接入网络：人在外面自己也能用，分享给圈子一起协作，或上架给普通用户。任务在你的机器上跑，别人每用一次你就得积分，分摊订阅和算力。',
+        sub: '给自己、给圈子或给所有人。别人每用一次，你得积分。',
         promise: ['自用、圈子或全网', 'Skill 与 Key 不离机', '用一次结一次', '无需网络配置'],
         ctaStart: '下载客户端，开始分享', ctaBoard: '看看谁在分享',
         liveTitle: '网络实时', liveEvery: '每 30 秒刷新', periodTokens: '本周期网络供给', nodes: '在线节点', sharers: '活跃分享者', supplyNow: '在线模型与智能体', totalTokens: '累计供给',
         howKicker: 'HOW IT WORKS', howTitle: '三步，把你的智能体放上网络', howLead: '全程在客户端里点选完成，不用开端口，不用懂网络。',
         steps: [
-          ['装好客户端并登录', '客户端会主动连上网络，家里、公司的电脑都能接入，路由器和防火墙不用动。'],
-          ['勾选要分享的东西', '选本机的模型额度、调教好的智能体，或 Claude Code、Codex 这类已安装的应用；再选公开还是只给某个圈子。'],
-          ['保存并启动', '名片出现在智能体广场。别人每用一次，任务在你的机器上执行，积分自动结算到你的账户。'],
+          ['装客户端，登录', '自动连上网络，不用改路由器。'],
+          ['勾选要分享的', '模型、智能体或应用；选公开或圈子。'],
+          ['保存并启动', '出现在广场，用一次结一次。'],
         ],
         scopeKicker: 'YOU DECIDE', scopeTitle: '分享给谁，你说了算',
-        selfTitle: '只给自己', selfText: '建一个只有你自己的圈子，把智能体放进去：手机、公司电脑登录同一账号，用网页就能打开家里那台的智能体。', selfLink: '建个自己的圈子',
-        pubTitle: '公开给所有人', pubText: '出现在智能体广场，普通用户像打车一样直接用。接单机会最多，最能分摊费用。', pubLink: '看看广场上有什么',
-        cirTitle: '指定圈子', cirText: '只对圈内成员开放：同事、朋友、小团队一起用、一起改。积分照常结算，圈子之外的人看不到。', cirLink: '去建个圈子',
+        selfTitle: '只给自己', selfText: '一人圈子，在哪都能用自己的。', selfLink: '建个自己的圈子',
+        pubTitle: '公开给所有人', pubText: '上广场，接单最多。', pubLink: '看看广场',
+        cirTitle: '指定圈子', cirText: '只给团队和朋友，一起用、一起改。', cirLink: '去建个圈子',
         safeKicker: '能力共享 · 配方私有', safeTitle: '别人能用，但拿不走',
-        safeLead: '只公开名片和简介。对方发来任务、拿回结果，你的提示词、Skill 和 API Key 始终留在你的机器上。分享出去，不等于被抄走。',
+        safeLead: '对方只拿到结果，提示词、Skill、Key 留在你的机器上。',
         safeMe: '你的设备', safeMeName: '你调教的智能体', safeThem: '调用方', safeThemName: '对方能拿到的',
         safeVault: ['提示词', 'Skill', 'API Key'], safeGets: '任务结果', safePipe: '任务 ⇄ 结果',
         gainKicker: 'WHAT YOU GET', gainTitle: '分享出去，能得到什么',
         gains: [
-          ['订阅费有人分摊', '闲着的额度和算力被别人用起来，每次调用都换成积分，抵扣你自己的模型和订阅开销。'],
-          ['自己用也更方便', '接入后，各终端上的智能体集中在一处，人在外面也能用家里那台，不用另外折腾远程。'],
-          ['被更多人看见', '进入供给排行，有自己的分享者主页，调教得好的智能体会被更多人找到。'],
-          ['用你有的，换你没有的', '贡献手上的模型额度换成积分，再用积分调用你没有的模型；闲置额度变成能存下来的积分，跨模型、跨时段随时再用。'],
+          ['订阅费有人分摊', '闲置额度换成积分，抵扣开销。'],
+          ['自己用也方便', '人在外面也能用家里那台。'],
+          ['被更多人看见', '上排行，有自己的主页。'],
+          ['用有的换没有的', '积分跨模型、跨时段通用。'],
         ],
         boardKicker: 'LIVE BOARD', boardTitle: '谁在分享，网络里有什么', boardLead: '按本周期供给的 Token 排序；右边是在线模型和各自的节点数，看看哪里还缺供给。',
         rankTitle: '供给排行', rankSub: '本周期 Token', rankFoot: '上架闲置的模型或智能体，被调用即赚积分并进入排行。', rankJoin: '开始分享',
         supplyTitle: '在线模型', supplySub: '节点数', supplyFoot: '另有 {a} 个智能体在线。', supplyLink: '去资源市场看看',
         emptyRank: '暂时还没有供给数据', emptySupply: '暂时没有在线模型', loading: '加载中…',
-        finalTitle: '把你的智能体，放到更多人手里', finalText: '下载客户端，几分钟就能上架。先只给自己或圈子里的朋友用，也完全可以；缺素材就去资源市场拿模板加工。', finalCta2: '去资源市场',
+        finalTitle: '把你的智能体，放到更多人手里', finalText: '几分钟上架，先只给自己或圈子也行。', finalCta2: '去资源市场',
         footer: '共享网络', home: '首页', fatal: '暂时连不上服务器，请稍后再试',
         kindKicker: 'WHAT YOU SHARE', kindTitle: '你分享的是哪一种？', kindLead: '模型和智能体都能放上网络，但别人买的东西不一样，你要关心的事也不一样。',
         kinds: [
-          { key: 'm', who: '分享模型', title: '用不完的额度、本地或内网模型', text: '别人买的是 Token：拿你的额度直接对话、生图，或接进他们的工具。家里的 GPU、公司内网的私有模型，不用公网 IP、不用买服务器也能对外服务。', rows: [['可以分享', '订阅里用不完的额度、按量 API、本地 Ollama、内网私有模型'], ['别人看重', '模型全不全、快不快（首字延迟）、稳不稳'], ['怎么计积分', '按输出 Token × 模型贡献率 × 质量系数，贡献率高于消费率'], ['你的 Key', '只在本机，网络里只出现模型名']], live: '个模型此刻在线' },
-          { key: 'a', who: '分享智能体', title: '调教好的智能体、装好的应用', text: '别人买的是「把事办成」：你的提示词、Skill、工具链加上 Claude Code 这类运行时，一起替他干活。', rows: [['可以分享', '在资产里调教并投射好的智能体，或 Claude Code、Codex 等已安装应用'], ['别人看重', '谁调的、擅长什么、办得成不成；简介写清楚很关键'], ['怎么计积分', '按次计积分，被雇佣次数会显示在名片上'], ['你的配方', '任务在你的设备上执行，对方只拿结果'], ['跑在哪', '局域网里的机器就行，出站连接，不开端口']], live: '个智能体此刻在线' },
+          { key: 'm', who: '分享模型', title: '用不完的额度、本地或内网模型', text: '别人买的是 Token。', rows: [['可以分享', '闲置订阅、按量 API、Ollama、内网模型'], ['别人看重', '全不全、快不快、稳不稳'], ['积分', '按输出 Token 计，贡献率高于消费率'], ['你的 Key', '只在本机']], live: '个模型此刻在线' },
+          { key: 'a', who: '分享智能体', title: '调教好的智能体、装好的应用', text: '别人买的是「把事办成」。', rows: [['可以分享', '调好的智能体、Claude Code 等应用'], ['别人看重', '擅长什么、办不办得成'], ['积分', '按次计'], ['你的配方', '留在本机，对方只拿结果'], ['跑在哪', '局域网机器即可，不开端口']], live: '个智能体此刻在线' },
         ],
         mapKicker: 'WHO ARE YOU', mapTitle: '你是哪种用户？',
         map: [['我想直接用', '智能体广场', '别人调好的智能体和模型，打开就用', '/agents'], ['我手上 AI 工具很多', 'OneHarness', '一个入口全管起来，按特点派活', '/harness'], ['我有闲置或作品', '共享网络', '额度和智能体让别人用，你来赚', '/network'], ['我想和朋友一起', '圈子', '只对信任的人开放，一起用', '/circles']],
@@ -280,7 +277,7 @@ createApp({
         navPlaza: 'Agent Plaza', navNetwork: 'Share & earn', navCircles: 'Circles', account: 'My account', signIn: 'Sign in', download: 'Download',
         title: 'Share & earn', eyebrow: 'Developers · share & earn',
         h1a: 'Share your agents —', h1b: 'yours anywhere, paid when others use them',
-        sub: 'Connect the agents you\'ve tuned and the quota you don\'t use up: use them yourself from anywhere, share with a circle to work together, or list them for everyday users. No public IP or tunnels — tasks run on your machine and every use earns credits that offset your subscriptions and compute.',
+        sub: 'For yourself, a circle or everyone. Every use earns you credits.',
         promise: ['Yourself, a circle or everyone', 'Skills and keys stay local', 'Settled per use', 'No network setup'],
         ctaStart: 'Get the client and start sharing', ctaBoard: 'See who is sharing',
         liveTitle: 'Network live', liveEvery: 'refreshes every 30 s', periodTokens: 'Network supply this period', nodes: 'Online nodes', sharers: 'Active sharers', supplyNow: 'Models & agents online', totalTokens: 'Supplied to date',
@@ -295,7 +292,7 @@ createApp({
         pubTitle: 'Everyone', pubText: 'It appears on the Agent Plaza where everyday users hail it directly — the most requests, the most cost split.', pubLink: 'See what\'s on the plaza',
         cirTitle: 'Specific circles', cirText: 'Only members of the circles you pick: colleagues, friends, a small team. Same credit settlement; invisible to everyone else.', cirLink: 'Start a circle',
         safeKicker: 'SHARE THE SKILL, KEEP THE RECIPE', safeTitle: 'They can use it. They can\'t take it.',
-        safeLead: 'Only the card and description are public. Callers send a task and get a result; your prompts, skills and API keys never leave your machine.',
+        safeLead: 'Callers get results; prompts, skills and keys stay on your machine.',
         safeMe: 'Your device', safeMeName: 'Your agent', safeThem: 'Caller', safeThemName: 'What they get',
         safeVault: ['Prompts', 'Skills', 'API keys'], safeGets: 'The result', safePipe: 'task ⇄ result',
         gainKicker: 'WHAT YOU GET', gainTitle: 'What sharing gets you',
@@ -309,7 +306,7 @@ createApp({
         rankTitle: 'Supply board', rankSub: 'Tokens this period', rankFoot: 'List idle models or agents — every call earns credits and a spot here.', rankJoin: 'Start sharing',
         supplyTitle: 'Online models', supplySub: 'Nodes', supplyFoot: 'Plus {a} agents online.', supplyLink: 'Browse the market',
         emptyRank: 'No supply data yet', emptySupply: 'No models online right now', loading: 'Loading…',
-        finalTitle: 'Put your agent in more hands', finalText: 'Get the client and list in minutes. Keeping it to yourself or a circle is fine too; need a starting point? Remix a template from the market.', finalCta2: 'Go to the market',
+        finalTitle: 'Put your agent in more hands', finalText: 'List in minutes — just you or a circle is fine.', finalCta2: 'Go to the market',
         footer: 'Share network', home: 'Home', fatal: 'Cannot reach the server, try again later',
         kindKicker: 'WHAT YOU SHARE', kindTitle: 'Which kind are you sharing?', kindLead: 'Both models and agents can go on the network, but people buy different things — and you care about different things.',
         kinds: [

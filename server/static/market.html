@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=13">
+<link rel="stylesheet" href="/static/plaza.css?v=14">
 <script src="/static/plaza-nav.js?v=9"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -69,7 +69,6 @@ a { color: inherit; text-decoration: none; }
         <div>
           <div class="pz-kicker">{{ T.listKicker }}</div>
           <h2 id="mk-list" class="pz-h2">{{ q ? T.found.replace('{n}', String(curCount)) : T.listTitle }}</h2>
-          <p class="pz-lead">{{ T.lead[tab] }}</p>
         </div>
       </div>
       <div class="pz-tabs" role="tablist">
@@ -79,7 +78,6 @@ a { color: inherit; text-decoration: none; }
       <template v-if="tab === 'models'">
         <div class="pz-subbar">
           <button v-for="f in modelFilters" :key="f.id" type="button" :class="['ag-chip', { on: mtype === f.id }]" :aria-pressed="mtype === f.id" @click="mtype = f.id">{{ f.label }}<em>{{ f.n }}</em></button>
-          <span class="pz-hint">{{ T.modelHint }}</span>
         </div>
         <div v-if="!loaded" class="loading">{{ T.loading }}</div>
         <div v-else-if="!shownModels.length" class="pz-empty"><b>{{ q ? T.noMatch : T.emptyModels }}</b></div>
@@ -120,7 +118,6 @@ a { color: inherit; text-decoration: none; }
       <div class="pz-head-c">
         <div class="pz-kicker">{{ T.pathKicker }}</div>
         <h2 id="mk-paths" class="pz-h2">{{ T.pathTitle }}</h2>
-        <p class="pz-lead">{{ T.pathLead }}</p>
       </div>
       <div class="mk-paths">
         <div v-for="p in T.paths" :key="p.k" :class="['mk-path', p.cls]"><em>{{ p.k }}</em><b>{{ p.t }}</b><span>{{ p.d }}</span></div>
@@ -159,7 +156,7 @@ createApp({
       zh: {
         title: '资源市场', eyebrow: '开发者分享的模型、Skill 与智能体模板',
         h1a: '别人做好的，', h1b: '拿来就用，改改就上架',
-        sub: '模型可以在网页里直接试；Skill、提示词和智能体模板在客户端一键纳管，投射到你的 Pi、Claude Code、Cursor 等 runtime。自己用，或者加工成新的智能体，上架给普通用户。',
+        sub: '模型网页直接试，Skill 和模板一键纳管。',
         search: '搜索模型、Skill、提示词或模板…', find: '搜索',
         sModels: '在线模型', sSkills: 'Skill', sTemplates: '智能体模板', sPrompts: '提示词',
         listKicker: 'BROWSE', listTitle: '市场里有什么', found: '找到 {n} 个结果',
@@ -187,7 +184,7 @@ createApp({
       en: {
         title: 'Market', eyebrow: 'Models, skills and agent templates shared by developers',
         h1a: 'Built by others —', h1b: 'use it now, remix it, list it',
-        sub: 'Try models right in the browser; adopt skills, prompts and agent templates into the app in one click and project them to Pi, Claude Code, Cursor and your other runtimes. Use them yourself, or remix them into a new agent and list it for everyday users.',
+        sub: 'Try models in the browser; adopt skills and templates in one click.',
         search: 'Search models, skills, prompts or templates…', find: 'Search',
         sModels: 'Models online', sSkills: 'Skills', sTemplates: 'Agent templates', sPrompts: 'Prompts',
         listKicker: 'BROWSE', listTitle: 'What\'s on the market', found: '{n} results',

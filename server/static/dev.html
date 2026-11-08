@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=13">
+<link rel="stylesheet" href="/static/plaza.css?v=14">
 <script src="/static/plaza-nav.js?v=9"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -73,7 +73,7 @@ a { color: inherit; text-decoration: none; }
       <div class="pz-head-c">
         <div class="pz-kicker">{{ T.stackKicker }}</div>
         <h2 id="dv-stack" class="pz-h2">{{ T.stackTitle }}</h2>
-        <p class="pz-lead">{{ T.stackLead }} <a href="/harness#vs" style="color:#6366f1;font-weight:600;white-space:nowrap">{{ T.vsMore }} →</a></p>
+        <p class="pz-lead"><a class="pz-link" href="/harness#vs">{{ T.vsMore }} →</a></p>
       </div>
       <div class="dv-stack">
         <div class="dv-apps"><span>{{ T.stackTop }}</span><i v-for="a in T.stackApps" :key="a">{{ a }}</i></div>
@@ -86,7 +86,6 @@ a { color: inherit; text-decoration: none; }
       <div class="pz-head-c">
         <div class="pz-kicker">{{ T.buildKicker }}</div>
         <h2 id="dv-build" class="pz-h2">{{ T.buildTitle }}</h2>
-        <p class="pz-lead">{{ T.buildLead }}</p>
       </div>
       <div class="dv-build">
         <div v-for="b in T.builds" :key="b.t" class="dv-b">
@@ -103,7 +102,6 @@ a { color: inherit; text-decoration: none; }
       <div class="pz-head-c">
         <div class="pz-kicker">{{ T.featKicker }}</div>
         <h2 id="dv-feats" class="pz-h2">{{ T.featTitle }}</h2>
-        <p class="pz-lead">{{ T.featLead }}</p>
       </div>
       <div class="dv-feats">
         <a v-for="f in T.feats" :key="f[0]" :href="'/harness#' + f[0]"><em>{{ f[1] }}</em><b>{{ f[2] }}</b><span>{{ f[3] }}</span></a>
@@ -115,12 +113,10 @@ a { color: inherit; text-decoration: none; }
       <div class="pz-head-c">
         <div class="pz-kicker">{{ T.loopKicker }}</div>
         <h2 id="dv-loop" class="pz-h2">{{ T.loopTitle }}</h2>
-        <p class="pz-lead">{{ T.loopLead }}</p>
       </div>
       <div class="dv-loop">
         <a v-for="s in T.loop" :key="s.b" :href="s.href" :class="['dv-node', s.cls]"><small>{{ s.k }}</small><b>{{ s.b }}</b><span>{{ s.d }}</span></a>
       </div>
-      <p class="dv-back">↺ {{ T.loopBack }}</p>
     </section>
 
     <!-- 一套接口 -->
@@ -161,24 +157,24 @@ createApp({
       zh: {
         title: '开发者', eyebrow: '智能体应用工厂',
         h1a: '不只是管理智能体，', h1b: '还能把应用架在上面',
-        sub: 'Token Bank 是一套智能体应用的基础设施：Pi、Claude Code、Codex、Cursor 这些 runtime 直接当执行引擎，各家模型统一接入，Skill 和 MCP 组合成你的智能体；再用统一接口做进自己的产品，或者一键上架成网页应用，计费、权限、分发都现成。',
+        sub: '现成的 runtime、模型、资产、接口、观测和分发。你只管做应用。',
         promise: ['不用自己造 harness', '一套接口调智能体和模型', '上架即得网页应用', '开源 · macOS / Windows / Linux'],
         ctaApi: '看统一接口',
-        stackKicker: 'THE FACTORY', stackTitle: '一座智能体应用工厂，六层现成能力', stackLead: '纯模型网关只做最底下那一层。这里从执行引擎到分发，每一层都已经搭好，你只管在最上面做应用。',
+        stackKicker: 'THE FACTORY', stackTitle: '六层现成能力', stackLead: '纯模型网关只做最底下那一层。这里从执行引擎到分发，每一层都已经搭好，你只管在最上面做应用。',
         stackTop: '你的应用', stackApps: ['你的产品后台', '网页智能体', '团队内部工具', '你的 Claude Code 工作流'],
         layers: [
-          ['分发层', '上架、市场、圈子', '上架即得网页应用；局域网机器有没有公网 IP 都能对外服务；按次计费', '/network'],
-          ['观测层', 'Trace、用量、跨端', '每次调用可追溯，费用和 Token 看得清，多设备归集', '/harness#f-trace'],
-          ['接口层', '统一任务接口 + 模型接口', '换一个 harness_id 就换一个智能体，模型保持原生名', '/harness#api'],
-          ['资产层', 'Skill、MCP、Prompt', '一个资产库，组合进智能体，投射到各个 runtime', '/harness#f-assets'],
-          ['模型层', '各家模型 + 场景路由', '本地、免费、订阅、按量、社区共享，按场景选、自动兜底', '/harness#f-route'],
-          ['运行时层', 'Pi、Claude Code、Codex、Cursor…', '已经装好的 runtime 直接当执行引擎，不用重写 harness', '/harness#f-onboard'],
+          ['分发层', '上架、市场、圈子', '上架即得网页应用，有没有公网 IP 都能对外服务', '/network'],
+          ['观测层', 'Trace、用量、跨端', '每次调用可追溯，多设备归集', '/harness#f-trace'],
+          ['接口层', '统一任务接口 + 模型接口', '换一个 harness_id 就换一个智能体', '/harness#api'],
+          ['资产层', 'Skill、MCP、Prompt', '组合进智能体，投射到各个 runtime', '/harness#f-assets'],
+          ['运行时层', 'Pi、Claude Code、Codex、Cursor…', '已装好的 runtime 直接当执行引擎', '/harness#f-onboard'],
+          ['模型层', '各家模型 + 场景路由', '本地、免费、订阅、按量、社区，自动兜底', '/harness#f-route'],
         ],
         buildKicker: 'BUILD ON TOP', buildTitle: '在上面架应用，三条路', buildLead: '选哪条都不用从零写 runtime、计费和网页。',
         builds: [
-          { k: '路线 A', t: '用接口做进你的产品', d: '你的后端调 /v1/agent/responses，选一个 runtime 或社区智能体执行；模型调用走同一个网关。', get: ['runtime 随时换，代码不动', '模型路由、计量、Trace 自带', '任务可查询、可取消、断线续接'], cta: '看接口', href: '/harness#api' },
-          { k: '路线 B', t: '组一个智能体，上架就是网页应用', d: '在资产里给 runtime 配好模型、提示词和 Skill，保存上架，马上得到一个能用的智能体应用。', get: ['自带网页对话页，支持图片和文件', '可被搜索的介绍页和分享链接', '跑在你局域网的机器上，有没有公网 IP 都行', '未登录试一轮、多人接龙、按次计费'], cta: '怎么上架', href: '/network' },
-          { k: '路线 C', t: '把你已有的应用接进来', d: '网关「新建应用」以 API 方式接入不在名单里的任何应用，它立刻拥有同一套路由和观测。', get: ['绑定场景路由，原生模型名不变', '用量进盘点，调用进 Trace', '多设备归集到同一个账号'], cta: '看统一管理', href: '/harness#f-onboard' },
+          { k: '路线 A', t: '用接口做进你的产品', d: '后端调 /v1/agent/responses，选 runtime 执行。', get: ['runtime 随时换，代码不动', '模型路由、计量、Trace 自带', '任务可查询、可取消、断线续接'], cta: '看接口', href: '/harness#api' },
+          { k: '路线 B', t: '组一个智能体，上架就是网页应用', d: 'runtime + 模型 + Skill，保存上架即可。', get: ['自带网页对话页，支持图片和文件', '可被搜索的介绍页和分享链接', '跑在你局域网的机器上，有没有公网 IP 都行', '未登录试一轮、多人接龙、按次计费'], cta: '怎么上架', href: '/network' },
+          { k: '路线 C', t: '把你已有的应用接进来', d: '「新建应用」以 API 接入，同享路由和观测。', get: ['绑定场景路由，原生模型名不变', '用量进盘点，调用进 Trace', '多设备归集到同一个账号'], cta: '看统一管理', href: '/harness#f-onboard' },
         ],
         liveTitle: '网络里此刻有', kNodes: '在线节点', kModels: '可用模型', kAgents: '在线智能体', kRes: '技能与模板', liveFoot: '都来自开发者分享，你也可以拿来自用或加工。',
         featKicker: 'MANAGE', featTitle: '统一管理里有什么', featLead: '桌面客户端里现成的功能，同一套能力也有接口。点任意一项看细节。',
@@ -192,9 +188,7 @@ createApp({
           ['f-devices', '07', '跨端归集', '多台设备用量云端合并，订阅与配置跨设备同步'],
           ['f-orchestrate', '08', '智能体编排', '主 Agent 接任务，按特点派给本机或雇来的智能体'],
         ],
-        vsKicker: 'NOT JUST A GATEWAY', vsTitle: '模型网关是一层，这里是一座工厂', vsLead: 'cc-switch、Magpie 这类产品帮你切换模型和 Key，停在模型层；Token Bank 往上还有资产、接口、观测和分发，能直接在上面做应用。',
-        vs: [['管整套智能体', 'runtime、模型、Skill / MCP / Prompt 一起纳管，桌面看板一眼看清每个 Token。'], ['能在上面做应用', '统一任务接口做进你的产品，或上架成网页应用，计费和权限现成。'], ['做完还能变现', '分享给自己、圈子或全网分摊费用；缺素材去资源市场拿。']],
-        vsMore: '看和模型网关的完整对比',
+        vsMore: '和纯模型网关有什么不同',
         loopKicker: 'THE LOOP', loopTitle: '从拿来，到被普通用户用上', loopLead: '三件事连成一个循环：从市场获取，在本机加工和管理，再上架给普通用户。',
         loop: [
           { k: '获取', b: '资源市场', d: '别人分享的模型、Skill、提示词和智能体模板', href: '/market' },
@@ -204,36 +198,36 @@ createApp({
           { k: '使用', b: '普通用户', d: '在智能体广场像打车一样用，任务在你的设备上执行', href: '/agents', cls: 'user' },
         ],
         loopBack: '每次被使用都结算积分，分摊你的订阅和算力开销；用户反馈再回到你的下一版。',
-        apiKicker: 'ONE INTERFACE', apiTitle: '本机的、社区的、模型，同一套接口', apiLead: '智能体都走 /v1/agent/responses，只换 harness_id；模型走 /v1/chat/completions，原生模型名不变。写一次集成，后面随便换。',
+        apiKicker: 'ONE INTERFACE', apiTitle: '本机的、社区的、模型，同一套接口', apiLead: '写一次集成，后面随便换。',
         apiMore: '看完整示例',
         apiLines: [
           ['# 本机 runtime：pi、claude-code、codex、cursor、kimi-code', false], ['"harness_id": "pi"', true],
           ['# 雇来的社区智能体', false], ['"harness_id": "community:<id>@<owner>"', true],
           ['# 任意来源的模型：网关按你的路由选本地源或社区共享', false], ['"model": "claude-sonnet-4-6"', true],
         ],
-        finalTitle: '先把手上的 runtime 接进来', finalText: '下载客户端，已装的应用自动出现。纳管一个试试，不喜欢一键还原；再去市场看看别人分享了什么。', finalCta2: '逛逛资源市场',
+        finalTitle: '先把手上的 runtime 接进来', finalText: '已装的应用自动出现，不喜欢一键还原。', finalCta2: '逛逛资源市场',
       },
       en: {
         title: 'Developers', eyebrow: 'An agent app factory',
         h1a: 'Don\'t just manage agents —', h1b: 'build apps on top of them',
-        sub: 'Token Bank is infrastructure for agent apps: runtimes like Pi, Claude Code, Codex and Cursor serve as execution engines, every model provider plugs in, and skills and MCP compose into your agents. Build them into your own product through one interface, or list them as web apps with billing, access control and distribution ready.',
+        sub: 'Runtimes, models, assets, interface, observability and distribution — ready. You build the app.',
         promise: ['No harness to build', 'One API for agents and models', 'List it, get a web app', 'Open source · macOS / Windows / Linux'],
         ctaApi: 'See the interface',
-        stackKicker: 'THE FACTORY', stackTitle: 'An agent app factory, six layers ready', stackLead: 'A model gateway only covers the bottom layer. Here every layer from execution to distribution is built — you work on the top.',
+        stackKicker: 'THE FACTORY', stackTitle: 'Six layers, ready', stackLead: 'A model gateway only covers the bottom layer. Here every layer from execution to distribution is built — you work on the top.',
         stackTop: 'Your apps', stackApps: ['Your product backend', 'Web agents', 'Internal team tools', 'Your Claude Code workflow'],
         layers: [
-          ['Distribution', 'Listing, market, circles', 'List it and get a web app; LAN machines serve users with or without a public IP; per-use billing', '/network'],
-          ['Observability', 'Trace, usage, devices', 'Every call traceable, tokens and cost visible, rolled up across devices', '/harness#f-trace'],
-          ['Interface', 'Agent task API + model APIs', 'Change harness_id to change agent; models keep native names', '/harness#api'],
-          ['Assets', 'Skills, MCP, prompts', 'One library, composed into agents and projected to each runtime', '/harness#f-assets'],
-          ['Models', 'Every provider + scene routing', 'Local, free, subscription, PAYG and community, routed by scene with fallback', '/harness#f-route'],
-          ['Runtimes', 'Pi, Claude Code, Codex, Cursor…', 'Installed runtimes become execution engines — no harness to rewrite', '/harness#f-onboard'],
+          ['Distribution', 'Listing, market, circles', 'List it, get a web app; serve with or without a public IP', '/network'],
+          ['Observability', 'Trace, usage, devices', 'Every call traceable, rolled up across devices', '/harness#f-trace'],
+          ['Interface', 'Agent task API + model APIs', 'Change harness_id to change agent', '/harness#api'],
+          ['Assets', 'Skills, MCP, prompts', 'Composed into agents, projected to runtimes', '/harness#f-assets'],
+          ['Runtimes', 'Pi, Claude Code, Codex, Cursor…', 'Installed runtimes as execution engines', '/harness#f-onboard'],
+          ['Models', 'Every provider + scene routing', 'Local, free, subscription, PAYG, community, with fallback', '/harness#f-route'],
         ],
         buildKicker: 'BUILD ON TOP', buildTitle: 'Three ways to build on top', buildLead: 'None of them needs you to write a runtime, billing or a web front end from scratch.',
         builds: [
-          { k: 'Path A', t: 'Build it into your product', d: 'Your backend calls /v1/agent/responses and picks a runtime or community agent; model calls go through the same gateway.', get: ['Swap runtimes without touching code', 'Model routing, metering and trace built in', 'Tasks can be queried, cancelled and resumed'], cta: 'See the API', href: '/harness#api' },
-          { k: 'Path B', t: 'Compose an agent, list it as a web app', d: 'Give a runtime its model, prompts and skills in Assets, save and list — you have a working agent app.', get: ['A web chat page with images and files', 'A searchable intro page and share links', 'Runs on your LAN machine, public IP or not', 'Guest trial, shared threads, per-use billing'], cta: 'How to list', href: '/network' },
-          { k: 'Path C', t: 'Plug in the apps you already have', d: 'The gateway\'s "New app" connects any app not on the list via API, and it gets the same routing and observability.', get: ['Scene routes, native model names kept', 'Usage in the dashboard, calls in Trace', 'Rolled up across devices in one account'], cta: 'See Manage', href: '/harness#f-onboard' },
+          { k: 'Path A', t: 'Build it into your product', d: 'Your backend calls /v1/agent/responses and picks a runtime.', get: ['Swap runtimes without touching code', 'Model routing, metering and trace built in', 'Tasks can be queried, cancelled and resumed'], cta: 'See the API', href: '/harness#api' },
+          { k: 'Path B', t: 'Compose an agent, list it as a web app', d: 'Runtime + model + skills, saved and listed.', get: ['A web chat page with images and files', 'A searchable intro page and share links', 'Runs on your LAN machine, public IP or not', 'Guest trial, shared threads, per-use billing'], cta: 'How to list', href: '/network' },
+          { k: 'Path C', t: 'Plug in the apps you already have', d: '"New app" connects it via API with the same routing and observability.', get: ['Scene routes, native model names kept', 'Usage in the dashboard, calls in Trace', 'Rolled up across devices in one account'], cta: 'See Manage', href: '/harness#f-onboard' },
         ],
         liveTitle: 'On the network right now', kNodes: 'Online nodes', kModels: 'Models', kAgents: 'Agents online', kRes: 'Skills & templates', liveFoot: 'All shared by developers — take them for yourself or remix them.',
         featKicker: 'MANAGE', featTitle: 'What\'s inside Manage', featLead: 'Features that ship in the desktop app, with the same capabilities behind the API. Open any one for details.',
@@ -247,9 +241,7 @@ createApp({
           ['f-devices', '07', 'Cross-device roll-up', 'Usage from every device merged in the cloud, config synced'],
           ['f-orchestrate', '08', 'Agent orchestration', 'A main agent takes the task and dispatches to local or hired agents'],
         ],
-        vsKicker: 'NOT JUST A GATEWAY', vsTitle: 'A gateway is one layer; this is a factory', vsLead: 'Tools like cc-switch or Magpie switch models and keys and stop at the model layer. Token Bank adds assets, interface, observability and distribution on top, so you can build apps on it.',
-        vs: [['The whole agent setup', 'Runtimes, models, skills, MCP and prompts onboarded together, with desktop dashboards for every token.'], ['Build apps on top', 'Put the task API in your product, or list agents as web apps with billing and access control ready.'], ['Then make it pay', 'Share with yourself, a circle or everyone to split costs; source more from the market.']],
-        vsMore: 'Full comparison with gateways',
+        vsMore: 'How it differs from a model gateway',
         loopKicker: 'THE LOOP', loopTitle: 'From sourcing to everyday users', loopLead: 'The three jobs form a loop: source from the market, remix and manage locally, then list for everyday users.',
         loop: [
           { k: 'Source', b: 'Market', d: 'Models, skills, prompts and agent templates others shared', href: '/market' },
@@ -259,14 +251,14 @@ createApp({
           { k: 'Use', b: 'Everyday users', d: 'They hail it on the Agent Plaza; tasks run on your device', href: '/agents', cls: 'user' },
         ],
         loopBack: 'Every use settles credits that offset your subscriptions and compute; feedback flows into your next version.',
-        apiKicker: 'ONE INTERFACE', apiTitle: 'Local, community and models — one interface', apiLead: 'Agents go through /v1/agent/responses with a different harness_id; models go through /v1/chat/completions with native names. Integrate once, swap freely.',
+        apiKicker: 'ONE INTERFACE', apiTitle: 'Local, community and models — one interface', apiLead: 'Integrate once, swap freely.',
         apiMore: 'Full examples',
         apiLines: [
           ['# local runtime: pi, claude-code, codex, cursor, kimi-code', false], ['"harness_id": "pi"', true],
           ['# hired community agent', false], ['"harness_id": "community:<id>@<owner>"', true],
           ['# any model: the gateway routes to local or community sources', false], ['"model": "claude-sonnet-4-6"', true],
         ],
-        finalTitle: 'Start by plugging in your runtimes', finalText: 'Get the client and installed apps show up. Onboard one, restore with a click if you don\'t like it — then see what others shared on the market.', finalCta2: 'Browse the market',
+        finalTitle: 'Start by plugging in your runtimes', finalText: 'Installed apps show up; restore with one click.', finalCta2: 'Browse the market',
       },
     }
     const T = computed(() => i18n[lang.value] || i18n.zh)

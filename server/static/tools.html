@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=13">
+<link rel="stylesheet" href="/static/plaza.css?v=14">
 <script>
   // 模型、技能等开发者资源移到了资源市场
   (function () {
@@ -145,28 +145,27 @@ a { color: inherit; text-decoration: none; }
         <div class="pz-orbit">
           <svg viewBox="0 0 440 400" role="img" :aria-label="T.orbitCap">
             <defs>
-              <radialGradient id="pzHub" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#a5f3fc"/><stop offset="55%" stop-color="#818cf8"/><stop offset="100%" stop-color="#6366f1" stop-opacity="0"/></radialGradient>
-              <linearGradient id="pzLine" x1="0" x2="1"><stop offset="0%" stop-color="#67e8f9" stop-opacity=".05"/><stop offset="50%" stop-color="#a78bfa" stop-opacity=".6"/><stop offset="100%" stop-color="#67e8f9" stop-opacity=".05"/></linearGradient>
+              <radialGradient id="pzHub" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#FFE08A"/><stop offset="55%" stop-color="#FFD055" stop-opacity=".55"/><stop offset="100%" stop-color="#FFD055" stop-opacity="0"/></radialGradient>
+              <linearGradient id="pzLine" x1="0" x2="1"><stop offset="0%" stop-color="#FFD055" stop-opacity=".05"/><stop offset="50%" stop-color="#FFD055" stop-opacity=".45"/><stop offset="100%" stop-color="#FFD055" stop-opacity=".05"/></linearGradient>
             </defs>
             <ellipse cx="220" cy="190" rx="190" ry="150" fill="none" stroke="rgba(255,255,255,.07)" stroke-dasharray="2 6"/>
             <ellipse cx="220" cy="190" rx="110" ry="88" fill="none" stroke="rgba(255,255,255,.09)" stroke-dasharray="2 5"/>
             <g v-for="(n, i) in orbitNodes" :key="'l' + i">
               <path :d="'M220 190 L' + n.x + ' ' + n.y" stroke="url(#pzLine)" :stroke-opacity="n.online ? 1 : .35" stroke-width="1" fill="none"/>
-              <circle v-if="!reducedMotion && n.online" r="2.6" :fill="i % 2 ? '#67e8f9' : '#c4b5fd'">
+              <circle v-if="!reducedMotion && n.online" r="2.6" :fill="i % 2 ? '#FFD055' : '#ffffff'">
                 <animateMotion :dur="(2.4 + i * 0.4) + 's'" repeatCount="indefinite" :path="'M220 190 L' + n.x + ' ' + n.y" :keyPoints="i % 2 ? '0;1' : '1;0'" keyTimes="0;1" calcMode="linear" :begin="(i * 0.3) + 's'"/>
               </circle>
             </g>
             <a v-for="(n, i) in orbitNodes" :key="'n' + i" :href="n.href || '#agents'">
               <title>{{ n.title }}</title>
-              <circle :cx="n.x" :cy="n.y" :r="n.r * 2.8" :fill="n.online ? (i % 3 === 0 ? 'rgba(103,232,249,.14)' : 'rgba(167,139,250,.14)') : 'rgba(255,255,255,.04)'"/>
-              <circle class="pz-node-dot" :cx="n.x" :cy="n.y" :r="n.r" :fill="n.online ? (i % 3 === 0 ? '#67e8f9' : '#a78bfa') : '#52526a'" stroke="rgba(255,255,255,.55)" stroke-width=".8"/>
-              <text v-if="n.label" :x="n.x" :y="n.y + n.r + 16" text-anchor="middle" font-size="11.5" :fill="n.online ? 'rgba(224,231,255,.78)' : 'rgba(224,231,255,.38)'">{{ n.label }}</text>
+              <circle :cx="n.x" :cy="n.y" :r="n.r * 2.8" :fill="n.online ? 'rgba(255,208,85,.12)' : 'rgba(255,255,255,.04)'"/>
+              <circle class="pz-node-dot" :cx="n.x" :cy="n.y" :r="n.r" :fill="n.online ? '#FFD055' : '#4a4a4c'" stroke="rgba(255,255,255,.55)" stroke-width=".8"/>
+              <text v-if="n.label" :x="n.x" :y="n.y + n.r + 16" text-anchor="middle" font-size="11.5" :fill="n.online ? 'rgba(255,255,255,.78)' : 'rgba(255,255,255,.35)'">{{ n.label }}</text>
             </a>
             <circle cx="220" cy="190" r="52" fill="url(#pzHub)" opacity=".55"/>
-            <circle cx="220" cy="190" r="24" fill="#0b1020" stroke="#a5b4fc" stroke-width="1.4"/>
-            <text x="220" y="194.5" text-anchor="middle" font-size="12.5" font-weight="700" fill="#e0e7ff">{{ T.you }}</text>
+            <circle cx="220" cy="190" r="24" fill="#111" stroke="#FFD055" stroke-width="1.4"/>
+            <text x="220" y="194.5" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">{{ T.you }}</text>
           </svg>
-          <div class="pz-orbit-cap">{{ T.orbitCap }}</div>
         </div>
       </div>
       <div class="pz-stats">
@@ -183,7 +182,6 @@ a { color: inherit; text-decoration: none; }
           <div>
             <div class="pz-kicker">{{ T.listKicker }}</div>
             <h2 id="pz-list" class="pz-h2">{{ searchQuery && hydrated ? T.listFound.replace('{n}', String(shownTools.length)) : T.listTitle }}</h2>
-            <p class="pz-lead">{{ T.listLead.agents }}</p>
           </div>
         </div>
         <div v-if="hydrated && tools.length" class="pz-subbar" role="group" :aria-label="T.filterLabel">
@@ -433,7 +431,7 @@ createApp({
           title: 'Agents', plaza: 'Agent Plaza', navNetwork: 'Share & earn', navCircles: 'Circles', download: 'Download', account: 'My account', signIn: 'Sign in',
           eyebrow: 'Tuned by people, running on real devices',
           h1a: 'Expert-tuned agents,', h1b: 'ready when you are',
-          sub: 'No API keys, no setup, no prompt writing. Pick an agent an expert has tuned — it runs on its owner\'s device and you get the result.',
+          sub: 'No keys, no setup, no prompting. Pick one and go.',
           promise: ['Zero setup', 'Pay per task', 'Every vendor, one door', 'One link to bring friends'],
           search: 'What do you need done?', find: 'Find', tryLabel: 'Try:',
           tryWords: ['Copy', 'Images', 'Video', 'Meals'],
@@ -453,11 +451,11 @@ createApp({
           online: 'Online', offline: 'Offline', chat: 'Chat', use: 'Use it', history: 'History',
           shareTitle: 'Copy share link', copied: 'Link copied — send it and friends can jump straight in',
           whyKicker: 'WHY TOKEN BANK', whyTitle: 'Why not just use Claude or WorkBuddy?',
-          whyLead: 'Using them is like buying a car: get one first, learn to drive, then pay to keep it. Here it\'s like a ride: say where to, and go.',
+          whyLead: 'A car you buy, learn and maintain; a ride you just hail.',
           roles: [
             { key: 'r1', who: 'I just want it done', title: 'Hail an agent like a ride', quote: 'No car to buy, learn or maintain — call one and go.', points: ['Prompts, skills and toolchains an expert already polished', 'No keys, no setup — chat right in the browser', 'Pay per task, only for what you use'], cta: 'Try one', href: '#agents' },
-            { key: 'r2', who: 'Any vendor', title: 'Every vendor\'s strengths, one door', quote: 'Agents on the plaza run on Claude Code, Codex, Cursor, Pi and many models. No signing up and subscribing to each — one account and one credit balance covers them all.', points: ['Coding to a Codex agent, copy to a content expert, images to an image model', 'One credit balance, not locked into one vendor\'s plan', 'Rare models and expert agents, by the task'], cta: 'Try one', href: '#agents' },
-            { key: 'r3', who: 'I want to play with friends', title: 'One link brings them in', quote: 'Like starting a group chat: they open the link and pick up the thread — no sign-up, no setup.', points: ['Take turns in one conversation and create together', 'Poke the agent to squeeze out fresh ideas', 'Start a circle only people you trust can see'], cta: 'Explore circles', href: '/circles' },
+            { key: 'r2', who: 'Any vendor', title: 'Every vendor\'s strengths, one door', quote: 'Many engines and models, one account, one credit balance.', points: ['Coding to a Codex agent, copy to a content expert, images to an image model', 'One credit balance, not locked into one vendor\'s plan', 'Rare models and expert agents, by the task'], cta: 'Try one', href: '#agents' },
+            { key: 'r3', who: 'I want to play with friends', title: 'One link brings them in', quote: 'Like a group chat — open the link and join in.', points: ['Take turns in one conversation and create together', 'Poke the agent to squeeze out fresh ideas', 'Start a circle only people you trust can see'], cta: 'Explore circles', href: '/circles' },
           ],
           safeKicker: 'SHARE THE SKILL, KEEP THE RECIPE', safeTitle: 'They can use it. They can\'t take it.',
           safeLead: 'Tasks run on your device. Callers send a request and get a result — your prompts, skills and API keys never leave the machine, so sharing never means being copied.',
@@ -476,7 +474,7 @@ createApp({
           mapKicker: 'WHO ARE YOU', mapTitle: 'Which one are you?',
           map: [['I just want it done', 'Agent Plaza', 'Agents and models others tuned, ready to use', '/agents'], ['I juggle many AI tools', 'OneHarness', 'One place to run them, routed by strength', '/harness'], ['I have spare quota or a great agent', 'Share & earn', 'Others use it, you earn', '/network'], ['I want to do it with friends', 'Circles', 'Open only to people you trust', '/circles']],
           finalTitle: 'Are you a developer?',
-          finalText: 'Manage your runtimes and models in one place, share tuned agents to split costs, or remix templates from the market and list them here.',
+          finalText: 'Manage runtimes and models, build apps on top, list them here.',
           finalCta: 'Open the developer hub', finalCta2: 'Browse the market',
         };
       }
@@ -484,7 +482,7 @@ createApp({
         title: '智能体', plaza: '智能体广场', navNetwork: '共享网络', navCircles: '圈子', download: '下载客户端', account: '我的账户', signIn: '登录',
         eyebrow: '智能体工具广场 · 真人调教，真机运行',
         h1a: '别人调好的智能体，', h1b: '打开就能用',
-        sub: '不用买 Key、装环境、写提示词。挑一个高手调教好的智能体，任务在它主人的设备上跑完，你只拿结果。',
+        sub: '不买 Key，不装环境，不写提示词。挑一个，直接用。',
         promise: ['0 配置', '按次付费', '各家能力一个入口', '一个链接拉朋友'],
         search: '想让智能体帮你做什么？', find: '找智能体', tryLabel: '试试：',
         tryWords: ['文案', '配图', '视频', '三餐'],
@@ -504,11 +502,11 @@ createApp({
         online: '在线', offline: '离线', chat: '对话', use: '去使用', history: '看记录',
         shareTitle: '复制分享链接', copied: '链接已复制，发给朋友就能直接一起用',
         whyKicker: 'WHY TOKEN BANK', whyTitle: '为什么不直接用 Claude、WorkBuddy？',
-        whyLead: '用它们像买车：先想办法买到、再学会开、每个月还要养。在这里像打车：说清去哪，叫一辆就走。',
+        whyLead: '买车要先买、先学、再养；打车只要说去哪。',
         roles: [
           { key: 'r1', who: '只想把事办成', title: '像打车一样用智能体', quote: '不用买车、学车、养车，叫一辆就走。', points: ['高手打磨好的提示词、Skill、工具链，拿来就用', '不买 Key、不装环境，浏览器直接对话', '按次计费，用多少付多少'], cta: '挑一个试试', href: '#agents' },
-          { key: 'r2', who: '不挑平台', title: '各家能力，一个入口', quote: '广场上的智能体跑在 Claude Code、Codex、Cursor、Pi 等不同引擎和各家模型上。你不用每家注册、每家开订阅，一个账号、一份积分全都能用。', points: ['写代码找 Codex 系，写文案找内容专家，配图找生图模型', '一份积分通用，不被某一家的套餐绑住', '稀有模型和专家智能体，按次就能用上'], cta: '挑一个试试', href: '#agents' },
-          { key: 'r3', who: '想和朋友一起玩', title: '一个链接，拉人进场', quote: '像拉群一样：对方点开链接就能接着聊，不用注册，也不用配置。', points: ['多人接龙同一场对话，一起创作', '故意逗它，把新点子逼出来', '建个圈子，只对信任的人开放'], cta: '去看看圈子', href: '/circles' },
+          { key: 'r2', who: '不挑平台', title: '各家能力，一个入口', quote: '不同引擎、各家模型，一个账号、一份积分全能用。', points: ['写代码找 Codex 系，写文案找内容专家，配图找生图模型', '一份积分通用，不被某一家的套餐绑住', '稀有模型和专家智能体，按次就能用上'], cta: '挑一个试试', href: '#agents' },
+          { key: 'r3', who: '想和朋友一起玩', title: '一个链接，拉人进场', quote: '像拉群一样，点开链接就接着聊。', points: ['多人接龙同一场对话，一起创作', '故意逗它，把新点子逼出来', '建个圈子，只对信任的人开放'], cta: '去看看圈子', href: '/circles' },
         ],
         safeKicker: '能力共享 · 配方私有', safeTitle: '别人能用，但拿不走',
         safeLead: '任务在你的设备上执行。对方发来任务、拿回结果，你的提示词、Skill 和 API Key 始终不离机。分享出去，不等于被抄走。',
@@ -527,7 +525,7 @@ createApp({
         mapKicker: 'WHO ARE YOU', mapTitle: '你是哪种用户？',
         map: [['我想直接用', '智能体广场', '别人调好的智能体和模型，打开就用', '/agents'], ['我手上 AI 工具很多', 'OneHarness', '一个入口全管起来，按特点派活', '/harness'], ['我有闲置或作品', '共享网络', '额度和智能体让别人用，你来赚', '/network'], ['我想和朋友一起', '圈子', '只对信任的人开放，一起用', '/circles']],
         finalTitle: '你是开发者？',
-        finalText: '统一管理自己的 runtime 和模型，把调好的智能体分享出去分摊费用，或者从资源市场拿模板加工后上架到这里。',
+        finalText: '管理 runtime 和模型，把应用架在上面，上架到这里。',
         finalCta: '进入开发者中心', finalCta2: '逛逛资源市场',
       };
     },
