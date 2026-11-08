@@ -308,7 +308,13 @@ const CODEX = {
     h['originator'] = 'codex_cli_rs';
     h['Content-Type'] = 'application/json';
     delete h['x-api-key'];
-    return { headers: h, body, baseUrl: 'https://chatgpt.com/backend-api/codex' };
+    return {
+      headers: h, body, baseUrl: 'https://chatgpt.com/backend-api/codex',
+      // The subscription token does not grant public API model-list scopes.
+      // Reuse the read-only quota endpoint from usage/codex.js: success proves
+      // authentication/connectivity, not inference availability or remaining quota.
+      testUrl: 'https://chatgpt.com/backend-api/wham/usage',
+    };
   },
 };
 

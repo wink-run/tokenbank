@@ -5844,6 +5844,8 @@ function registerIPC() {
       // OAuth 供给源：刷新凭证后用 provider 注入头探测
       if (p.auth_type === 'oauth' && p.oauth_provider) {
         let headers = {};
+        let oauthBaseUrl = base_url;
+        let oauthTestUrl = null;
         const ready = await oauthMod.prepare(
           { id: p.id, auth_type: 'oauth', oauth_provider: p.oauth_provider, credentials: p.credentials },
           readAgentConfig, writeAgentConfig,
@@ -5851,11 +5853,15 @@ function registerIPC() {
         if (ready._oauth) {
           const ap = ready._oauth.applyAuth({ headers: {}, body: {}, credentials: ready.credentials });
           headers = { ...ap.headers };
+          oauthBaseUrl = ap.baseUrl || base_url;
+          oauthTestUrl = ap.testUrl || null;
           delete headers['Content-Type'];
           delete headers['Content-Length'];
         }
-        const base = base_url.replace(/\/$/, '');
-        const oauthTargets = [`${base}/models`, `${base}/v1/models`];
+        // OAuth may use a different upstream than the API-key template.
+        // Prefer its read-only account probe when a models endpoint is unsuitable.
+        const base = oauthBaseUrl.replace(/\/$/, '');
+        const oauthTargets = oauthTestUrl ? [oauthTestUrl] : [`${base}/models`, `${base}/v1/models`];
         let result = null;
         for (const probeUrl of oauthTargets) {
           logProviderTestProbe(ctx, { url: probeUrl, headers }, 'request');
