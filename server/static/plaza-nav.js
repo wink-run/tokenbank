@@ -36,3 +36,64 @@
     },
   };
 })();
+
+// 公开页共用动效：数字滚动、顶部阅读进度。少动效偏好下不做。
+(function () {
+  var reduced = false;
+  try { reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+  if (reduced) return;
+  var SEL = '.pz-stat-v, .nw-big, .nw-kv strong';
+
+  // 只改第一个文本节点的 nodeValue，不替换节点，Vue 之后的更新照常生效
+  function textNode(el) {
+    for (var n = el.firstChild; n; n = n.nextSibling) if (n.nodeType === 3 && n.nodeValue.trim()) return n;
+    return null;
+  }
+  function run(el) {
+    if (el.__tbAnim) return;
+    var node = textNode(el);
+    if (!node) return;
+    var txt = node.nodeValue.trim();
+    var m = txt.match(/^([\d.,]+)(.*)$/);
+    if (!m) return;
+    var target = parseFloat(m[1].replace(/,/g, ''));
+    if (!isFinite(target) || target === 0 || el.__tbFor === txt) return;
+    el.__tbFor = txt;
+    el.__tbAnim = true;
+    var dec = (m[1].split('.')[1] || '').length, suf = m[2], t0 = performance.now(), last = null;
+    function tick(t) {
+      var k = Math.min(1, (t - t0) / 900), e = 1 - Math.pow(1 - k, 3);
+      // 动画中 Vue 换了文本节点：停下，让新值直接显示
+      if (!node.parentNode || (last !== null && node.nodeValue !== last)) { el.__tbAnim = false; el.__tbFor = ''; run(el); return; }
+      last = (k < 1 ? (target * e).toFixed(dec) : m[1]) + suf;
+      node.nodeValue = last;
+      if (k < 1) requestAnimationFrame(tick);
+      else setTimeout(function () { el.__tbAnim = false; }, 0);
+    }
+    requestAnimationFrame(tick);
+  }
+  function watch() {
+    var els = document.querySelectorAll(SEL);
+    var mo = new MutationObserver(function (list) {
+      list.forEach(function (r) {
+        var el = r.target.nodeType === 3 ? r.target.parentNode : r.target;
+        while (el && !(el.matches && el.matches(SEL))) el = el.parentNode;
+        if (el) run(el);
+      });
+    });
+    els.forEach(function (el) { mo.observe(el, { characterData: true, childList: true, subtree: true }); run(el); });
+  }
+
+  function progress() {
+    var bar = document.createElement('div');
+    bar.className = 'pz-progress';
+    document.body.appendChild(bar);
+    function upd() {
+      var h = document.documentElement.scrollHeight - innerHeight;
+      bar.style.transform = 'scaleX(' + (h > 0 ? Math.min(1, scrollY / h) : 0) + ')';
+    }
+    addEventListener('scroll', upd, { passive: true }); upd();
+  }
+
+  addEventListener('load', function () { setTimeout(function () { watch(); progress(); }, 50); });
+})();

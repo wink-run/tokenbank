@@ -9,8 +9,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=17">
-<script src="/static/plaza-nav.js?v=17"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=18">
+<script src="/static/plaza-nav.js?v=18"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -74,7 +74,7 @@ a { color: inherit; text-decoration: none; }
         <h2 id="dv-stack" class="pz-h2">{{ T.stackTitle }}</h2>
         <p class="pz-lead"><a class="pz-link" href="/harness#vs">{{ T.vsMore }} →</a></p>
       </div>
-      <div class="dv-stack">
+      <div class="dv-stack"><i class="dv-flow" aria-hidden="true"></i>
         <div class="dv-apps"><span>{{ T.stackTop }}</span><i v-for="a in T.stackApps" :key="a">{{ a }}</i></div>
         <a v-for="(l, i) in T.layers" :key="l[0]" :href="l[3]" :class="['dv-layer', 'l' + i]"><em>{{ l[0] }}</em><b>{{ l[1] }}</b><span>{{ l[2] }}</span></a>
       </div>

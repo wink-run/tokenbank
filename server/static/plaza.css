@@ -897,3 +897,76 @@ body { background: #faf8f3 !important; color: var(--pz-ink); }
   .ag-sub { display: flex; }
   .pz-hero { margin-top: 0; padding-top: 0; }
 }
+
+/* ════════ 介绍页动效 ════════ */
+/* 顶部阅读进度 */
+.pz-progress { position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 60; background: var(--pz-y); transform-origin: left; transform: scaleX(0); pointer-events: none; }
+/* 首屏：光晕漂移、网格缓慢平移 */
+@keyframes pz-drift { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(60px, 40px); } }
+@keyframes pz-pan { to { background-position: 36px 36px, 36px 36px; } }
+.pz-hero::before { animation: pz-drift 14s ease-in-out infinite; }
+.pz-grid-bg { animation: pz-pan 6s linear infinite; }
+/* 区块标题出现时，下方扫过一道黄 */
+.pz-rv .pz-h2 { background: linear-gradient(transparent 72%, rgba(255,201,74,.45) 72%) no-repeat 0 0 / 0% 100%; transition: background-size .9s var(--pz-ease) .2s; display: inline-block; }
+.pz-rv.in .pz-h2 { background-size: 100% 100%; }
+.pz-safe .pz-h2 { background: none; }
+/* 功能要点依次出现 */
+.pz-rv-on .hs-feature .hs-f-points li { opacity: 0; transform: translateX(-10px); transition: opacity .45s var(--pz-ease), transform .45s var(--pz-ease); }
+.pz-rv-on .hs-feature.in .hs-f-points li { opacity: 1; transform: none; }
+.hs-feature.in .hs-f-points li:nth-child(2) { transition-delay: .08s; } .hs-feature.in .hs-f-points li:nth-child(3) { transition-delay: .16s; } .hs-feature.in .hs-f-points li:nth-child(4) { transition-delay: .24s; }
+.pz-rv-on .hs-feature .hs-f-visual { opacity: 0; transform: translateY(16px) scale(.98); transition: opacity .6s var(--pz-ease) .1s, transform .6s var(--pz-ease) .1s; animation: none; }
+.pz-rv-on .hs-feature.in .hs-f-visual { opacity: 1; transform: none; }
+/* 路由链依次点亮 */
+@keyframes pz-lit { 0%, 18%, 100% { background: rgba(255,255,255,.06); color: #fff; } 6%, 12% { background: var(--pz-y); color: #1c1a17; } }
+.hs-d-chain span { animation: pz-lit 4.8s linear infinite; }
+.hs-d-chain span:nth-child(2) { animation-delay: .9s; } .hs-d-chain span:nth-child(3) { animation-delay: 1.8s; } .hs-d-chain span:nth-child(4) { animation-delay: 2.7s; }
+/* 跨端：在线点闪烁、箭头流动 */
+@keyframes pz-blink { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+.hs-dev small::before { animation: pz-blink 1.6s ease-in-out infinite; }
+.hs-dev:nth-child(2) small::before { animation-delay: .5s; } .hs-dev:nth-child(3) small::before { animation-delay: 1s; }
+@keyframes pz-nudge-y { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
+.hs-d-arrow { animation: pz-nudge-y 1.4s ease-in-out infinite; }
+/* 代码：高亮行呼吸、末尾光标 */
+@keyframes pz-glow { 0%, 100% { background-color: rgba(255,201,74,.10); } 50% { background-color: rgba(255,201,74,.22); } }
+.hs-code pre .hl { animation: pz-glow 2.4s ease-in-out infinite; }
+.hs-code pre code::after { content: '▍'; color: var(--pz-y); animation: pz-blink 1s steps(1) infinite; }
+/* 步骤和循环图的箭头：轻推 */
+@keyframes pz-nudge-x { 0%, 100% { translate: 0 0; } 50% { translate: 3px 0; } }
+.nw-step:not(:last-child)::after, .dv-node:not(:last-child)::after { animation: pz-nudge-x 1.4s ease-in-out infinite; }
+/* 六层：一个光点从应用流到模型 */
+.dv-stack { position: relative; }
+.dv-flow { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; pointer-events: none; z-index: 2; }
+.dv-flow::before { content: ''; position: absolute; left: -4px; top: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--pz-y); box-shadow: 0 0 0 4px rgba(255,201,74,.25), 0 0 18px 4px rgba(255,201,74,.5); animation: pz-fall 3.6s cubic-bezier(.5,0,.5,1) infinite; }
+@keyframes pz-fall { 0% { top: 0; opacity: 0; } 8% { opacity: 1; } 92% { opacity: 1; } 100% { top: calc(100% - 10px); opacity: 0; } }
+
+/* ── 为什么用：使用演示 ── */
+.why-demo { position: relative; }
+.why-win { border-radius: 18px; overflow: hidden; background: #fffdf9; box-shadow: 0 30px 70px -30px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.08); color: var(--pz-ink); transform: rotate(-1.2deg); }
+.why-bar { display: flex; align-items: center; gap: 6px; padding: 10px 14px; background: #f4efe6; border-bottom: 1px solid #ebe5dc; font-size: 12.5px; color: var(--pz-muted); }
+.why-bar i { width: 9px; height: 9px; border-radius: 50%; background: #e0d9cd; }
+.why-bar span { margin-left: 8px; font-weight: 600; color: var(--pz-ink); }
+.why-on { margin-left: auto; font-weight: 500; color: #059669; display: inline-flex; align-items: center; gap: 5px; }
+.why-on::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #10b981; animation: pz-blink 1.6s ease-in-out infinite; }
+.why-body { padding: 16px; min-height: 250px; display: flex; flex-direction: column; gap: 12px; }
+.why-msg { max-width: 92%; font-size: 13.5px; line-height: 1.6; animation: pz-up .35s var(--pz-ease) both; }
+.why-msg.me { align-self: flex-end; }
+.why-msg.me span { display: inline-block; padding: 9px 13px; border-radius: 14px 14px 4px 14px; background: var(--pz-ink); color: #fff; }
+.why-msg.bot { align-self: flex-start; padding: 10px 14px; border-radius: 14px 14px 14px 4px; background: #f4efe6; }
+.why-who { display: block; font-style: normal; font-size: 11.5px; font-weight: 600; color: var(--pz-y-ink); margin-bottom: 4px; }
+.why-out { list-style: none; display: grid; gap: 4px; }
+.why-out li { animation: pz-up .35s var(--pz-ease) both; }
+.why-caret { display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -2px; background: var(--pz-y); animation: pz-blink 1s steps(1) infinite; }
+.why-dots { display: inline-flex; gap: 4px; padding: 4px 0; }
+.why-dots i { width: 6px; height: 6px; border-radius: 50%; background: #b5ad9f; animation: pz-blink 1s ease-in-out infinite; }
+.why-dots i:nth-child(2) { animation-delay: .15s; } .why-dots i:nth-child(3) { animation-delay: .3s; }
+.why-meta { display: flex; flex-wrap: wrap; gap: 6px; animation: pz-up .35s var(--pz-ease) both; }
+.why-meta span { font-size: 11.5px; padding: 3px 9px; border-radius: 999px; background: var(--pz-y-soft); color: var(--pz-y-ink); font-weight: 600; }
+.why-tag { margin-top: 14px; text-align: center; font-size: 12px; color: rgba(255,255,255,.45); }
+@media (max-width: 1024px) { .why-demo { display: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pz-hero::before, .pz-grid-bg, .hs-d-chain span, .hs-dev small::before, .hs-d-arrow, .hs-code pre .hl, .hs-code pre code::after, .nw-step::after, .dv-node::after, .dv-flow::before, .why-msg, .why-out li, .why-meta, .why-on::before { animation: none !important; }
+  .pz-rv .pz-h2 { background-size: 100% 100%; transition: none; }
+  .pz-rv-on .hs-feature .hs-f-points li, .pz-rv-on .hs-feature .hs-f-visual { opacity: 1; transform: none; transition: none; }
+  .dv-flow { display: none; }
+}

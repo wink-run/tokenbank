@@ -9,8 +9,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=17">
-<script src="/static/plaza-nav.js?v=17"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=18">
+<script src="/static/plaza-nav.js?v=18"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -52,30 +52,21 @@ a { color: inherit; text-decoration: none; }
             <a class="pz-btn ghost" href="#pz-cmp">{{ T.ctaCompare }}</a>
           </div>
         </div>
-        <div class="pz-orbit">
-          <svg viewBox="0 0 440 400" role="img" :aria-label="T.orbitCap">
-            <defs>
-              <radialGradient id="pzHub" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#FFE08A"/><stop offset="55%" stop-color="#FFD055" stop-opacity=".55"/><stop offset="100%" stop-color="#FFD055" stop-opacity="0"/></radialGradient>
-              <linearGradient id="pzLine" x1="0" x2="1"><stop offset="0%" stop-color="#FFD055" stop-opacity=".05"/><stop offset="50%" stop-color="#FFD055" stop-opacity=".45"/><stop offset="100%" stop-color="#FFD055" stop-opacity=".05"/></linearGradient>
-            </defs>
-            <ellipse cx="220" cy="190" rx="190" ry="150" fill="none" stroke="rgba(255,255,255,.07)" stroke-dasharray="2 6"/>
-            <ellipse cx="220" cy="190" rx="110" ry="88" fill="none" stroke="rgba(255,255,255,.09)" stroke-dasharray="2 5"/>
-            <g v-for="(n, i) in orbitNodes" :key="'l' + i">
-              <path :d="'M220 190 L' + n.x + ' ' + n.y" stroke="url(#pzLine)" :stroke-opacity="n.online ? 1 : .35" stroke-width="1" fill="none"/>
-              <circle v-if="!reducedMotion && n.online" r="2.6" :fill="i % 2 ? '#FFD055' : '#ffffff'">
-                <animateMotion :dur="(2.4 + i * 0.4) + 's'" repeatCount="indefinite" :path="'M220 190 L' + n.x + ' ' + n.y" :keyPoints="i % 2 ? '0;1' : '1;0'" keyTimes="0;1" calcMode="linear" :begin="(i * 0.3) + 's'"/>
-              </circle>
-            </g>
-            <a v-for="(n, i) in orbitNodes" :key="'n' + i" :href="n.href || '/agents'">
-              <title>{{ n.title }}</title>
-              <circle :cx="n.x" :cy="n.y" :r="n.r * 2.8" :fill="n.online ? 'rgba(255,208,85,.12)' : 'rgba(255,255,255,.04)'"/>
-              <circle class="pz-node-dot" :cx="n.x" :cy="n.y" :r="n.r" :fill="n.online ? '#FFD055' : '#4a4a4c'" stroke="rgba(255,255,255,.55)" stroke-width=".8"/>
-              <text v-if="n.label" :x="n.x" :y="n.y + n.r + 16" text-anchor="middle" font-size="11.5" :fill="n.online ? 'rgba(255,255,255,.78)' : 'rgba(255,255,255,.35)'">{{ n.label }}</text>
-            </a>
-            <circle cx="220" cy="190" r="52" fill="url(#pzHub)" opacity=".55"/>
-            <circle cx="220" cy="190" r="24" fill="#111" stroke="#FFD055" stroke-width="1.4"/>
-            <text x="220" y="194.5" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">{{ T.you }}</text>
-          </svg>
+        <!-- 演示：一次真实的使用流程，循环播放 -->
+        <div class="why-demo" aria-hidden="true">
+          <div class="why-win">
+            <div class="why-bar"><i></i><i></i><i></i><span>{{ T.demo.agent }}</span><b class="why-on">{{ T.demo.online }}</b></div>
+            <div class="why-body">
+              <div class="why-msg me"><span>{{ demoTyped }}<i v-if="demoStep === 0" class="why-caret"></i></span></div>
+              <div v-if="demoStep >= 1" class="why-msg bot">
+                <em class="why-who">{{ T.demo.agent }}</em>
+                <span v-if="demoStep === 1" class="why-dots"><i></i><i></i><i></i></span>
+                <ol v-else class="why-out"><li v-for="(l, i) in T.demo.lines.slice(0, demoLines)" :key="i">{{ l }}</li></ol>
+              </div>
+              <div v-if="demoStep >= 3" class="why-meta"><span v-for="m in T.demo.meta" :key="m">{{ m }}</span></div>
+            </div>
+          </div>
+          <div class="why-tag">{{ T.demo.tag }}</div>
         </div>
       </div>
     </header>
@@ -146,14 +137,16 @@ createApp({
     try { lang = localStorage.getItem('tb_lang') || '' } catch (e) {}
     return {
       lang: lang || ((navigator.language || '').startsWith('zh') ? 'zh' : 'en'),
-      tools: [], loaded: false, loggedIn: (() => { try { return !!localStorage.getItem('user_token'); } catch (e) { return false; } })(),
+      tools: [], loaded: false, demoStep: 0, demoChars: 0, demoLines: 0, demoTimer: null, loggedIn: (() => { try { return !!localStorage.getItem('user_token'); } catch (e) { return false; } })(),
       reducedMotion: !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches),
     }
   },
   computed: {
+    demoTyped() { return this.T.demo.ask.slice(0, this.demoStep === 0 ? this.demoChars : 999); },
     T() {
       if (this.lang === 'en') {
         return {
+          demo: { agent: 'Content coach · @adam', online: 'online', ask: 'Write 3 social post titles for a pocket espresso maker', lines: ['① Café-grade espresso, from your backpack', '② Faster than delivery, better than instant', '③ The espresso machine that fits your pocket'], meta: ['18 s', '2 credits', 'ran on the sharer\'s computer'], tag: 'Illustrative run' },
           whyEyebrow: 'Why Token Bank', whyH1a: 'Ride, don\'t buy —', whyH1b: 'agents work the same way', whySub: 'No subscription to run, no setup to learn. Pick one an expert tuned and pay per use.', ctaCompare: 'See the comparison',
           title: 'Agents', plaza: 'Agent Plaza', navNetwork: 'Share & earn', navCircles: 'Circles', download: 'Download', account: 'My account', signIn: 'Sign in',
           eyebrow: 'Tuned by people, running on real devices',
@@ -206,6 +199,7 @@ createApp({
         };
       }
       return {
+        demo: { agent: '内容创作教练 · @adam', online: '在线', ask: '帮我写 3 个小红书标题，卖点：便携咖啡机，30 秒出杯', lines: ['① 30 秒一杯拿铁，通勤包里的咖啡馆', '② 出差党必备｜比外卖快，比速溶香', '③ 小到能塞进口袋的意式浓缩'], meta: ['用时 18 秒', '扣 2 积分', '在分享者电脑上完成'], tag: '使用过程示意' },
         whyEyebrow: '为什么用 Token Bank', whyH1a: '买车不如打车，', whyH1b: '用智能体也是', whySub: '不用自己开订阅、学配置。挑一个高手调好的，按次用。', ctaCompare: '看对比',
         title: '智能体', plaza: '智能体广场', navNetwork: '共享网络', navCircles: '圈子', download: '下载客户端', account: '我的账户', signIn: '登录',
         eyebrow: '智能体工具广场 · 真人调教，真机运行',
@@ -296,8 +290,33 @@ createApp({
     document.title = (this.lang === 'zh' ? '用智能体' : 'Use agents') + ' · Token Bank';
     fetch('/api/tools/discover?limit=50').then(r => r.ok ? r.json() : null).then(d => { this.tools = (d && d.tools) || []; }).catch(() => {}).finally(() => { this.loaded = true; });
     this.$nextTick(() => this.setupReveal());
+    this.playDemo();
   },
   methods: {
+    // 演示循环：打字 → 智能体思考 → 结果逐行 → 用时积分 → 重来；少动效时直接显示终态
+    playDemo() {
+      const full = () => { this.demoStep = 3; this.demoLines = this.T.demo.lines.length; };
+      if (this.reducedMotion) { full(); return; }
+      const run = () => {
+        this.demoStep = 0; this.demoChars = 0; this.demoLines = 0;
+        const typing = setInterval(() => {
+          this.demoChars += 1;
+          if (this.demoChars >= this.T.demo.ask.length) {
+            clearInterval(typing);
+            setTimeout(() => { this.demoStep = 1; }, 400);
+            setTimeout(() => {
+              this.demoStep = 2;
+              const lines = setInterval(() => {
+                this.demoLines += 1;
+                if (this.demoLines >= this.T.demo.lines.length) { clearInterval(lines); setTimeout(() => { this.demoStep = 3; }, 400); }
+              }, 550);
+            }, 1700);
+          }
+        }, 55);
+      };
+      run();
+      this.demoTimer = setInterval(run, 9500);
+    },
     splitName(tool) {
       const name = String((tool && tool.display_name) || '').trim();
       let owner = String((tool && tool.owner_nickname) || '').trim();

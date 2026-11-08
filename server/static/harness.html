@@ -9,8 +9,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=17">
-<script src="/static/plaza-nav.js?v=17"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=18">
+<script src="/static/plaza-nav.js?v=18"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -112,7 +112,7 @@ a { color: inherit; text-decoration: none; }
       </nav>
     </section>
 
-    <section v-for="(f, fi) in T.features" :key="f.id" :id="f.id" :class="['hs-feature', { flip: fi % 2 === 1 }]" :aria-labelledby="'h-' + f.id">
+    <section v-for="(f, fi) in T.features" :key="f.id" :id="f.id" :class="['hs-feature', 'pz-rv', { flip: fi % 2 === 1 }]" :aria-labelledby="'h-' + f.id">
       <div class="hs-f-text">
         <div class="hs-f-n">{{ f.n }} · {{ f.k }}</div>
         <h3 :id="'h-' + f.id">{{ f.t }}</h3>
