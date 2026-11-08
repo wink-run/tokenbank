@@ -778,3 +778,17 @@ body { background: #faf9f5 !important; }
 /* 收尾 */
 .pz-final { background: var(--pz-y-soft); border-color: #f0e2ad; }
 .pz-btn.ghost { border-color: #d6d2ce; background: #fff; }
+
+/* 资源市场：可见范围 */
+.mk-scope { margin-top: 24px; display: flex; align-items: center; gap: 6px; }
+.mk-scope button { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--pz-line); background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #52525b; cursor: pointer; }
+.mk-scope button.on { background: #0a0a0a; border-color: #0a0a0a; color: var(--pz-y); }
+.mk-scope button em { font-style: normal; font-size: 12px; opacity: .6; }
+.mk-manage { margin-left: auto; font-size: 13.5px; font-weight: 600; color: var(--pz-ink); text-decoration: underline; text-decoration-color: var(--pz-y); text-decoration-thickness: 2px; text-underline-offset: 4px; }
+.mk-scope + .pz-tabs, .mk-scope ~ template + .pz-tabs { margin-top: 14px; }
+.mk-pubc { margin: 18px auto 0; max-width: 640px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; text-align: left; }
+.mk-pubc a { padding: 12px 14px; border-radius: 12px; background: #fff; border: 1px solid var(--pz-line); }
+.mk-pubc b { display: block; font-size: 14px; color: var(--pz-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-pubc span { font-size: 12px; color: var(--pz-muted); }
+@media (max-width: 768px) { .mk-pubc { grid-template-columns: 1fr 1fr; } }
+.pz-empty { background: #fff; border-color: #e0dbd5; }

@@ -9,14 +9,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=14">
-<script src="/static/plaza-nav.js?v=9"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=15">
+<script src="/static/plaza-nav.js?v=15"></script>
 <script>
   // 旧链接：浏览类页签已并入智能体广场，圈子页签去圈子页
   (function () {
     var h = location.hash.slice(1);
     if (h === 'models' || h === 'agents' || h === 'resources') location.replace('/agents#' + h);
-    else if (h === 'circles') location.replace('/circles');
+    else if (h === 'circles') location.replace('/market#circles');
   })();
 </script>
 <script src="/static/vue.global.prod.js"></script>
@@ -38,7 +38,6 @@ a { color: inherit; text-decoration: none; }
         <a class="ag-nav" href="/harness">{{ N.dManage }}</a>
         <a class="ag-nav on" href="/network" aria-current="page">{{ N.dShare }}</a>
         <a class="ag-nav" href="/market">{{ N.dMarket }}</a>
-        <a class="ag-nav" href="/circles">{{ N.dCircles }}</a>
       </div>
       <div class="ag-top-r">
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
@@ -51,7 +50,7 @@ a { color: inherit; text-decoration: none; }
   <!-- 首屏：给分享者的一句话 + 实时网络 -->
   <header class="pz-hero">
     <div class="pz-grid-bg" aria-hidden="true"></div>
-    <div class="dv-subm"><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a class="on" href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a><a href="/circles">{{ N.dCircles }}</a></div>
+    <div class="dv-subm"><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a class="on" href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></div>
     <div class="pz-hero-in nw-hero-in" style="padding-bottom:64px">
       <div>
         <div class="pz-eyebrow"><b>SHARE NETWORK</b>{{ T.eyebrow }}</div>
@@ -218,7 +217,7 @@ a { color: inherit; text-decoration: none; }
       </div>
     </section>
   </main>
-  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/harness">{{ N.dManage }}</a><a href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a><a href="/circles">{{ N.dCircles }}</a></footer>
+  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/harness">{{ N.dManage }}</a><a href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
 </div>
 
 <script>

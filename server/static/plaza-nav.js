@@ -15,7 +15,7 @@
       dev: [
         { href: '/harness', n: '01', t: '统一管理', d: '智能体纳管、一键换模型、场景路由、Trace、资产、用量看板、跨端归集，一个界面、一套接口。' },
         { href: '/network', n: '02', t: '分享与收益', d: '把智能体和模型分享给自己、圈子或全网，分摊费用，一起协作。' },
-        { href: '/market', n: '03', t: '资源市场', d: '拿别人分享的模型、Skill、智能体模板，自用或加工后上架给普通用户。' },
+        { href: '/market', n: '03', t: '资源市场', d: '公开或圈子内的模型、Skill、模板，自用或加工上架。' },
       ],
     },
     en: {
@@ -31,7 +31,7 @@
       dev: [
         { href: '/harness', n: '01', t: 'Manage', d: 'Agent onboarding, model swap, scene routing, trace, assets, usage dashboards and cross-device roll-up — one UI, one API.' },
         { href: '/network', n: '02', t: 'Share & earn', d: 'Share agents and models with yourself, a circle or everyone; split costs and collaborate.' },
-        { href: '/market', n: '03', t: 'Market', d: 'Take models, skills and agent templates others shared; use them or remix and list them for everyday users.' },
+        { href: '/market', n: '03', t: 'Market', d: 'Public or circle-only models, skills and templates to use or remix.' },
       ],
     },
   };
