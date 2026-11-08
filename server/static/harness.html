@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=22">
+<link rel="stylesheet" href="/static/plaza.css?v=23">
 <script src="/static/plaza-nav.js?v=18"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -107,12 +107,18 @@ a { color: inherit; text-decoration: none; }
         <div class="pz-kicker">{{ T.featKicker }}</div>
         <h2 id="hs-feat" class="pz-h2">{{ T.featTitle }}</h2>
       </div>
-      <nav class="hs-index" :aria-label="T.featTitle">
-        <a v-for="f in T.features" :key="f.id" :href="'#' + f.id"><em>{{ f.n }}</em>{{ f.k }}</a>
-      </nav>
-    </section>
-
-    <section v-for="(f, fi) in T.features" :key="f.id" :id="f.id" :class="['hs-feature', 'pz-rv', { flip: fi % 2 === 1 }]" :aria-labelledby="'h-' + f.id">
+      <div class="hs-car" :class="{ paused: featPaused }" @mouseenter="featPaused = true" @mouseleave="featPaused = false" @focusin="featPaused = true" @focusout="featPaused = false">
+      <div class="hs-index" role="tablist" :aria-label="T.featTitle" @keydown.right.prevent="goFeat(featIdx + 1, true)" @keydown.left.prevent="goFeat(featIdx - 1, true)">
+        <button v-for="(f, fi) in T.features" :key="f.id" type="button" role="tab" :aria-selected="featIdx === fi" :tabindex="featIdx === fi ? 0 : -1" :class="{ on: featIdx === fi }" @click="goFeat(fi, true)">
+          <em>{{ f.n }}</em>{{ f.k }}
+          <i v-if="featIdx === fi" :key="'p' + featTick" class="hs-prog" @animationend="goFeat(featIdx + 1)"></i>
+        </button>
+      </div>
+      <div class="hs-stage">
+      <button type="button" class="hs-car-btn prev" :aria-label="T.prev" @click="goFeat(featIdx - 1, true)">‹</button>
+      <button type="button" class="hs-car-btn next" :aria-label="T.next" @click="goFeat(featIdx + 1, true)">›</button>
+      <Transition name="hs-slide" mode="out-in">
+    <div v-for="f in [T.features[featIdx]]" :key="f.id" class="hs-feature in" role="tabpanel" :aria-labelledby="'h-' + f.id">
       <div class="hs-f-text">
         <div class="hs-f-n">{{ f.n }} · {{ f.k }}</div>
         <h3 :id="'h-' + f.id">{{ f.t }}</h3>
@@ -152,6 +158,10 @@ a { color: inherit; text-decoration: none; }
           </div>
           <div class="hs-note">{{ T.routeNote }}</div>
         </div>
+      </div>
+    </div>
+      </Transition>
+      </div>
       </div>
     </section>
 
@@ -243,7 +253,7 @@ createApp({
           { pain: 'Skill、MCP、Prompt 到处复制，版本对不上', t: '资产一处纳管，越用越懂你', d: '资产库改一次，所有已纳管的智能体拿到同一个版本；从你的使用习惯挖出工作画像，推荐下一批值得装的。' },
           { pain: '不知道哪个智能体擅长什么', t: '主 Agent 按特点派活', d: '把任务交给主 Agent，它拆步骤、派给最合适的那个：本机的 Pi、Claude Code、Codex，或雇来的社区智能体。' },
         ],
-        featKicker: 'FEATURES', featTitle: '统一管理，具体管哪些', featLead: '下面每一项都是桌面客户端里现成的功能，同一套能力也通过本机网关的接口提供。',
+        prev: '上一项', next: '下一项', featKicker: 'FEATURES', featTitle: '统一管理，具体管哪些', featLead: '下面每一项都是桌面客户端里现成的功能，同一套能力也通过本机网关的接口提供。',
         features: [
           { id: 'f-onboard', n: '01', k: '智能体纳管', t: '不同智能体，一处纳管', d: 'Pi、Claude Code、Codex、Cursor、WorkBuddy、Kimi Code、GrokBot、Muse、OpenClaw……装好的自动出现在网关页，点一下纳管，不想用了一键还原官方配置。',
             points: [['三种状态：', '仅统计 / 走网关 / 还原'], ['三种接入：', 'CLI 托管、改写配置、读会话记录'], ['CLI 多账号：', '按启动目录自动分发']],
@@ -325,7 +335,7 @@ createApp({
           { pain: 'Skills, MCP and prompts copied everywhere, versions drift', t: 'One asset library that learns you', d: 'Edit once and every onboarded agent gets the same version; a work portrait mined from your sessions suggests what to add next.' },
           { pain: 'No idea which agent is good at what', t: 'A main agent routes by strength', d: 'Hand the job to a main agent; it splits the steps and dispatches each to the best fit — local Pi, Claude Code, Codex, or a hired community agent.' },
         ],
-        featKicker: 'FEATURES', featTitle: 'What "manage" actually covers', featLead: 'Each of these ships in the desktop app today, and the same capabilities are exposed through the local gateway API.',
+        prev: 'Previous', next: 'Next', featKicker: 'FEATURES', featTitle: 'What "manage" actually covers', featLead: 'Each of these ships in the desktop app today, and the same capabilities are exposed through the local gateway API.',
         features: [
           { id: 'f-onboard', n: '01', k: 'Agent onboarding', t: 'Every agent runtime, onboarded in one place', d: 'Pi, Claude Code, Codex, Cursor, WorkBuddy, Kimi Code, GrokBot, Muse, OpenClaw… installed apps appear on the Gateway page; one click to onboard, one click to restore the official config.',
             points: [['Three clear states: ', 'stats only (official subscription + session back-fill), via gateway (bound route + live proxy), restored (original config).'], ['Three access modes: ', 'CLIs get environment variables injected; desktop apps get their config patched; the rest are tracked from session logs.'], ['Multi-account CLIs: ', 'several sign-ins on one Claude Code or Codex, picked by launch directory so each project keeps its account, quota and route.']],
@@ -420,6 +430,24 @@ createApp({
     const shotIdx = (id) => shotSel.value[id] || 0
     const setShot = (id, i) => { shotSel.value = { ...shotSel.value, [id]: i } }
     const boardSrc = (key) => '/static/img_cache/' + key + (lang.value === 'en' ? '_en' : '') + '.webp'
+    // 功能轮播：进度条走完自动下一项；悬停/聚焦暂停；用户点过就停在那一项
+    const featIdx = ref(0), featTick = ref(0), featPaused = ref(false)
+    function goFeat(i, user) {
+      const n = T.value.features.length
+      featIdx.value = (i + n) % n
+      featTick.value++
+      if (user) featPaused.value = true
+      nextTick(() => {
+        const bar = document.querySelector('.hs-index'), b = bar && bar.children[featIdx.value]
+        if (bar && b && bar.scrollWidth > bar.clientWidth) bar.scrollTo({ left: b.offsetLeft - 16, behavior: 'smooth' })
+      })
+    }
+    function featFromHash() {
+      const i = T.value.features.findIndex(f => '#' + f.id === location.hash)
+      if (i < 0) return
+      goFeat(i, true)
+      nextTick(() => { const el = document.getElementById('features'); if (el) el.scrollIntoView() })
+    }
     const exIdx = ref(0)
     const examples = computed(() => {
       const t = T.value
@@ -488,10 +516,11 @@ createApp({
       document.querySelectorAll('.pz-rv').forEach(el => obs.observe(el))
     }
     onMounted(() => {
+      featFromHash(); addEventListener('hashchange', featFromHash)
       document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
       nextTick(setupReveal)
     })
-    return { N, loggedIn, shotIdx, setShot, boardSrc, lang, T, toggleLang, reduced, appGroups, heroApps, exIdx, examples, copied, copyCode }
+    return { N, loggedIn, featIdx, featTick, featPaused, goFeat, shotIdx, setShot, boardSrc, lang, T, toggleLang, reduced, appGroups, heroApps, exIdx, examples, copied, copyCode }
   },
 }).mount('#app')
 </script>
