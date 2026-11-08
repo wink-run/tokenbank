@@ -1169,3 +1169,5 @@ body { background: #faf8f3 !important; color: var(--pz-ink); }
 @media (max-width: 1024px) { .dv-merge { max-width: 420px; margin: 8px auto 0; } }
 @media (max-width: 768px) { .dv-stats { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 1024px) { .hs-merge.dv-merge { display: block; } .dv-merge svg { height: auto; } }
+.pz-why-door { margin-top: 18px; border-color: rgba(255,201,74,.4); background: rgba(255,201,74,.08); }
+.pz-why-door span { color: var(--pz-y); }

@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=28">
+<link rel="stylesheet" href="/static/plaza.css?v=29">
 <script>
   // 模型、技能等开发者资源移到了资源市场
   (function () {
@@ -113,10 +113,6 @@ a { color: inherit; text-decoration: none; }
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
       <div class="ag-modes"><a class="ag-mode on" href="/agents">{{ N.modeUse }}</a><a class="ag-mode" href="/">{{ N.modeDev }}</a></div>
-      <div class="ag-navs ag-devnav">
-        <a class="ag-nav on" href="/agents" aria-current="page">{{ N.navPlaza }}</a>
-        <a class="ag-nav" href="/why">{{ N.navWhy }}</a>
-      </div>
       <div class="ag-top-r">
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
         <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
@@ -145,6 +141,7 @@ a { color: inherit; text-decoration: none; }
             <span>{{ T.tryLabel }}</span>
             <button v-for="w in T.tryWords" :key="w" type="button" class="pz-tag" :class="{ on: searchQuery === w }" @click="searchQuery = (searchQuery === w ? '' : w); jumpToList(false)">{{ w }}</button>
           </div>
+          <a class="dv-user-door pz-why-door" href="/why"><span>{{ T.whyDoorK }}</span>{{ T.whyDoor }} →</a>
         </div>
         <div class="pz-orbit">
           <svg viewBox="0 0 440 400" role="img" :aria-label="T.orbitCap">
@@ -401,6 +398,7 @@ createApp({
           h1a: 'Expert-tuned agents,', h1b: 'ready when you are',
           sub: 'No keys, no setup, no prompting. Pick one and go.',
           promise: ['Zero setup', 'Pay per task', 'Every vendor, one door', 'One link to bring friends'],
+          whyDoorK: 'New here?', whyDoor: 'See why it beats paying for your own subscription',
           search: 'What do you need done?', find: 'Find', tryLabel: 'Try:',
           tryWords: ['Copy', 'Images', 'Video', 'Meals'],
           you: 'YOU', orbitCap: 'Each dot is a live agent on someone\'s device',
@@ -453,6 +451,7 @@ createApp({
         h1a: '别人调好的智能体，', h1b: '打开就能用',
         sub: '不买 Key，不装环境，不写提示词。挑一个，直接用。',
         promise: ['0 配置', '按次付费', '各家能力一个入口', '一个链接拉朋友'],
+        whyDoorK: '第一次来？', whyDoor: '看看为什么比自己开订阅更划算',
         search: '想让智能体帮你做什么？', find: '找智能体', tryLabel: '试试：',
         tryWords: ['文案', '配图', '视频', '三餐'],
         you: '你', orbitCap: '每个光点，都是一台设备上正在运行的智能体',
