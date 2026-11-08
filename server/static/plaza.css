@@ -1160,3 +1160,12 @@ body { background: #faf8f3 !important; color: var(--pz-ink); }
   .ag-mode { padding: 0 10px; font-size: 14.5px; }
   .ag-mode::after { left: 10px; right: 10px; }
 }
+
+/* ── 首页首屏：接入示意 + 网络数字条 ── */
+.dv-merge svg { width: 100%; height: auto; display: block; }
+.dv-merge image[href*="kimi"] { filter: none; }
+.dv-hub-ring { filter: drop-shadow(0 0 18px rgba(255,201,74,.35)); }
+.dv-stats { grid-template-columns: repeat(4, 1fr); margin-top: 8px; }
+@media (max-width: 1024px) { .dv-merge { max-width: 420px; margin: 8px auto 0; } }
+@media (max-width: 768px) { .dv-stats { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 1024px) { .hs-merge.dv-merge { display: block; } .dv-merge svg { height: auto; } }
