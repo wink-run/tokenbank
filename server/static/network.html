@@ -3,15 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>共享网络 · Token Bank</title>
+<title>分享与收益 · Token Bank</title>
 <meta name="description" content="Token Bank 共享网络：把闲置的模型额度和调教好的智能体接入网络。无需公网 IP 和内网穿透，Skill 与 API Key 不离机，公开或只给圈子，每被用一次就得积分。">
 <link rel="icon" href="/static/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=16">
-<link rel="stylesheet" href="/static/app.css?v=16">
-<script src="/static/plaza-nav.js?v=16"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=15">
+<script src="/static/plaza-nav.js?v=15"></script>
 <script>
   // 旧链接：浏览类页签已并入智能体广场，圈子页签去圈子页
   (function () {
@@ -30,35 +29,144 @@ a { color: inherit; text-decoration: none; }
 </head>
 <body>
 <div id="app" v-cloak>
-  <nav class="app-top">
-    <div class="app-top-in">
-      <a class="app-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="app-tabs"><a href="/agents">{{ N.appPlaza }}</a><a href="/market">{{ N.appMarket }}</a><a class="on" aria-current="page" href="/network">{{ N.appNetwork }}</a><a href="/circles">{{ N.appCircles }}</a></div>
-      <div class="app-r">
-        <a class="hide-sm" href="/share">{{ N.appAbout }}</a>
-        <button type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
-        <a class="app-login" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
+  <nav class="ag-top">
+    <div class="ag-top-in">
+      <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
+      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/dev">{{ N.modeDev }}</a></div>
+      <div class="ag-navs ag-devnav">
+        <a class="ag-nav" href="/dev">{{ N.dOverview }}</a>
+        <a class="ag-nav" href="/harness">{{ N.dManage }}</a>
+        <a class="ag-nav on" href="/network" aria-current="page">{{ N.dShare }}</a>
+        <a class="ag-nav" href="/market">{{ N.dMarket }}</a>
+      </div>
+      <div class="ag-top-r">
+        <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
+        <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
+        <a class="ag-dl hide-sm" href="/#download">{{ N.download }}</a>
       </div>
     </div>
   </nav>
 
-  <!-- 使用页：只做，不讲。介绍在 /share -->
-  <header class="app-head">
-    <h1>{{ N.appNetwork }}</h1>
-    <p>{{ T.appSub }}</p>
-    <div class="app-row">
-      <div class="app-stats">
-        <span><i class="pz-live"></i><b>{{ loaded ? fmtTok(summary.contrib_period) : '—' }}</b>{{ T.periodTokens }}</span>
-        <span><b>{{ loaded ? (summary.online_workers ?? 0) : '—' }}</b>{{ T.nodes }}</span>
-        <span><b>{{ loaded ? (summary.active_users ?? 0) : '—' }}</b>{{ T.sharers }}</span>
-        <span class="hide-sm"><b>{{ loaded ? (models.length + agentCount) : '—' }}</b>{{ T.supplyNow }}</span>
-        <span class="hide-sm"><b>{{ loaded ? fmtTok(summary.contrib_tokens) : '—' }}</b>{{ T.totalTokens }}</span>
+  <!-- 首屏：给分享者的一句话 + 实时网络 -->
+  <header class="pz-hero">
+    <div class="pz-grid-bg" aria-hidden="true"></div>
+    <div class="dv-subm"><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a class="on" href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></div>
+    <div class="pz-hero-in nw-hero-in" style="padding-bottom:64px">
+      <div>
+        <div class="pz-eyebrow"><b>SHARE NETWORK</b>{{ T.eyebrow }}</div>
+        <h1 class="pz-h1">{{ T.h1a }}<br><em>{{ T.h1b }}</em></h1>
+        <p class="pz-sub">{{ T.sub }}</p>
+        <ul class="pz-promise"><li v-for="p in T.promise" :key="p">{{ p }}</li></ul>
+        <div class="nw-ctas">
+          <a class="pz-btn pri" href="/#download">{{ T.ctaStart }}</a>
+          <a class="pz-btn ghost" href="#board">{{ T.ctaBoard }}</a>
+        </div>
+      </div>
+      <div class="nw-live" aria-live="polite">
+        <div class="nw-live-h"><i class="pz-live"></i>{{ T.liveTitle }}<b>{{ T.liveEvery }}</b></div>
+        <div class="nw-big">{{ loaded ? fmtTok(summary.contrib_period) : '—' }}<small>tok</small></div>
+        <div class="nw-big-k">{{ T.periodTokens }}</div>
+        <div class="nw-kv">
+          <div><span>{{ T.nodes }}</span><strong>{{ loaded ? (summary.online_workers ?? 0) : '—' }}</strong></div>
+          <div><span>{{ T.sharers }}</span><strong>{{ loaded ? (summary.active_users ?? 0) : '—' }}</strong></div>
+          <div><span>{{ T.supplyNow }}</span><strong>{{ loaded ? (models.length + agentCount) : '—' }}</strong></div>
+          <div><span>{{ T.totalTokens }}</span><strong>{{ loaded ? fmtTok(summary.contrib_tokens) : '—' }}</strong></div>
+        </div>
       </div>
     </div>
   </header>
 
-  <main class="app-main">
-    <section id="board" class="pz-sec" :aria-label="N.appNetwork">
+  <main class="ag-page">
+    <!-- 两类供给：模型额度 和 智能体，关心的事不一样 -->
+    <section class="pz-sec" aria-labelledby="nw-kinds">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.kindKicker }}</div>
+        <h2 id="nw-kinds" class="pz-h2">{{ T.kindTitle }}</h2>
+      </div>
+      <div class="nw-two">
+        <div v-for="k in T.kinds" :key="k.key" :class="['nw-kind', k.key]">
+          <span class="pz-ic" aria-hidden="true" v-html="k.key === 'm' ? icoModel : icoAgent"></span>
+          <span class="pz-who">{{ k.who }}</span>
+          <h3>{{ k.title }}</h3>
+          <p>{{ k.text }}</p>
+          <dl><template v-for="row in k.rows" :key="row[0]"><dt>{{ row[0] }}</dt><dd>{{ row[1] }}</dd></template></dl>
+          <div class="nw-live-n"><b>{{ loaded ? (k.key === 'm' ? models.length : agentCount) : '—' }}</b>{{ k.live }}</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 三步上架 -->
+    <section class="pz-sec pz-rv" aria-labelledby="nw-how">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.howKicker }}</div>
+        <h2 id="nw-how" class="pz-h2">{{ T.howTitle }}</h2>
+      </div>
+      <div class="nw-steps">
+        <div v-for="st in T.steps" :key="st[0]" class="nw-step"><h3>{{ st[0] }}</h3><p>{{ st[1] }}</p></div>
+      </div>
+    </section>
+
+    <!-- 分享给谁，你说了算 -->
+    <section class="pz-sec pz-rv" aria-labelledby="nw-scope">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.scopeKicker }}</div>
+        <h2 id="nw-scope" class="pz-h2">{{ T.scopeTitle }}</h2>
+      </div>
+      <div class="nw-scope nw-scope3">
+        <div class="nw-sc self">
+          <span class="pz-ic" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/></svg></span>
+          <div><h3>{{ T.selfTitle }}</h3><p>{{ T.selfText }}</p><a href="/circles">{{ T.selfLink }} →</a></div>
+        </div>
+        <div class="nw-sc pub">
+          <span class="pz-ic" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.25"/><path d="M3.75 12h16.5M12 3.75c2.2 2.3 3.3 5 3.3 8.25s-1.1 5.95-3.3 8.25c-2.2-2.3-3.3-5-3.3-8.25S9.8 6.05 12 3.75Z"/></svg></span>
+          <div><h3>{{ T.pubTitle }}</h3><p>{{ T.pubText }}</p><a href="/agents">{{ T.pubLink }} →</a></div>
+        </div>
+        <div class="nw-sc cir">
+          <span class="pz-ic" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="3.25"/><circle cx="16.5" cy="10.5" r="2.5"/><path d="M3.75 19.5c.6-3 2.7-4.75 5.25-4.75s4.65 1.75 5.25 4.75M14.5 15.2c.6-.3 1.3-.45 2-.45 2 0 3.5 1.4 3.9 3.75"/></svg></span>
+          <div><h3>{{ T.cirTitle }}</h3><p>{{ T.cirText }}</p><a href="/circles">{{ T.cirLink }} →</a></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 别人能用，但拿不走 -->
+    <section class="pz-safe pz-rv" aria-labelledby="pz-safe">
+      <div>
+        <div class="pz-kicker">{{ T.safeKicker }}</div>
+        <h2 id="pz-safe" class="pz-h2">{{ T.safeTitle }}</h2>
+        <p class="pz-lead">{{ T.safeLead }}</p>
+      </div>
+      <div class="pz-flow" aria-hidden="true">
+        <div class="pz-box me">
+          <h4>{{ T.safeMe }}</h4><strong>{{ T.safeMeName }}</strong>
+          <div class="pz-vault"><span v-for="v in T.safeVault" :key="v">{{ v }}</span></div>
+        </div>
+        <div class="pz-pipe"><i class="back"></i><span>{{ T.safePipe }}</span><i></i></div>
+        <div class="pz-box them">
+          <h4>{{ T.safeThem }}</h4><strong>{{ T.safeThemName }}</strong>
+          <div class="pz-vault"><span class="ok">{{ T.safeGets }}</span><span v-for="v in T.safeVault" :key="'x' + v">{{ v }}</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 分享能得到什么 -->
+    <section class="pz-sec pz-rv" aria-labelledby="nw-gain">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.gainKicker }}</div>
+        <h2 id="nw-gain" class="pz-h2">{{ T.gainTitle }}</h2>
+      </div>
+      <div class="nw-gains four">
+        <div v-for="g in T.gains" :key="g[0]" class="nw-gain"><b>{{ g[0] }}</b><span>{{ g[1] }}</span></div>
+      </div>
+    </section>
+
+    <!-- 排行 + 网络里在供给的 -->
+    <section id="board" class="pz-sec" aria-labelledby="nw-board">
+      <div class="pz-list-head">
+        <div>
+          <div class="pz-kicker">{{ T.boardKicker }}</div>
+          <h2 id="nw-board" class="pz-h2">{{ T.boardTitle }}</h2>
+        </div>
+      </div>
       <p v-if="fatal" class="pz-empty" style="display:block"><b>{{ fatal }}</b></p>
       <div v-else class="nw-board">
         <div class="nw-card" id="rank">
@@ -73,7 +181,7 @@ a { color: inherit; text-decoration: none; }
             </component>
           </template>
           <div v-else class="nw-empty">{{ T.emptyRank }}</div>
-          <div class="nw-card-f">{{ T.rankFoot }} <a href="/share">{{ T.rankJoin }} →</a></div>
+          <div class="nw-card-f">{{ T.rankFoot }} <a href="/#download">{{ T.rankJoin }} →</a></div>
         </div>
         <div class="nw-card">
           <div class="nw-card-h"><h3>{{ T.supplyTitle }}</h3><span>{{ T.supplySub }}</span></div>
@@ -91,8 +199,25 @@ a { color: inherit; text-decoration: none; }
       </div>
     </section>
 
+    <section class="pz-sec pz-rv" aria-labelledby="pz-dev">
+      <div class="pz-head-c"><div class="pz-kicker">{{ N.devKicker }}</div><h2 id="pz-dev" class="pz-h2">{{ N.devTitle }}</h2></div>
+      <div class="pz-dev3">
+        <a v-for="d in N.dev" :key="d.href" :href="d.href" :class="{ on: d.href === '/network' }"><em>{{ d.n }}</em><b>{{ d.t }}</b><span>{{ d.d }}</span></a>
+      </div>
+    </section>
+
+    <section class="pz-final pz-rv">
+      <div>
+        <h2>{{ T.finalTitle }}</h2>
+        <p>{{ T.finalText }}</p>
+      </div>
+      <div class="pz-final-btns">
+        <a class="pz-btn pri" href="/#download">{{ T.ctaStart }}</a>
+        <a class="pz-btn ghost" href="/market">{{ T.finalCta2 }}</a>
+      </div>
+    </section>
   </main>
-  <footer class="app-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/why">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/agents">{{ N.appPlaza }}</a><a href="/market">{{ N.appMarket }}</a><a href="/network">{{ N.appNetwork }}</a><a href="/circles">{{ N.appCircles }}</a></footer>
+  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/harness">{{ N.dManage }}</a><a href="/network">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
 </div>
 
 <script>
@@ -106,7 +231,7 @@ createApp({
     const i18n = {
       zh: {
         navPlaza: '智能体广场', navNetwork: '共享网络', navCircles: '圈子', account: '我的账户', signIn: '登录', download: '下载客户端',
-        title: '共享网络', appSub: '谁在分享、网络里有什么，每 30 秒刷新。怎么分享见「分享与收益」。', eyebrow: '开发者 · 分享与收益',
+        title: '分享与收益', eyebrow: '开发者 · 分享与收益',
         h1a: '分享你的智能体，', h1b: '自己随处用，别人用你赚',
         sub: '给自己、给圈子或给所有人。别人每用一次，你得积分。',
         promise: ['自用、圈子或全网', 'Skill 与 Key 不离机', '用一次结一次', '无需网络配置'],
@@ -149,7 +274,7 @@ createApp({
       },
       en: {
         navPlaza: 'Agent Plaza', navNetwork: 'Share & earn', navCircles: 'Circles', account: 'My account', signIn: 'Sign in', download: 'Download',
-        title: 'Network', appSub: 'Who is sharing and what is on the network, refreshed every 30 s.', eyebrow: 'Developers · share & earn',
+        title: 'Share & earn', eyebrow: 'Developers · share & earn',
         h1a: 'Share your agents —', h1b: 'yours anywhere, paid when others use them',
         sub: 'For yourself, a circle or everyone. Every use earns you credits.',
         promise: ['Yourself, a circle or everyone', 'Skills and keys stay local', 'Settled per use', 'No network setup'],

@@ -224,7 +224,7 @@ def render_agent_cards(agents: list | None, skip_id: str = "", limit: int = 50) 
 
 def render_sitemap(agents: list | None) -> str:
     origin = public_origin()
-    locs = [origin + "/", origin + "/why", origin + "/dev", origin + "/harness", origin + "/share", origin + "/agents", origin + "/market", origin + "/network", origin + "/circles"]
+    locs = [origin + "/", origin + "/agents", origin + "/dev", origin + "/harness", origin + "/network", origin + "/market", origin + "/circles"]
     seen = set()
     for card in agents or []:
         if not isinstance(card, dict):

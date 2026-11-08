@@ -9,8 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=16">
-<link rel="stylesheet" href="/static/app.css?v=16">
+<link rel="stylesheet" href="/static/plaza.css?v=15">
 <script>
   // 模型、技能等开发者资源移到了资源市场
   (function () {
@@ -19,7 +18,7 @@
     else if (h === 'resources') location.replace('/market#skills');
   })();
 </script>
-<script src="/static/plaza-nav.js?v=16"></script>
+<script src="/static/plaza-nav.js?v=15"></script>
 <script src="/static/vue.global.prod.js"></script>
 <script src="/static/app-runtime-icon.js"></script>
 <style>
@@ -110,39 +109,81 @@ a { color: inherit; text-decoration: none; }
 <div id="app" v-cloak>
   <!-- 智能体工具广场 -->
   <div v-if="view === 'list'">
-    <nav class="app-top">
-    <div class="app-top-in">
-      <a class="app-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="app-tabs"><a class="on" aria-current="page" href="/agents">{{ N.appPlaza }}</a><a href="/market">{{ N.appMarket }}</a><a href="/network">{{ N.appNetwork }}</a><a href="/circles">{{ N.appCircles }}</a></div>
-      <div class="app-r">
-        <a class="hide-sm" href="/why">{{ N.appAbout }}</a>
-        <button type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
-        <a class="app-login" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
-      </div>
-    </div>
-  </nav>
-
-    <!-- 使用页：只做，不讲。介绍在 /why -->
-    <header class="app-head">
-      <h1>{{ N.appPlaza }}</h1>
-      <p>{{ searchQuery && hydrated ? T.listFound.replace('{n}', String(shownTools.length)) : T.appSub }}</p>
-      <div class="app-row">
-        <form class="app-search" role="search" @submit.prevent>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          <input ref="search" v-model="searchQuery" type="search" :placeholder="T.search" :aria-label="T.search">
-          <span v-if="!searchQuery" class="pz-kbd" aria-hidden="true">/</span>
-        </form>
-        <div class="app-stats">
-          <span><i class="pz-live"></i><b>{{ hydrated ? onlineCount : '—' }}</b>{{ T.statOnline }}</span>
-          <span><b>{{ hydrated ? tools.length : '—' }}</b>{{ T.statListed }}</span>
-          <span class="hide-sm"><b>{{ hydrated ? runtimes.length : '—' }}</b>{{ T.statRuntimes }}</span>
+    <nav class="ag-top">
+      <div class="ag-top-in">
+        <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
+        <div class="ag-modes"><a class="ag-mode on" href="/agents" aria-current="page">{{ N.modeUse }}</a><a class="ag-mode" href="/dev">{{ N.modeDev }}</a></div>
+        <div class="ag-top-r">
+          <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
+          <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
         </div>
+      </div>
+    </nav>
+
+    <!-- 首屏：一句话 + 四个承诺 + 搜索；右边星图里的节点就是线上的智能体 -->
+    <header class="pz-hero">
+      <div class="pz-grid-bg" aria-hidden="true"></div>
+      <div class="pz-hero-in">
+        <div>
+          <div class="pz-eyebrow"><b>AGENT PLAZA</b>{{ T.eyebrow }}</div>
+          <h1 class="pz-h1">{{ T.h1a }}<br><em>{{ T.h1b }}</em></h1>
+          <p class="pz-sub">{{ T.sub }}</p>
+          <ul class="pz-promise"><li v-for="p in T.promise" :key="p">{{ p }}</li></ul>
+          <form class="pz-search" role="search" @submit.prevent="jumpToList(true)">
+            <div class="pz-search-in">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input ref="search" v-model="searchQuery" type="search" :placeholder="T.search" :aria-label="T.search">
+              <span v-if="!searchQuery" class="pz-kbd" aria-hidden="true">/</span>
+              <button type="submit">{{ T.find }}</button>
+            </div>
+          </form>
+          <div class="pz-tags">
+            <span>{{ T.tryLabel }}</span>
+            <button v-for="w in T.tryWords" :key="w" type="button" class="pz-tag" :class="{ on: searchQuery === w }" @click="searchQuery = (searchQuery === w ? '' : w); jumpToList(false)">{{ w }}</button>
+          </div>
+        </div>
+        <div class="pz-orbit">
+          <svg viewBox="0 0 440 400" role="img" :aria-label="T.orbitCap">
+            <defs>
+              <radialGradient id="pzHub" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#FFE08A"/><stop offset="55%" stop-color="#FFD055" stop-opacity=".55"/><stop offset="100%" stop-color="#FFD055" stop-opacity="0"/></radialGradient>
+              <linearGradient id="pzLine" x1="0" x2="1"><stop offset="0%" stop-color="#FFD055" stop-opacity=".05"/><stop offset="50%" stop-color="#FFD055" stop-opacity=".45"/><stop offset="100%" stop-color="#FFD055" stop-opacity=".05"/></linearGradient>
+            </defs>
+            <ellipse cx="220" cy="190" rx="190" ry="150" fill="none" stroke="rgba(255,255,255,.07)" stroke-dasharray="2 6"/>
+            <ellipse cx="220" cy="190" rx="110" ry="88" fill="none" stroke="rgba(255,255,255,.09)" stroke-dasharray="2 5"/>
+            <g v-for="(n, i) in orbitNodes" :key="'l' + i">
+              <path :d="'M220 190 L' + n.x + ' ' + n.y" stroke="url(#pzLine)" :stroke-opacity="n.online ? 1 : .35" stroke-width="1" fill="none"/>
+              <circle v-if="!reducedMotion && n.online" r="2.6" :fill="i % 2 ? '#FFD055' : '#ffffff'">
+                <animateMotion :dur="(2.4 + i * 0.4) + 's'" repeatCount="indefinite" :path="'M220 190 L' + n.x + ' ' + n.y" :keyPoints="i % 2 ? '0;1' : '1;0'" keyTimes="0;1" calcMode="linear" :begin="(i * 0.3) + 's'"/>
+              </circle>
+            </g>
+            <a v-for="(n, i) in orbitNodes" :key="'n' + i" :href="n.href || '#agents'">
+              <title>{{ n.title }}</title>
+              <circle :cx="n.x" :cy="n.y" :r="n.r * 2.8" :fill="n.online ? 'rgba(255,208,85,.12)' : 'rgba(255,255,255,.04)'"/>
+              <circle class="pz-node-dot" :cx="n.x" :cy="n.y" :r="n.r" :fill="n.online ? '#FFD055' : '#4a4a4c'" stroke="rgba(255,255,255,.55)" stroke-width=".8"/>
+              <text v-if="n.label" :x="n.x" :y="n.y + n.r + 16" text-anchor="middle" font-size="11.5" :fill="n.online ? 'rgba(255,255,255,.78)' : 'rgba(255,255,255,.35)'">{{ n.label }}</text>
+            </a>
+            <circle cx="220" cy="190" r="52" fill="url(#pzHub)" opacity=".55"/>
+            <circle cx="220" cy="190" r="24" fill="#111" stroke="#FFD055" stroke-width="1.4"/>
+            <text x="220" y="194.5" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">{{ T.you }}</text>
+          </svg>
+        </div>
+      </div>
+      <div class="pz-stats">
+        <div class="pz-stat"><div class="pz-stat-k"><i class="pz-live"></i>{{ T.statOnline }}</div><div class="pz-stat-v">{{ hydrated ? onlineCount : '—' }}</div></div>
+        <div class="pz-stat"><div class="pz-stat-k">{{ T.statListed }}</div><div class="pz-stat-v">{{ hydrated ? tools.length : '—' }}</div></div>
+        <div class="pz-stat"><div class="pz-stat-k">{{ T.statRuntimes }}</div><div class="pz-stat-v">{{ hydrated ? runtimes.length : '—' }}<small v-if="runtimes.length">{{ runtimes.slice(0, 4).map(r => r.label).join(' · ') }}</small></div></div>
       </div>
     </header>
 
-    <main class="app-main">
+    <main class="ag-page">
       <!-- 先给货：首屏下面直接是能用的东西 -->
-      <section id="agents" class="pz-sec" :aria-label="N.appPlaza">
+      <section id="agents" class="pz-sec" aria-labelledby="pz-list">
+        <div class="pz-list-head">
+          <div>
+            <div class="pz-kicker">{{ T.listKicker }}</div>
+            <h2 id="pz-list" class="pz-h2">{{ searchQuery && hydrated ? T.listFound.replace('{n}', String(shownTools.length)) : T.listTitle }}</h2>
+          </div>
+        </div>
         <div v-if="hydrated && tools.length" class="pz-subbar" role="group" :aria-label="T.filterLabel">
           <button type="button" :class="['ag-chip', { on: filter === 'all' }]" :aria-pressed="filter === 'all'" @click="filter = 'all'">{{ T.all }}<em>{{ tools.length }}</em></button>
           <button type="button" :class="['ag-chip', { on: filter === 'online' }]" :aria-pressed="filter === 'online'" @click="filter = 'online'"><i class="ag-dot ok"></i>{{ T.onlineOnly }}<em>{{ onlineCount }}</em></button>
@@ -186,8 +227,60 @@ a { color: inherit; text-decoration: none; }
         </template>
       </section>
 
+      <!-- 为什么不直接用通用助手：三种人，三种用法 -->
+      <section class="pz-sec pz-rv" aria-labelledby="pz-why">
+        <div class="pz-head-c">
+          <div class="pz-kicker">{{ T.whyKicker }}</div>
+          <h2 id="pz-why" class="pz-h2">{{ T.whyTitle }}</h2>
+          <p class="pz-lead">{{ T.whyLead }}</p>
+        </div>
+        <div class="pz-roles">
+          <a v-for="r in T.roles" :key="r.key" :class="['pz-role', r.key]" :href="r.href" @click="r.href === '#agents' && ($event.preventDefault(), jumpToList(false))">
+            <div class="pz-role-top">
+              <span class="pz-ic" v-html="roleIcon(r.key)"></span>
+              <span class="pz-who">{{ r.who }}</span>
+            </div>
+            <h3>{{ r.title }}</h3>
+            <p class="pz-quote">{{ r.quote }}</p>
+            <ul class="pz-list"><li v-for="p in r.points" :key="p">{{ p }}</li></ul>
+            <span class="pz-cta">{{ r.cta }} <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+          </a>
+        </div>
+      </section>
+
+      <!-- 和通用 AI 助手比 -->
+      <section class="pz-sec pz-rv" aria-labelledby="pz-cmp">
+        <div class="pz-head-c">
+          <div class="pz-kicker">{{ T.cmpKicker }}</div>
+          <h2 id="pz-cmp" class="pz-h2">{{ T.cmpTitle }}</h2>
+        </div>
+        <div class="pz-cmp" role="table">
+          <div class="pz-cmp-row" role="row">
+            <div class="pz-cmp-dim" role="columnheader"></div>
+            <div class="pz-cmp-them" role="columnheader"><div class="pz-cmp-h">{{ T.cmpThem }}<small>{{ T.cmpThemHint }}</small></div></div>
+            <div class="pz-cmp-us" role="columnheader"><div class="pz-cmp-h">{{ T.cmpUs }}<small>{{ T.cmpUsHint }}</small></div></div>
+          </div>
+          <div v-for="row in T.cmp" :key="row[0]" class="pz-cmp-row" role="row">
+            <div class="pz-cmp-dim" role="rowheader">{{ row[0] }}</div>
+            <div class="pz-cmp-them" role="cell"><i class="pz-x" aria-hidden="true">–</i><span>{{ row[1] }}</span></div>
+            <div class="pz-cmp-us" role="cell"><i class="pz-v" aria-hidden="true">✓</i><span>{{ row[2] }}</span></div>
+          </div>
+        </div>
+      </section>
+
+
+      <!-- 收尾：想分享的人去共享网络 -->
+      <section class="pz-final pz-rv">
+        <div>
+          <h2>{{ T.finalTitle }}</h2>
+          <p>{{ T.finalText }}</p>
+        </div>
+        <div class="pz-final-btns">
+          <a class="pz-btn pri" href="/dev">{{ T.finalCta }}</a>
+          <a class="pz-btn ghost" href="/market">{{ T.finalCta2 }}</a>
+        </div>
+      </section>
     </main>
-    <footer class="app-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/why">{{ N.modeUse }}</a><a href="/dev">{{ N.modeDev }}</a><a href="/agents">{{ N.appPlaza }}</a><a href="/market">{{ N.appMarket }}</a><a href="/network">{{ N.appNetwork }}</a><a href="/circles">{{ N.appCircles }}</a></footer>
     <div class="pz-toast" :class="{ on: toast }" role="status" aria-live="polite"><i aria-hidden="true">✓</i>{{ toast }}</div>
   </div>
 
@@ -340,11 +433,11 @@ createApp({
           h1a: 'Expert-tuned agents,', h1b: 'ready when you are',
           sub: 'No keys, no setup, no prompting. Pick one and go.',
           promise: ['Zero setup', 'Pay per task', 'Every vendor, one door', 'One link to bring friends'],
-          search: 'Search agents, owners or uses', find: 'Find', tryLabel: 'Try:',
+          search: 'What do you need done?', find: 'Find', tryLabel: 'Try:',
           tryWords: ['Copy', 'Images', 'Video', 'Meals'],
           you: 'YOU', orbitCap: 'Each dot is a live agent on someone\'s device',
           statOnline: 'Online now', statListed: 'Ready to hire', statModels: 'Models to try', statRuntimes: 'Engines covered', statOwners: 'Developers who tuned them', statOwnersUnit: '',
-          appSub: 'Agents others tuned — open one to use it. Offline ones keep their history; the link icon copies a share link.', listKicker: 'LIVE NOW', listTitle: 'Ready to use', listFound: '{n} results',
+          listKicker: 'LIVE NOW', listTitle: 'Ready to use', listFound: '{n} results',
           listLead: { agents: 'Open one to chat. Offline agents still show their history; the link icon copies a share link.', models: 'Models shared by community nodes — chat or generate images in the browser, no API key of your own.', resources: 'Skills, prompts and scenes: scenes open in the browser, skills and prompts install into the app in one click.' },
           tabAgents: 'Agents', tabModels: 'Models', tabResources: 'Skills & scenes',
           modelHint: 'Lower first-token latency is faster', resHint: '', colModel: 'Model', colNodes: 'Nodes', colLatency: 'First token', nodesN: '{n} nodes',
@@ -391,11 +484,11 @@ createApp({
         h1a: '别人调好的智能体，', h1b: '打开就能用',
         sub: '不买 Key，不装环境，不写提示词。挑一个，直接用。',
         promise: ['0 配置', '按次付费', '各家能力一个入口', '一个链接拉朋友'],
-        search: '搜索智能体、作者或用途', find: '找智能体', tryLabel: '试试：',
+        search: '想让智能体帮你做什么？', find: '找智能体', tryLabel: '试试：',
         tryWords: ['文案', '配图', '视频', '三餐'],
         you: '你', orbitCap: '每个光点，都是一台设备上正在运行的智能体',
         statOnline: '此刻在线', statListed: '可以雇佣', statModels: '可试用模型', statRuntimes: '覆盖的引擎', statOwners: '调教它们的开发者', statOwnersUnit: '位',
-        appSub: '别人调好的智能体，点开就能用。离线的可看记录，链接图标可复制分享。', listKicker: 'LIVE NOW', listTitle: '现在就能用', listFound: '找到 {n} 个结果',
+        listKicker: 'LIVE NOW', listTitle: '现在就能用', listFound: '找到 {n} 个结果',
         listLead: { agents: '点开就能对话；离线的也能看历史记录。点链接图标，复制分享链接发给朋友。', models: '社区节点共享的模型，网页里直接对话或生图，不用自己买 Key。', resources: '技能、提示词和场景：场景可直接网页使用，技能和提示词在客户端一键纳管。' },
         tabAgents: '智能体', tabModels: '模型', tabResources: '技能与场景',
         modelHint: '首字延迟越低越快', resHint: '', colModel: '模型', colNodes: '节点', colLatency: '首字延迟', nodesN: '{n} 个节点',
@@ -563,7 +656,6 @@ createApp({
       const toolId = decodeURIComponent(path.slice('/tools/'.length));
       if (toolId) this.loadToolDetail(toolId);
     } else {
-      try { const q0 = new URLSearchParams(location.search).get('q'); if (q0) this.searchQuery = q0; } catch (e) { /* ignore */ }
       this.loadTools();
     }
     document.documentElement.lang = this.lang === 'zh' ? 'zh-CN' : 'en';

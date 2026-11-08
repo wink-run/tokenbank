@@ -780,7 +780,7 @@ body { background: #faf9f5 !important; }
 .pz-btn.ghost { border-color: #d6d2ce; background: #fff; }
 
 /* 资源市场：可见范围 */
-.mk-scope { margin-top: 8px; display: flex; align-items: center; gap: 6px; }
+.mk-scope { margin-top: 24px; display: flex; align-items: center; gap: 6px; }
 .mk-scope button { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--pz-line); background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: #52525b; cursor: pointer; }
 .mk-scope button.on { background: #0a0a0a; border-color: #0a0a0a; color: var(--pz-y); }
 .mk-scope button em { font-style: normal; font-size: 12px; opacity: .6; }
