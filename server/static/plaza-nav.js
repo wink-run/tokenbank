@@ -9,7 +9,7 @@
       whoKicker: 'WHO ARE YOU', whoTitle: '你是哪一类用户？',
       who: [
         { href: '/agents', k: '普通用户', t: '让智能体帮我把事办成', d: '像打车一样：挑一个高手调好的智能体，说清要做什么，网页里就能用。', cta: '去智能体广场' },
-        { href: '/dev', k: '开发者', t: '管理、分享、获取智能体和模型', d: '统一管理自己的 runtime 和模型；分享出去分摊费用；从市场拿资源，自用或加工后上架。', cta: '进入开发者中心' },
+        { href: '/dev', k: '开发者', t: '智能体应用工厂', d: '统一管理 runtime 和模型，把应用架在上面；分享出去分摊费用，从市场拿资源加工后上架。', cta: '进入开发者中心' },
       ],
       devKicker: 'FOR DEVELOPERS', devTitle: '开发者的三件事',
       dev: [
@@ -25,7 +25,7 @@
       whoKicker: 'WHO ARE YOU', whoTitle: 'Which kind of user are you?',
       who: [
         { href: '/agents', k: 'Everyday user', t: 'Get an agent to do the job', d: 'Like hailing a ride: pick an agent an expert tuned, say what you need, use it in the browser.', cta: 'Go to the Agent Plaza' },
-        { href: '/dev', k: 'Developer', t: 'Manage, share and source agents and models', d: 'One place for your runtimes and model providers; share to split costs; take resources from the market, use or remix and list them.', cta: 'Open the developer hub' },
+        { href: '/dev', k: 'Developer', t: 'An agent app factory', d: 'Manage runtimes and models and build apps on top; share to split costs, remix market resources and list them.', cta: 'Open the developer hub' },
       ],
       devKicker: 'FOR DEVELOPERS', devTitle: 'Three things developers do here',
       dev: [

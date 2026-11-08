@@ -9,8 +9,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=8">
-<script src="/static/plaza-nav.js?v=8"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=9">
+<script src="/static/plaza-nav.js?v=9"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -284,14 +284,15 @@ createApp({
         ],
         dRoute: { app: '你的应用', apps: ['Claude Code', 'Codex', 'Cursor', 'Pi'], bind: '按应用绑定路由', scene: '场景 / 任务分型', scenes: ['日常对话', '代码补全', '长文分析', 'design', 'repo-qa', 'chore', 'debug'], chainK: '供给链，逐级直到命中', chain: ['Ollama', '免费 API', '订阅 / 按量', '社区共享'], policyK: '策略组', policies: ['fallback', 'round-robin', 'weighted', 'latency', 'direct'], note: '原生模型名不变，故障转移对智能体完全透明。' },
         dDev: { devices: [['MacBook', '桌面版', '设备 A · 在线'], ['Windows 台式机', '桌面版', '设备 B · 在线'], ['Linux 服务器', 'CLI / Docker 网关', '设备 C · 在线']], up: '定时上报盘点快照', cloud: '你的账号', cloudD: '用量云端合并 · 订阅与配置同步', down: '在任意一台上查看', views: ['各设备占比', '在线状态', '独立明细', '汇总视图'] },
-        vsKicker: 'NOT JUST A GATEWAY', vsTitle: '不只是又一个模型网关', vsLead: '模型网关和切换工具解决的是「换模型、换 Key」。Token Bank 管的是你整套智能体：runtime、模型、资产、调度，再往后是分享和获取。',
-        vsThem: '纯模型网关 / 切换工具', vsThemHint: '如 cc-switch、Magpie 这类产品', vsUs: 'Token Bank 统一管理', vsUsHint: 'runtime + 模型 + 资产 + 分享',
+        vsKicker: 'NOT JUST A GATEWAY', vsTitle: '模型网关是一层，这里是一座智能体应用工厂', vsLead: '模型网关和切换工具解决的是「换模型、换 Key」。Token Bank 管的是整套智能体：runtime、模型、资产、调度、观测，并且能直接在上面架应用。',
+        vsThem: '纯模型网关 / 切换工具', vsThemHint: '如 cc-switch、Magpie 这类产品', vsUs: 'Token Bank', vsUsHint: '智能体应用工厂',
         vs: [
           ['管什么', '主要是模型供应商和 Key 的切换、转发', 'Pi、Claude Code、Cursor 等 runtime，加上模型、Skill、MCP、Prompt'],
           ['接口', '模型补全接口', '模型接口，加上智能体任务接口：本机和社区智能体同一套，换 harness_id 就换'],
           ['看得见', '多数只管转发', '全链路 Trace、会话补录、多设备盘点、订阅与按量对照'],
           ['调度', '按模型路由', '按模型路由，加主 Agent 按特点把步骤派给不同智能体'],
           ['资产', '一般不涉及', '一处纳管，投射到每个已装的 runtime，画像推荐'],
+          ['能在上面做应用吗', '它本身就是终点', '统一任务接口做进你的产品；或者上架成网页应用，对话页、分享、试用、计费现成'],
           ['之后', '到此为止', '调好的智能体分享出去分摊费用；从资源市场拿模板再加工'],
         ],
         routeKicker: 'BY STRENGTH', routeTitle: '一句话，派给最擅长的那个', routeLead: '主 Agent 接住整件事，按每一步的特点挑执行者。本机的、雇来的、模型，都在同一张名单里。',
@@ -362,14 +363,15 @@ createApp({
         ],
         dRoute: { app: 'Your apps', apps: ['Claude Code', 'Codex', 'Cursor', 'Pi'], bind: 'route bound per app', scene: 'Scene / task type', scenes: ['chat', 'completion', 'long docs', 'design', 'repo-qa', 'chore', 'debug'], chainK: 'supply chain, until one answers', chain: ['Ollama', 'Free APIs', 'Subscription / PAYG', 'Community'], policyK: 'Policy group', policies: ['fallback', 'round-robin', 'weighted', 'latency', 'direct'], note: 'Native model names kept; failover is fully transparent to the agent.' },
         dDev: { devices: [['MacBook', 'Desktop', 'device A · online'], ['Windows PC', 'Desktop', 'device B · online'], ['Linux server', 'CLI / Docker gateway', 'device C · online']], up: 'usage snapshots reported', cloud: 'Your account', cloudD: 'usage merged · subscriptions and config synced', down: 'view from any device', views: ['share per device', 'online status', 'per-device detail', 'combined view'] },
-        vsKicker: 'NOT JUST A GATEWAY', vsTitle: 'More than another model gateway', vsLead: 'Model gateways and switchers solve "change the model, change the key". Token Bank manages your whole agent setup: runtimes, models, assets and dispatch — and then sharing and sourcing.',
-        vsThem: 'Model gateway / switcher', vsThemHint: 'products like cc-switch or Magpie', vsUs: 'Token Bank Manage', vsUsHint: 'runtimes + models + assets + sharing',
+        vsKicker: 'NOT JUST A GATEWAY', vsTitle: 'A gateway is one layer; this is an agent app factory', vsLead: 'Model gateways and switchers solve "change the model, change the key". Token Bank manages the whole agent setup — runtimes, models, assets, dispatch, observability — and lets you build apps right on top.',
+        vsThem: 'Model gateway / switcher', vsThemHint: 'products like cc-switch or Magpie', vsUs: 'Token Bank', vsUsHint: 'an agent app factory',
         vs: [
           ['What it manages', 'Mostly switching and forwarding model providers and keys', 'Runtimes like Pi, Claude Code and Cursor, plus models, skills, MCP and prompts'],
           ['Interface', 'Model completion endpoints', 'Model endpoints plus an agent task endpoint: local and community agents alike, switch by harness_id'],
           ['Visibility', 'Usually forwarding only', 'Full trace, session back-fill, multi-device usage, subscription vs pay-as-you-go'],
           ['Dispatch', 'Routes by model', 'Routes by model, plus a main agent sending each step to a different agent'],
           ['Assets', 'Usually out of scope', 'One library projected to every installed runtime, with personalised picks'],
+          ['Build apps on it?', 'It is the end of the line', 'Put the task API in your product, or list agents as web apps with chat, sharing, trial and billing ready'],
           ['Afterwards', 'That\'s it', 'Share tuned agents to split costs; remix templates from the market'],
         ],
         routeKicker: 'BY STRENGTH', routeTitle: 'One sentence, sent to whoever does it best', routeLead: 'The main agent owns the whole job and picks an executor for each step. Local apps, hired agents and models sit on the same roster.',
