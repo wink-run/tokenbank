@@ -64,11 +64,11 @@ a { color: inherit; text-decoration: none; }
             <radialGradient id="hsHub" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#FFE08A"/><stop offset="55%" stop-color="#FFD055" stop-opacity=".45"/><stop offset="100%" stop-color="#FFD055" stop-opacity="0"/></radialGradient>
           </defs>
           <g v-for="(a, i) in heroApps" :key="a.id">
-            <path :d="'M62 ' + a.y + ' C 140 ' + a.y + ', 130 190, 170 190'" stroke="url(#hsIn)" stroke-width="1.2" fill="none"/>
-            <circle v-if="!reduced" r="2.4" fill="#FFD055"><animateMotion :dur="(2.2 + i * 0.25) + 's'" repeatCount="indefinite" :begin="(i * 0.3) + 's'" :path="'M62 ' + a.y + ' C 140 ' + a.y + ', 130 190, 170 190'"/></circle>
-            <rect v-if="!a.full" x="14" :y="a.y - 17" width="48" height="34" rx="10" :fill="a.dark ? '#111' : 'rgba(255,255,255,.94)'" stroke="rgba(255,255,255,.2)"/>
-            <image v-if="a.icon && a.full" :href="a.icon" x="21" :y="a.y - 17" width="34" height="34"/>
-            <image v-else-if="a.icon" :href="a.icon" x="27" :y="a.y - 11" width="22" height="22"/>
+            <path :d="'M58 ' + a.y + ' C 140 ' + a.y + ', 130 190, 170 190'" stroke="url(#hsIn)" stroke-width="1.2" fill="none"/>
+            <circle v-if="!reduced" r="2.4" fill="#FFD055"><animateMotion :dur="(2.2 + i * 0.25) + 's'" repeatCount="indefinite" :begin="(i * 0.3) + 's'" :path="'M58 ' + a.y + ' C 140 ' + a.y + ', 130 190, 170 190'"/></circle>
+            <rect v-if="!a.full" x="20" :y="a.y - 19" width="38" height="38" rx="10" :fill="a.dark ? '#111' : 'rgba(255,255,255,.94)'" stroke="rgba(255,255,255,.2)"/>
+            <image v-if="a.icon && a.full" :href="a.icon" x="20" :y="a.y - 19" width="38" height="38"/>
+            <image v-else-if="a.icon" :href="a.icon" x="28" :y="a.y - 11" width="22" height="22"/>
             <text v-else x="38" :y="a.y + 4" text-anchor="middle" font-size="10.5" font-weight="800" fill="#1c1a17">{{ a.short }}</text>
           </g>
           <g v-for="(o, i) in T.heroOut" :key="o">
