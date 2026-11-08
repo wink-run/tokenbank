@@ -1147,3 +1147,16 @@ body { background: #faf8f3 !important; color: var(--pz-ink); }
 .dv-dl .pz-lead { margin-left: auto; margin-right: auto; }
 .dv-dl .pz-btn.pri { background: var(--pz-y); color: #1c1a17; border-color: var(--pz-y); }
 .dv-dl .pz-btn.ghost { background: rgba(255,255,255,.06); color: #fff; border: 1px solid rgba(255,255,255,.18); }
+
+/* ── 模式切换：一级标签，文字 + 底部高亮线（替代胶囊） ── */
+.ag-modes { align-self: stretch; height: auto; padding: 0; gap: 4px; background: none; border: none; border-radius: 0; }
+.ag-mode { position: relative; display: flex; align-items: center; padding: 0 12px; border-radius: 0; font-size: 14.5px; font-weight: 650; letter-spacing: .01em; color: rgba(255,255,255,.5); background: none !important; transition: color .2s; }
+.ag-mode:hover { color: rgba(255,255,255,.85); }
+.ag-mode.on { color: #fff; }
+.ag-mode::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--pz-y); box-shadow: 0 0 14px rgba(255,201,74,.55); transform: scaleX(0); transition: transform .25s var(--pz-ease); }
+.ag-mode.on::after { transform: scaleX(1); }
+.ag-mode:hover:not(.on)::after { transform: scaleX(.35); opacity: .5; }
+@media (max-width: 768px) {
+  .ag-mode { padding: 0 10px; font-size: 14.5px; }
+  .ag-mode::after { left: 10px; right: 10px; }
+}
