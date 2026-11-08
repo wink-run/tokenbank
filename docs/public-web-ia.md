@@ -50,6 +50,7 @@
 | 未登录可试一轮、多人接龙同一场对话 | `agent-landing.html` |
 | Skill / 提示词 / 智能体模板一键纳管并投射 | 社区目录 `/api/community-catalog`（type: skill / prompt / assistant） |
 | 只给自己 | 建一个只有自己的圈子，范围选它 |
+| 局域网算力对外服务，不用公网 IP、不用买服务器 | 节点出站 WebSocket 连接云端，无需入站端口（README「可贡献算力」）；任务在分享者设备执行 |
 | Key、Skill 不出本机，任务在分享者设备执行 | 供给与雇佣链路 |
 
 ## 5. 和谁比、怎么比

@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=9">
+<link rel="stylesheet" href="/static/plaza.css?v=10">
 <script src="/static/plaza-nav.js?v=9"></script>
 <script>
   // 旧链接：浏览类页签已并入智能体广场，圈子页签去圈子页
@@ -270,8 +270,8 @@ createApp({
         footer: '共享网络', home: '首页', fatal: '暂时连不上服务器，请稍后再试',
         kindKicker: 'WHAT YOU SHARE', kindTitle: '你分享的是哪一种？', kindLead: '模型和智能体都能放上网络，但别人买的东西不一样，你要关心的事也不一样。',
         kinds: [
-          { key: 'm', who: '分享模型', title: '用不完的额度、本地或内网模型', text: '别人买的是 Token：拿你的额度直接对话、生图，或接进他们的工具。', rows: [['可以分享', '订阅里用不完的额度、按量 API、本地 Ollama、内网私有模型'], ['别人看重', '模型全不全、快不快（首字延迟）、稳不稳'], ['怎么计积分', '按输出 Token × 模型贡献率 × 质量系数，贡献率高于消费率'], ['你的 Key', '只在本机，网络里只出现模型名']], live: '个模型此刻在线' },
-          { key: 'a', who: '分享智能体', title: '调教好的智能体、装好的应用', text: '别人买的是「把事办成」：你的提示词、Skill、工具链加上 Claude Code 这类运行时，一起替他干活。', rows: [['可以分享', '在资产里调教并投射好的智能体，或 Claude Code、Codex 等已安装应用'], ['别人看重', '谁调的、擅长什么、办得成不成；简介写清楚很关键'], ['怎么计积分', '按次计积分，被雇佣次数会显示在名片上'], ['你的配方', '任务在你的设备上执行，对方只拿结果']], live: '个智能体此刻在线' },
+          { key: 'm', who: '分享模型', title: '用不完的额度、本地或内网模型', text: '别人买的是 Token：拿你的额度直接对话、生图，或接进他们的工具。家里的 GPU、公司内网的私有模型，不用公网 IP、不用买服务器也能对外服务。', rows: [['可以分享', '订阅里用不完的额度、按量 API、本地 Ollama、内网私有模型'], ['别人看重', '模型全不全、快不快（首字延迟）、稳不稳'], ['怎么计积分', '按输出 Token × 模型贡献率 × 质量系数，贡献率高于消费率'], ['你的 Key', '只在本机，网络里只出现模型名']], live: '个模型此刻在线' },
+          { key: 'a', who: '分享智能体', title: '调教好的智能体、装好的应用', text: '别人买的是「把事办成」：你的提示词、Skill、工具链加上 Claude Code 这类运行时，一起替他干活。', rows: [['可以分享', '在资产里调教并投射好的智能体，或 Claude Code、Codex 等已安装应用'], ['别人看重', '谁调的、擅长什么、办得成不成；简介写清楚很关键'], ['怎么计积分', '按次计积分，被雇佣次数会显示在名片上'], ['你的配方', '任务在你的设备上执行，对方只拿结果'], ['跑在哪', '局域网里的机器就行，出站连接，不开端口']], live: '个智能体此刻在线' },
         ],
         mapKicker: 'WHO ARE YOU', mapTitle: '你是哪种用户？',
         map: [['我想直接用', '智能体广场', '别人调好的智能体和模型，打开就用', '/agents'], ['我手上 AI 工具很多', 'OneHarness', '一个入口全管起来，按特点派活', '/harness'], ['我有闲置或作品', '共享网络', '额度和智能体让别人用，你来赚', '/network'], ['我想和朋友一起', '圈子', '只对信任的人开放，一起用', '/circles']],
@@ -313,8 +313,8 @@ createApp({
         footer: 'Share network', home: 'Home', fatal: 'Cannot reach the server, try again later',
         kindKicker: 'WHAT YOU SHARE', kindTitle: 'Which kind are you sharing?', kindLead: 'Both models and agents can go on the network, but people buy different things — and you care about different things.',
         kinds: [
-          { key: 'm', who: 'Share models', title: 'Spare quota, local or private models', text: 'People are buying tokens: they chat or generate images on your quota, or plug it into their own tools.', rows: [['You can share', 'Unused subscription quota, pay-as-you-go APIs, local Ollama, private in-house models'], ['They care about', 'Coverage, speed (first-token latency), reliability'], ['Credits', 'Output tokens × model rate × quality factor; earning rate beats spending rate'], ['Your keys', 'Stay on your machine; only model names show on the network']], live: 'models online now' },
-          { key: 'a', who: 'Share agents', title: 'Tuned agents and installed apps', text: 'People are buying a job done: your prompts, skills and toolchain plus a runtime like Claude Code, working for them.', rows: [['You can share', 'Agents tuned and projected in Assets, or installed apps like Claude Code and Codex'], ['They care about', 'Who tuned it, what it\'s good at, whether it delivers — a clear description matters'], ['Credits', 'Per task; hire counts show on your card'], ['Your recipe', 'Runs on your device; callers only get results']], live: 'agents online now' },
+          { key: 'm', who: 'Share models', title: 'Spare quota, local or private models', text: 'People are buying tokens: they chat or generate images on your quota, or plug it into their own tools. A GPU at home or a private model on your office network can serve them with no public IP and no server to rent.', rows: [['You can share', 'Unused subscription quota, pay-as-you-go APIs, local Ollama, private in-house models'], ['They care about', 'Coverage, speed (first-token latency), reliability'], ['Credits', 'Output tokens × model rate × quality factor; earning rate beats spending rate'], ['Your keys', 'Stay on your machine; only model names show on the network']], live: 'models online now' },
+          { key: 'a', who: 'Share agents', title: 'Tuned agents and installed apps', text: 'People are buying a job done: your prompts, skills and toolchain plus a runtime like Claude Code, working for them.', rows: [['You can share', 'Agents tuned and projected in Assets, or installed apps like Claude Code and Codex'], ['They care about', 'Who tuned it, what it\'s good at, whether it delivers — a clear description matters'], ['Credits', 'Per task; hire counts show on your card'], ['Your recipe', 'Runs on your device; callers only get results'], ['Where it runs', 'Any machine on your LAN — outbound connection, no open ports']], live: 'agents online now' },
         ],
         mapKicker: 'WHO ARE YOU', mapTitle: 'Which one are you?',
         map: [['I just want it done', 'Agent Plaza', 'Agents and models others tuned, ready to use', '/agents'], ['I juggle many AI tools', 'OneHarness', 'One place to run them, routed by strength', '/harness'], ['I have spare quota or a great agent', 'Share & earn', 'Others use it, you earn', '/network'], ['I want to do it with friends', 'Circles', 'Open only to people you trust', '/circles']],
