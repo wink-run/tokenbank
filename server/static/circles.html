@@ -13,8 +13,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/community.css">
-<link rel="stylesheet" href="/static/plaza.css?v=24">
-<script src="/static/plaza-nav.js?v=18"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=25">
+<script src="/static/plaza-nav.js?v=19"></script>
 <script src="/static/vue.global.prod.js"></script>
 <script src="/static/app-runtime-icon.js"></script>
 <style>
@@ -66,9 +66,9 @@
           <button class="ag-lang" type="button" @click="logout">{{ T.logout }}</button>
         </template>
         <button v-else class="ag-dl" type="button" @click="openAuth()">{{ T.login }}</button>
+        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><em>{{ N.modeUse }}</em><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a></div><div class="ag-menu-g"><em>{{ N.modeDev }}</em><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a class="on" aria-current="page" href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a v-if="loggedIn" href="/app">{{ N.account }}</a><a v-else href="#" @click.prevent="openAuth()">{{ N.signIn }}</a><a class="dl" href="/#download">{{ N.download }}</a></div></div></details>
       </div>
     </div>
-    <div class="ag-sub"><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a class="on" href="/market#circles">{{ N.dMarket }}</a></div>
   </nav>
 
   <main class="page">

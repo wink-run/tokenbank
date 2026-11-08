@@ -5,7 +5,7 @@
     zh: {
       modeUse: '用智能体', modeDev: '开发者', navPlaza: '智能体广场', navWhy: '为什么用', openPlaza: '打开智能体广场', openBoard: '看供给排行',
       dOverview: '概览', dManage: '统一管理', dMarket: '资源市场', dShare: '分享与收益', dCircles: '圈子协作',
-      signIn: '登录', account: '我的账户', download: '下载客户端', home: '首页',
+      signIn: '登录', account: '我的账户', download: '下载客户端', home: '首页', menu: '菜单',
       whoKicker: 'WHO ARE YOU', whoTitle: '你是哪一类用户？',
       who: [
         { href: '/why', k: '普通用户', t: '让智能体帮我把事办成', d: '像打车一样：挑一个高手调好的智能体，说清要做什么，网页里就能用。', cta: '去智能体广场' },
@@ -21,7 +21,7 @@
     en: {
       modeUse: 'Use agents', modeDev: 'Developers', navPlaza: 'Agent Plaza', navWhy: 'Why us', openPlaza: 'Open the Agent Plaza', openBoard: 'See the supply board',
       dOverview: 'Overview', dManage: 'Manage', dMarket: 'Market', dShare: 'Share & earn', dCircles: 'Circles',
-      signIn: 'Sign in', account: 'My account', download: 'Download', home: 'Home',
+      signIn: 'Sign in', account: 'My account', download: 'Download', home: 'Home', menu: 'Menu',
       whoKicker: 'WHO ARE YOU', whoTitle: 'Which kind of user are you?',
       who: [
         { href: '/why', k: 'Everyday user', t: 'Get an agent to do the job', d: 'Like hailing a ride: pick an agent an expert tuned, say what you need, use it in the browser.', cta: 'Go to the Agent Plaza' },
@@ -35,6 +35,18 @@
       ],
     },
   };
+})();
+
+// 手机菜单：点外面或按 Esc 收起
+(function () {
+  function close(except) {
+    document.querySelectorAll('details.ag-menu[open]').forEach(function (d) { if (d !== except) d.removeAttribute('open'); });
+  }
+  document.addEventListener('click', function (e) {
+    var d = e.target.closest && e.target.closest('details.ag-menu');
+    close(d);
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(null); });
 })();
 
 // 公开页共用动效：数字滚动、顶部阅读进度。少动效偏好下不做。
