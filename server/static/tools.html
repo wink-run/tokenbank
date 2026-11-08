@@ -3,12 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>智能体 · Token Bank</title>
-<meta name="description" content="租个智能体让它干活。分享给朋友一起协作，或挑逗它激发创意。人在外面，也能用自己电脑上的智能体。">
+<title>智能体广场 · Token Bank</title>
+<meta name="description" content="别人调好的智能体，打开就能用：不用买 Key、装环境、写提示词，按次付费。有设备的用户无需网络配置即可随时随地使用自己的智能体，并分享给圈子或全网分摊费用，Skill 不外泄。一个链接就能拉朋友一起玩。">
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/plaza.css?v=23">
+<script>
+  // 模型、技能等开发者资源移到了资源市场
+  (function () {
+    var h = location.hash.slice(1);
+    if (h === 'models') location.replace('/market#models');
+    else if (h === 'resources') location.replace('/market#skills');
+  })();
+</script>
+<script src="/static/plaza-nav.js?v=18"></script>
 <script src="/static/vue.global.prod.js"></script>
 <script src="/static/app-runtime-icon.js"></script>
 <style>
@@ -17,7 +27,7 @@
 [v-cloak]{display:none!important}
 body {
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  background: linear-gradient(180deg, #fafafa 0%, #ffffff 280px);
+  background: #fafafb;
   color: #0a0a0a;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
@@ -25,52 +35,6 @@ body {
 a { color: inherit; text-decoration: none; }
 .container { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
 
-/* 智能体主页，和社区网络同一套卡片 */
-.ag-top { position: sticky; top: 0; z-index: 20; background: rgba(255,255,255,.9); backdrop-filter: blur(12px); border-bottom: 1px solid #eee; }
-.ag-top-in { max-width: 1200px; margin: 0 auto; height: 56px; padding: 0 20px; display: flex; align-items: center; gap: 18px; }
-.ag-brand { display: flex; align-items: center; gap: 9px; font-weight: 650; }
-.ag-brand img { width: 26px; height: 26px; border-radius: 7px; }
-.ag-nav { font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 8px; background: #f5f2f0; }
-.ag-lang { margin-left: auto; border: none; background: transparent; color: #7b7b7b; cursor: pointer; font: inherit; font-size: 13px; }
-/* 智能体工具广场：居中介绍，下面四件事说明这页能干什么 */
-.ag-page { max-width: 1200px; margin: 0 auto; padding: 48px 24px 80px; }
-.ag-hero { text-align: center; margin-bottom: 28px; }
-.ag-badge-top { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; margin-bottom: 14px; background: #eff6ff; color: #2563eb; border-radius: 999px; font-size: 14px; font-weight: 500; }
-.ag-hero h1 { font-size: 44px; font-weight: 700; letter-spacing: -.03em; line-height: 1.15; color: #09090b; }
-.ag-hero p { margin: 12px auto 0; max-width: 40rem; color: #71717a; font-size: 17px; line-height: 1.7; }
-/* 四条用法：租来干活放在最前，其余三条是分享、协作挑逗、远程用自己的 */
-.ag-ways { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; max-width: 1040px; margin: 0 auto 32px; text-align: left; }
-.ag-way { background: #fff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
-.ag-way.lead { background: #eff6ff; border-color: #bfdbfe; }
-.ag-way-mark { width: 28px; height: 28px; border-radius: 8px; background: #f4f4f5; color: #3f3f46; font-weight: 700; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.ag-way.lead .ag-way-mark { background: #2563eb; color: #fff; }
-.ag-way strong { display: block; font-size: 14px; line-height: 1.35; margin-bottom: 4px; color: #09090b; }
-.ag-way span { display: block; font-size: 13px; color: #71717a; line-height: 1.5; }
-.ag-bar { display: flex; flex-direction: column; align-items: center; gap: 16px; margin: 0 0 28px; }
-.ag-search { position: relative; width: min(100%, 640px); }
-.ag-search input { width: 100%; height: 52px; padding: 0 48px 0 20px; border: 2px solid #e4e4e7; border-radius: 16px; background: #fff; outline: none; font: inherit; font-size: 16px; }
-.ag-search input:focus { border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,.12); }
-.ag-search svg { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: #a1a1aa; }
-.ag-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
-.ag-chip { height: 36px; padding: 0 16px; border-radius: 999px; border: 1px solid #e4e4e7; background: #fff; font: inherit; font-size: 14px; font-weight: 500; color: #52525b; cursor: pointer; }
-.ag-chip:hover { background: #f4f4f5; }
-.ag-chip.on { background: #3b82f6; color: #fff; border-color: #3b82f6; box-shadow: 0 4px 12px rgba(59,130,246,.28); }
-.ag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
-.ag-card { position: relative; background: #fff; border: 1px solid #e4e4e7; border-radius: 24px; padding: 22px; display: flex; flex-direction: column; gap: 12px; min-width: 0; transition: border-color .2s, box-shadow .2s, transform .2s; }
-.ag-card:hover { border-color: #93c5fd; box-shadow: 0 12px 24px rgba(0,0,0,.08); transform: translateY(-2px); }
-.ag-h { display: flex; align-items: center; gap: 14px; min-width: 0; }
-.ag-av { width: 64px; height: 64px; border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 26px; flex-shrink: 0; background: linear-gradient(135deg, #fafafa, #f4f4f5); }
-.ag-av.brand { background: #fff; border: 1px solid #eee; padding: 12px; }
-.ag-av.brand img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.ag-name { font-weight: 700; font-size: 18px; letter-spacing: -.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ag-meta { margin-top: 2px; font-size: 13px; color: #a1a1aa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ag-desc { font-size: 14px; color: #71717a; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 43px; }
-.ag-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 12px; border-top: 1px solid #f4f4f5; font-size: 13px; color: #71717a; }
-.ag-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.ag-dot.ok { background: #16a34a; }
-.ag-dot.off { background: #d4d4d8; }
-.ag-go { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-weight: 650; color: #18181b; }
-.ag-badge { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #f4f4f5; color: #52525b; }
 .tool-badge { display: inline-block; padding: 0.25rem 0.625rem; font-size: 0.75rem; font-weight: 600; color: #fff; border-radius: 9999px; }
 .badge-virtual { background: #3b82f6; }
 .badge-user-rented { background: #10b981; }
@@ -139,89 +103,151 @@ a { color: inherit; text-decoration: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .ad-skip { width: 100%; margin-top: 1rem; padding: 0.5rem 1rem; background: #f4f4f5; color: #52525b; border: none; border-radius: 0.5rem; cursor: pointer; }
 
-@media (max-width: 768px) {
-  .ag-hero h1 { font-size: 32px; }
-  .ag-hero p { font-size: 15px; }
-  .ag-page { padding: 28px 16px 48px; }
-  .ag-ways { grid-template-columns: 1fr 1fr; }
-  .container { padding: 1.5rem 1rem; }
-  .ag-grid { grid-template-columns: 1fr; }
-}
-@media (max-width: 560px) {
-  .ag-ways { grid-template-columns: 1fr; }
-}
 </style>
 </head>
 <body>
 <div id="app" v-cloak>
-  <!-- 智能体主页 -->
+  <!-- 智能体工具广场 -->
   <div v-if="view === 'list'">
     <nav class="ag-top">
-      <div class="ag-top-in">
-        <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-        <span class="ag-nav">{{ T.title }}</span>
+    <div class="ag-top-in">
+      <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
+      <div class="ag-modes"><a class="ag-mode on" href="/agents">{{ N.modeUse }}</a><a class="ag-mode" href="/dev">{{ N.modeDev }}</a></div>
+      <div class="ag-navs ag-devnav">
+        <a class="ag-nav on" href="/agents" aria-current="page">{{ N.navPlaza }}</a>
+        <a class="ag-nav" href="/why">{{ N.navWhy }}</a>
+      </div>
+      <div class="ag-top-r">
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
+        <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
       </div>
-    </nav>
-    <main class="ag-page">
-      <header class="ag-hero">
-        <div class="ag-badge-top"><span>✦</span><span>{{ T.badge }}</span></div>
-        <h1>{{ T.headline }}</h1>
-        <p>{{ T.sub }}</p>
-      </header>
-      <!-- 广场先讲清四件事，再让人往下挑名片 -->
-      <ul class="ag-ways">
-        <li v-for="way in T.ways" :key="way.mark" class="ag-way" :class="{ lead: way.lead }">
-          <span class="ag-way-mark">{{ way.mark }}</span>
-          <div>
-            <strong>{{ way.title }}</strong>
-            <span>{{ way.text }}</span>
+    </div>
+    <div class="ag-sub"><a class="on" href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a></div>
+  </nav>
+
+    <!-- 首屏：一句话 + 四个承诺 + 搜索；右边星图里的节点就是线上的智能体 -->
+    <header class="pz-hero">
+      <div class="pz-grid-bg" aria-hidden="true"></div>
+      <div class="pz-hero-in">
+        <div>
+          <div class="pz-eyebrow"><b>AGENT PLAZA</b>{{ T.eyebrow }}</div>
+          <h1 class="pz-h1">{{ T.h1a }}<br><em>{{ T.h1b }}</em></h1>
+          <p class="pz-sub">{{ T.sub }}</p>
+          <form class="pz-search" role="search" @submit.prevent="jumpToList(true)">
+            <div class="pz-search-in">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input ref="search" v-model="searchQuery" type="search" :placeholder="T.search" :aria-label="T.search">
+              <span v-if="!searchQuery" class="pz-kbd" aria-hidden="true">/</span>
+              <button type="submit">{{ T.find }}</button>
+            </div>
+          </form>
+          <div class="pz-tags">
+            <span>{{ T.tryLabel }}</span>
+            <button v-for="w in T.tryWords" :key="w" type="button" class="pz-tag" :class="{ on: searchQuery === w }" @click="searchQuery = (searchQuery === w ? '' : w); jumpToList(false)">{{ w }}</button>
           </div>
-        </li>
-      </ul>
-      <div class="ag-bar">
-        <div class="ag-search">
-          <input v-model="searchQuery" @keyup.enter="loadTools" type="text" :placeholder="T.search">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         </div>
-        <div class="ag-chips">
-          <button type="button" @click="selectedScene = ''; loadTools()" :class="['ag-chip', { on: selectedScene === '' }]">{{ T.all }}</button>
-          <button v-for="scene in scenes" :key="scene.value" type="button" @click="selectedScene = scene.value; loadTools()" :class="['ag-chip', { on: selectedScene === scene.value }]">{{ sceneLabel(scene) }}</button>
+        <div class="pz-orbit">
+          <svg viewBox="0 0 440 400" role="img" :aria-label="T.orbitCap">
+            <defs>
+              <radialGradient id="pzHub" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#FFE08A"/><stop offset="55%" stop-color="#FFD055" stop-opacity=".55"/><stop offset="100%" stop-color="#FFD055" stop-opacity="0"/></radialGradient>
+              <linearGradient id="pzLine" x1="0" x2="1"><stop offset="0%" stop-color="#FFD055" stop-opacity=".05"/><stop offset="50%" stop-color="#FFD055" stop-opacity=".45"/><stop offset="100%" stop-color="#FFD055" stop-opacity=".05"/></linearGradient>
+            </defs>
+            <ellipse cx="220" cy="190" rx="190" ry="150" fill="none" stroke="rgba(255,255,255,.07)" stroke-dasharray="2 6"/>
+            <ellipse cx="220" cy="190" rx="110" ry="88" fill="none" stroke="rgba(255,255,255,.09)" stroke-dasharray="2 5"/>
+            <g v-for="(n, i) in orbitNodes" :key="'l' + i">
+              <path :d="'M220 190 L' + n.x + ' ' + n.y" stroke="url(#pzLine)" :stroke-opacity="n.online ? 1 : .35" stroke-width="1" fill="none"/>
+              <circle v-if="!reducedMotion && n.online" r="2.6" :fill="i % 2 ? '#FFD055' : '#ffffff'">
+                <animateMotion :dur="(2.4 + i * 0.4) + 's'" repeatCount="indefinite" :path="'M220 190 L' + n.x + ' ' + n.y" :keyPoints="i % 2 ? '0;1' : '1;0'" keyTimes="0;1" calcMode="linear" :begin="(i * 0.3) + 's'"/>
+              </circle>
+            </g>
+            <a v-for="(n, i) in orbitNodes" :key="'n' + i" :href="n.href || '#agents'">
+              <title>{{ n.title }}</title>
+              <circle :cx="n.x" :cy="n.y" :r="n.r * 2.8" :fill="n.online ? 'rgba(255,208,85,.12)' : 'rgba(255,255,255,.04)'"/>
+              <circle class="pz-node-dot" :cx="n.x" :cy="n.y" :r="n.r" :fill="n.online ? '#FFD055' : '#4a4a4c'" stroke="rgba(255,255,255,.55)" stroke-width=".8"/>
+              <text v-if="n.label" :x="n.x" :y="n.y + n.r + 16" text-anchor="middle" font-size="11.5" :fill="n.online ? 'rgba(255,255,255,.78)' : 'rgba(255,255,255,.35)'">{{ n.label }}</text>
+            </a>
+            <circle cx="220" cy="190" r="52" fill="url(#pzHub)" opacity=".55"/>
+            <circle cx="220" cy="190" r="24" fill="#111" stroke="#FFD055" stroke-width="1.4"/>
+            <text x="220" y="194.5" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">{{ T.you }}</text>
+          </svg>
         </div>
       </div>
-      <!-- 首屏名片。脚本加载后换成同一套卡片，不再另排文字链接 -->
-      <div v-if="!hydrated" class="ag-grid"><!--AGENT_CARDS--></div>
-      <template v-else>
-      <div v-if="loading" class="loading">{{ T.loading }}</div>
-      <div v-else-if="!tools.length" class="empty">{{ T.empty }}</div>
-      <div v-else class="ag-grid">
-        <a v-for="tool in tools" :key="tool.id" class="ag-card" :href="cardHref(tool)" @click="onCardClick(tool, $event)">
-          <div class="ag-h">
-            <span v-if="appIcon(tool)" class="ag-av brand"><img :src="appIcon(tool)" alt=""></span>
-            <span v-else class="ag-av" :style="{ background: avatarColor(tool.display_name) }">{{ (tool.display_name || '?').slice(0, 1) }}</span>
-            <div style="min-width:0;flex:1">
-              <div class="ag-name">{{ tool.display_name }}</div>
-              <div class="ag-meta">
-                <span v-if="tool.owner_nickname">@{{ tool.owner_nickname }}</span>
-                <span v-if="tool.owner_nickname && tool.runtime"> · </span>
-                <span v-if="tool.runtime">{{ tool.runtime }}</span>
-              </div>
+      <div class="pz-stats">
+        <div class="pz-stat"><div class="pz-stat-k"><i class="pz-live"></i>{{ T.statOnline }}</div><div class="pz-stat-v">{{ hydrated ? onlineCount : '—' }}</div></div>
+        <div class="pz-stat"><div class="pz-stat-k">{{ T.statListed }}</div><div class="pz-stat-v">{{ hydrated ? tools.length : '—' }}</div></div>
+        <div class="pz-stat"><div class="pz-stat-k">{{ T.statRuntimes }}</div><div class="pz-stat-v">{{ hydrated ? runtimes.length : '—' }}<small v-if="runtimes.length">{{ runtimes.slice(0, 4).map(r => r.label).join(' · ') }}</small></div></div>
+      </div>
+    </header>
+
+    <main class="ag-page">
+      <!-- 先给货：首屏下面直接是能用的东西 -->
+      <section id="agents" class="pz-sec" aria-labelledby="pz-list">
+        <div class="pz-list-head">
+          <div>
+            <div class="pz-kicker">{{ T.listKicker }}</div>
+            <h2 id="pz-list" class="pz-h2">{{ searchQuery && hydrated ? T.listFound.replace('{n}', String(shownTools.length)) : T.listTitle }}</h2>
+          </div>
+        </div>
+        <!-- 智能体多了也好找：分类 + 在线 + 排序 + 视图，吸顶 -->
+        <div v-if="hydrated && tools.length" class="ag-toolbar" role="group" :aria-label="T.filterLabel">
+          <div class="ag-cats">
+            <button type="button" :class="['ag-chip', { on: cat === 'all' }]" :aria-pressed="cat === 'all'" @click="setCat('all')">{{ T.all }}<em>{{ tools.length }}</em></button>
+            <button v-for="c in categories" :key="c.id" type="button" :class="['ag-chip', { on: cat === c.id }]" :aria-pressed="cat === c.id" @click="setCat(c.id)">{{ c.label }}<em>{{ c.n }}</em></button>
+          </div>
+          <div class="ag-tools">
+            <button type="button" :class="['ag-chip', { on: filter === 'online' }]" :aria-pressed="filter === 'online'" @click="filter = (filter === 'online' ? 'all' : 'online'); agentLimit = PAGE"><i class="ag-dot ok"></i>{{ T.onlineOnly }}<em>{{ onlineCount }}</em></button>
+            <label class="ag-sort"><span class="sr-only">{{ T.sortLabel }}</span>
+              <select v-model="sortBy" :aria-label="T.sortLabel"><option value="online">{{ T.sortOnline }}</option><option value="name">{{ T.sortName }}</option></select>
+            </label>
+            <div class="ag-view" role="radiogroup" :aria-label="T.viewLabel">
+              <button type="button" role="radio" :aria-checked="view2 === 'grid'" :class="{ on: view2 === 'grid' }" :title="T.viewGrid" @click="setView('grid')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg></button>
+              <button type="button" role="radio" :aria-checked="view2 === 'list'" :class="{ on: view2 === 'list' }" :title="T.viewList" @click="setView('list')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
             </div>
           </div>
-          <p class="ag-desc">{{ tool.description }}</p>
-          <div class="ag-foot">
-            <!-- 出租智能体用真实在线状态；平台条目没有节点，不标在线 -->
-            <template v-if="tool.source === 'network'">
-              <i class="ag-dot" :class="tool.online === false ? 'off' : 'ok'"></i>
-              <span>{{ tool.online === false ? T.offline : T.online }}</span>
-              <span class="ag-go">{{ tool.online === false ? T.history : T.use }} <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></span>
-            </template>
-            <span v-else class="ag-badge">{{ getBadgeText(tool.trust_level) }}</span>
-          </div>
-        </a>
-      </div>
-      </template>
+        </div>
+        <div v-if="!hydrated" class="ag-grid"><!--AGENT_CARDS--></div>
+        <template v-else>
+        <div v-if="loading && !tools.length" class="loading">{{ T.loading }}</div>
+        <div v-else-if="!shownTools.length" class="pz-empty">
+          <b>{{ searchQuery || filter !== 'all' || cat !== 'all' ? T.emptySearch : T.empty }}</b>
+          <span>{{ searchQuery || filter !== 'all' || cat !== 'all' ? T.emptySearchHint : T.emptyHint }}</span>
+          <button v-if="searchQuery || filter !== 'all' || cat !== 'all'" type="button" @click="searchQuery = ''; filter = 'all'; cat = 'all'">{{ T.showAll }}</button>
+        </div>
+        <div v-else :class="['ag-grid', { 'ag-list': view2 === 'list' }]">
+          <a v-for="(tool, ti) in pagedTools" :key="tool.id" :class="['ag-card', 'ag-in', { 'is-off': tool.source === 'network' && tool.online === false }]" :style="{ '--i': ti % PAGE }" :href="cardHref(tool)" @click="onCardClick(tool, $event)">
+            <div class="ag-h">
+              <span v-if="appIcon(tool)" class="ag-av brand"><img :src="appIcon(tool)" alt=""></span>
+              <span v-else class="ag-av" :style="{ background: avatarColor(cleanName(tool)) }">{{ (cleanName(tool) || '?').slice(0, 1) }}</span>
+              <div style="min-width:0;flex:1">
+                <div class="ag-name">{{ cleanName(tool) }}</div>
+                <div class="ag-meta">
+                  <span v-if="ownerOf(tool)">@{{ ownerOf(tool) }}</span>
+                  <span v-if="ownerOf(tool) && tool.runtime"> · </span>
+                  <span v-if="tool.runtime">{{ runtimeLabel(tool.runtime) }}</span>
+                </div>
+              </div>
+            </div>
+            <p class="ag-desc">{{ descOf(tool) }}</p>
+            <div class="ag-foot">
+              <template v-if="tool.source === 'network'">
+                <i class="ag-dot" :class="tool.online === false ? 'off' : 'ok'"></i>
+                <span>{{ tool.online === false ? T.offline : T.online }}</span>
+                <span class="ag-go" :class="{ sub: tool.online === false }">{{ tool.online === false ? T.history : T.use }} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m9 18 6-6-6-6"/></svg></span>
+                <button v-if="tool.assistant_id" type="button" class="ag-share" :title="T.shareTitle" :aria-label="T.shareTitle" @click.prevent.stop="shareTool(tool)">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>
+                </button>
+              </template>
+              <span v-else class="ag-badge">{{ getBadgeText(tool.trust_level) }}</span>
+            </div>
+          </a>
+        </div>
+        <div v-if="shownTools.length > agentLimit" class="pz-more"><button type="button" @click="agentLimit += PAGE">{{ T.showMoreAgents.replace('{a}', String(agentLimit)).replace('{n}', String(shownTools.length)) }}</button></div>
+        </template>
+      </section>
+
     </main>
+    <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
+    <div class="pz-toast" :class="{ on: toast }" role="status" aria-live="polite"><i aria-hidden="true">✓</i>{{ toast }}</div>
   </div>
 
   <!-- 工具详情页 -->
@@ -351,40 +377,259 @@ createApp({
       currentTask: null,
       processing: false,
       pollTimer: null,
+      searchTimer: null,
+      filter: 'all',
+      cat: 'all', sortBy: 'online', view2: (() => { try { return localStorage.getItem('tb_plaza_view') || 'grid'; } catch (e) { return 'grid'; } })(),
+      PAGE: 24, agentLimit: 24,
+      tab: ['agents', 'models', 'resources'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'agents',
+      loggedIn: (() => { try { return !!localStorage.getItem('user_token'); } catch (e) { return false; } })(),
+      netLoaded: false,
+      workers: [], availableModels: [], availableModelTypes: {},
+      catalog: [], scenes: [], mods: [],
+      mtype: 'all', rtype: 'all', resLimit: 24,
+      toast: '',
+      toastTimer: null,
+      reducedMotion: !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches),
     };
   },
   computed: {
     T() {
       if (this.lang === 'en') {
         return {
-          title: 'Agents', plaza: 'Agent plaza', badge: 'Agent plaza',
-          headline: 'Rent an agent and put it to work',
-          sub: 'Hand the task to an online agent. Share the chat with friends and keep going together, or poke it until a new idea shows up. Away from that computer, you can still open the agent running on it.',
-          ways: [
-            { lead: true, mark: '01', title: 'Rent it to work', text: 'Pick an online card and hand over the task. It runs on the computer that shared it.' },
-            { mark: '02', title: 'Share with friends', text: 'Send the link to this chat. Friends open it and see what was said.' },
-            { mark: '03', title: 'Collaborate, or provoke it', text: 'Everyone speaks in the same thread, in order. Or tease it and pull a new idea out.' },
-            { mark: '04', title: 'Use yours from anywhere', text: 'The agent stays on your computer. Open it from another device and continue.' },
+          title: 'Agents', plaza: 'Agent Plaza', navNetwork: 'Share & earn', navCircles: 'Circles', download: 'Download', account: 'My account', signIn: 'Sign in',
+          eyebrow: 'Tuned by people, running on real devices',
+          h1a: 'Expert-tuned agents,', h1b: 'ready when you are',
+          sub: 'No keys, no setup, no prompting. Pick one and go.',
+          promise: ['Zero setup', 'Pay per task', 'Every vendor, one door', 'One link to bring friends'],
+          search: 'What do you need done?', find: 'Find', tryLabel: 'Try:',
+          tryWords: ['Copy', 'Images', 'Video', 'Meals'],
+          you: 'YOU', orbitCap: 'Each dot is a live agent on someone\'s device',
+          statOnline: 'Online now', statListed: 'Ready to hire', statModels: 'Models to try', statRuntimes: 'Engines covered', statOwners: 'Developers who tuned them', statOwnersUnit: '',
+          listKicker: 'LIVE NOW', listTitle: 'Ready to use', listFound: '{n} results',
+          listLead: { agents: 'Open one to chat. Offline agents still show their history; the link icon copies a share link.', models: 'Models shared by community nodes — chat or generate images in the browser, no API key of your own.', resources: 'Skills, prompts and scenes: scenes open in the browser, skills and prompts install into the app in one click.' },
+          tabAgents: 'Agents', tabModels: 'Models', tabResources: 'Skills & scenes',
+          modelHint: 'Lower first-token latency is faster', resHint: '', colModel: 'Model', colNodes: 'Nodes', colLatency: 'First token', nodesN: '{n} nodes',
+          tryChat: 'Chat', tryImage: 'Image', apiOnly: 'API only', typeChat: 'Text', typeVision: 'Vision', typeImage: 'Image', typeEmbedding: 'Embedding',
+          rtSkill: 'Skill', rtPrompt: 'Prompt', rtAssistant: 'Agent', rtScene: 'Scene', rtPlugin: 'Plugin',
+          official: 'Official', userShare: 'User share', sharedBy: 'by @{handle}', useInApp: 'Adopt in the app', useRes: 'Use', noDesc: 'No description',
+          showMore: 'Show all {n}', appDesc: 'A general coding agent on {app}: writes code, fixes bugs, runs scripts — on the sharer\'s machine.', emptyModels: 'No models online right now', emptyModelsHint: 'They show up here as nodes come online.', emptyRes: 'No resources yet',
+          filterLabel: 'Filter', sortLabel: 'Sort', sortOnline: 'Online first', sortName: 'By name', viewLabel: 'View', viewGrid: 'Cards', viewList: 'List', showMoreAgents: 'Show more ({a} / {n})',
+          cats: { code: 'Coding', write: 'Writing', image: 'Design & images', video: 'Video', data: 'Data', life: 'Everyday life', other: 'Other' },
+          all: 'All', onlineOnly: 'Online', agents: 'Agents', showAll: 'Show all',
+          loading: 'Loading…', empty: 'The plaza just opened', emptyHint: 'Get the client and be the first to list an agent you have tuned.',
+          emptySearch: 'No matching agents', emptySearchHint: 'Try another keyword or filter.',
+          online: 'Online', offline: 'Offline', chat: 'Chat', use: 'Use it', history: 'History',
+          shareTitle: 'Copy share link', copied: 'Link copied — send it and friends can jump straight in',
+          whyKicker: 'WHY TOKEN BANK', whyTitle: 'Why not just use Claude or WorkBuddy?',
+          whyLead: 'A car you buy, learn and maintain; a ride you just hail.',
+          roles: [
+            { key: 'r1', who: 'I just want it done', title: 'Hail an agent like a ride', quote: 'No car to buy, learn or maintain — call one and go.', points: ['Prompts, skills and toolchains an expert already polished', 'No keys, no setup — chat right in the browser', 'Pay per task, only for what you use'], cta: 'Try one', href: '#agents' },
+            { key: 'r2', who: 'Any vendor', title: 'Every vendor\'s strengths, one door', quote: 'Many engines and models, one account, one credit balance.', points: ['Coding to a Codex agent, copy to a content expert, images to an image model', 'One credit balance, not locked into one vendor\'s plan', 'Rare models and expert agents, by the task'], cta: 'Try one', href: '#agents' },
+            { key: 'r3', who: 'I want to play with friends', title: 'One link brings them in', quote: 'Like a group chat — open the link and join in.', points: ['Take turns in one conversation and create together', 'Poke the agent to squeeze out fresh ideas', 'Start a circle only people you trust can see'], cta: 'Explore circles', href: '/circles' },
           ],
-          search: 'Search name, author, or use…', all: 'All', agents: 'Agents',
-          loading: 'Loading…', empty: 'No agents yet',
-          online: 'Online', offline: 'Offline', chat: 'Chat', use: 'Rent it', history: 'History',
+          safeKicker: 'SHARE THE SKILL, KEEP THE RECIPE', safeTitle: 'They can use it. They can\'t take it.',
+          safeLead: 'Tasks run on your device. Callers send a request and get a result — your prompts, skills and API keys never leave the machine, so sharing never means being copied.',
+          safeMe: 'Your device', safeMeName: 'Your agent', safeThem: 'Caller', safeThemName: 'What they get',
+          safeVault: ['Prompts', 'Skills', 'API keys'], safeGets: 'The result', safePipe: 'task ⇄ result',
+          cmpKicker: 'BUY OR RIDE', cmpTitle: 'Why ride instead of buying',
+          cmpThem: 'Buy: a subscription of your own', cmpThemHint: 'e.g. Claude, WorkBuddy', cmpUs: 'Ride: the Agent Plaza', cmpUsHint: 'Hail one when you need it',
+          cmp: [
+            ['Getting it', 'Sign up and subscribe — sometimes limited by region or payment', 'Open in a browser; one free turn before signing in'],
+            ['Learning it', 'Learn prompting, install skills, wire up tools', 'An expert already tuned it — just say what you need'],
+            ['Paying', 'Monthly, whether you use it or not', 'Per task, only for what you use'],
+            ['Flexibility', 'One subscription, one vendor\'s abilities', 'Every engine and model here — pick the best fit for each job'],
+            ['Rare abilities', 'Top models and expert agents out of reach', 'Rare models and expert agents others share, by the task'],
+            ['With friends', 'Mostly single-user', 'One link brings people in'],
+          ],
+          mapKicker: 'WHO ARE YOU', mapTitle: 'Which one are you?',
+          map: [['I just want it done', 'Agent Plaza', 'Agents and models others tuned, ready to use', '/agents'], ['I juggle many AI tools', 'OneHarness', 'One place to run them, routed by strength', '/harness'], ['I have spare quota or a great agent', 'Share & earn', 'Others use it, you earn', '/network'], ['I want to do it with friends', 'Circles', 'Open only to people you trust', '/circles']],
+          finalTitle: 'Are you a developer?',
+          finalText: 'Manage runtimes and models, build apps on top, list them here.',
+          finalCta: 'Open the developer hub', finalCta2: 'Browse the market',
         };
       }
       return {
-        title: '智能体', plaza: '智能体工具广场', badge: '智能体工具广场',
-        headline: '租个智能体，让它干活',
-        sub: '把任务交给在线的智能体。对话可以分享给朋友，一起接着聊，或者逗它一句，看能冒出什么主意。人在外面，也能用跑在自己电脑上的那一个。',
-        ways: [
-          { lead: true, mark: '01', title: '租来干活', text: '挑一张在线名片，把任务交出去。它在分享者的电脑上开工。' },
-          { mark: '02', title: '分享给朋友', text: '把这场对话的链接发出去。朋友打开，就能看见你们说过的话。' },
-          { mark: '03', title: '一起协作，或挑逗一下', text: '大家按时间接在同一场里。也可以故意逗它，把新点子逼出来。' },
-          { mark: '04', title: '远程用自己的', text: '智能体留在你的电脑上。换一台设备打开，接着用。' },
+        title: '智能体', plaza: '智能体广场', navNetwork: '共享网络', navCircles: '圈子', download: '下载客户端', account: '我的账户', signIn: '登录',
+        eyebrow: '真人调教，真机运行',
+        h1a: '别人调好的智能体，', h1b: '打开就能用',
+        sub: '不买 Key，不装环境，不写提示词。挑一个，直接用。',
+        promise: ['0 配置', '按次付费', '各家能力一个入口', '一个链接拉朋友'],
+        search: '想让智能体帮你做什么？', find: '找智能体', tryLabel: '试试：',
+        tryWords: ['文案', '配图', '视频', '三餐'],
+        you: '你', orbitCap: '每个光点，都是一台设备上正在运行的智能体',
+        statOnline: '此刻在线', statListed: '可以雇佣', statModels: '可试用模型', statRuntimes: '覆盖的引擎', statOwners: '调教它们的开发者', statOwnersUnit: '位',
+        listKicker: 'LIVE NOW', listTitle: '现在就能用', listFound: '找到 {n} 个结果',
+        listLead: { agents: '点开就能对话；离线的也能看历史记录。点链接图标，复制分享链接发给朋友。', models: '社区节点共享的模型，网页里直接对话或生图，不用自己买 Key。', resources: '技能、提示词和场景：场景可直接网页使用，技能和提示词在客户端一键纳管。' },
+        tabAgents: '智能体', tabModels: '模型', tabResources: '技能与场景',
+        modelHint: '首字延迟越低越快', resHint: '', colModel: '模型', colNodes: '节点', colLatency: '首字延迟', nodesN: '{n} 个节点',
+        tryChat: '对话', tryImage: '生图', apiOnly: '仅 API', typeChat: '文本', typeVision: '图文', typeImage: '生图', typeEmbedding: '嵌入',
+        rtSkill: '技能', rtPrompt: '提示词', rtAssistant: '智能体', rtScene: '场景', rtPlugin: '插件',
+        official: '官方', userShare: '用户分享', sharedBy: '@{handle} 分享', useInApp: '在客户端纳管', useRes: '使用', noDesc: '暂无简介',
+        showMore: '显示全部 {n} 个', appDesc: '基于 {app} 的通用编程智能体：写代码、改 bug、跑脚本，任务在分享者的电脑上完成。', emptyModels: '暂时没有在线模型', emptyModelsHint: '节点上线后会出现在这里。', emptyRes: '暂时没有资源',
+        filterLabel: '筛选', sortLabel: '排序', sortOnline: '在线优先', sortName: '按名称', viewLabel: '视图', viewGrid: '卡片', viewList: '列表', showMoreAgents: '显示更多（{a} / {n}）',
+        cats: { code: '编程开发', write: '写作内容', image: '设计图像', video: '视频', data: '数据分析', life: '生活学习', other: '其他' },
+        all: '全部', onlineOnly: '在线', agents: '智能体', showAll: '看全部',
+        loading: '加载中…', empty: '广场刚开张', emptyHint: '下载客户端，把你调教好的智能体第一个放上来。',
+        emptySearch: '没找到匹配的智能体', emptySearchHint: '换个关键词或筛选条件试试。',
+        online: '在线', offline: '离线', chat: '对话', use: '去使用', history: '看记录',
+        shareTitle: '复制分享链接', copied: '链接已复制，发给朋友就能直接一起用',
+        whyKicker: 'WHY TOKEN BANK', whyTitle: '为什么不直接用 Claude、WorkBuddy？',
+        whyLead: '买车要先买、先学、再养；打车只要说去哪。',
+        roles: [
+          { key: 'r1', who: '只想把事办成', title: '像打车一样用智能体', quote: '不用买车、学车、养车，叫一辆就走。', points: ['高手打磨好的提示词、Skill、工具链，拿来就用', '不买 Key、不装环境，浏览器直接对话', '按次计费，用多少付多少'], cta: '挑一个试试', href: '#agents' },
+          { key: 'r2', who: '不挑平台', title: '各家能力，一个入口', quote: '不同引擎、各家模型，一个账号、一份积分全能用。', points: ['写代码找 Codex 系，写文案找内容专家，配图找生图模型', '一份积分通用，不被某一家的套餐绑住', '稀有模型和专家智能体，按次就能用上'], cta: '挑一个试试', href: '#agents' },
+          { key: 'r3', who: '想和朋友一起玩', title: '一个链接，拉人进场', quote: '像拉群一样，点开链接就接着聊。', points: ['多人接龙同一场对话，一起创作', '故意逗它，把新点子逼出来', '建个圈子，只对信任的人开放'], cta: '去看看圈子', href: '/circles' },
         ],
-        search: '搜索名称、作者或用途…', all: '全部', agents: '智能体',
-        loading: '加载中…', empty: '暂时没有智能体',
-        online: '在线', offline: '离线', chat: '对话', use: '租来干活', history: '记录',
+        safeKicker: '能力共享 · 配方私有', safeTitle: '别人能用，但拿不走',
+        safeLead: '任务在你的设备上执行。对方发来任务、拿回结果，你的提示词、Skill 和 API Key 始终不离机。分享出去，不等于被抄走。',
+        safeMe: '你的设备', safeMeName: '你调教的智能体', safeThem: '调用方', safeThemName: '对方能拿到的',
+        safeVault: ['提示词', 'Skill', 'API Key'], safeGets: '任务结果', safePipe: '任务 ⇄ 结果',
+        cmpKicker: 'BUY OR RIDE', cmpTitle: '买车不如打车',
+        cmpThem: '买车：自己开一份订阅', cmpThemHint: '如 Claude、WorkBuddy 等', cmpUs: '打车：智能体广场', cmpUsHint: '要用的时候叫一个',
+        cmp: [
+          ['拿到手', '要注册、开通订阅，有的还受地区和支付方式限制', '浏览器打开就能用，没登录也能先试一轮'],
+          ['学会用', '自己学提示词、装 Skill、配工具', '高手已经调好，说清要做什么就行'],
+          ['花多少', '按月固定付，用不用都扣', '按次付，用多少付多少'],
+          ['够不够灵活', '一份订阅，只有一家的能力', '各家引擎和模型都在，每件事挑最合适的那个'],
+          ['稀缺能力', '好模型、专家智能体，够不着', '别人分享的稀有模型和专家智能体，按次就能用'],
+          ['和朋友一起', '基本是一个人用', '一个链接拉人进来，接着聊'],
+        ],
+        mapKicker: 'WHO ARE YOU', mapTitle: '你是哪种用户？',
+        map: [['我想直接用', '智能体广场', '别人调好的智能体和模型，打开就用', '/agents'], ['我手上 AI 工具很多', 'OneHarness', '一个入口全管起来，按特点派活', '/harness'], ['我有闲置或作品', '共享网络', '额度和智能体让别人用，你来赚', '/network'], ['我想和朋友一起', '圈子', '只对信任的人开放，一起用', '/circles']],
+        finalTitle: '你是开发者？',
+        finalText: '管理运行时和模型，把应用架在上面，上架到这里。',
+        finalCta: '进入开发者中心', finalCta2: '逛逛资源市场',
       };
+    },
+    // 模型：与原社区网络页同一套计算（节点数、平均首字延迟、类型）
+    models() {
+      const typeMap = this.availableModelTypes || {};
+      const names = (w) => (w.models || []).map(m => typeof m === 'string' ? m : (m && m.name)).filter(Boolean);
+      const ids = this.availableModels.length ? this.availableModels : [...new Set(this.workers.flatMap(names))];
+      return ids.map((name) => {
+        const nodes = this.workers.filter(w => names(w).includes(name)).length;
+        let sum = 0, n = 0;
+        for (const w of this.workers) {
+          const ml = w.model_latency && w.model_latency[name];
+          if (ml && ml.avg_ttft_ms != null) { sum += ml.avg_ttft_ms; n++; }
+        }
+        let t = ['chat', 'vision', 'image', 'embedding'].includes(typeMap[name]) ? typeMap[name] : 'chat';
+        const low = String(name).toLowerCase();
+        if (/(?:^|[\-_/])image(?:[\-_/]|$|\d)|gpt-image|dall-e|dalle|stable-diffusion|flux-|midjourney|sdxl|seedream/.test(low)) t = 'image';
+        else if (/embed|text-embedding|bge-|e5-/.test(low)) t = 'embedding';
+        return { name, nodes, avgMs: n ? Math.round(sum / n) : null, mtype: t };
+      }).sort((a, b) => b.nodes - a.nodes || a.name.localeCompare(b.name));
+    },
+    modelFilters() {
+      const c = (t) => this.models.filter(m => m.mtype === t).length;
+      return [{ id: 'all', label: this.T.all, n: this.models.length },
+        ...['chat', 'vision', 'image', 'embedding'].map(id => ({ id, label: this.typeLabel(id), n: c(id) })).filter(f => f.n > 0)];
+    },
+    shownModels() {
+      return this.models.filter(m => (this.mtype === 'all' || m.mtype === this.mtype) && this.match(m.name));
+    },
+    resources() {
+      const t = this.T;
+      const typeOf = (r) => (r.type === 'agent' ? 'assistant' : (['prompt', 'assistant'].includes(r.type) ? r.type : 'skill'));
+      const lbl = { skill: t.rtSkill, prompt: t.rtPrompt, assistant: t.rtAssistant };
+      const cls = { skill: 'blue', prompt: 'amber', assistant: 'purple' };
+      return [
+        ...this.scenes.map(s => ({ key: 's' + s.id, type: 'scene', name: s.name || '—', icon: s.icon, desc: s.intro, typeLabel: t.rtScene, badgeCls: 'green', meta: s.default_model || t.official, href: '/studio/chat?id=' + s.id })),
+        ...this.catalog.map((r) => {
+          const ty = typeOf(r);
+          return { key: 'c' + r.catalog_id, type: ty, name: r.display_name || r.name || '—', desc: r.description, typeLabel: lbl[ty], badgeCls: cls[ty],
+            meta: r.sharer ? t.sharedBy.replace('{handle}', r.sharer) : (r.user_recommended ? t.userShare : t.official), side: t.useInApp };
+        }),
+        ...this.mods.map(m => ({ key: 'm' + m.id, type: 'plugin', name: m.name || '—', desc: m.intro, typeLabel: t.rtPlugin, badgeCls: '', meta: t.official, side: (m.price ?? 0) + ' ⚡' })),
+      ];
+    },
+    resFilters() {
+      const t = this.T;
+      const c = (ty) => this.resources.filter(r => r.type === ty).length;
+      return [
+        { id: 'all', label: t.all, n: this.resources.length },
+        { id: 'scene', label: t.rtScene, n: c('scene') },
+        { id: 'skill', label: t.rtSkill, n: c('skill') },
+        { id: 'prompt', label: t.rtPrompt, n: c('prompt') },
+        { id: 'assistant', label: t.rtAssistant, n: c('assistant') },
+        { id: 'plugin', label: t.rtPlugin, n: c('plugin') },
+      ].filter(f => f.id === 'all' || f.n > 0);
+    },
+    shownResources() {
+      return this.resources.filter(r => (this.rtype === 'all' || r.type === this.rtype) && this.match(r.name, r.desc, r.meta));
+    },
+    browseTabs() {
+      return [
+        { id: 'agents', label: this.T.tabAgents, n: this.hydrated ? this.tools.length : '' },
+        { id: 'models', label: this.T.tabModels, n: this.netLoaded ? this.models.length : '' },
+        { id: 'resources', label: this.T.tabResources, n: this.netLoaded ? this.resources.length : '' },
+      ];
+    },
+    curCount() {
+      return this.tab === 'models' ? this.shownModels.length : this.tab === 'resources' ? this.shownResources.length : this.shownTools.length;
+    },
+    N() { return (window.TBNAV || {})[this.lang] || window.TBNAV.zh; },
+    ownerCount() {
+      return new Set(this.tools.map(t => this.ownerOf(t)).filter(Boolean)).size;
+    },
+    onlineCount() {
+      return this.tools.filter(t => t.source === 'network' && t.online !== false).length;
+    },
+    runtimes() {
+      const m = new Map();
+      for (const t of this.tools) {
+        const id = String(t.runtime || '').trim();
+        if (!id) continue;
+        m.set(id, (m.get(id) || 0) + 1);
+      }
+      return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([id, n]) => ({ id, n, label: this.runtimeLabel(id) }));
+    },
+    categories() {
+      const m = {};
+      for (const t of this.tools) { const c = this.catOf(t); m[c] = (m[c] || 0) + 1; }
+      return Object.keys(this.T.cats).filter(id => m[id]).map(id => ({ id, label: this.T.cats[id], n: m[id] }));
+    },
+    // 筛选 + 排序后的完整列表；页面上分批显示 pagedTools
+    shownTools() {
+      let list = this.tools;
+      if (this.filter === 'online') list = list.filter(t => t.online !== false);
+      if (this.cat !== 'all') list = list.filter(t => this.catOf(t) === this.cat);
+      list = [...list];
+      if (this.sortBy === 'name') list.sort((a, b) => this.cleanName(a).localeCompare(this.cleanName(b)));
+      else list.sort((a, b) => (b.online !== false) - (a.online !== false));
+      return list;
+    },
+    pagedTools() { return this.shownTools.slice(0, this.agentLimit); },
+    // 星图节点：优先放在线的真实智能体，不够的位置留空点
+    orbitNodes() {
+      const pos = [
+        { x: 72, y: 74, r: 7 }, { x: 330, y: 50, r: 7.5 }, { x: 404, y: 196, r: 6 },
+        { x: 344, y: 330, r: 7.5 }, { x: 116, y: 338, r: 6.5 }, { x: 38, y: 204, r: 5.5 },
+        { x: 214, y: 22, r: 4.5 }, { x: 222, y: 366, r: 4.5 },
+      ];
+      const list = [...this.tools].sort((a, b) => (b.online !== false) - (a.online !== false));
+      return pos.map((p, i) => {
+        const t = list[i];
+        if (!t) return { ...p, online: i < 3, label: '', title: '', href: '' };
+        const name = this.cleanName(t);
+        return {
+          ...p,
+          online: t.online !== false,
+          label: i < 6 ? (name.length > 7 ? name.slice(0, 7) + '…' : name) : '',
+          title: name,
+          href: this.cardHref(t),
+        };
+      });
+    },
+  },
+  watch: {
+    // 边输边搜：停顿一下再查，避免每个字都打接口
+    sortBy() { this.agentLimit = this.PAGE; },
+    searchQuery() {
+      this.agentLimit = this.PAGE;
+      if (!this.hydrated) return;
+      clearTimeout(this.searchTimer);
+      this.searchTimer = setTimeout(() => this.loadTools(), 350);
     },
   },
   mounted() {
@@ -396,15 +641,160 @@ createApp({
       const toolId = decodeURIComponent(path.slice('/tools/'.length));
       if (toolId) this.loadToolDetail(toolId);
     } else {
+      try { const q0 = new URLSearchParams(location.search).get('q'); if (q0) this.searchQuery = q0; } catch (e) { /* ignore */ }
       this.loadTools();
     }
     document.documentElement.lang = this.lang === 'zh' ? 'zh-CN' : 'en';
     document.title = this.T.plaza + ' · Token Bank';
+    // 按 / 直接聚焦搜索框
+    this.onKey = (e) => {
+      if (e.key !== '/' || this.view !== 'list') return;
+      const tag = (e.target && e.target.tagName) || '';
+      if (/INPUT|TEXTAREA|SELECT/.test(tag) || (e.target && e.target.isContentEditable)) return;
+      e.preventDefault();
+      if (this.$refs.search) this.$refs.search.focus();
+    };
+    window.addEventListener('keydown', this.onKey);
+    this.$nextTick(() => this.setupReveal());
   },
   beforeUnmount() {
+    window.removeEventListener('keydown', this.onKey);
+    if (this.revealObs) this.revealObs.disconnect();
     if (this.pollTimer) clearInterval(this.pollTimer);
   },
   methods: {
+    setTab(id) {
+      this.tab = id;
+      try { history.replaceState(null, '', '#' + id); } catch (e) { /* ignore */ }
+    },
+    match(...vals) {
+      const k = String(this.searchQuery || '').trim().toLowerCase();
+      return !k || vals.some(v => String(v || '').toLowerCase().includes(k));
+    },
+    // 模型、技能与场景：与原社区网络页同源的公开接口
+    async loadNetwork() {
+      try {
+        const headers = {};
+        let tok = '';
+        try { tok = localStorage.getItem('user_token') || ''; } catch (e) { tok = ''; }
+        if (tok) headers.Authorization = 'Bearer ' + tok;
+        const [netRes, catRes, stuRes] = await Promise.all([
+          fetch('/public/network', { headers }).catch(() => null),
+          fetch('/api/community-catalog').catch(() => null),
+          fetch('/public/studio').catch(() => null),
+        ]);
+        if (netRes && netRes.ok) {
+          const d = await netRes.json();
+          this.workers = Array.isArray(d.workers) ? d.workers : [];
+          this.availableModels = Array.isArray(d.available_models) ? d.available_models : [];
+          this.availableModelTypes = d.available_model_types && typeof d.available_model_types === 'object' ? d.available_model_types : {};
+        }
+        try {
+          const cd = catRes && catRes.ok ? await catRes.json() : null;
+          this.catalog = Array.isArray(cd && cd.resources) ? cd.resources : (Array.isArray(cd && cd.data && cd.data.resources) ? cd.data.resources : []);
+        } catch (e) { this.catalog = []; }
+        try {
+          const sd = stuRes && stuRes.ok ? await stuRes.json() : null;
+          this.scenes = Array.isArray(sd && sd.scenes) ? sd.scenes : [];
+          this.mods = Array.isArray(sd && sd.mods) ? sd.mods : [];
+        } catch (e) { this.scenes = []; this.mods = []; }
+      } finally {
+        this.netLoaded = true;
+      }
+    },
+    typeLabel(t) {
+      const x = this.T;
+      return t === 'image' ? x.typeImage : t === 'vision' ? x.typeVision : t === 'embedding' ? x.typeEmbedding : x.typeChat;
+    },
+    typeBadge(t) { return t === 'image' ? 'purple' : t === 'vision' ? 'blue' : t === 'embedding' ? '' : 'green'; },
+    fmtMs(ms) { return ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : Math.round(ms) + 'ms'; },
+    speedCls(ms) { if (!ms) return ''; return ms < 1200 ? 'pz-fast' : ms < 2500 ? 'pz-mid' : 'pz-slow'; },
+    // 搜索或点「挑一个试试」后滚到名片区
+    jumpToList(load) {
+      if (load) { clearTimeout(this.searchTimer); this.loadTools(); }
+      const el = document.getElementById('agents');
+      if (el) el.scrollIntoView({ behavior: this.reducedMotion ? 'auto' : 'smooth', block: 'start' });
+    },
+    // 名片名常带「作者的」前缀，作者已在下一行显示，这里去掉，头像首字也更有区分度
+    splitName(tool) {
+      const name = String((tool && tool.display_name) || '').trim();
+      let owner = String((tool && tool.owner_nickname) || '').trim();
+      if (owner) {
+        if (name.startsWith(owner + '的') && name.length > owner.length + 1) return { name: name.slice(owner.length + 1).trim(), owner };
+        return { name, owner };
+      }
+      // 离线名片没有作者字段时，按「作者的名字」拆开
+      const m = name.match(/^(.{1,24}?)的(.+)$/);
+      return m ? { name: m[2].trim(), owner: m[1].trim() } : { name, owner: '' };
+    },
+    cleanName(tool) { return this.splitName(tool).name; },
+    // 没有分类字段，按名称和简介里的关键词归类
+    catOf(tool) {
+      if (tool._cat) return tool._cat;
+      const text = (this.cleanName(tool) + ' ' + this.descOf(tool)).toLowerCase();
+      const rules = [
+        ['video', /视频|剪辑|配音|字幕|分镜|video/],
+        ['code', /代码|编程|bug|开发|程序|脚本|全栈|前端|后端|claude code|codex|cursor|coding|code\b|programm/],
+        ['image', /配图|图片|生图|绘图|插画|海报|设计|ppt|image|design|draw/],
+        ['write', /文案|写作|文章|内容|小红书|公众号|翻译|邮件|润色|copy|writ|translat/],
+        ['data', /数据|分析|表格|excel|报表|data|analy/],
+        ['life', /菜|三餐|食谱|生活|旅行|健康|学习|教育|cook|travel|learn/],
+      ];
+      const hit = rules.find(([, re]) => re.test(text));
+      const c = hit ? hit[0] : 'other';
+      try { Object.defineProperty(tool, '_cat', { value: c, enumerable: false }); } catch (e) { /* ignore */ }
+      return c;
+    },
+    setCat(c) { this.cat = c; this.agentLimit = this.PAGE; },
+    setView(v) { this.view2 = v; try { localStorage.setItem('tb_plaza_view', v); } catch (e) { /* ignore */ } },
+    // 直接出租的应用（Claude Code 等）简介是统一模板，像说明书；换成普通用户看得懂的一句话
+    descOf(tool) {
+      const d = String((tool && tool.description) || '').trim();
+      if (!/在出租者本机的该应用里执行|runs inside that app on the owner/i.test(d)) return d;
+      const app = this.runtimeLabel(tool.runtime) || this.cleanName(tool);
+      return this.T.appDesc.replace('{app}', app);
+    },
+    runtimeLabel(id) {
+      const k = String(id || '').trim().toLowerCase();
+      const map = { 'claude-code': 'Claude Code', codex: 'Codex', pi: 'Pi', cursor: 'Cursor', gemini: 'Gemini CLI', 'gemini-cli': 'Gemini CLI', openclaw: 'OpenClaw', hermes: 'Hermes', kimi: 'Kimi', qwen: 'Qwen Code', opencode: 'OpenCode', grok: 'Grok', grokbot: 'GrokBot', muse: 'Muse', workbuddy: 'WorkBuddy', trae: 'Trae' };
+      return map[k] || (k ? k.charAt(0).toUpperCase() + k.slice(1) : '');
+    },
+    // 一个链接拉人：复制网页对话地址，朋友打开就能用
+    async shareTool(tool) {
+      const aid = tool && tool.assistant_id;
+      if (!aid) return;
+      const url = window.location.origin + '/a/' + encodeURIComponent(aid);
+      let ok = false;
+      try { await navigator.clipboard.writeText(url); ok = true; } catch (e) {
+        const ta = document.createElement('textarea');
+        ta.value = url; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
+        ta.remove();
+      }
+      this.toast = ok ? this.T.copied : url;
+      clearTimeout(this.toastTimer);
+      this.toastTimer = setTimeout(() => { this.toast = ''; }, 2600);
+    },
+    // 区块滚入视野时淡入；不支持或要求少动效时直接显示
+    setupReveal() {
+      if (this.reducedMotion || !('IntersectionObserver' in window)) return;
+      if (this.revealObs) this.revealObs.disconnect();
+      document.documentElement.classList.add('pz-rv-on');
+      this.revealObs = new IntersectionObserver((entries) => {
+        entries.forEach((en) => {
+          if (en.isIntersecting) { en.target.classList.add('in'); this.revealObs.unobserve(en.target); }
+        });
+      }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+      document.querySelectorAll('.pz-rv').forEach((el) => this.revealObs.observe(el));
+    },
+    ownerOf(tool) { return this.splitName(tool).owner; },
+    roleIcon(key) {
+      const a = 'width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
+      if (key === 'r2') return '<svg ' + a + '><rect x="2.75" y="4.5" width="12.5" height="9" rx="1.5"/><path d="M6 17h6M9 13.5V17"/><rect x="16.5" y="8" width="4.75" height="10.5" rx="1.2"/></svg>';
+      if (key === 'r3') return '<svg ' + a + '><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>';
+      return '<svg ' + a + '><path d="M5 16.5h14M6.5 16.5l1.3-4.6A2 2 0 0 1 9.7 10.5h4.6a2 2 0 0 1 1.9 1.4l1.3 4.6"/><path d="M4.5 16.5v2.25M19.5 16.5v2.25"/><circle cx="8" cy="16.5" r="1"/><circle cx="16" cy="16.5" r="1"/><path d="M12 3.5v3M9.5 5h5"/></svg>';
+    },
     toggleLang() {
       this.lang = this.lang === 'zh' ? 'en' : 'zh';
       localStorage.setItem('tb_lang', this.lang);
@@ -442,7 +832,7 @@ createApp({
         const params = new URLSearchParams();
         if (this.selectedScene) params.append('scene', this.selectedScene);
         if (this.searchQuery) params.append('search', this.searchQuery);
-        params.append('limit', '50');
+        params.append('limit', '100');
         const data = await api('/api/tools/discover?' + params.toString());
         this.tools = data.tools || [];
         this.scenes = data.scenes || [];
@@ -486,6 +876,7 @@ createApp({
       this.currentTask = null;
       window.history.replaceState(null, '', '/agents');
       this.loadTools();
+      this.$nextTick(() => this.setupReveal());
     },
     async startTool() {
       if (this.currentTool && this.currentTool.try_url) {
@@ -571,6 +962,6 @@ createApp({
     },
   },
 }).mount('#app');
-</script></script>
+</script>
 </body>
 </html>

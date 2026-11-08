@@ -5,6 +5,17 @@
     codex: '/static/brand/codex-color.svg',
     cursor: '/static/brand/cursor.svg',
     'kimi-code': '/static/brand/kimi-color.svg',
+    kimi: '/static/brand-icons/kimi-color.svg',
+    opencode: '/static/brand-icons/opencode.svg',
+    openclaw: '/static/brand-icons/openclaw-color.svg',
+    hermes: '/static/brand-icons/hermesagent.svg',
+    gemini: '/static/brand-icons/geminicli-color.svg',
+    'gemini-cli': '/static/brand-icons/geminicli-color.svg',
+    qwen: '/static/brand-icons/qwen-color.svg',
+    grok: '/static/brand-icons/grok.svg',
+    grokbot: '/static/brand-icons/grok.svg',
+    workbuddy: '/static/brand-icons/codebuddy-color.svg',
+    trae: '/static/brand-icons/trae-color.svg',
   };
 
   function runtimeOf(agent) {

@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>开发者 · Token Bank</title>
+<meta name="description" content="Token Bank 开发者中心：统一管理 Pi、Claude Code、Cursor、GrokBot、Muse 等智能体运行时和各家模型供应商（界面与接口）；把智能体分享给自己、圈子或全网分摊费用；从资源市场获取模型、Skill、智能体模板，自用或加工后上架。">
+<link rel="icon" href="/static/logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/plaza.css?v=23">
+<script src="/static/plaza-nav.js?v=18"></script>
+<script src="/static/vue.global.prod.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+[v-cloak] { display: none !important; }
+body { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; background: #fafafb; color: #0a0a0a; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+</style>
+</head>
+<body>
+<div id="app" v-cloak>
+  <nav class="ag-top">
+    <div class="ag-top-in">
+      <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
+      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/dev">{{ N.modeDev }}</a></div>
+      <div class="ag-navs ag-devnav">
+        <a class="ag-nav on" href="/dev" aria-current="page">{{ N.dOverview }}</a>
+        <a class="ag-nav" href="/harness">{{ N.dManage }}</a>
+        <a class="ag-nav" href="/share">{{ N.dShare }}</a>
+        <a class="ag-nav" href="/market">{{ N.dMarket }}</a>
+      </div>
+      <div class="ag-top-r">
+        <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
+        <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
+        <a class="ag-dl hide-sm" href="/#download">{{ N.download }}</a>
+      </div>
+    </div>
+    <div class="ag-sub"><a class="on" href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></div>
+  </nav>
+
+  <header class="pz-hero">
+    <div class="pz-grid-bg" aria-hidden="true"></div>
+    <div class="pz-hero-in nw-hero-in" style="padding-bottom:64px">
+      <div>
+        <div class="pz-eyebrow"><b>FOR DEVELOPERS</b>{{ T.eyebrow }}</div>
+        <h1 class="pz-h1">{{ T.h1a }}<br><em>{{ T.h1b }}</em></h1>
+        <p class="pz-sub">{{ T.sub }}</p>
+        <ul class="pz-promise"><li v-for="p in T.promise" :key="p">{{ p }}</li></ul>
+        <div class="nw-ctas">
+          <a class="pz-btn pri" href="/#download">{{ N.download }}</a>
+          <a class="pz-btn ghost" href="/harness#api">{{ T.ctaApi }}</a>
+        </div>
+      </div>
+      <div class="nw-live" aria-live="polite">
+        <div class="nw-live-h"><i class="pz-live"></i>{{ T.liveTitle }}</div>
+        <div class="nw-kv" style="margin-top:14px">
+          <div><span>{{ T.kNodes }}</span><strong>{{ loaded ? nodes : '—' }}</strong></div>
+          <div><span>{{ T.kModels }}</span><strong>{{ loaded ? models : '—' }}</strong></div>
+          <div><span>{{ T.kAgents }}</span><strong>{{ loaded ? agents : '—' }}</strong></div>
+          <div><span>{{ T.kRes }}</span><strong>{{ loaded ? res : '—' }}</strong></div>
+        </div>
+        <p class="nw-big-k" style="margin-top:14px">{{ T.liveFoot }}</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="ag-page">
+    <!-- 智能体应用工厂：六层架构（左 3D 堆叠，右分层清单，联动高亮） -->
+    <section class="dv-arch" aria-labelledby="dv-stack">
+      <div class="dv-arch-in">
+        <div class="dv-arch-head">
+          <div class="pz-kicker">{{ T.stackKicker }}</div>
+          <h2 id="dv-stack">{{ T.stackTitle }}</h2>
+          <a class="dv-arch-link" href="/harness#vs">{{ T.vsMore }} →</a>
+        </div>
+        <div class="dv-arch-grid" @mouseleave="archHover = false">
+          <div class="dv-iso" aria-hidden="true">
+            <div class="dv-iso-scene">
+              <div class="dv-iso-apps"><i v-for="a in T.stackApps" :key="a">{{ a }}</i></div>
+              <div v-for="(l, i) in T.layers" :key="'p' + l[0]" :class="['dv-plate', { on: archIdx === i }]" :style="{ '--z': (T.layers.length - 1 - i) }" @mouseenter="hoverLayer(i)">
+                <span>{{ l[0] }}</span>
+                <div v-if="plateIcons[i]" class="dv-plate-logos"><template v-for="ic in plateIcons[i]" :key="ic"><img v-if="ic.startsWith('/')" :src="ic" alt=""><b v-else>{{ ic }}</b></template></div>
+              </div>
+              <i class="dv-beam"></i>
+            </div>
+          </div>
+          <ol class="dv-arch-list">
+            <li v-for="(l, i) in T.layers" :key="l[0]" :class="{ on: archIdx === i }" @mouseenter="hoverLayer(i)">
+              <a :href="l[3]">
+                <em>{{ String(T.layers.length - i).padStart(2, '0') }}</em>
+                <div class="dv-al-main"><small>{{ l[0] }}</small><b>{{ l[1] }}</b><span>{{ l[2] }}</span></div>
+                <div class="dv-al-chips"><i v-for="c in T.layerChips[i]" :key="chipText(c)" :class="{ code: chipText(c).startsWith('/') || chipText(c).includes(' /v1') }"><img v-if="chipIcon(c)" :src="chipIcon(c)" alt=""><b v-else-if="chipBadge(c)">{{ chipBadge(c) }}</b>{{ chipText(c) }}</i></div>
+              </a>
+            </li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- 在上面架应用：三条路 -->
+    <section class="pz-sec pz-rv" aria-labelledby="dv-build">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.buildKicker }}</div>
+        <h2 id="dv-build" class="pz-h2">{{ T.buildTitle }}</h2>
+      </div>
+      <div class="dv-build">
+        <div v-for="b in T.builds" :key="b.t" class="dv-b">
+          <em>{{ b.k }}</em><b>{{ b.t }}</b><p>{{ b.d }}</p>
+          <ul><li v-for="x in b.get" :key="x">{{ x }}</li></ul>
+          <a :href="b.href">{{ b.cta }} →</a>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- 统一管理里的功能 -->
+    <section class="pz-sec pz-rv" aria-labelledby="dv-feats">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.featKicker }}</div>
+        <h2 id="dv-feats" class="pz-h2">{{ T.featTitle }}</h2>
+      </div>
+      <div class="dv-feats">
+        <a v-for="f in T.feats" :key="f[0]" :href="'/harness#' + f[0]"><em>{{ f[1] }}</em><b>{{ f[2] }}</b><span>{{ f[3] }}</span></a>
+      </div>
+    </section>
+
+    <!-- 循环：获取 → 加工 → 管理 → 上架 → 普通用户用 -->
+    <section class="pz-sec pz-rv" aria-labelledby="dv-loop">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.loopKicker }}</div>
+        <h2 id="dv-loop" class="pz-h2">{{ T.loopTitle }}</h2>
+      </div>
+      <div class="dv-loop">
+        <a v-for="s in T.loop" :key="s.b" :href="s.href" :class="['dv-node', s.cls]"><small>{{ s.k }}</small><b>{{ s.b }}</b><span>{{ s.d }}</span></a>
+      </div>
+    </section>
+
+    <!-- 一套接口 -->
+    <section class="pz-safe pz-rv" aria-labelledby="dv-api">
+      <div>
+        <div class="pz-kicker">{{ T.apiKicker }}</div>
+        <h2 id="dv-api" class="pz-h2">{{ T.apiTitle }}</h2>
+        <p class="pz-lead">{{ T.apiLead }}</p>
+        <div class="nw-ctas" style="margin-top:22px"><a class="pz-btn ghost" href="/harness#api">{{ T.apiMore }} →</a></div>
+      </div>
+      <div class="hs-code dv-code" style="margin:0;max-width:none">
+        <pre><code><span v-for="(ln, i) in T.apiLines" :key="i" :class="{ hl: ln[1] }">{{ ln[0] }}</span></code></pre>
+      </div>
+    </section>
+
+
+    <section class="pz-final pz-rv">
+      <div><h2>{{ T.finalTitle }}</h2><p>{{ T.finalText }}</p></div>
+      <div class="pz-final-btns">
+        <a class="pz-btn pri" href="/#download">{{ N.download }}</a>
+        <a class="pz-btn ghost" href="/market">{{ T.finalCta2 }}</a>
+      </div>
+    </section>
+  </main>
+  <footer class="nw-foot"><span>Token Bank</span><a href="/">{{ N.home }}</a><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a><a href="/dev">{{ N.dOverview }}</a><a href="/harness">{{ N.dManage }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></footer>
+</div>
+
+<script>
+const { createApp, ref, computed, onMounted, nextTick } = Vue
+createApp({
+  setup() {
+    let stored = ''
+    try { stored = localStorage.getItem('tb_lang') || '' } catch {}
+    const lang = ref(stored || ((navigator.language || '').startsWith('zh') ? 'zh' : 'en'))
+    let loggedIn = false
+    try { loggedIn = !!localStorage.getItem('user_token') } catch {}
+    const i18n = {
+      zh: {
+        title: '开发者', eyebrow: '智能体应用工厂',
+        h1a: '不只是管理智能体，', h1b: '还能把应用架在上面',
+        sub: '现成的运行时、模型、资产、接口、观测和分发。你只管做应用。',
+        promise: ['不用自己造 harness', '一套接口调智能体和模型', '上架即得网页应用', '开源 · macOS / Windows / Linux'],
+        ctaApi: '看统一接口',
+        stackKicker: 'THE FACTORY', stackTitle: '六层现成能力', stackLead: '纯模型网关只做最底下那一层。这里从执行引擎到分发，每一层都已经搭好，你只管在最上面做应用。',
+        layerChips: [['智能体广场', '资源市场', '圈子', '按次计费'], ['Trace', '盘点', '多设备'], [['智能体 /v1/agent/*', '#A'], ['OpenAI /v1/chat/completions', '/static/brand-icons/openai.svg'], ['Anthropic /v1/messages', '/static/brand-icons/anthropic.svg'], ['Codex /v1/responses', '/static/brand-icons/codex-color.svg']], ['Skill', 'MCP', 'Prompt', '模板'], [['Pi', '#Pi'], ['Claude Code', '/static/brand-icons/claudecode-color.svg'], ['Codex', '/static/brand-icons/codex-color.svg'], ['Cursor', '/static/brand-icons/cursor.svg'], ['Kimi Code', '/static/brand-icons/kimi-color.svg'], ['GrokBot', '/static/brand-icons/grok.svg'], ['Muse', '#M'], ['WorkBuddy', '/static/brand-icons/codebuddy-color.svg'], ['OpenClaw', '/static/brand-icons/openclaw-color.svg'], ['Hermes', '/static/brand-icons/hermesagent.svg']], [['Ollama', '/static/brand-icons/ollama.svg'], ['DeepSeek', '/static/brand-icons/deepseek-color.svg'], ['Kimi', '/static/brand-icons/kimi-color.svg'], ['Qwen', '/static/brand-icons/qwen-color.svg'], ['OpenAI', '/static/brand-icons/openai.svg'], ['Claude', '/static/brand-icons/claude-color.svg'], '订阅', '社区']],
+        stackTop: '你的应用', stackApps: ['你的产品后台', '网页智能体', '团队内部工具', '你的 Claude Code 工作流'],
+        layers: [
+          ['分发层', '上架、市场、圈子', '上架即得网页应用，有没有公网 IP 都能对外服务', '/share'],
+          ['观测层', 'Trace、用量、跨端', '每次调用可追溯，多设备归集', '/harness#f-trace'],
+          ['接口层', '智能体任务 + 三种模型协议', '换一个 harness_id 换智能体，三种协议互通', '/harness#api'],
+          ['资产层', 'Skill、MCP、Prompt', '组合进智能体，投射到各个运行时', '/harness#f-assets'],
+          ['运行时层', 'Pi、Claude Code、Codex、Cursor、GrokBot、Muse…', '已装好的运行时直接当执行引擎', '/harness#f-onboard'],
+          ['模型层', '各家模型 + 场景路由', '本地、免费、订阅、按量、社区，自动兜底', '/harness#f-route'],
+        ],
+        buildKicker: 'BUILD ON TOP', buildTitle: '在上面架应用，三条路', buildLead: '选哪条都不用从零写运行时、计费和网页。',
+        builds: [
+          { k: '路线 A', t: '用接口做进你的产品', d: '后端调 /v1/agent/responses，选运行时执行。', get: ['运行时随时换，代码不动', '模型路由、计量、Trace 自带', '任务可查询、可取消、断线续接'], cta: '看接口', href: '/harness#api' },
+          { k: '路线 B', t: '组一个智能体，上架就是网页应用', d: '运行时 + 模型 + Skill，保存上架即可。', get: ['自带网页对话页，支持图片和文件', '可被搜索的介绍页和分享链接', '跑在你局域网的机器上，有没有公网 IP 都行', '未登录试一轮、多人接龙、按次计费'], cta: '怎么上架', href: '/share' },
+          { k: '路线 C', t: '把你已有的应用接进来', d: '「新建应用」以 API 接入，同享路由和观测。', get: ['绑定场景路由，原生模型名不变', '用量进盘点，调用进 Trace', '多设备归集到同一个账号'], cta: '看统一管理', href: '/harness#f-onboard' },
+        ],
+        liveTitle: '网络里此刻有', kNodes: '在线节点', kModels: '可用模型', kAgents: '在线智能体', kRes: '技能与模板', liveFoot: '都来自开发者分享，你也可以拿来自用或加工。',
+        featKicker: 'MANAGE', featTitle: '统一管理里有什么', featLead: '桌面客户端里现成的功能，同一套能力也有接口。点任意一项看细节。',
+        feats: [
+          ['f-onboard', '01', '智能体纳管', 'Pi、Claude Code、Cursor 等一键纳管 / 还原，CLI 多账号按目录分发'],
+          ['f-swap', '02', '一键换模型', '原生模型名不变，协议自动转换，按应用独立绑定'],
+          ['f-route', '03', '场景路由', '场景与任务分型、供给链逐级命中、策略组与故障转移'],
+          ['f-trace', '04', 'Trace 管理', '网关实时 + 会话补录去重，步骤级 Session Trace'],
+          ['f-assets', '05', '资产管理', 'Skill / MCP / Prompt / Agent 一个库，投射到各运行时'],
+          ['f-usage', '06', '用量看板', 'Token、费用、免费命中率，订阅与按量对照，托盘速览'],
+          ['f-devices', '07', '跨端归集', '多台设备用量云端合并，订阅与配置跨设备同步'],
+          ['f-orchestrate', '08', '智能体编排', '主 Agent 接任务，按特点派给本机或雇来的智能体'],
+        ],
+        vsMore: '和纯模型网关有什么不同',
+        loopKicker: 'THE LOOP', loopTitle: '从拿来，到被普通用户用上', loopLead: '三件事连成一个循环：从市场获取，在本机加工和管理，再上架给普通用户。',
+        loop: [
+          { k: '获取', b: '资源市场', d: '别人分享的模型、Skill、提示词和智能体模板', href: '/market' },
+          { k: '加工', b: '在资产里改', d: '换模型、改提示词、加 Skill，调成你自己的智能体', href: '/market#paths' },
+          { k: '管理', b: '纳管到运行时', d: '投射到 Pi、Claude Code、Cursor 等，用统一接口调试', href: '/harness' },
+          { k: '上架', b: '分享出去', d: '只给自己、只给圈子，或公开给所有人', href: '/share' },
+          { k: '使用', b: '普通用户', d: '在智能体广场像打车一样用，任务在你的设备上执行', href: '/agents', cls: 'user' },
+        ],
+        loopBack: '每次被使用都结算积分，分摊你的订阅和算力开销；用户反馈再回到你的下一版。',
+        apiKicker: 'ONE INTERFACE', apiTitle: '一个网关，智能体和三种模型协议', apiLead: '写一次集成，后面随便换。',
+        apiMore: '看完整示例',
+        apiLines: [
+          ['# 本机运行时：pi、claude-code、codex、cursor、kimi-code', false], ['"harness_id": "pi"', true],
+          ['# 雇来的社区智能体', false], ['"harness_id": "community:<id>@<owner>"', true],
+          ['# 模型：三种协议都可以，原生模型名不变', false], ['POST /v1/chat/completions   # OpenAI', true], ['POST /v1/messages           # Anthropic', true], ['POST /v1/responses          # Codex', true],
+        ],
+        finalTitle: '先把手上的运行时接进来', finalText: '已装的应用自动出现，不喜欢一键还原。', finalCta2: '逛逛资源市场',
+      },
+      en: {
+        title: 'Developers', eyebrow: 'An agent app factory',
+        h1a: 'Don\'t just manage agents —', h1b: 'build apps on top of them',
+        sub: 'Runtimes, models, assets, interface, observability and distribution — ready. You build the app.',
+        promise: ['No harness to build', 'One API for agents and models', 'List it, get a web app', 'Open source · macOS / Windows / Linux'],
+        ctaApi: 'See the interface',
+        stackKicker: 'THE FACTORY', stackTitle: 'Six layers, ready', stackLead: 'A model gateway only covers the bottom layer. Here every layer from execution to distribution is built — you work on the top.',
+        layerChips: [['Agent Plaza', 'Market', 'Circles', 'Per-use billing'], ['Trace', 'Usage', 'Devices'], [['Agents /v1/agent/*', '#A'], ['OpenAI /v1/chat/completions', '/static/brand-icons/openai.svg'], ['Anthropic /v1/messages', '/static/brand-icons/anthropic.svg'], ['Codex /v1/responses', '/static/brand-icons/codex-color.svg']], ['Skill', 'MCP', 'Prompt', 'Templates'], [['Pi', '#Pi'], ['Claude Code', '/static/brand-icons/claudecode-color.svg'], ['Codex', '/static/brand-icons/codex-color.svg'], ['Cursor', '/static/brand-icons/cursor.svg'], ['Kimi Code', '/static/brand-icons/kimi-color.svg'], ['GrokBot', '/static/brand-icons/grok.svg'], ['Muse', '#M'], ['WorkBuddy', '/static/brand-icons/codebuddy-color.svg'], ['OpenClaw', '/static/brand-icons/openclaw-color.svg'], ['Hermes', '/static/brand-icons/hermesagent.svg']], [['Ollama', '/static/brand-icons/ollama.svg'], ['DeepSeek', '/static/brand-icons/deepseek-color.svg'], ['Kimi', '/static/brand-icons/kimi-color.svg'], ['Qwen', '/static/brand-icons/qwen-color.svg'], ['OpenAI', '/static/brand-icons/openai.svg'], ['Claude', '/static/brand-icons/claude-color.svg'], 'Subscriptions', 'Community']],
+        stackTop: 'Your apps', stackApps: ['Your product backend', 'Web agents', 'Internal team tools', 'Your Claude Code workflow'],
+        layers: [
+          ['Distribution', 'Listing, market, circles', 'List it, get a web app; serve with or without a public IP', '/share'],
+          ['Observability', 'Trace, usage, devices', 'Every call traceable, rolled up across devices', '/harness#f-trace'],
+          ['Interface', 'Agent tasks + three model protocols', 'Change harness_id to change agent; protocols interoperate', '/harness#api'],
+          ['Assets', 'Skills, MCP, prompts', 'Composed into agents, projected to runtimes', '/harness#f-assets'],
+          ['Runtimes', 'Pi, Claude Code, Codex, Cursor, GrokBot, Muse…', 'Installed runtimes as execution engines', '/harness#f-onboard'],
+          ['Models', 'Every provider + scene routing', 'Local, free, subscription, PAYG, community, with fallback', '/harness#f-route'],
+        ],
+        buildKicker: 'BUILD ON TOP', buildTitle: 'Three ways to build on top', buildLead: 'None of them needs you to write a runtime, billing or a web front end from scratch.',
+        builds: [
+          { k: 'Path A', t: 'Build it into your product', d: 'Your backend calls /v1/agent/responses and picks a runtime.', get: ['Swap runtimes without touching code', 'Model routing, metering and trace built in', 'Tasks can be queried, cancelled and resumed'], cta: 'See the API', href: '/harness#api' },
+          { k: 'Path B', t: 'Compose an agent, list it as a web app', d: 'Runtime + model + skills, saved and listed.', get: ['A web chat page with images and files', 'A searchable intro page and share links', 'Runs on your LAN machine, public IP or not', 'Guest trial, shared threads, per-use billing'], cta: 'How to list', href: '/share' },
+          { k: 'Path C', t: 'Plug in the apps you already have', d: '"New app" connects it via API with the same routing and observability.', get: ['Scene routes, native model names kept', 'Usage in the dashboard, calls in Trace', 'Rolled up across devices in one account'], cta: 'See Manage', href: '/harness#f-onboard' },
+        ],
+        liveTitle: 'On the network right now', kNodes: 'Online nodes', kModels: 'Models', kAgents: 'Agents online', kRes: 'Skills & templates', liveFoot: 'All shared by developers — take them for yourself or remix them.',
+        featKicker: 'MANAGE', featTitle: 'What\'s inside Manage', featLead: 'Features that ship in the desktop app, with the same capabilities behind the API. Open any one for details.',
+        feats: [
+          ['f-onboard', '01', 'Agent onboarding', 'One-click onboard / restore for Pi, Claude Code, Cursor and more; multi-account CLIs per directory'],
+          ['f-swap', '02', 'One-click model swap', 'Native model names kept, protocols translated, bound per app'],
+          ['f-route', '03', 'Scene routing', 'Scenes and task types, a supply chain tried in order, policies and failover'],
+          ['f-trace', '04', 'Trace management', 'Live gateway + de-duplicated session back-fill, step-level Session Trace'],
+          ['f-assets', '05', 'Asset management', 'Skills, MCP, prompts and agents in one library, projected to each runtime'],
+          ['f-usage', '06', 'Usage dashboard', 'Tokens, cost, free-hit rate, subscription vs PAYG, tray glance'],
+          ['f-devices', '07', 'Cross-device roll-up', 'Usage from every device merged in the cloud, config synced'],
+          ['f-orchestrate', '08', 'Agent orchestration', 'A main agent takes the task and dispatches to local or hired agents'],
+        ],
+        vsMore: 'How it differs from a model gateway',
+        loopKicker: 'THE LOOP', loopTitle: 'From sourcing to everyday users', loopLead: 'The three jobs form a loop: source from the market, remix and manage locally, then list for everyday users.',
+        loop: [
+          { k: 'Source', b: 'Market', d: 'Models, skills, prompts and agent templates others shared', href: '/market' },
+          { k: 'Remix', b: 'Edit in Assets', d: 'Swap models, tweak prompts, add skills — make it yours', href: '/market#paths' },
+          { k: 'Manage', b: 'Onboard to runtimes', d: 'Project to Pi, Claude Code, Cursor and test through one API', href: '/harness' },
+          { k: 'List', b: 'Share it', d: 'Just you, a circle, or everyone', href: '/share' },
+          { k: 'Use', b: 'Everyday users', d: 'They hail it on the Agent Plaza; tasks run on your device', href: '/agents', cls: 'user' },
+        ],
+        loopBack: 'Every use settles credits that offset your subscriptions and compute; feedback flows into your next version.',
+        apiKicker: 'ONE INTERFACE', apiTitle: 'One gateway: agents and three model protocols', apiLead: 'Integrate once, swap freely.',
+        apiMore: 'Full examples',
+        apiLines: [
+          ['# local runtime: pi, claude-code, codex, cursor, kimi-code', false], ['"harness_id": "pi"', true],
+          ['# hired community agent', false], ['"harness_id": "community:<id>@<owner>"', true],
+          ['# models: any of three protocols, native names kept', false], ['POST /v1/chat/completions   # OpenAI', true], ['POST /v1/messages           # Anthropic', true], ['POST /v1/responses          # Codex', true],
+        ],
+        finalTitle: 'Start by plugging in your runtimes', finalText: 'Installed apps show up; restore with one click.', finalCta2: 'Browse the market',
+      },
+    }
+    const T = computed(() => i18n[lang.value] || i18n.zh)
+    const N = computed(() => (window.TBNAV || {})[lang.value] || window.TBNAV.zh)
+    function toggleLang() {
+      lang.value = lang.value === 'zh' ? 'en' : 'zh'
+      try { localStorage.setItem('tb_lang', lang.value) } catch {}
+      document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
+      document.title = T.value.title + ' · Token Bank'
+    }
+    const loaded = ref(false), nodes = ref(0), models = ref(0), agents = ref(0), res = ref(0)
+    async function load() {
+      try {
+        const [n, c] = await Promise.all([fetch('/public/network').catch(() => null), fetch('/api/community-catalog').catch(() => null)])
+        if (n && n.ok) {
+          const d = await n.json()
+          nodes.value = (d.summary && d.summary.online_workers) || 0
+          models.value = Array.isArray(d.available_models) ? d.available_models.length : 0
+          agents.value = Array.isArray(d.available_agents) ? d.available_agents.length : 0
+        }
+        if (c && c.ok) {
+          const cd = await c.json()
+          const rows = Array.isArray(cd && cd.resources) ? cd.resources : (Array.isArray(cd && cd.data && cd.data.resources) ? cd.data.resources : [])
+          res.value = rows.length
+        }
+      } catch {} finally { loaded.value = true }
+    }
+    function setupReveal() {
+      let reduced = false
+      try { reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches } catch {}
+      if (reduced || !('IntersectionObserver' in window)) return
+      document.documentElement.classList.add('pz-rv-on')
+      const obs = new IntersectionObserver((es) => es.forEach((en) => { if (en.isIntersecting) { en.target.classList.add('in'); obs.unobserve(en.target) } }), { rootMargin: '0px 0px -8% 0px', threshold: 0.08 })
+      document.querySelectorAll('.pz-rv').forEach(el => obs.observe(el))
+    }
+    // 架构图：自动轮播当前层，悬停时跟随鼠标
+    const archIdx = ref(0), archHover = ref(false)
+    const chipText = c => Array.isArray(c) ? c[0] : c
+    const chipIcon = c => Array.isArray(c) && c[1] && c[1].startsWith('/') ? c[1] : ''
+    const chipBadge = c => Array.isArray(c) && c[1] && c[1].startsWith('#') ? c[1].slice(1) : ''
+    // 3D 层板上的 logo：接口层、运行时层、模型层
+    const plateIcons = { 2: ['/static/brand-icons/openai.svg', '/static/brand-icons/anthropic.svg', '/static/brand-icons/codex-color.svg'], 4: ['Pi', '/static/brand-icons/claudecode-color.svg', '/static/brand-icons/codex-color.svg', '/static/brand-icons/cursor.svg', '/static/brand-icons/grok.svg', 'M'], 5: ['/static/brand-icons/ollama.svg', '/static/brand-icons/deepseek-color.svg', '/static/brand-icons/kimi-color.svg', '/static/brand-icons/qwen-color.svg'] }
+    function hoverLayer(i) { archHover.value = true; archIdx.value = i }
+    let archReduced = false
+    try { archReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches } catch {}
+    if (!archReduced) setInterval(() => { if (!archHover.value) archIdx.value = (archIdx.value + 1) % 6 }, 2200)
+    onMounted(() => {
+      document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
+      document.title = T.value.title + ' · Token Bank'
+      nextTick(setupReveal)
+      load()
+    })
+    return { lang, T, N, toggleLang, loggedIn, loaded, nodes, models, agents, res, archIdx, archHover, hoverLayer, chipText, chipIcon, chipBadge, plateIcons }
+  },
+}).mount('#app')
+</script>
+</body>
+</html>
