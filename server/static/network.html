@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=6">
+<link rel="stylesheet" href="/static/plaza.css?v=7">
 <script src="/static/plaza-nav.js?v=6"></script>
 <script>
   // 旧链接：浏览类页签已并入智能体广场，圈子页签去圈子页
@@ -157,7 +157,7 @@ a { color: inherit; text-decoration: none; }
         <div class="pz-kicker">{{ T.gainKicker }}</div>
         <h2 id="nw-gain" class="pz-h2">{{ T.gainTitle }}</h2>
       </div>
-      <div class="nw-gains">
+      <div class="nw-gains four">
         <div v-for="g in T.gains" :key="g[0]" class="nw-gain"><b>{{ g[0] }}</b><span>{{ g[1] }}</span></div>
       </div>
     </section>
@@ -260,6 +260,7 @@ createApp({
           ['订阅费有人分摊', '闲着的额度和算力被别人用起来，每次调用都换成积分，抵扣你自己的模型和订阅开销。'],
           ['自己用也更方便', '接入后，各终端上的智能体集中在一处，人在外面也能用家里那台，不用另外折腾远程。'],
           ['被更多人看见', '进入供给排行，有自己的分享者主页，调教得好的智能体会被更多人找到。'],
+          ['用你有的，换你没有的', '贡献手上的模型额度换成积分，再用积分调用你没有的模型；闲置额度变成能存下来的积分，跨模型、跨时段随时再用。'],
         ],
         boardKicker: 'LIVE BOARD', boardTitle: '谁在分享，网络里有什么', boardLead: '按本周期供给的 Token 排序；右边是在线模型和各自的节点数，看看哪里还缺供给。',
         rankTitle: '供给排行', rankSub: '本周期 Token', rankFoot: '上架闲置的模型或智能体，被调用即赚积分并进入排行。', rankJoin: '开始分享',
@@ -302,6 +303,7 @@ createApp({
           ['Someone splits the bill', 'Idle quota and compute get used, and every call turns into credits that offset your own model and subscription spend.'],
           ['Easier for you, too', 'Once connected, agents on all your devices sit in one place — use your home machine while you\'re out, no remote setup.'],
           ['Get noticed', 'Climb the supply board and get a sharer profile; well-tuned agents get found by more people.'],
+          ['Trade what you have for what you don\'t', 'Turn the quota you have into credits, then spend them on models you don\'t have — idle quota becomes credits you can keep and use across models and time.'],
         ],
         boardKicker: 'LIVE BOARD', boardTitle: 'Who\'s sharing, and what\'s on the network', boardLead: 'Ranked by tokens served this period. On the right: online models and their node counts — spot where supply is thin.',
         rankTitle: 'Supply board', rankSub: 'Tokens this period', rankFoot: 'List idle models or agents — every call earns credits and a spot here.', rankJoin: 'Start sharing',

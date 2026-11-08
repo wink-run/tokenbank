@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=6">
+<link rel="stylesheet" href="/static/plaza.css?v=7">
 <script>
   // 模型、技能等开发者资源移到了资源市场
   (function () {
@@ -459,24 +459,25 @@ createApp({
           emptySearch: 'No matching agents', emptySearchHint: 'Try another keyword or filter.',
           online: 'Online', offline: 'Offline', chat: 'Chat', use: 'Use it', history: 'History',
           shareTitle: 'Copy share link', copied: 'Link copied — send it and friends can jump straight in',
-          whyKicker: 'WHY TOKEN BANK', whyTitle: 'Why not just use Claude, Grok or WorkBuddy?',
-          whyLead: 'They hand you a blank assistant — tuning, setup and renewals are on you. Here you just use it:',
+          whyKicker: 'WHY TOKEN BANK', whyTitle: 'Why not just use Claude or WorkBuddy?',
+          whyLead: 'Using them is like buying a car: get one first, learn to drive, then pay to keep it. Here it\'s like a ride: say where to, and go.',
           roles: [
             { key: 'r1', who: 'I just want it done', title: 'Hail an agent like a ride', quote: 'No car to buy, learn or maintain — call one and go.', points: ['Prompts, skills and toolchains an expert already polished', 'No keys, no setup — chat right in the browser', 'Pay per task, only for what you use'], cta: 'Try one', href: '#agents' },
-            { key: 'r2', who: 'Right where you are', title: 'Opens on your phone or in a browser', quote: 'No download; try a turn without signing up. Sign in for longer chats — history follows your account across devices.', points: ['Chat in the browser, send images and files', 'One free turn before you sign in', 'Chats you started or joined are all in history'], cta: 'Try one', href: '#agents' },
+            { key: 'r2', who: 'Right where you are', title: 'Opens on your phone or in a browser', quote: 'No download; try a turn without signing up. Sign in for longer chats — history follows your account. A phone app is on the way; the web works today.', points: ['Chat in the browser, send images and files', 'One free turn before you sign in', 'Chats you started or joined are all in history'], cta: 'Try one', href: '#agents' },
             { key: 'r3', who: 'I want to play with friends', title: 'One link brings them in', quote: 'Like starting a group chat: they open the link and pick up the thread — no sign-up, no setup.', points: ['Take turns in one conversation and create together', 'Poke the agent to squeeze out fresh ideas', 'Start a circle only people you trust can see'], cta: 'Explore circles', href: '/circles' },
           ],
           safeKicker: 'SHARE THE SKILL, KEEP THE RECIPE', safeTitle: 'They can use it. They can\'t take it.',
           safeLead: 'Tasks run on your device. Callers send a request and get a result — your prompts, skills and API keys never leave the machine, so sharing never means being copied.',
           safeMe: 'Your device', safeMeName: 'Your agent', safeThem: 'Caller', safeThemName: 'What they get',
           safeVault: ['Prompts', 'Skills', 'API keys'], safeGets: 'The result', safePipe: 'task ⇄ result',
-          cmpKicker: 'SIDE BY SIDE', cmpTitle: 'Same AI, minus the chores',
-          cmpThem: 'General AI assistant', cmpThemHint: 'e.g. Claude, Grok, WorkBuddy', cmpUs: 'Token Bank Agent Plaza', cmpUsHint: 'Shared · cross-device · collaborative',
+          cmpKicker: 'BUY OR RIDE', cmpTitle: 'Why ride instead of buying',
+          cmpThem: 'Buy: a subscription of your own', cmpThemHint: 'e.g. Claude, WorkBuddy', cmpUs: 'Ride: the Agent Plaza', cmpUsHint: 'Hail one when you need it',
           cmp: [
-            ['Expertise', 'Tune prompts, skills and MCP yourself', 'Use agents experts already tuned'],
-            ['Getting started', 'Subscription + setup + trial and error', 'Zero setup, open and use'],
+            ['Getting it', 'Sign up and subscribe — sometimes limited by region or payment', 'Open in a browser; one free turn before signing in'],
+            ['Learning it', 'Learn prompting, install skills, wire up tools', 'An expert already tuned it — just say what you need'],
             ['Paying', 'Monthly, whether you use it or not', 'Per task, only for what you use'],
-            ['Where', 'Install, sign in, configure first', 'Open in a browser or on your phone'],
+            ['Flexibility', 'One subscription, one vendor\'s abilities', 'Copy, images, video — pick the best fit for each job'],
+            ['Rare abilities', 'Top models and expert agents out of reach', 'Rare models and expert agents others share, by the task'],
             ['With friends', 'Mostly single-user', 'One link brings people in'],
           ],
           mapKicker: 'WHO ARE YOU', mapTitle: 'Which one are you?',
@@ -509,24 +510,25 @@ createApp({
         emptySearch: '没找到匹配的智能体', emptySearchHint: '换个关键词或筛选条件试试。',
         online: '在线', offline: '离线', chat: '对话', use: '去使用', history: '看记录',
         shareTitle: '复制分享链接', copied: '链接已复制，发给朋友就能直接一起用',
-        whyKicker: 'WHY TOKEN BANK', whyTitle: '为什么不直接用 Claude、Grok 或 WorkBuddy？',
-        whyLead: '它们给你一个空白的助手，调教、配置、续费全靠你自己。在这里，你只管用：',
+        whyKicker: 'WHY TOKEN BANK', whyTitle: '为什么不直接用 Claude、WorkBuddy？',
+        whyLead: '用它们像买车：先想办法买到、再学会开、每个月还要养。在这里像打车：说清去哪，叫一辆就走。',
         roles: [
           { key: 'r1', who: '只想把事办成', title: '像打车一样用智能体', quote: '不用买车、学车、养车，叫一辆就走。', points: ['高手打磨好的提示词、Skill、工具链，拿来就用', '不买 Key、不装环境，浏览器直接对话', '按次计费，用多少付多少'], cta: '挑一个试试', href: '#agents' },
-          { key: 'r2', who: '随手就用', title: '手机、浏览器打开就能用', quote: '不用下载，不用注册也能先试一轮；登录后多轮对话，记录跟着账号走，换台设备接着聊。', points: ['网页直接对话，可以发图片和文件', '没登录也能先试一轮，看看合不合适', '我发起、我参与的对话都在历史里'], cta: '挑一个试试', href: '#agents' },
+          { key: 'r2', who: '随手就用', title: '手机、浏览器打开就能用', quote: '不用下载，不用注册也能先试一轮；登录后多轮对话，记录跟着账号走。手机 App 正在路上，现在用网页就行。', points: ['网页直接对话，可以发图片和文件', '没登录也能先试一轮，看看合不合适', '我发起、我参与的对话都在历史里'], cta: '挑一个试试', href: '#agents' },
           { key: 'r3', who: '想和朋友一起玩', title: '一个链接，拉人进场', quote: '像拉群一样：对方点开链接就能接着聊，不用注册，也不用配置。', points: ['多人接龙同一场对话，一起创作', '故意逗它，把新点子逼出来', '建个圈子，只对信任的人开放'], cta: '去看看圈子', href: '/circles' },
         ],
         safeKicker: '能力共享 · 配方私有', safeTitle: '别人能用，但拿不走',
         safeLead: '任务在你的设备上执行。对方发来任务、拿回结果，你的提示词、Skill 和 API Key 始终不离机。分享出去，不等于被抄走。',
         safeMe: '你的设备', safeMeName: '你调教的智能体', safeThem: '调用方', safeThemName: '对方能拿到的',
         safeVault: ['提示词', 'Skill', 'API Key'], safeGets: '任务结果', safePipe: '任务 ⇄ 结果',
-        cmpKicker: 'SIDE BY SIDE', cmpTitle: '同样是用 AI，省掉的是哪些事',
-        cmpThem: '通用 AI 助手', cmpThemHint: '如 Claude、Grok、WorkBuddy 等', cmpUs: 'Token Bank 智能体广场', cmpUsHint: '共享 · 跨设备 · 可协作',
+        cmpKicker: 'BUY OR RIDE', cmpTitle: '买车不如打车',
+        cmpThem: '买车：自己开一份订阅', cmpThemHint: '如 Claude、WorkBuddy 等', cmpUs: '打车：智能体广场', cmpUsHint: '要用的时候叫一个',
         cmp: [
-          ['专业能力', '提示词、Skill、MCP 自己慢慢调', '直接用高手调好的成品'],
-          ['上手成本', '订阅 + 配置 + 反复试错', '0 配置，打开就用'],
-          ['怎么付费', '按月订阅，用不用都要付', '按次付费，用多少付多少'],
-          ['在哪用', '先下载安装、登录配置', '浏览器、手机直接打开'],
+          ['拿到手', '要注册、开通订阅，有的还受地区和支付方式限制', '浏览器打开就能用，没登录也能先试一轮'],
+          ['学会用', '自己学提示词、装 Skill、配工具', '高手已经调好，说清要做什么就行'],
+          ['花多少', '按月固定付，用不用都扣', '按次付，用多少付多少'],
+          ['够不够灵活', '一份订阅，只有一家的能力', '写文案、配图、做视频，每件事挑最合适的那个'],
+          ['稀缺能力', '好模型、专家智能体，够不着', '别人分享的稀有模型和专家智能体，按次就能用'],
           ['和朋友一起', '基本是一个人用', '一个链接拉人进来，接着聊'],
         ],
         mapKicker: 'WHO ARE YOU', mapTitle: '你是哪种用户？',

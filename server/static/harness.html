@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=6">
+<link rel="stylesheet" href="/static/plaza.css?v=7">
 <script src="/static/plaza-nav.js?v=6"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -103,6 +103,25 @@ a { color: inherit; text-decoration: none; }
       </div>
     </section>
 
+    <!-- 桌面客户端：每天用得上的工具看板 -->
+    <section id="boards" class="pz-sec" aria-labelledby="hs-boards">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.boardKicker }}</div>
+        <h2 id="hs-boards" class="pz-h2">{{ T.boardTitle }}</h2>
+        <p class="pz-lead">{{ T.boardLead }}</p>
+      </div>
+      <div class="hs-boards">
+        <div class="hs-board-tabs" role="tablist">
+          <button v-for="(b, i) in boards" :key="b.key" type="button" role="tab" :aria-selected="boardIdx === i" :class="{ on: boardIdx === i }" @click="boardIdx = i">
+            <b>{{ b.h }}</b><span>{{ b.b }}</span>
+          </button>
+        </div>
+        <div class="hs-shot" :class="{ tall: boards[boardIdx].tall }">
+          <img :src="boardSrc(boards[boardIdx].key)" :alt="boards[boardIdx].h" loading="lazy">
+        </div>
+      </div>
+    </section>
+
     <!-- 管起来之后能做什么 -->
     <section class="pz-sec pz-rv" aria-labelledby="hs-cap">
       <div class="pz-head-c">
@@ -114,6 +133,27 @@ a { color: inherit; text-decoration: none; }
           <div class="hs-pain">{{ c.pain }}</div>
           <h3>{{ c.t }}</h3>
           <p>{{ c.d }}</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 和纯模型网关的区别 -->
+    <section id="vs" class="pz-sec pz-rv" aria-labelledby="hs-vs">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.vsKicker }}</div>
+        <h2 id="hs-vs" class="pz-h2">{{ T.vsTitle }}</h2>
+        <p class="pz-lead">{{ T.vsLead }}</p>
+      </div>
+      <div class="pz-cmp" role="table">
+        <div class="pz-cmp-row" role="row">
+          <div class="pz-cmp-dim" role="columnheader"></div>
+          <div class="pz-cmp-them" role="columnheader"><div class="pz-cmp-h">{{ T.vsThem }}<small>{{ T.vsThemHint }}</small></div></div>
+          <div class="pz-cmp-us" role="columnheader"><div class="pz-cmp-h">{{ T.vsUs }}<small>{{ T.vsUsHint }}</small></div></div>
+        </div>
+        <div v-for="row in T.vs" :key="row[0]" class="pz-cmp-row" role="row">
+          <div class="pz-cmp-dim" role="rowheader">{{ row[0] }}</div>
+          <div class="pz-cmp-them" role="cell"><i class="pz-x" aria-hidden="true">–</i><span>{{ row[1] }}</span></div>
+          <div class="pz-cmp-us" role="cell"><i class="pz-v" aria-hidden="true">✓</i><span>{{ row[2] }}</span></div>
         </div>
       </div>
     </section>
@@ -196,17 +236,41 @@ createApp({
         title: '统一管理', eyebrow: '开发者 · 统一管理',
         h1a: '智能体平台再多，', h1b: '一个入口全管起来',
         sub: 'Pi、Claude Code、Cursor、Codex、WorkBuddy……每个 runtime 都有自己的配置和接口；模型也散在 Ollama、免费 API、订阅、按量和社区共享里。OneHarness 把它们接到同一个本地网关：客户端里一个界面管，程序里一套接口调。',
-        promise: ['runtime 和模型一处管', '界面和接口都统一', '按特点派活', '一键纳管，随时还原'],
+        promise: ['runtime 和模型一处管', '界面和接口都统一', '每个 Token 看得清', '开源 · 随时一键还原'],
         ctaStart: '下载客户端', ctaApi: '看统一接口',
         heroOut: ['界面', '接口', '你的任务'],
         appsKicker: 'WORKS WITH', appsTitle: '你的 runtime 和模型来源，都能接进来', appsLead: '不改使用习惯：装好的应用自动出现在列表里，点一下纳管，不想用了一键还原；模型来源本地优先，必要时自动走社区共享。',
         groups: { cli: ['智能体 runtime · 透明托管', '自动注入网关地址，命令照常敲'], cfg: ['智能体 runtime · 配置写入', '一键改写配置文件，指向本地网关'], stats: ['智能体 runtime · 用量统计', '读取会话记录，Token 和费用照样看得清'], models: ['模型供应商', '本地源优先，按路由切换，原生模型名不变'] },
         capKicker: 'ONE PLACE', capTitle: '管起来之后，能省掉哪些事',
         caps: [
-          { pain: '每个工具一套配置，切换全靠手改', t: '一处纳管，随时还原', d: '所有应用指向同一个本地地址。换模型、换路由在一个地方改，不想用了一键恢复官方配置，零残留。' },
-          { pain: 'Skill、MCP、Prompt 到处复制，版本对不上', t: '资产一处纳管，投射到各个应用', d: '在资产库改一次，所有已纳管的智能体拿到的都是同一个版本；只投射到本机真的装了的应用。' },
-          { pain: '不知道哪个智能体擅长什么', t: '主 Agent 按特点派活', d: '把任务交给一个主 Agent，它拆步骤、派给最合适的那个：本机的 Claude Code、Codex，或雇来的社区智能体。' },
-          { pain: '离开那台电脑，智能体就用不了', t: '各终端的智能体，随处可用', d: '家里、公司每台设备上的智能体集中在一处，不用公网 IP 和内网穿透；用量和费用多设备合并，一眼看清。' },
+          { pain: '每个工具一套配置，切换全靠手改', t: '一处纳管，随时还原', d: '所有 runtime 指向同一个本地地址；换模型、换路由在一个地方改，不想用了一键恢复官方配置，零残留。' },
+          { pain: '账单越来越长，Token 花在哪说不清', t: '每个 Token 都看得清', d: '网关实时记录加会话补录，自动去重：哪个应用、哪个模型、多少 Token、多少钱。多设备汇总，订阅和按量同屏对照。' },
+          { pain: '免费额度闲着，付费却在涨', t: '用得更省', d: '智能路由本地和免费来源优先，必要时走社区共享；原生模型名不变，协议自动转换，还能开无损压缩省输入 Token。' },
+          { pain: '一个 CLI 多个账号，互相抢配置', t: 'CLI 多账号按目录分发', d: 'Claude Code、Codex 可以挂多个登录账号，网关按启动目录自动选，各项目保留自己的账号、额度和路由。' },
+          { pain: 'Skill、MCP、Prompt 到处复制，版本对不上', t: '资产一处纳管，越用越懂你', d: '资产库改一次，所有已纳管的智能体拿到同一个版本；从你的使用习惯挖出工作画像，推荐下一批值得装的。' },
+          { pain: '不知道哪个智能体擅长什么', t: '主 Agent 按特点派活', d: '把任务交给主 Agent，它拆步骤、派给最合适的那个：本机的 Pi、Claude Code、Codex，或雇来的社区智能体。' },
+        ],
+        boardKicker: 'DESKTOP', boardTitle: '桌面客户端：每天都用得上的工具看板', boardLead: '界面和接口是同一套能力。这些是客户端里的真实页面，macOS、Windows、Linux 都能用。',
+        boards: [
+          { key: 'gateway', h: '网关 · 一键纳管', b: '已装的应用自动列出，逐个选路由或还原官方配置。' },
+          { key: 'dashboard', h: '盘点 · 看清花费', b: '请求、Token、免费命中率、费用估算与应用分布。' },
+          { key: 'sessions', h: '会话 · 跨应用追溯', b: '按应用过滤，查看 Token 与费用，支持交接与导出。' },
+          { key: 'trace', h: 'Session Trace', b: '步骤级工具、Skill、推理与 Token 明细。' },
+          { key: 'provider', h: '模型 · 个人 + 社区', b: '个人模型来源测速；社区算力按积分调用。' },
+          { key: 'assets', h: '资产 · 投射', b: 'Agent / Skill / Prompt / MCP 管理并投射到各 runtime。' },
+          { key: 'portrait', h: '画像 · 为你推荐', b: '从会话挖掘工作画像，给出为你推荐与社区精选。' },
+          { key: 'playground', h: '游乐场 · 聚合编排', b: '主 Agent 跑工具，把子任务并行派给 Codex、Kimi Code 等。' },
+          { key: 'device', h: '托盘 · 常驻速览', b: '网关状态、各应用路由、首字延迟和今日用量。', tall: true },
+        ],
+        vsKicker: 'NOT JUST A GATEWAY', vsTitle: '不只是又一个模型网关', vsLead: '模型网关和切换工具解决的是「换模型、换 Key」。Token Bank 管的是你整套智能体：runtime、模型、资产、调度，再往后是分享和获取。',
+        vsThem: '纯模型网关 / 切换工具', vsThemHint: '如 cc-switch、Magpie 这类产品', vsUs: 'Token Bank 统一管理', vsUsHint: 'runtime + 模型 + 资产 + 分享',
+        vs: [
+          ['管什么', '主要是模型供应商和 Key 的切换、转发', 'Pi、Claude Code、Cursor 等 runtime，加上模型、Skill、MCP、Prompt'],
+          ['接口', '模型补全接口', '模型接口，加上智能体任务接口：本机和社区智能体同一套，换 harness_id 就换'],
+          ['看得见', '多数只管转发', '全链路 Trace、会话补录、多设备盘点、订阅与按量对照'],
+          ['调度', '按模型路由', '按模型路由，加主 Agent 按特点把步骤派给不同智能体'],
+          ['资产', '一般不涉及', '一处纳管，投射到每个已装的 runtime，画像推荐'],
+          ['之后', '到此为止', '调好的智能体分享出去分摊费用；从资源市场拿模板再加工'],
         ],
         routeKicker: 'BY STRENGTH', routeTitle: '一句话，派给最擅长的那个', routeLead: '主 Agent 接住整件事，按每一步的特点挑执行者。本机的、雇来的、模型，都在同一张名单里。',
         mainAgent: '主 Agent', routeTask: '把这个仓库的登录 bug 修了，再写篇更新说明配张封面',
@@ -233,17 +297,41 @@ createApp({
         title: 'Manage', eyebrow: 'Developers · manage',
         h1a: 'However many agent platforms,', h1b: 'one place to run them all',
         sub: 'Pi, Claude Code, Cursor, Codex, WorkBuddy… each runtime has its own config and API, and models are scattered across Ollama, free APIs, subscriptions, pay-as-you-go and the community. OneHarness plugs them all into one local gateway: one UI in the app, one interface in your code.',
-        promise: ['Runtimes and models in one place', 'One UI, one API', 'Route by strength', 'One-click onboard and restore'],
+        promise: ['Runtimes and models in one place', 'One UI, one API', 'See every token', 'Open source · restore any time'],
         ctaStart: 'Download the client', ctaApi: 'See the interface',
         heroOut: ['UI', 'API', 'Your task'],
         appsKicker: 'WORKS WITH', appsTitle: 'Bring your runtimes and model providers', appsLead: 'Keep your habits: installed apps show up automatically, one click to onboard or restore; model sources prefer local and fall back to the community.',
         groups: { cli: ['Runtimes · transparent wrap', 'Gateway address injected — run commands as usual'], cfg: ['Runtimes · config patch', 'One click rewrites the config to point at the gateway'], stats: ['Runtimes · usage tracking', 'Reads session logs so tokens and cost stay visible'], models: ['Model providers', 'Local first, switched by route, native model names kept'] },
         capKicker: 'ONE PLACE', capTitle: 'What you stop doing once it\'s all managed',
         caps: [
-          { pain: 'Every tool has its own config; switching means editing by hand', t: 'Onboard in one place, restore any time', d: 'Every app points at one local address. Change models and routes in one spot, or restore the official config with zero leftovers.' },
-          { pain: 'Skills, MCP and prompts copied everywhere, versions drift', t: 'One asset library, projected to every app', d: 'Edit once and every onboarded agent gets the same version — projected only to apps actually installed on this machine.' },
-          { pain: 'No idea which agent is good at what', t: 'A main agent routes by strength', d: 'Hand the job to a main agent; it splits the steps and dispatches each to the best fit — local Claude Code, Codex, or a hired community agent.' },
-          { pain: 'Leave that computer and the agent is gone', t: 'Every device\'s agents, anywhere', d: 'Agents on your home and office machines in one place, no public IP or tunnels; usage and cost merged across devices.' },
+          { pain: 'Every tool has its own config; switching means editing by hand', t: 'Onboard in one place, restore any time', d: 'Every runtime points at one local address. Change models and routes in one spot, or restore the official config with zero leftovers.' },
+          { pain: 'Bills keep growing and nobody knows where tokens go', t: 'See every token', d: 'Live gateway logs plus session back-fill, de-duplicated: which app, which model, how many tokens, how much. Merged across devices, subscriptions next to pay-as-you-go.' },
+          { pain: 'Free quota sits idle while paid usage climbs', t: 'Spend less', d: 'Routes prefer local and free sources and fall back to the community; native model names stay, protocols are translated, and lossless compression trims input tokens.' },
+          { pain: 'Several accounts on one CLI fight over config', t: 'CLI accounts per directory', d: 'Claude Code and Codex can hold several sign-ins; the gateway picks by launch directory so each project keeps its own account, quota and route.' },
+          { pain: 'Skills, MCP and prompts copied everywhere, versions drift', t: 'One asset library that learns you', d: 'Edit once and every onboarded agent gets the same version; a work portrait mined from your sessions suggests what to add next.' },
+          { pain: 'No idea which agent is good at what', t: 'A main agent routes by strength', d: 'Hand the job to a main agent; it splits the steps and dispatches each to the best fit — local Pi, Claude Code, Codex, or a hired community agent.' },
+        ],
+        boardKicker: 'DESKTOP', boardTitle: 'The desktop app: dashboards you\'ll use every day', boardLead: 'The UI and the API are the same capabilities. These are real screens from the app, on macOS, Windows and Linux.',
+        boards: [
+          { key: 'gateway', h: 'Gateway · onboard', b: 'Installed apps listed automatically; pick a route or restore each one.' },
+          { key: 'dashboard', h: 'Usage · spend visibility', b: 'Requests, tokens, free-hit rate, cost estimates and per-app mix.' },
+          { key: 'sessions', h: 'Sessions · cross-app trace', b: 'Filter by app, inspect tokens and cost, hand off or export.' },
+          { key: 'trace', h: 'Session Trace', b: 'Step-level tools, skills, reasoning and token breakdown.' },
+          { key: 'provider', h: 'Models · personal + community', b: 'Speed-test personal sources; use community compute with credits.' },
+          { key: 'assets', h: 'Assets · projection', b: 'Manage agents, skills, prompts and MCP and project them to runtimes.' },
+          { key: 'portrait', h: 'Portrait · picks for you', b: 'A work portrait mined from your sessions, with picks and favorites.' },
+          { key: 'playground', h: 'Playground · orchestration', b: 'The main agent runs tools and dispatches sub-tasks to Codex, Kimi Code and more.' },
+          { key: 'device', h: 'Tray · always-on glance', b: 'Gateway status, per-app route, first-token latency and today\'s usage.', tall: true },
+        ],
+        vsKicker: 'NOT JUST A GATEWAY', vsTitle: 'More than another model gateway', vsLead: 'Model gateways and switchers solve "change the model, change the key". Token Bank manages your whole agent setup: runtimes, models, assets and dispatch — and then sharing and sourcing.',
+        vsThem: 'Model gateway / switcher', vsThemHint: 'products like cc-switch or Magpie', vsUs: 'Token Bank Manage', vsUsHint: 'runtimes + models + assets + sharing',
+        vs: [
+          ['What it manages', 'Mostly switching and forwarding model providers and keys', 'Runtimes like Pi, Claude Code and Cursor, plus models, skills, MCP and prompts'],
+          ['Interface', 'Model completion endpoints', 'Model endpoints plus an agent task endpoint: local and community agents alike, switch by harness_id'],
+          ['Visibility', 'Usually forwarding only', 'Full trace, session back-fill, multi-device usage, subscription vs pay-as-you-go'],
+          ['Dispatch', 'Routes by model', 'Routes by model, plus a main agent sending each step to a different agent'],
+          ['Assets', 'Usually out of scope', 'One library projected to every installed runtime, with personalised picks'],
+          ['Afterwards', 'That\'s it', 'Share tuned agents to split costs; remix templates from the market'],
         ],
         routeKicker: 'BY STRENGTH', routeTitle: 'One sentence, sent to whoever does it best', routeLead: 'The main agent owns the whole job and picks an executor for each step. Local apps, hired agents and models sit on the same roster.',
         mainAgent: 'Main agent', routeTask: 'Fix the login bug in this repo, then write release notes with a cover image',
@@ -293,6 +381,9 @@ createApp({
       { id: 'km', icon: B + 'kimi-color.svg', y: 266 }, { id: 'oc', icon: B + 'openclaw-color.svg', y: 320 },
     ]
 
+    const boardIdx = ref(0)
+    const boards = computed(() => T.value.boards)
+    const boardSrc = (key) => '/static/img_cache/' + key + (lang.value === 'en' ? '_en' : '') + '.webp'
     const exIdx = ref(0)
     const examples = computed(() => {
       const t = T.value
@@ -344,7 +435,7 @@ createApp({
       document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
       nextTick(setupReveal)
     })
-    return { N, loggedIn, lang, T, toggleLang, reduced, appGroups, heroApps, exIdx, examples, copied, copyCode }
+    return { N, loggedIn, boardIdx, boards, boardSrc, lang, T, toggleLang, reduced, appGroups, heroApps, exIdx, examples, copied, copyCode }
   },
 }).mount('#app')
 </script>

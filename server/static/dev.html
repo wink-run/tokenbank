@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=6">
+<link rel="stylesheet" href="/static/plaza.css?v=7">
 <script src="/static/plaza-nav.js?v=6"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -75,6 +75,19 @@ a { color: inherit; text-decoration: none; }
       </div>
     </section>
 
+    <!-- 不只是模型网关 -->
+    <section class="pz-sec pz-rv" aria-labelledby="dv-vs">
+      <div class="pz-head-c">
+        <div class="pz-kicker">{{ T.vsKicker }}</div>
+        <h2 id="dv-vs" class="pz-h2">{{ T.vsTitle }}</h2>
+        <p class="pz-lead">{{ T.vsLead }}</p>
+      </div>
+      <div class="hs-facts" style="max-width:none;margin-top:32px">
+        <div v-for="f in T.vs" :key="f[0]"><b>{{ f[0] }}</b><span>{{ f[1] }}</span></div>
+      </div>
+      <p class="dv-back"><a href="/harness#vs" style="color:#6366f1;font-weight:600">{{ T.vsMore }} →</a></p>
+    </section>
+
     <!-- 循环：获取 → 加工 → 管理 → 上架 → 普通用户用 -->
     <section class="pz-sec pz-rv" aria-labelledby="dv-loop">
       <div class="pz-head-c">
@@ -133,9 +146,12 @@ createApp({
         title: '开发者', eyebrow: '给做智能体、用多个 runtime 的人',
         h1a: '你的智能体和模型，', h1b: '管起来、分出去、再赚回来',
         sub: 'Pi、Claude Code、Cursor 这些 runtime，加上本地 Ollama、免费 API、订阅、按量和社区共享这些模型来源，在一个界面、一套接口里管理。调好的智能体分享出去：自己随处用、圈子一起用，也能上架给普通用户，用积分分摊费用。',
-        promise: ['界面和接口都统一', 'Skill 与 Key 不离机', '自用、圈子或全网', '从市场拿来再加工'],
+        promise: ['界面和接口都统一', 'Skill 与 Key 不离机', '自用、圈子或全网', '开源 · macOS / Windows / Linux'],
         ctaApi: '看统一接口',
         liveTitle: '网络里此刻有', kNodes: '在线节点', kModels: '可用模型', kAgents: '在线智能体', kRes: '技能与模板', liveFoot: '都来自开发者分享，你也可以拿来自用或加工。',
+        vsKicker: 'NOT JUST A GATEWAY', vsTitle: '不只是又一个模型网关', vsLead: 'cc-switch、Magpie 这类产品帮你切换模型和 Key；Token Bank 管的是整套智能体，并且管完还能分享、还能获取。',
+        vs: [['管整套智能体', 'runtime、模型、Skill / MCP / Prompt 一起纳管，桌面看板一眼看清每个 Token。'], ['模型和智能体一套接口', '模型走补全接口，智能体走任务接口，本机和社区的换个 harness_id 就换。'], ['管完还能变现', '调好的智能体分享给自己、圈子或全网分摊费用；缺素材去资源市场拿。']],
+        vsMore: '看完整对比',
         loopKicker: 'THE LOOP', loopTitle: '从拿来，到被普通用户用上', loopLead: '三件事连成一个循环：从市场获取，在本机加工和管理，再上架给普通用户。',
         loop: [
           { k: '获取', b: '资源市场', d: '别人分享的模型、Skill、提示词和智能体模板', href: '/market' },
@@ -158,9 +174,12 @@ createApp({
         title: 'Developers', eyebrow: 'For people building agents across runtimes',
         h1a: 'Your agents and models —', h1b: 'managed, shared, paid back',
         sub: 'Runtimes like Pi, Claude Code and Cursor, plus model sources from local Ollama and free APIs to subscriptions, pay-as-you-go and the community — one UI, one interface. Share the agents you tune: use them anywhere yourself, with a circle, or list them for everyday users and split the cost in credits.',
-        promise: ['One UI, one API', 'Skills and keys stay local', 'Yourself, a circle or everyone', 'Remix from the market'],
+        promise: ['One UI, one API', 'Skills and keys stay local', 'Yourself, a circle or everyone', 'Open source · macOS / Windows / Linux'],
         ctaApi: 'See the interface',
         liveTitle: 'On the network right now', kNodes: 'Online nodes', kModels: 'Models', kAgents: 'Agents online', kRes: 'Skills & templates', liveFoot: 'All shared by developers — take them for yourself or remix them.',
+        vsKicker: 'NOT JUST A GATEWAY', vsTitle: 'More than another model gateway', vsLead: 'Tools like cc-switch or Magpie switch models and keys for you. Token Bank manages your whole agent setup — and then lets you share and source.',
+        vs: [['The whole agent setup', 'Runtimes, models, skills, MCP and prompts onboarded together, with desktop dashboards for every token.'], ['One interface for models and agents', 'Completion endpoints for models, a task endpoint for agents; swap local or community by harness_id.'], ['Then make it pay', 'Share tuned agents with yourself, a circle or everyone to split costs; source more from the market.']],
+        vsMore: 'Full comparison',
         loopKicker: 'THE LOOP', loopTitle: 'From sourcing to everyday users', loopLead: 'The three jobs form a loop: source from the market, remix and manage locally, then list for everyday users.',
         loop: [
           { k: 'Source', b: 'Market', d: 'Models, skills, prompts and agent templates others shared', href: '/market' },

@@ -383,7 +383,7 @@ a.nw-rk:hover { background: #fafaff; }
 .hs-chip { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px 0 6px; border-radius: 11px; background: var(--pz-soft); font-size: 13.5px; font-weight: 500; color: #33333d; }
 .hs-chip img, .hs-chip i { width: 22px; height: 22px; border-radius: 7px; background: #fff; padding: 3px; object-fit: contain; }
 .hs-chip i { display: inline-flex; align-items: center; justify-content: center; font-style: normal; font-size: 11px; font-weight: 700; color: #6366f1; padding: 0; box-shadow: inset 0 0 0 1px #e4e4ee; }
-.hs-caps { margin-top: 40px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.hs-caps { margin-top: 40px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
 .hs-cap { padding: 26px; border-radius: 22px; border: 1px solid var(--pz-line); background: #fff; }
 .hs-pain { display: inline-block; padding: 4px 10px; border-radius: 8px; background: #fff1f2; color: #be123c; font-size: 12.5px; text-decoration: line-through; text-decoration-color: rgba(190,18,60,.45); }
 .hs-cap h3 { margin-top: 14px; font-size: 20px; letter-spacing: -.02em; color: var(--pz-ink); }
@@ -523,3 +523,28 @@ a.nw-rk:hover { background: #fafaff; }
 .dv-code pre span { display: block; min-width: 0; }
 .dv-code pre span:not(.hl) { color: rgba(199,210,254,.55); }
 .dv-code pre .hl { margin: 0 -24px 10px; }
+
+/* 桌面看板 */
+.hs-boards { margin-top: 40px; display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 22px; align-items: start; }
+.hs-board-tabs { display: flex; flex-direction: column; gap: 4px; }
+.hs-board-tabs button { text-align: left; padding: 12px 14px; border-radius: 14px; border: 1px solid transparent; background: transparent; font: inherit; cursor: pointer; transition: background .15s, border-color .15s; }
+.hs-board-tabs button b { display: block; font-size: 14.5px; color: #44444f; }
+.hs-board-tabs button span { display: none; margin-top: 3px; font-size: 13px; line-height: 1.55; color: var(--pz-muted); }
+.hs-board-tabs button:hover { background: #f1f1f6; }
+.hs-board-tabs button.on { background: #fff; border-color: var(--pz-line); box-shadow: 0 8px 20px -14px rgba(79,70,229,.4); }
+.hs-board-tabs button.on b { color: var(--pz-ink); }
+.hs-board-tabs button.on span { display: block; }
+.hs-shot { position: sticky; top: 76px; border-radius: 20px; overflow: hidden; background: linear-gradient(135deg, #eef2ff, #f5f3ff 60%, #ecfeff); padding: 18px; border: 1px solid #e3e5fb; display: flex; align-items: center; justify-content: center; aspect-ratio: 1600 / 1113; }
+.hs-shot img { display: block; width: 100%; height: 100%; object-fit: contain; border-radius: 12px; box-shadow: 0 24px 50px -24px rgba(30,27,75,.45); }
+.hs-shot.tall img { width: auto; box-shadow: 0 24px 50px -24px rgba(30,27,75,.45); }
+@media (max-width: 1024px) {
+  .hs-boards { grid-template-columns: 1fr; }
+  .hs-board-tabs { flex-direction: row; overflow-x: auto; scrollbar-width: none; }
+  .hs-board-tabs::-webkit-scrollbar { display: none; }
+  .hs-board-tabs button { flex-shrink: 0; padding: 9px 12px; }
+  .hs-board-tabs button.on span { display: none; }
+  .hs-shot { position: static; padding: 10px; }
+}
+/* 分享与收益：四项收益 */
+.nw-gains.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 1024px) { .nw-gains.four { grid-template-columns: 1fr; } }
