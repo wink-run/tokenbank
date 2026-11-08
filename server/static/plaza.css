@@ -443,6 +443,9 @@ a.nw-rk:hover { background: #fafaff; }
 }
 @media (max-width: 768px) {
   .ag-navs .ag-nav { padding: 6px 8px; }
+  .ag-dl.hide-sm, .ag-nav.hide-sm { display: none; }
+  .ag-top-r { gap: 2px; }
+  .ag-navs { flex: 1; -webkit-mask-image: linear-gradient(90deg, #000 82%, transparent); mask-image: linear-gradient(90deg, #000 82%, transparent); padding-right: 18px; }
   .pz-map { grid-template-columns: 1fr; }
   .hs-row { grid-template-columns: 1fr; gap: 6px; }
   .hs-arrow { display: none; }

@@ -223,6 +223,7 @@ td{padding:10px 12px;vertical-align:middle}
     <header>
       <div class="header-title"><img class="brand-mark" src="/static/logo.svg" alt="Token Bank" width="28" height="28"> Token Bank <span>{{ T.portalTitle }}</span></div>
       <div class="header-user">
+        <a class="btn-sm" href="/agents" style="text-decoration:none">{{ T.navPlaza }}</a>
         <a class="btn-sm" href="/network" style="text-decoration:none">{{ T.navNetwork }}</a>
         <span class="credit-badge">💎 {{ profile.credits_balance?.toFixed(1) ?? '…' }}</span>
         <span class="email">{{ profile.email }}</span>
@@ -722,7 +723,7 @@ const LANGS = {
     model: '模型', tier: '类型',
     earnRate: '贡献率（积分/千Token）', spendRate: '消费率（积分/千Token）',
     econNote: '质量系数范围 0.5 ~ 1.5，由在线时长占比（40%）+ 首 Token 平均延迟（40%）+ 请求成功率（20%）综合决定。贡献率 > 消费率，持续在线贡献可积累大量可用积分。',
-    navCircles: '圈子', navNetwork: '社区网络',
+    navCircles: '圈子', navNetwork: '共享网络', navPlaza: '智能体广场',
     circleInviteHint: '通过邀请链接访问，登录后将自动加入圈子',
     circleGuideTitle: '欢迎加入圈子！',
     circleGuideJoined: '你已成功加入圈子「{name}」',
@@ -793,7 +794,7 @@ const LANGS = {
     model: 'Model', tier: 'Tier',
     earnRate: 'Earn Rate (credits/K tokens)', spendRate: 'Spend Rate (credits/K tokens)',
     econNote: 'Quality multiplier range: 0.5 ~ 1.5 — weighted by uptime (40%) + avg time-to-first-token (40%) + success rate (20%). Earn rate > spend rate by design: active contributors accumulate credits over time.',
-    navCircles: 'Circles', navNetwork: 'Network',
+    navCircles: 'Circles', navNetwork: 'Share & earn', navPlaza: 'Agent Plaza',
     circleInviteHint: 'You opened an invite link — you will join the circle after sign-in',
     circleGuideTitle: 'Welcome to the circle!',
     circleGuideJoined: 'You have joined "{name}"',

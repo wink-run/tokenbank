@@ -92,11 +92,10 @@
       </a>
       <nav style="display:flex;gap:26px;align-items:center;">
         <a href="#pillars" data-i18n="nav.features" style="text-decoration:none;color:#333;font-size:15px;font-weight:500;">Features</a>
-        <a href="#hub" data-i18n="nav.hub" style="text-decoration:none;color:#333;font-size:15px;font-weight:500;">Hub</a>
-        <a href="#assets" data-i18n="nav.assets" style="text-decoration:none;color:#333;font-size:15px;font-weight:500;">Assets</a>
-        <a href="#onboarding" data-i18n="nav.connect" style="text-decoration:none;color:#333;font-size:15px;font-weight:500;">Connect</a>
-        <a href="#routing" data-i18n="nav.routing" style="text-decoration:none;color:#333;font-size:15px;font-weight:500;">Routing</a>
-        <a href="/network" data-i18n="nav.network" style="text-decoration:none;color:#333;font-size:15px;font-weight:500;">Trade</a>
+        <a href="/agents" data-i18n="nav.plaza" style="text-decoration:none;color:#333;font-size:15px;font-weight:500;white-space:nowrap;">Agent Plaza</a>
+        <a href="/harness" data-i18n="nav.harness" style="text-decoration:none;color:#333;font-size:15px;font-weight:500;white-space:nowrap;">OneHarness</a>
+        <a href="/network" data-i18n="nav.network" style="text-decoration:none;color:#333;font-size:15px;font-weight:500;white-space:nowrap;">Share &amp; earn</a>
+        <a href="/circles" data-i18n="nav.circles" style="text-decoration:none;color:#333;font-size:15px;font-weight:500;white-space:nowrap;">Circles</a>
         <a href="#faq" data-i18n="nav.faq" style="text-decoration:none;color:#333;font-size:15px;font-weight:500;">FAQ</a>
       </nav>
       <div style="display:flex;gap:10px;align-items:center;">
@@ -406,7 +405,7 @@
           <div data-reveal data-i18n="hub.kicker" style="display:inline-block;background:#FFD055;color:#000;border-radius:10px;padding:6px 14px;font-size:13px;font-weight:500;letter-spacing:0.04em;margin-bottom:18px;">New in v0.5</div>
           <h2 data-reveal data-reveal-delay="60" data-i18n-html="hub.title" style="margin:0;font-family:'Playfair Display','Noto Serif SC',serif;font-weight:400;font-size:42px;line-height:1.22;letter-spacing:-0.01em;color:#000;">From a gateway<br>to an agent hub.</h2>
         </div>
-        <p data-reveal data-reveal-delay="120" data-i18n="hub.sub" style="margin:0 0 6px;font-size:16px;line-height:1.55;color:#333;max-width:520px;">v0.5 stitches onboarded agents, multi-account CLIs, and community resources into one local control plane, without changing how your tools talk to models.</p>
+        <div><p data-reveal data-reveal-delay="120" data-i18n="hub.sub" style="margin:0;font-size:16px;line-height:1.55;color:#333;max-width:520px;">v0.5 stitches onboarded agents, multi-account CLIs, and community resources into one local control plane, without changing how your tools talk to models.</p><a href="/harness" data-i18n="hub.more" style="display:inline-block;margin-top:14px;font-size:15px;color:#000;font-weight:600;text-decoration:underline;text-underline-offset:4px;">See OneHarness: one interface for every agent →</a></div>
       </div>
 
       <div data-reveal style="background:#000;color:#fff;border-radius:32px;padding:40px 44px;margin-bottom:20px;display:grid;grid-template-columns:1.2fr 0.8fr;gap:36px;align-items:center;">
@@ -744,7 +743,8 @@
         <h2 data-reveal data-reveal-delay="60" data-i18n="nw.title" style="margin:0 auto 14px;max-width:780px;font-family:'Playfair Display','Noto Serif SC',serif;font-weight:400;font-size:46px;line-height:1.22;letter-spacing:-0.01em;color:#000;">Rent out idle AI. Rent rare AI.</h2>
         <p data-reveal data-reveal-delay="120" data-i18n="nw.sub" style="margin:0 auto;max-width:680px;font-size:16px;line-height:1.55;color:#333;">Share the models and agents you don’t use, and borrow the ones you don’t have. Lenders earn credits while their API keys, Skills and configs never leave their machine; renters pay per call to use rare models or hire expert agents — all inside the same gateway.</p>
         <div data-reveal data-reveal-delay="160" style="margin-top:28px;">
-          <a href="/network" data-i18n="nw.cta" style="display:inline-block;background:#000;color:#fff;border-radius:12px;padding:12px 22px;font-size:14px;font-weight:600;text-decoration:none;">Open live network →</a>
+          <a href="/agents" data-i18n="nw.cta" style="display:inline-block;background:#000;color:#fff;border-radius:12px;padding:12px 22px;font-size:14px;font-weight:600;text-decoration:none;">Use agents on the plaza →</a>
+          <a href="/network" data-i18n="nw.cta2" style="display:inline-block;margin-left:8px;background:#fff;color:#000;border:1px solid #e3e0dd;border-radius:12px;padding:12px 22px;font-size:14px;font-weight:600;text-decoration:none;">List &amp; earn →</a>
         </div>
       </div>
 
@@ -1067,8 +1067,10 @@
             <a href="#assets" data-i18n="ft.lAssets" style="text-decoration:none;color:#9a9a9a;font-size:14px;">AI assets</a>
             <a href="#onboarding" data-i18n="ft.l2" style="text-decoration:none;color:#9a9a9a;font-size:14px;">One-click connect</a>
             <a href="#routing" data-i18n="ft.l3" style="text-decoration:none;color:#9a9a9a;font-size:14px;">Smart routing</a>
-            <a href="/network" data-i18n="ft.l4" style="text-decoration:none;color:#9a9a9a;font-size:14px;">Community sharing</a>
-            <a href="#circles" data-i18n="ft.l5" style="text-decoration:none;color:#9a9a9a;font-size:14px;">Circles</a>
+            <a href="/agents" data-i18n="ft.lPlaza" style="text-decoration:none;color:#9a9a9a;font-size:14px;">Agent Plaza</a>
+            <a href="/harness" data-i18n="ft.lHarness" style="text-decoration:none;color:#9a9a9a;font-size:14px;">OneHarness</a>
+            <a href="/network" data-i18n="ft.l4" style="text-decoration:none;color:#9a9a9a;font-size:14px;">Share &amp; earn</a>
+            <a href="/circles" data-i18n="ft.l5" style="text-decoration:none;color:#9a9a9a;font-size:14px;">Circles</a>
           </div>
         </div>
         <div>
@@ -1165,7 +1167,7 @@ class Component extends DCLogic {
     'faq.q0': '会改变我使用 AI 工具的习惯吗？',
     'faq.a0': '不会。Claude Code、Codex、Cursor 等保持原来的命令、界面和模型名，Token Bank 只是让它们指向一个本地地址；想退出时，点「还原」即可一键恢复官方配置。',
     'ft.lAssets': 'AI 资产',
-    'nav.features': '能力', 'nav.hub': '中枢', 'nav.connect': '接入', 'nav.routing': '路由', 'nav.network': '交易',
+    'nav.features': '能力', 'nav.hub': '中枢', 'nav.connect': '接入', 'nav.routing': '路由', 'nav.network': '共享网络', 'nav.plaza': '智能体广场', 'nav.harness': 'OneHarness',
     'nav.circles': '圈子', 'nav.langLabel': 'EN', 'nav.signin': '登录', 'nav.download': '免费下载', 'nav.faq': '常见问题',
     'hero.badge': '个人 AI 中枢 · Token 管家',
     'hero.title': '你的 AI，<br><span style="background:linear-gradient(90deg,#FFD055 0%,#FFF0A0 45%,#FFE07A 55%,#FFD055 100%);background-size:220% 100%;animation:tbShimmer 4.5s ease-in-out infinite;padding:0 0.14em;border-radius:6px;">该有个管家了</span>。',
@@ -1246,7 +1248,7 @@ class Component extends DCLogic {
     'nw.kicker': '共享市场 · 出租模型与智能体 · 闲置赚钱',
     'nw.title': '出租闲置 AI，人人用上稀缺能力。',
     'nw.sub': '把用不上的模型和智能体租出去，把没有的借来用。出租方赚积分，API Key、Skill 与配置始终留在本机；使用方按次付积分，用上稀有模型、雇佣专家智能体——都在同一个网关内完成。',
-    'nw.cta': '打开实时社区网络 →',
+    'nw.cta': '去智能体广场直接用 →', 'nw.cta2': '上架赚积分 →', 'hub.more': '了解 OneHarness：所有智能体一套接口 →',
     'nw.p1.h': '个人算力', 'nw.p1.b': '挂在你名下的供应：本地 Ollama、厂商免费额度、应用 / API 订阅，以及按 list 价计费的按量账户。',
     'nw.p1.t1': '免费额度', 'nw.p1.t2': '订阅', 'nw.p1.t3': '按量付费',
     'nw.p2.h': '社区算力', 'nw.p2.b': '成员贡献闲置额度，通过积分网络共享。消耗积分即可调用别人供给的模型，往往比官方更省。',
@@ -1280,7 +1282,7 @@ class Component extends DCLogic {
     'cta.primary': '免费下载', 'cta.secondary': '在 GitHub 查看',
     'cta.baidu': '百度网盘下载',
     'ft.tag': '你的 AI，该有个管家了。Token Bank 是你的个人 AI 中枢：一个本地网关，看清每个 Token、花得更少、AI 资产一处纳管、智能体聚合编排，闲置还能赚钱。',
-    'ft.col1': '产品', 'ft.l1': '核心能力', 'ft.lHub': 'Agent 中枢', 'ft.l2': '一键接入', 'ft.l3': '智能路由', 'ft.l4': '社区分享', 'ft.l5': '圈子',
+    'ft.col1': '产品', 'ft.l1': '核心能力', 'ft.lHub': 'Agent 中枢', 'ft.l2': '一键接入', 'ft.l3': '智能路由', 'ft.l4': '共享网络', 'ft.l5': '圈子', 'ft.lPlaza': '智能体广场', 'ft.lHarness': 'OneHarness',
     'ft.col3': '平台',
     'ft.baidu': '百度网盘（提取码 mjes）',
     'ft.col4': 'Wink Studio 出品', 'ft.friends.pings': 'Pings', 'ft.friends.memwink': 'Memwink',
@@ -1403,8 +1405,8 @@ class Component extends DCLogic {
         zh: { h: '交易 · 雇佣智能体', b: '按次用积分雇佣社区与圈内智能体，任务在对方设备执行。' },
       },
       world: {
-        en: { h: 'Community network', b: 'Online nodes, available models & agents, and a live geographic map.' },
-        zh: { h: '社区网络', b: '在线节点、可用模型与智能体、地理分布地图。' },
+        en: { h: 'Share network', b: 'Online nodes, available models & agents, and a live geographic map.' },
+        zh: { h: '共享网络', b: '在线节点、可用模型与智能体、地理分布地图。' },
       },
       device: {
         en: { h: 'Tray · always-on glance', b: "Gateway status plus per-app route, TTFT and today's usage without opening the full app." },
