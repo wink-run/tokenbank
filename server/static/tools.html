@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>智能体 · Token Bank</title>
+<meta name="description" content="租个智能体让它干活。分享给朋友一起协作，或挑逗它激发创意。人在外面，也能用自己电脑上的智能体。">
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,6 +13,8 @@
 <script src="/static/app-runtime-icon.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* Vue 挂上之前先藏住，避免刷新时闪出 {{ }} */
+[v-cloak]{display:none!important}
 body {
   font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   background: linear-gradient(180deg, #fafafa 0%, #ffffff 280px);
@@ -29,12 +32,20 @@ a { color: inherit; text-decoration: none; }
 .ag-brand img { width: 26px; height: 26px; border-radius: 7px; }
 .ag-nav { font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 8px; background: #f5f2f0; }
 .ag-lang { margin-left: auto; border: none; background: transparent; color: #7b7b7b; cursor: pointer; font: inherit; font-size: 13px; }
-/* 智能体工具广场：居中介绍，按任务挑一张名片 */
+/* 智能体工具广场：居中介绍，下面四件事说明这页能干什么 */
 .ag-page { max-width: 1200px; margin: 0 auto; padding: 48px 24px 80px; }
 .ag-hero { text-align: center; margin-bottom: 28px; }
 .ag-badge-top { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; margin-bottom: 14px; background: #eff6ff; color: #2563eb; border-radius: 999px; font-size: 14px; font-weight: 500; }
 .ag-hero h1 { font-size: 44px; font-weight: 700; letter-spacing: -.03em; line-height: 1.15; color: #09090b; }
-.ag-hero p { margin: 12px auto 0; max-width: 36rem; color: #71717a; font-size: 17px; line-height: 1.7; }
+.ag-hero p { margin: 12px auto 0; max-width: 40rem; color: #71717a; font-size: 17px; line-height: 1.7; }
+/* 四条用法：租来干活放在最前，其余三条是分享、协作挑逗、远程用自己的 */
+.ag-ways { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; max-width: 1040px; margin: 0 auto 32px; text-align: left; }
+.ag-way { background: #fff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
+.ag-way.lead { background: #eff6ff; border-color: #bfdbfe; }
+.ag-way-mark { width: 28px; height: 28px; border-radius: 8px; background: #f4f4f5; color: #3f3f46; font-weight: 700; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.ag-way.lead .ag-way-mark { background: #2563eb; color: #fff; }
+.ag-way strong { display: block; font-size: 14px; line-height: 1.35; margin-bottom: 4px; color: #09090b; }
+.ag-way span { display: block; font-size: 13px; color: #71717a; line-height: 1.5; }
 .ag-bar { display: flex; flex-direction: column; align-items: center; gap: 16px; margin: 0 0 28px; }
 .ag-search { position: relative; width: min(100%, 640px); }
 .ag-search input { width: 100%; height: 52px; padding: 0 48px 0 20px; border: 2px solid #e4e4e7; border-radius: 16px; background: #fff; outline: none; font: inherit; font-size: 16px; }
@@ -132,13 +143,17 @@ a { color: inherit; text-decoration: none; }
   .ag-hero h1 { font-size: 32px; }
   .ag-hero p { font-size: 15px; }
   .ag-page { padding: 28px 16px 48px; }
+  .ag-ways { grid-template-columns: 1fr 1fr; }
   .container { padding: 1.5rem 1rem; }
   .ag-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .ag-ways { grid-template-columns: 1fr; }
 }
 </style>
 </head>
 <body>
-<div id="app">
+<div id="app" v-cloak>
   <!-- 智能体主页 -->
   <div v-if="view === 'list'">
     <nav class="ag-top">
@@ -151,9 +166,19 @@ a { color: inherit; text-decoration: none; }
     <main class="ag-page">
       <header class="ag-hero">
         <div class="ag-badge-top"><span>✦</span><span>{{ T.badge }}</span></div>
-        <h1>{{ T.plaza }}</h1>
+        <h1>{{ T.headline }}</h1>
         <p>{{ T.sub }}</p>
       </header>
+      <!-- 广场先讲清四件事，再让人往下挑名片 -->
+      <ul class="ag-ways">
+        <li v-for="way in T.ways" :key="way.mark" class="ag-way" :class="{ lead: way.lead }">
+          <span class="ag-way-mark">{{ way.mark }}</span>
+          <div>
+            <strong>{{ way.title }}</strong>
+            <span>{{ way.text }}</span>
+          </div>
+        </li>
+      </ul>
       <div class="ag-bar">
         <div class="ag-search">
           <input v-model="searchQuery" @keyup.enter="loadTools" type="text" :placeholder="T.search">
@@ -332,19 +357,33 @@ createApp({
     T() {
       if (this.lang === 'en') {
         return {
-          title: 'Agents', plaza: 'Agent plaza', badge: 'Pick one for the task',
-          sub: 'Choose the agent that fits. Online ones start right away. Offline ones still keep their history.',
+          title: 'Agents', plaza: 'Agent plaza', badge: 'Agent plaza',
+          headline: 'Rent an agent and put it to work',
+          sub: 'Hand the task to an online agent. Share the chat with friends and keep going together, or poke it until a new idea shows up. Away from that computer, you can still open the agent running on it.',
+          ways: [
+            { lead: true, mark: '01', title: 'Rent it to work', text: 'Pick an online card and hand over the task. It runs on the computer that shared it.' },
+            { mark: '02', title: 'Share with friends', text: 'Send the link to this chat. Friends open it and see what was said.' },
+            { mark: '03', title: 'Collaborate, or provoke it', text: 'Everyone speaks in the same thread, in order. Or tease it and pull a new idea out.' },
+            { mark: '04', title: 'Use yours from anywhere', text: 'The agent stays on your computer. Open it from another device and continue.' },
+          ],
           search: 'Search name, author, or use…', all: 'All', agents: 'Agents',
           loading: 'Loading…', empty: 'No agents yet',
-          online: 'Online', offline: 'Offline', chat: 'Chat', use: 'Use', history: 'History',
+          online: 'Online', offline: 'Offline', chat: 'Chat', use: 'Rent it', history: 'History',
         };
       }
       return {
-        title: '智能体', plaza: '智能体工具广场', badge: '按需选用',
-        sub: '挑一个合适的智能体，把任务交给它。在线的可以直接开始，离线的仍可查看历史。',
+        title: '智能体', plaza: '智能体工具广场', badge: '智能体工具广场',
+        headline: '租个智能体，让它干活',
+        sub: '把任务交给在线的智能体。对话可以分享给朋友，一起接着聊，或者逗它一句，看能冒出什么主意。人在外面，也能用跑在自己电脑上的那一个。',
+        ways: [
+          { lead: true, mark: '01', title: '租来干活', text: '挑一张在线名片，把任务交出去。它在分享者的电脑上开工。' },
+          { mark: '02', title: '分享给朋友', text: '把这场对话的链接发出去。朋友打开，就能看见你们说过的话。' },
+          { mark: '03', title: '一起协作，或挑逗一下', text: '大家按时间接在同一场里。也可以故意逗它，把新点子逼出来。' },
+          { mark: '04', title: '远程用自己的', text: '智能体留在你的电脑上。换一台设备打开，接着用。' },
+        ],
         search: '搜索名称、作者或用途…', all: '全部', agents: '智能体',
         loading: '加载中…', empty: '暂时没有智能体',
-        online: '在线', offline: '离线', chat: '对话', use: '去使用', history: '记录',
+        online: '在线', offline: '离线', chat: '对话', use: '租来干活', history: '记录',
       };
     },
   },
