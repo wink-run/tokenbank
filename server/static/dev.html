@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=10">
+<link rel="stylesheet" href="/static/plaza.css?v=11">
 <script src="/static/plaza-nav.js?v=9"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -89,12 +89,18 @@ a { color: inherit; text-decoration: none; }
         <p class="pz-lead">{{ T.lanLead }}</p>
         <ul class="dv-lan-x"><li v-for="x in T.lanNo" :key="x">{{ x }}</li></ul>
       </div>
-      <div class="dv-lan-map" aria-hidden="true">
-        <div class="dv-lan-box users"><h4>{{ T.lanUsers }}</h4><div class="hs-d-chips"><i v-for="u in T.lanUserList" :key="u">{{ u }}</i></div></div>
-        <div class="dv-lan-arrow">{{ T.lanIn }}</div>
-        <div class="dv-lan-box cloud"><h4>Token Bank</h4><span>{{ T.lanCloud }}</span></div>
-        <div class="dv-lan-arrow up">{{ T.lanOut }}</div>
-        <div class="dv-lan-box lan"><h4>{{ T.lanYours }}</h4><div class="hs-d-chips"><i v-for="m in T.lanMachines" :key="m">{{ m }}</i></div><small>{{ T.lanNote }}</small></div>
+      <div class="dv-lan-2" aria-hidden="true">
+        <div v-for="ln in T.lanes" :key="ln.k" :class="['dv-lane', ln.cls]">
+          <div class="dv-lane-h"><em>{{ ln.k }}</em><b>{{ ln.t }}</b></div>
+          <div class="dv-lan-box users"><h4>{{ T.lanUsers }}</h4><div class="hs-d-chips"><i v-for="u in ln.users" :key="u">{{ u }}</i></div></div>
+          <template v-if="ln.cls === 'relay'">
+            <div class="dv-lan-arrow">↓ {{ T.lanIn }}</div>
+            <div class="dv-lan-box cloud"><h4>Token Bank</h4><span>{{ T.lanCloud }}</span></div>
+            <div class="dv-lan-arrow up">↑ {{ T.lanOut }}</div>
+          </template>
+          <div v-else class="dv-lan-arrow">↓ {{ ln.via }}</div>
+          <div class="dv-lan-box lan"><h4>{{ ln.box }}</h4><div class="hs-d-chips"><i v-for="m in ln.machines" :key="m">{{ m }}</i></div><small>{{ ln.note }}</small></div>
+        </div>
       </div>
     </section>
 
@@ -209,21 +215,24 @@ createApp({
         stackKicker: 'THE FACTORY', stackTitle: '一座智能体应用工厂，六层现成能力', stackLead: '纯模型网关只做最底下那一层。这里从执行引擎到分发，每一层都已经搭好，你只管在最上面做应用。',
         stackTop: '你的应用', stackApps: ['你的产品后台', '网页智能体', '团队内部工具', '你的 Claude Code 工作流'],
         layers: [
-          ['分发层', '上架、市场、圈子', '上架即得网页应用；局域网的机器不用公网 IP 也能对外服务；按次计费', '/network'],
+          ['分发层', '上架、市场、圈子', '上架即得网页应用；局域网机器有没有公网 IP 都能对外服务；按次计费', '/network'],
           ['观测层', 'Trace、用量、跨端', '每次调用可追溯，费用和 Token 看得清，多设备归集', '/harness#f-trace'],
           ['接口层', '统一任务接口 + 模型接口', '换一个 harness_id 就换一个智能体，模型保持原生名', '/harness#api'],
           ['资产层', 'Skill、MCP、Prompt', '一个资产库，组合进智能体，投射到各个 runtime', '/harness#f-assets'],
           ['模型层', '各家模型 + 场景路由', '本地、免费、订阅、按量、社区共享，按场景选、自动兜底', '/harness#f-route'],
           ['运行时层', 'Pi、Claude Code、Codex、Cursor…', '已经装好的 runtime 直接当执行引擎，不用重写 harness', '/harness#f-onboard'],
         ],
-        lanKicker: 'NO PUBLIC IP, NO SERVER', lanTitle: '你的局域网，就是你的机房', lanLead: '家里的 GPU、公司内网的服务器、跑着 Ollama 或私有模型的那台机器，接进来就是你应用的服务算力。机器主动向外连，不开端口，你的用户照样从网页、广场或接口用上。',
+        lanKicker: 'SERVE FROM YOUR LAN', lanTitle: '你的局域网，就是你的机房', lanLead: '家里的 GPU、公司内网的服务器、跑着 Ollama 或私有模型的那台机器，接进来就是你应用的服务算力。有公网 IP 就让用户直连你的网关；没有也不要紧，机器主动连出来，由 Token Bank 中转。',
         lanNo: ['不用申请公网 IP', '不用买云服务器', '不用折腾内网穿透和端口转发', 'Key、模型和数据留在你的内网'],
-        lanUsers: '你的用户', lanUserList: ['网页应用', '智能体广场', '你的产品接口'], lanIn: '↓ 请求', lanCloud: '调度 · 计费 · 权限 · 分发', lanOut: '↑ 出站长连接，任务和结果走这条线',
-        lanYours: '你的局域网', lanMachines: ['家里的 GPU 主机', '公司内网服务器', 'Ollama / 私有模型', 'Claude Code 等 runtime'], lanNote: '没有入站端口，路由器和防火墙不用动',
+        lanUsers: '你的用户', lanIn: '请求', lanCloud: '中转 · 计费 · 权限 · 分发', lanOut: '出站长连接，任务和结果走这条线',
+        lanes: [
+          { k: '方式一', t: '有公网 IP：直连你的网关', cls: 'direct', users: ['你的产品', '团队成员', '你的脚本'], via: '直接请求 :11430，用网关 Key 鉴权', box: '你的网关', machines: ['CLI / Docker 网关', '监听 0.0.0.0'], note: 'OpenAI 兼容接口和智能体任务接口都在，不经过 Token Bank' },
+          { k: '方式二', t: '没有公网 IP：经 Token Bank 中转', cls: 'relay', users: ['网页应用', '智能体广场', '你的产品接口'], box: '你的局域网', machines: ['家里的 GPU 主机', '公司内网服务器', 'Ollama / 私有模型', 'Claude Code 等 runtime'], note: '没有入站端口，路由器和防火墙不用动' },
+        ],
         buildKicker: 'BUILD ON TOP', buildTitle: '在上面架应用，三条路', buildLead: '选哪条都不用从零写 runtime、计费和网页。',
         builds: [
           { k: '路线 A', t: '用接口做进你的产品', d: '你的后端调 /v1/agent/responses，选一个 runtime 或社区智能体执行；模型调用走同一个网关。', get: ['runtime 随时换，代码不动', '模型路由、计量、Trace 自带', '任务可查询、可取消、断线续接'], cta: '看接口', href: '/harness#api' },
-          { k: '路线 B', t: '组一个智能体，上架就是网页应用', d: '在资产里给 runtime 配好模型、提示词和 Skill，保存上架，马上得到一个能用的智能体应用。', get: ['自带网页对话页，支持图片和文件', '可被搜索的介绍页和分享链接', '跑在你局域网的机器上，不用公网 IP', '未登录试一轮、多人接龙、按次计费'], cta: '怎么上架', href: '/network' },
+          { k: '路线 B', t: '组一个智能体，上架就是网页应用', d: '在资产里给 runtime 配好模型、提示词和 Skill，保存上架，马上得到一个能用的智能体应用。', get: ['自带网页对话页，支持图片和文件', '可被搜索的介绍页和分享链接', '跑在你局域网的机器上，有没有公网 IP 都行', '未登录试一轮、多人接龙、按次计费'], cta: '怎么上架', href: '/network' },
           { k: '路线 C', t: '把你已有的应用接进来', d: '网关「新建应用」以 API 方式接入不在名单里的任何应用，它立刻拥有同一套路由和观测。', get: ['绑定场景路由，原生模型名不变', '用量进盘点，调用进 Trace', '多设备归集到同一个账号'], cta: '看统一管理', href: '/harness#f-onboard' },
         ],
         liveTitle: '网络里此刻有', kNodes: '在线节点', kModels: '可用模型', kAgents: '在线智能体', kRes: '技能与模板', liveFoot: '都来自开发者分享，你也可以拿来自用或加工。',
@@ -268,21 +277,24 @@ createApp({
         stackKicker: 'THE FACTORY', stackTitle: 'An agent app factory, six layers ready', stackLead: 'A model gateway only covers the bottom layer. Here every layer from execution to distribution is built — you work on the top.',
         stackTop: 'Your apps', stackApps: ['Your product backend', 'Web agents', 'Internal team tools', 'Your Claude Code workflow'],
         layers: [
-          ['Distribution', 'Listing, market, circles', 'List it and get a web app; LAN machines serve users without a public IP; per-use billing', '/network'],
+          ['Distribution', 'Listing, market, circles', 'List it and get a web app; LAN machines serve users with or without a public IP; per-use billing', '/network'],
           ['Observability', 'Trace, usage, devices', 'Every call traceable, tokens and cost visible, rolled up across devices', '/harness#f-trace'],
           ['Interface', 'Agent task API + model APIs', 'Change harness_id to change agent; models keep native names', '/harness#api'],
           ['Assets', 'Skills, MCP, prompts', 'One library, composed into agents and projected to each runtime', '/harness#f-assets'],
           ['Models', 'Every provider + scene routing', 'Local, free, subscription, PAYG and community, routed by scene with fallback', '/harness#f-route'],
           ['Runtimes', 'Pi, Claude Code, Codex, Cursor…', 'Installed runtimes become execution engines — no harness to rewrite', '/harness#f-onboard'],
         ],
-        lanKicker: 'NO PUBLIC IP, NO SERVER', lanTitle: 'Your LAN is your data centre', lanLead: 'The GPU at home, the server on your office network, the box running Ollama or a private model — connect it and it becomes compute for your app. The machine dials out, no ports open, and your users still reach it from the web, the plaza or your API.',
+        lanKicker: 'SERVE FROM YOUR LAN', lanTitle: 'Your LAN is your data centre', lanLead: 'The GPU at home, the server on your office network, the box running Ollama or a private model — connect it and it becomes compute for your app. With a public IP, users connect straight to your gateway; without one, the machine dials out and Token Bank relays.',
         lanNo: ['No public IP to request', 'No cloud server to rent', 'No tunnels or port forwarding', 'Keys, models and data stay on your network'],
-        lanUsers: 'Your users', lanUserList: ['Web app', 'Agent Plaza', 'Your product API'], lanIn: '↓ requests', lanCloud: 'dispatch · billing · access · distribution', lanOut: '↑ outbound long-lived connection carries tasks and results',
-        lanYours: 'Your LAN', lanMachines: ['GPU box at home', 'Office server', 'Ollama / private models', 'Claude Code and other runtimes'], lanNote: 'No inbound ports; leave the router and firewall alone',
+        lanUsers: 'Your users', lanIn: 'requests', lanCloud: 'relay · billing · access · distribution', lanOut: 'outbound long-lived connection carries tasks and results',
+        lanes: [
+          { k: 'Option 1', t: 'Public IP: connect to your gateway', cls: 'direct', users: ['Your product', 'Your team', 'Your scripts'], via: 'call :11430 directly with a gateway key', box: 'Your gateway', machines: ['CLI / Docker gateway', 'listening on 0.0.0.0'], note: 'OpenAI-compatible and agent task endpoints, no Token Bank in between' },
+          { k: 'Option 2', t: 'No public IP: relay through Token Bank', cls: 'relay', users: ['Web app', 'Agent Plaza', 'Your product API'], box: 'Your LAN', machines: ['GPU box at home', 'Office server', 'Ollama / private models', 'Claude Code and other runtimes'], note: 'No inbound ports; leave the router and firewall alone' },
+        ],
         buildKicker: 'BUILD ON TOP', buildTitle: 'Three ways to build on top', buildLead: 'None of them needs you to write a runtime, billing or a web front end from scratch.',
         builds: [
           { k: 'Path A', t: 'Build it into your product', d: 'Your backend calls /v1/agent/responses and picks a runtime or community agent; model calls go through the same gateway.', get: ['Swap runtimes without touching code', 'Model routing, metering and trace built in', 'Tasks can be queried, cancelled and resumed'], cta: 'See the API', href: '/harness#api' },
-          { k: 'Path B', t: 'Compose an agent, list it as a web app', d: 'Give a runtime its model, prompts and skills in Assets, save and list — you have a working agent app.', get: ['A web chat page with images and files', 'A searchable intro page and share links', 'Runs on your LAN machine, no public IP', 'Guest trial, shared threads, per-use billing'], cta: 'How to list', href: '/network' },
+          { k: 'Path B', t: 'Compose an agent, list it as a web app', d: 'Give a runtime its model, prompts and skills in Assets, save and list — you have a working agent app.', get: ['A web chat page with images and files', 'A searchable intro page and share links', 'Runs on your LAN machine, public IP or not', 'Guest trial, shared threads, per-use billing'], cta: 'How to list', href: '/network' },
           { k: 'Path C', t: 'Plug in the apps you already have', d: 'The gateway\'s "New app" connects any app not on the list via API, and it gets the same routing and observability.', get: ['Scene routes, native model names kept', 'Usage in the dashboard, calls in Trace', 'Rolled up across devices in one account'], cta: 'See Manage', href: '/harness#f-onboard' },
         ],
         liveTitle: 'On the network right now', kNodes: 'Online nodes', kModels: 'Models', kAgents: 'Agents online', kRes: 'Skills & templates', liveFoot: 'All shared by developers — take them for yourself or remix them.',
