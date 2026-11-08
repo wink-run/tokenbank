@@ -1570,6 +1570,22 @@ async def finish_agent_chat_share_turn(
     return {"ok": True, "messages": merged}
 
 
+class AgentChatShareGuestBody(BaseModel):
+    key: str = ""
+
+
+@app.post("/api/agent-chats/shares/{share_id}/guest")
+async def claim_agent_chat_share_guest(share_id: str, body: AgentChatShareGuestBody):
+    """未登录打开分享时领一个编号和头像。登录用户不用这一路。"""
+    safe = _share_id_or_404(share_id)
+    if not await db.get_agent_chat_share(safe):
+        raise HTTPException(404, "share not found")
+    seat = await db.ensure_share_guest(safe, body.key)
+    if not seat:
+        raise HTTPException(400, "bad guest")
+    return seat
+
+
 @app.get("/api/agent-chats/shares/{share_id}")
 async def get_agent_chat_share_route(
     share_id: str,

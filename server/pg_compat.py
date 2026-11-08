@@ -26,6 +26,7 @@ _TABLES_WITHOUT_ID = frozenset({
     "circle_announcement_likes",
     "studio_circle_mods",
     "agent_chat_share_members",
+    "agent_chat_share_guests",
     # 主键是 assistant_id，没有 id。误加 RETURNING id 会让名片写不进库，离线列表就空。
     "public_agent_cards",
 })

@@ -211,7 +211,11 @@
             </div>
           </template>
           <div v-else class="uside">
-            <div v-if="m.author || currentUserLabel" class="uwho">{{ m.author || currentUserLabel }}</div>
+            <div v-if="whoFace(m)" class="uwho">
+              <img v-if="whoFace(m).avatar" class="uav" :src="whoFace(m).avatar" alt="">
+              <i v-else class="uav" :style="{ background: avatarColor(whoFace(m).name) }">{{ whoFace(m).name.slice(0, 1) }}</i>
+              <span>{{ whoFace(m).name }}</span>
+            </div>
             <div v-if="m.content" class="ubub">{{ m.content }}</div>
             <div v-if="m.files && m.files.length" class="ufiles"><span v-for="(f, j) in m.files" :key="j" class="ufile">{{ f.name }}</span></div>
             <div v-if="m.images && m.images.length" class="uimgs"><img v-for="(src, j) in m.images" :key="j" :src="src" alt=""></div>
@@ -382,7 +386,7 @@ createApp({
         historyDelete: '删除', historyDeleteConfirm: '删除这条对话？分享链接也会失效。', historyDeleteFail: '删除失败',
         historyBy: '{name} 发起',
         sharedContinue: '大家的发言按时间接在同一条对话里，直接发消息就能接着聊。', shareMissing: '分享不存在或已失效',
-        turnWait: '请稍等，{name}还在说话。', someone: '有人',
+        turnWait: '请稍等，{name}还在说话。', someone: '有人', guestName: '访客',
         myChat: '我的对话', sharedChat: '分享的对话', sharedBy: '{name}的对话', emptyThread: '暂无内容',
         shareOffline: '这个智能体暂时不在线，现在不能对话，历史记录仍可查看。',
         copy: '复制', copied: '已复制', attach: '添加附件', hires: '{n} 次雇佣',
@@ -437,7 +441,7 @@ createApp({
         historyDelete: 'Delete', historyDeleteConfirm: 'Delete this chat? The share link will stop working.', historyDeleteFail: 'Could not delete',
         historyBy: 'Started by {name}',
         sharedContinue: 'Everyone’s messages stay in one timeline. Send a message to continue.', shareMissing: 'This share is missing',
-        turnWait: 'Please wait, {name} is still talking.', someone: 'someone',
+        turnWait: 'Please wait, {name} is still talking.', someone: 'someone', guestName: 'Guest',
         myChat: 'My chat', sharedChat: 'Shared chat', sharedBy: "{name}'s chat", emptyThread: 'Empty',
         shareOffline: 'This agent is offline. You can read past chats, but not send new ones.',
         copy: 'Copy', copied: 'Copied', attach: 'Add attachment', hires: '{n} hires',
@@ -478,6 +482,27 @@ createApp({
       const at = email.indexOf('@')
       return at > 0 ? email.slice(0, at) : email
     })
+    // 未登录打开分享后领到的「访客N」和头像。刷新后还是同一个人
+    const guestSeat = ref(null)
+    function speakingAs() {
+      const mine = String(currentUserLabel.value || '').trim()
+      if (mine) return mine
+      if (relayShareId.value || fromShare.value) return String(guestSeat.value && guestSeat.value.name || '').trim()
+      return ''
+    }
+    function whoSaid(m) {
+      const named = String((m && m.author) || '').trim()
+      if (named) return named
+      // 分享里没署名的句子不是当前这个人说的
+      if (m && m.shared) return ''
+      return String(currentUserLabel.value || '').trim()
+    }
+    function whoFace(m) {
+      const name = whoSaid(m)
+      if (!name) return null
+      const hit = (chatPeople.value || []).find(p => p && p.name === name)
+      return { name, avatar: String((hit && hit.avatar) || '').trim() }
+    }
     const prompt = ref('')
     const messages = ref([])
     const fromShare = ref(false)
@@ -823,6 +848,14 @@ createApp({
         if (hit) { if (!hit.avatar) hit.avatar = mine }
         else known.set(me, { name: me, avatar: mine })
       }
+      // 自己刚领到编号时，名单还没轮询回来，先把自己放进去
+      const seat = !me && guestSeat.value
+      if (seat && seat.name) {
+        const hit = known.get(seat.name)
+        const face = String(seat.avatar || '').startsWith('/avatar/') ? seat.avatar : ''
+        if (hit) { if (!hit.avatar && face) hit.avatar = face }
+        else known.set(seat.name, { name: seat.name, avatar: face })
+      }
       const order = []
       const seen = new Set()
       for (const m of messages.value || []) {
@@ -840,7 +873,7 @@ createApp({
     function absorbShare(into, pack) {
       if (!pack || !Array.isArray(pack.messages)) return
       takeParticipants(pack)
-      const author = String(pack.author || '').slice(0, 40)
+      // pack.author 是这条分享的发起人，不是每一句的发言人
       const used = new Set()
       let serverUser = null
       // 重复的用户先拿着。后面的回复若能并进已有的那条，这句用户就不另占一行
@@ -869,7 +902,7 @@ createApp({
         if (!raw || (raw.role !== 'user' && raw.role !== 'assistant')) return
         const row = {
           ...raw,
-          author: raw.role === 'user' ? String(raw.author || author || '').slice(0, 40) : undefined,
+          author: raw.role === 'user' ? String(raw.author || '').slice(0, 40) : undefined,
           at: Number(raw.at) || undefined,
           startedAt: Number(raw.startedAt) || undefined,
           finishedAt: Number(raw.finishedAt) || undefined,
@@ -1883,8 +1916,35 @@ createApp({
       if (!screenShareId && relayShareId.value) screenShareId = relayShareId.value
       viewGen += 1
       saveChatHistory(aid, messages.value)
+      if (relayShareId.value && !getToken()) await claimGuestSeat(relayShareId.value)
       startShareWatch()
       await pollShareTurn()
+    }
+    function myGuestKey() {
+      let key = String(storageGet('tb_share_guest') || '')
+      if (!/^[A-Za-z0-9_-]{8,40}$/.test(key)) {
+        key = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40)
+        storageSet('tb_share_guest', key)
+      }
+      return key
+    }
+    async function claimGuestSeat(shareId) {
+      const sid = String(shareId || '').trim()
+      if (!sid || getToken()) return
+      if (guestSeat.value && guestSeat.value.shareId === sid && guestSeat.value.name) return
+      try {
+        const { r, data } = await fetchJson('/api/agent-chats/shares/' + encodeURIComponent(sid) + '/guest', {
+          method: 'POST',
+          body: JSON.stringify({ key: myGuestKey() }),
+        })
+        if (!r.ok || !data || !data.name) return
+        const avatar = String(data.avatar || '')
+        guestSeat.value = {
+          shareId: sid,
+          name: String(data.name).slice(0, 40),
+          avatar: avatar.startsWith('/avatar/') ? avatar : '',
+        }
+      } catch { /* 领不到号就先不署名，也不写成分享人 */ }
     }
     async function mergeRemoteShares(aid, into) {
       if (!getToken()) return
@@ -2206,7 +2266,7 @@ createApp({
         auth: !!getToken(),
         body: JSON.stringify({
           token,
-          author: currentUserLabel.value || '',
+          author: speakingAs(),
           text,
         }),
       })
@@ -3049,6 +3109,7 @@ createApp({
       // 这句话只属于现在这场。抢锁期间如果换了对话，就不要写进新的那一场
       const speakShare = relayShareId.value || ''
       boundTurnShare = speakShare
+      if (speakShare && isGuest) await claimGuestSeat(speakShare)
       let cloudAt = 0
       if (speakShare && !auto) {
         cloudAt = await claimRelayTurn(displayText, speakShare)
@@ -3068,7 +3129,7 @@ createApp({
       messages.value.push({
         role: 'user',
         content: displayText,
-        author: currentUserLabel.value || undefined,
+        author: speakingAs() || undefined,
         // 分享对话只用云端时间。没分享的本地对话仍用本机时间，不会写进云端
         at: cloudAt || (speakShare ? undefined : Date.now()),
         images: attachUrls.length ? attachUrls.slice() : undefined,
@@ -3328,7 +3389,7 @@ createApp({
       viewParts, toolGroupTitle, toolGroupStatus, toolGroupClass, toolGroupHint, toolGroupElapsed, currentTool, hiddenAnswer,
       renderRich, onChatClick, onImgOver, onImgOut, onImgHide, onChatScroll, onChatWheel, onChatTouchStart, onChatTouchMove, copyMsg, answerOf, downloadArtifact, isVideoFile,
       lang, T, toggleLang, backToTools, loading, fatal, showAuthGate, agent, creditsPerTask,
-      loggedIn, profile, currentUserLabel, chatPeople, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
+      loggedIn, profile, currentUserLabel, whoSaid, whoFace, chatPeople, prompt, messages, pendingImages, chatEl, running, err, guestUsed, guestLocked,
       authTab, authLoading, authErr, form, doLogin, doRegister, logout,
       sendMessage, pauseRun, hasDraft, clearChat, shareChat, shareBusy, shareCopied, fromShare, shareReadOnly, shareTurnLocked, turnLockText, agentOffline, renderMarkdown, onComposerPaste, removePendingImage,
       historyLoading, historyItems, historyCurrent, histOpen, selectHistory, deleteHistory, historyWhen, historyBy, relayShareId,

@@ -95,7 +95,9 @@ button{font-family:inherit}
 .msg.user{justify-content:flex-end}
 /* 宽度限制放在外层。气泡按内容收缩，短句保持一行，长文才在上限处换行 */
 .msg.user .uside{display:flex;flex-direction:column;align-items:flex-end;max-width:78%;min-width:0}
-.uwho{font-size:11px;color:var(--text-muted);margin-bottom:4px;padding-right:4px}
+.uwho{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted);margin-bottom:4px;padding-right:4px}
+.uav{width:18px;height:18px;border-radius:50%;object-fit:cover;flex-shrink:0;display:block}
+.uwho i.uav{display:flex;align-items:center;justify-content:center;color:#fff;font-style:normal;font-size:10px;font-weight:650}
 .msg.user .ubub{max-width:100%;background:#efece8;color:var(--text);padding:10px 14px;border-radius:18px 18px 6px 18px;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;line-height:1.6;font-size:14px}
 .msg.assistant .abody{flex:1;min-width:0;padding-top:4px;font-size:14.5px;line-height:1.7;color:var(--text)}
 .msg.assistant.pending .abody{color:var(--text-2)}

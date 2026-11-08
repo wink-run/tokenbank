@@ -73,6 +73,14 @@ def test_share_turn_expires_when_idle_or_too_long():
     assert share_turn_expired(now - timedelta(minutes=21), "at-abc", now) is True
 
 
+def test_guest_numbers_keep_growing():
+    from agent_chat_share import next_guest_label
+    assert next_guest_label([]) == "访客1"
+    assert next_guest_label(["adam", "访客"]) == "访客1"
+    assert next_guest_label(["adam", "访客1"]) == "访客2"
+    assert next_guest_label(["访客2", "访客1"]) == "访客3"
+
+
 def test_share_labels_people_and_preview():
     from agent_chat_share import share_author_label, share_preview
     assert share_author_label("阿达", "a@b.c") == "阿达"

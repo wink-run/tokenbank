@@ -130,6 +130,19 @@ def share_turn_expired(started_at, task_id, now=None) -> bool:
     return age > TURN_MAX_SEC
 
 
+def next_guest_label(names) -> str:
+    """下一个访客编号。已经用过的号不回收，避免和旧发言撞名。"""
+    highest = 0
+    for name in names or []:
+        text = str(name or "").strip()
+        if not text.startswith("访客"):
+            continue
+        tail = text[2:]
+        if tail.isdigit():
+            highest = max(highest, int(tail))
+    return f"访客{highest + 1}"
+
+
 def share_author_label(nickname, email) -> str:
     """列表上显示的人。有昵称用昵称，否则用邮箱前缀。"""
     nick = str(nickname or "").strip()

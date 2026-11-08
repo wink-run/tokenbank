@@ -533,6 +533,20 @@ async def _migrate_agent_chat_shares() -> None:
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_agent_chat_members_user ON agent_chat_share_members(user_id, share_id)"
         )
+        # 未登录打开分享的人。同一个浏览器一直是同一个编号和头像
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS agent_chat_share_guests (
+                share_id   TEXT NOT NULL,
+                guest_key  TEXT NOT NULL,
+                name       TEXT NOT NULL,
+                avatar     TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (share_id, guest_key)
+            )
+        """)
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_share_guest_name ON agent_chat_share_guests(share_id, name)"
+        )
         await db.commit()
         await _backfill_chat_previews(db)
 
@@ -826,6 +840,12 @@ async def list_share_participants(share_id: str) -> list[dict]:
             (safe,),
         ) as cur:
             rows = await cur.fetchall()
+        async with db.execute(
+            """SELECT name, avatar FROM agent_chat_share_guests
+               WHERE share_id=? ORDER BY created_at, name""",
+            (safe,),
+        ) as cur:
+            guests = await cur.fetchall()
     from agent_chat_share import share_author_label
     out = []
     seen = set()
@@ -839,7 +859,58 @@ async def list_share_participants(share_id: str) -> list[dict]:
         if not avatar.startswith("/avatar/"):
             avatar = ""
         out.append({"name": name, "avatar": avatar})
+    for row in guests:
+        item = dict(row)
+        name = str(item.get("name") or "").strip()[:40]
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        avatar = str(item.get("avatar") or "").strip()
+        if not avatar.startswith("/avatar/"):
+            avatar = ""
+        out.append({"name": name, "avatar": avatar})
     return out
+
+
+async def ensure_share_guest(share_id: str, guest_key: str) -> Optional[dict]:
+    """给未登录的人分配「访客N」和一张随机头像。同一把钥匙重复打开还是同一个人。"""
+    import re
+
+    from agent_chat_share import next_guest_label
+
+    safe = str(share_id or "").strip()
+    key = str(guest_key or "").strip()[:40]
+    if not safe or not re.fullmatch(r"[A-Za-z0-9_-]{8,40}", key):
+        return None
+    async with connect() as db:
+        for _ in range(3):
+            async with db.execute(
+                "SELECT name, avatar FROM agent_chat_share_guests WHERE share_id=? AND guest_key=?",
+                (safe, key),
+            ) as cur:
+                row = await cur.fetchone()
+            if row:
+                item = dict(row)
+                return {"name": str(item.get("name") or "")[:40], "avatar": str(item.get("avatar") or "")}
+            async with db.execute(
+                "SELECT name FROM agent_chat_share_guests WHERE share_id=?",
+                (safe,),
+            ) as cur:
+                taken = await cur.fetchall()
+            label = next_guest_label([dict(item).get("name") for item in taken])
+            avatar = pick_random_avatar_url()
+            try:
+                await db.execute(
+                    """INSERT INTO agent_chat_share_guests(share_id, guest_key, name, avatar)
+                       VALUES(?,?,?,?)""",
+                    (safe, key, label, avatar),
+                )
+                await db.commit()
+            except Exception:
+                # 两个人同时领号时，后到的换下一个号
+                continue
+            return {"name": label, "avatar": avatar}
+    return None
 
 
 async def list_agent_chat_history(assistant_id: str, viewer_id: int, limit: int = 5) -> list[dict]:
