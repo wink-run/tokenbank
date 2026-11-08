@@ -792,3 +792,97 @@ body { background: #faf9f5 !important; }
 .mk-pubc span { font-size: 12px; color: var(--pz-muted); }
 @media (max-width: 768px) { .mk-pubc { grid-template-columns: 1fr 1fr; } }
 .pz-empty { background: #fff; border-color: #e0dbd5; }
+
+/* ════════ 配色微调：暖调墨色 + 品牌黄，层次更柔和 ════════ */
+:root {
+  --pz-ink: #1c1a17; --pz-muted: #77716a; --pz-line: #ebe5dc; --pz-soft: #f4f0ea;
+  --pz-deep: #17150f; --pz-deep-2: #221e16; --pz-y: #FFC94A; --pz-y-soft: #fff4d4; --pz-y-ink: #8a6500;
+  --pz-card: #fffdf9;
+}
+body { background: #faf8f3 !important; color: var(--pz-ink); }
+.ag-top { background: rgba(23,21,15,.86); }
+.pz-hero { background: radial-gradient(120% 90% at 85% 0%, #2a2417 0%, var(--pz-deep) 55%); }
+.pz-hero::before { background: rgba(255,201,74,.10); }
+.pz-safe, .hs-diag, .hs-code, .hs-plan-light, .dv-node.user, .pz-map-i.on, .pz-who2 a.on, .pz-dev3 a.on { background: linear-gradient(160deg, var(--pz-deep-2), var(--pz-deep)); }
+.dv-layer, .dv-layer.l0, .dv-layer.l2, .dv-layer.l4 { background: var(--pz-deep); }
+.dv-layer.l1, .dv-layer.l3, .dv-layer.l5 { background: var(--pz-deep-2); }
+.ag-card, .pz-role, .nw-kind, .nw-step, .nw-sc, .hs-cap, .hs-group, .dv-b, .dv-feats a, .pz-dev3 a, .mk-path, .pz-cmp, .pz-table, .nw-card, .hs-index a, .ag-chip, .pz-tabs button.on { background-color: var(--pz-card); }
+.ag-card, .pz-role, .nw-kind, .nw-step, .nw-sc, .hs-cap, .hs-group, .dv-b, .dv-feats a, .pz-dev3 a, .mk-path, .pz-cmp, .pz-table, .nw-card, .hs-index a { border-color: var(--pz-line); }
+.pz-btn.pri, .ag-go, .pz-try, .ag-chip.on, .mk-scope button.on { background: var(--pz-ink); border-color: var(--pz-ink); }
+.pz-ic, .dv-feats em, .hs-index em, .nw-step::before, .pz-v { background: var(--pz-ink); }
+.pz-tabs { background: #efe9df; }
+.pz-final { background: linear-gradient(135deg, #fff4d4, #fffaf0); }
+
+/* ════════ 动效 ════════ */
+/* 卡片进场：依次上浮（--i 为序号） */
+@keyframes pz-card-in { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
+.ag-in { animation: pz-card-in .45s var(--pz-ease) both; animation-delay: calc(var(--i, 0) * 35ms); }
+/* 滚动渐显的区块，子项再错开 */
+.pz-rv-on .pz-rv .pz-role, .pz-rv-on .pz-rv .dv-b, .pz-rv-on .pz-rv .dv-node, .pz-rv-on .pz-rv .nw-step, .pz-rv-on .pz-rv .nw-gain, .pz-rv-on .pz-rv .dv-feats a, .pz-rv-on .pz-rv .mk-path, .pz-rv-on .pz-rv .pz-dev3 a { opacity: 0; transform: translateY(14px); transition: opacity .5s var(--pz-ease), transform .5s var(--pz-ease); }
+.pz-rv-on .pz-rv.in .pz-role, .pz-rv-on .pz-rv.in .dv-b, .pz-rv-on .pz-rv.in .dv-node, .pz-rv-on .pz-rv.in .nw-step, .pz-rv-on .pz-rv.in .nw-gain, .pz-rv-on .pz-rv.in .dv-feats a, .pz-rv-on .pz-rv.in .mk-path, .pz-rv-on .pz-rv.in .pz-dev3 a { opacity: 1; transform: none; }
+.pz-rv.in :is(.pz-role, .dv-b, .dv-node, .nw-step, .nw-gain, .dv-feats a, .mk-path, .pz-dev3 a):nth-child(2) { transition-delay: .07s; }
+.pz-rv.in :is(.pz-role, .dv-b, .dv-node, .nw-step, .nw-gain, .dv-feats a, .mk-path, .pz-dev3 a):nth-child(3) { transition-delay: .14s; }
+.pz-rv.in :is(.pz-role, .dv-b, .dv-node, .nw-step, .nw-gain, .dv-feats a, .mk-path, .pz-dev3 a):nth-child(4) { transition-delay: .21s; }
+.pz-rv.in :is(.pz-role, .dv-b, .dv-node, .nw-step, .nw-gain, .dv-feats a, .mk-path, .pz-dev3 a):nth-child(n+5) { transition-delay: .28s; }
+/* 六层：从左滑入 */
+@keyframes pz-slide { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: none; } }
+.dv-stack .dv-layer { animation: pz-slide .55s var(--pz-ease) both; }
+.dv-stack .dv-layer:nth-of-type(1) { animation-delay: .05s; } .dv-stack .dv-layer:nth-of-type(2) { animation-delay: .12s; }
+.dv-stack .dv-layer:nth-of-type(3) { animation-delay: .19s; } .dv-stack .dv-layer:nth-of-type(4) { animation-delay: .26s; }
+.dv-stack .dv-layer:nth-of-type(5) { animation-delay: .33s; } .dv-stack .dv-layer:nth-of-type(6) { animation-delay: .4s; }
+/* 主按钮：悬停时一道柔光扫过 */
+.pz-btn.pri, .nw-ctas .pz-btn.pri, .pz-search button { position: relative; overflow: hidden; }
+.pz-btn.pri::after, .pz-search button::after { content: ''; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%); transform: translateX(-120%); transition: transform .6s var(--pz-ease); }
+.pz-btn.pri:hover::after, .pz-search button:hover::after { transform: translateX(120%); }
+/* 在线圆点：轻呼吸 */
+@keyframes pz-breathe { 0%, 100% { box-shadow: 0 0 0 3px rgba(16,185,129,.15); } 50% { box-shadow: 0 0 0 5px rgba(16,185,129,.05); } }
+.ag-dot.ok { animation: pz-breathe 2.4s ease-in-out infinite; }
+/* 功能截图、示意图：滚入时淡入放大 */
+@keyframes pz-zoom { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
+.hs-feature .hs-f-visual { animation: pz-zoom .6s var(--pz-ease) both; animation-timeline: view(); animation-range: entry 0% entry 40%; }
+/* 卡片悬停：图标轻微放大 */
+.ag-card .ag-av { transition: transform .25s var(--pz-ease); }
+.ag-card:hover .ag-av { transform: scale(1.06) rotate(-2deg); }
+.pz-role .pz-ic, .nw-sc .pz-ic { transition: transform .25s var(--pz-ease); }
+.pz-role:hover .pz-ic, .nw-sc:hover .pz-ic { transform: translateY(-2px) rotate(-4deg); }
+/* 排行条形图：进场时从 0 长出来 */
+@keyframes pz-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.nw-bar i { transform-origin: left; animation: pz-grow .9s var(--pz-ease) both; }
+
+/* ════════ 智能体广场：数量多时的工具栏和列表视图 ════════ */
+.ag-toolbar { position: sticky; top: 58px; z-index: 10; margin: 18px -12px 0; padding: 10px 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; background: rgba(250,248,243,.92); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-radius: 14px; }
+.ag-cats { display: flex; gap: 6px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.ag-cats::-webkit-scrollbar { display: none; }
+.ag-cats .ag-chip { flex-shrink: 0; }
+.ag-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.ag-sort select { height: 34px; padding: 0 30px 0 12px; border-radius: 999px; border: 1px solid var(--pz-line); background: var(--pz-card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2377716a' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") right 10px center/14px no-repeat; -webkit-appearance: none; appearance: none; font: inherit; font-size: 13.5px; color: var(--pz-ink); cursor: pointer; }
+.ag-view { display: inline-flex; padding: 3px; border-radius: 999px; border: 1px solid var(--pz-line); background: var(--pz-card); }
+.ag-view button { width: 30px; height: 28px; border: none; border-radius: 999px; background: transparent; color: var(--pz-muted); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s, color .15s; }
+.ag-view button.on { background: var(--pz-ink); color: var(--pz-y); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* 列表视图：一行一个，信息横排，适合扫几十个 */
+.ag-grid.ag-list { grid-template-columns: 1fr; gap: 0; border: 1px solid var(--pz-line); border-radius: 18px; overflow: hidden; background: var(--pz-card); }
+.ag-list .ag-card { flex-direction: row; align-items: center; gap: 16px; padding: 12px 18px; border: none; border-radius: 0; border-top: 1px solid var(--pz-line); box-shadow: none; transform: none; }
+.ag-list .ag-card:first-child { border-top: none; }
+.ag-list .ag-card::after { display: none; }
+.ag-list .ag-card:hover { transform: none; box-shadow: none; background: #fbf7ef; }
+.ag-list .ag-h { flex: 0 0 280px; }
+.ag-list .ag-av { width: 38px; height: 38px; font-size: 16px; border-radius: 11px; }
+.ag-list .ag-av.brand { padding: 8px; }
+.ag-list .ag-name { font-size: 15px; }
+.ag-list .ag-desc { flex: 1; min-height: 0; -webkit-line-clamp: 1; font-size: 13.5px; }
+.ag-list .ag-foot { flex: 0 0 auto; margin: 0; padding: 0; border: none; gap: 10px; }
+.ag-list .ag-foot > span:not(.ag-go) { width: 34px; }
+@media (max-width: 768px) {
+  .ag-toolbar { top: 58px; margin: 14px -8px 0; padding: 8px; }
+  .ag-tools { margin-left: 0; width: 100%; }
+  .ag-list .ag-card { flex-wrap: wrap; gap: 8px 12px; }
+  .ag-list .ag-h { flex: 1 1 100%; }
+  .ag-list .ag-desc { flex: 1 1 100%; }
+  .ag-list .ag-foot { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ag-in, .dv-stack .dv-layer, .hs-feature .hs-f-visual, .nw-bar i, .ag-dot.ok { animation: none; }
+  .pz-rv-on .pz-rv :is(.pz-role, .dv-b, .dv-node, .nw-step, .nw-gain, .dv-feats a, .mk-path, .pz-dev3 a) { opacity: 1; transform: none; transition: none; }
+  .pz-btn.pri::after, .pz-search button::after { display: none; }
+}
