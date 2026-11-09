@@ -44,6 +44,7 @@ import { buildInvokeText, copyText, completeEnablePackage } from '../lib/resourc
 import { catalogSharerHandle } from '../lib/catalog-sharer';
 import {
   formatApiError,
+  getCommunityCatalogPricing,
   recommendCommunitySkill,
   settleCommunityCatalogInstall,
 } from '../api/client';
@@ -288,6 +289,11 @@ const EMPTY_EDITOR = {
   promptQuery: '',
   /** 新建智能体两步：brief（先用一句话描述）→ form（确认人设与绑定） */
   asStep: 'brief',
+  /** 生成时建议一起纳管的社区技能 [{ catalogId, name, display_name, paid, checked }] */
+  suggestSkills: [],
+  /** 本机和社区都没有的能力 */
+  missingCaps: [],
+  installCost: null,
 };
 
 /** 是否 Windows 前端环境（路径用反斜杠） */
@@ -1088,6 +1094,29 @@ export default function Resources() {
 
   function toggleScanPanel() {
     setScanExpanded(v => !v);
+  }
+
+  /** 新建智能体时顺带纳管社区技能：不动全局 busy/msg，返回落库名 */
+  async function installCatalogQuiet(c) {
+    try {
+      if (c.paid) {
+        const { data: settled } = await settleCommunityCatalogInstall(c.catalogId);
+        if (settled?.item) {
+          try { await window.electronAPI.resource.upsertCommunitySkill?.({ item: settled.item }); } catch { /* ignore */ }
+        }
+      }
+      const res = await window.electronAPI.resource.installCatalog({ catalogId: c.catalogId });
+      if (!res?.success) return { ok: false };
+      if (res.resource) {
+        upsertResourceLocally(res.resource);
+        markCatalogInstalled(c.catalogId, res.resource);
+      } else {
+        markCatalogInstalled(c.catalogId, null);
+      }
+      return { ok: true, name: res.resource?.name || c.name };
+    } catch {
+      return { ok: false };
+    }
   }
 
   async function handleInstall(catalogId) {
@@ -1934,6 +1963,13 @@ export default function Resources() {
   /** 新建智能体的第一步：只填一句话描述 */
   const asstIsNew = () => editorForm.type === 'assistant' && !editorForm.id;
   const asstBrief = () => asstIsNew() && editorForm.asStep === 'brief';
+  /** 新建智能体本次要付费纳管的技能数 / 总积分（价格未知时为 null） */
+  const asstPaidCount = () => (editorForm.suggestSkills || []).filter((c) => c.checked && c.paid).length;
+  const asstCost = () => {
+    const n = asstPaidCount();
+    if (!n) return 0;
+    return editorForm.installCost != null ? Math.round(editorForm.installCost * n * 100) / 100 : null;
+  };
 
   /** Skill 类型：打开安装对话框，由资源安装智能体执行 */
   function handlePrimaryAction() {
@@ -2006,7 +2042,20 @@ export default function Resources() {
           display_name: r.display_name || r.name,
           description: r.description || '',
         }));
-      const gen = await generateAssistantFromNl(brief, skillCandidates, promptCandidates);
+      const communityCandidates = (catalog || [])
+        .filter((c) => c.type === 'skill' && !c.installed && !isBuiltinResource(c))
+        .map((c) => ({
+          catalogId: c.catalogId,
+          name: c.name,
+          display_name: c.display_name || resourceDisplayName('skill', c) || c.name,
+          description: resourceDescription(c) || '',
+          paid: !!(c.metadata?.user_recommended && c.metadata?.recommender_user_id),
+        }));
+      const gen = await generateAssistantFromNl(brief, skillCandidates, promptCandidates, communityCandidates);
+      let installCost = null;
+      if ((gen.communitySkills || []).some((c) => c.paid) && localStorage.getItem('token')) {
+        try { installCost = Number((await getCommunityCatalogPricing()).data?.install_cost); } catch { /* 价格未知时按「付费」显示 */ }
+      }
       setEditorForm((prev) => ({
         ...prev,
         // 已有 id 时不改英文标识，避免冲突
@@ -2018,6 +2067,10 @@ export default function Resources() {
         prompts: gen.prompts || [],
         tagsText: (gen.tags || []).join(', ') || prev.tagsText,
         asStep: 'form',
+        // 创建时默认一起纳管
+        suggestSkills: (gen.communitySkills || []).map((c) => ({ ...c, checked: true })),
+        missingCaps: gen.missing || [],
+        installCost: Number.isFinite(installCost) ? installCost : null,
       }));
       setMsg(t('resources.assistantNlOk'));
     } catch (e) {
@@ -2081,6 +2134,35 @@ export default function Resources() {
       else delete metadata.detail;
       let content = editorForm.content || '';
       // 智能体：用人设 + 勾选 skill / prompt 拼 JSON
+      let extraSkills = [];
+      let skillInstallNote = '';
+      if (editorForm.type === 'assistant' && !editorForm.id) {
+        const picked = (editorForm.suggestSkills || []).filter((c) => c.checked);
+        const paid = picked.filter((c) => c.paid);
+        if (paid.length && !localStorage.getItem('token')) {
+          setError(t('resources.recommendNeedLogin'));
+          setBusy('');
+          return;
+        }
+        if (paid.length) {
+          const total = editorForm.installCost != null ? editorForm.installCost * paid.length : null;
+          const ok = window.confirm(total != null
+            ? t('resources.assistantPaidConfirm', { n: paid.length, cost: total })
+            : t('resources.assistantPaidConfirmUnknown', { n: paid.length }));
+          if (!ok) { setBusy(''); return; }
+        }
+        const failed = [];
+        for (const c of picked) {
+          const r = await installCatalogQuiet(c);
+          if (r.ok) extraSkills.push(r.name || c.name);
+          else failed.push(c.display_name || c.name);
+        }
+        if (picked.length) {
+          skillInstallNote = failed.length
+            ? t('resources.assistantSkillsPartial', { ok: extraSkills.length, failed: failed.join('、') })
+            : t('resources.assistantSkillsInstalled', { n: extraSkills.length });
+        }
+      }
       if (editorForm.type === 'assistant') {
         const soul = String(editorForm.soul || '').trim();
         if (!soul) {
@@ -2090,7 +2172,7 @@ export default function Resources() {
         }
         content = buildAssistantContent({
           soul,
-          skills: editorForm.skills || [],
+          skills: [...new Set([...(editorForm.skills || []), ...extraSkills])],
           prompts: editorForm.prompts || [],
           runtime_agent: editorForm.runtime_agent || '',
           parameters: editorForm.parameters,
@@ -2122,9 +2204,9 @@ export default function Resources() {
           const pack = await completeEnablePackage(res.resource, { lang });
           if (pack.invokeText) await copyText(pack.invokeText);
           const shown = res.resource.display_name || res.resource.name;
-          setMsg(pack.projected
+          setMsg((skillInstallNote ? skillInstallNote + ' · ' : '') + (pack.projected
             ? t('resources.enabledWithInvoke', { name: shown, invoke: pack.invokeText })
-            : t('resources.enabledNeedProject', { name: shown, invoke: pack.invokeText }));
+            : t('resources.enabledNeedProject', { name: shown, invoke: pack.invokeText })));
           const fresh = await window.electronAPI.resource.listResources({ type: 'assistant' });
           const hit = (fresh?.resources || []).find(r => r.id === res.resource.id);
           if (hit) upsertResourceLocally(hit);
@@ -4365,6 +4447,73 @@ export default function Resources() {
                     <p className="text-[10px] text-zinc-400">{t('resources.assistantPromptsHint')}</p>
                     </div>
                   </details>
+                  {asstIsNew() && (editorForm.suggestSkills || []).length > 0 && (
+                    <div className="rounded-lg border border-violet-200/80 dark:border-violet-800/50 bg-violet-50/50 dark:bg-violet-950/20 px-2.5 py-2 space-y-1.5">
+                      <div className="text-xs font-medium text-violet-700 dark:text-violet-300">{t('resources.assistantSuggestTitle')}</div>
+                      {editorForm.suggestSkills.map((c, i) => (
+                        <label key={c.catalogId} className="flex items-start gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={!!c.checked}
+                            onChange={() => setEditorForm(prev => ({
+                              ...prev,
+                              suggestSkills: prev.suggestSkills.map((x, k) => (k === i ? { ...x, checked: !x.checked } : x)),
+                            }))}
+                            className="mt-0.5 shrink-0"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-1.5">
+                              <span className="text-xs text-zinc-800 dark:text-zinc-200 truncate">{c.display_name || c.name}</span>
+                              <span className={`shrink-0 text-[10px] px-1.5 py-px rounded ${c.paid ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'}`}>
+                                {c.paid
+                                  ? (editorForm.installCost != null ? t('resources.assistantSuggestCost', { cost: editorForm.installCost }) : t('resources.assistantSuggestPaid'))
+                                  : t('resources.assistantSuggestFree')}
+                              </span>
+                            </span>
+                            {c.description ? <span className="block text-[10px] text-zinc-400 line-clamp-1">{c.description}</span> : null}
+                          </span>
+                        </label>
+                      ))}
+                      <p className="text-[10px] text-violet-500/90 dark:text-violet-400/80">{t('resources.assistantSuggestHint')}</p>
+                      <div className={`flex items-center justify-between gap-2 pt-1.5 mt-0.5 border-t text-[11px] ${asstPaidCount() ? 'border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300' : 'border-violet-200/70 dark:border-violet-800/40 text-violet-700 dark:text-violet-300'}`}>
+                        <span>{t('resources.assistantCostLabel')}</span>
+                        <b className="font-semibold tabular-nums">
+                          {!asstPaidCount()
+                            ? t('resources.assistantCostFree')
+                            : asstCost() != null
+                              ? t('resources.assistantCostPaid', { cost: asstCost(), n: asstPaidCount() })
+                              : (localStorage.getItem('token') ? t('resources.assistantCostUnknown', { n: asstPaidCount() }) : t('resources.assistantCostLogin', { n: asstPaidCount() }))}
+                        </b>
+                      </div>
+                    </div>
+                  )}
+                  {asstIsNew() && (editorForm.missingCaps || []).length > 0 && (
+                    <div className="rounded-lg border border-amber-200/80 dark:border-amber-800/50 bg-amber-50/60 dark:bg-amber-950/20 px-2.5 py-2 space-y-1.5">
+                      <div className="text-xs text-amber-800 dark:text-amber-300">
+                        {t('resources.assistantMissing', { list: editorForm.missingCaps.join('、') })}
+                      </div>
+                      <div className="flex flex-wrap gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setSkillInstallOpen(true)}
+                          className="text-[11px] text-amber-800 dark:text-amber-300 underline underline-offset-2"
+                        >
+                          {t('resources.assistantMissingInstall')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditorOpen(false);
+                            changeTypeFilter('skill');
+                            changeViewTab('recommend');
+                          }}
+                          className="text-[11px] text-amber-800 dark:text-amber-300 underline underline-offset-2"
+                        >
+                          {t('resources.assistantMissingDiscover')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <details className="group">
                     <summary className="cursor-pointer list-none text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
                       <span className="inline-block mr-1 transition-transform group-open:rotate-90">›</span>{t('resources.editorAdvanced')}
@@ -4437,7 +4586,9 @@ export default function Resources() {
                 onClick={saveEditor}
                 className="tb-press text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50"
               >
-                {busy === 'editor' ? t('resources.busy') : (asstIsNew() ? t('resources.saveAndEnable') : t('resources.save'))}
+                {busy === 'editor' ? t('resources.busy') : (asstIsNew()
+                  ? (asstPaidCount() && asstCost() != null ? t('resources.saveAndEnableCost', { cost: asstCost() }) : t('resources.saveAndEnable'))
+                  : t('resources.save'))}
               </button>
               )}
             </div>

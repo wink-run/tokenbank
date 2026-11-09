@@ -91,12 +91,34 @@ function extractJsonObject(text) {
  * @param {{ name: string, display_name?: string, description?: string }[]} [promptCandidates]
  * @returns {Promise<{ name: string, display_name: string, description: string, soul: string, skills: string[], prompts: string[], tags: string[] }>}
  */
-export async function generateAssistantFromNl(brief, skillCandidates = [], promptCandidates = []) {
+/** 按与需求的相关度给候选排序，避免超过上限时把相关的截掉 */
+function rankByBrief(list, brief) {
+  const q = String(brief || '').toLowerCase();
+  const grams = new Set();
+  for (let i = 0; i < q.length - 1; i++) grams.add(q.slice(i, i + 2));
+  q.split(/[^a-z0-9]+/).filter((w) => w.length > 2).forEach((w) => grams.add(w));
+  const score = (s) => {
+    const hay = `${s.name || ''} ${s.display_name || ''} ${s.description || ''}`.toLowerCase();
+    let n = 0;
+    grams.forEach((g) => { if (hay.includes(g)) n += 1; });
+    return n;
+  };
+  return [...(list || [])].map((s, i) => ({ s, i, k: score(s) }))
+    .sort((a, b) => b.k - a.k || a.i - b.i)
+    .map((x) => x.s);
+}
+
+/**
+ * 一句话生成智能体。
+ * @param communityCandidates 社区目录里还没纳管的技能 [{ catalogId, name, display_name, description, paid }]
+ * @returns 额外返回 communitySkills（建议一起纳管的社区技能）和 missing（哪里都找不到的能力）
+ */
+export async function generateAssistantFromNl(brief, skillCandidates = [], promptCandidates = [], communityCandidates = []) {
   const text = String(brief || '').trim();
   if (text.length < 4) throw new Error('brief_too_short');
   if (!window.electronAPI?.llm?.fetch) throw new Error('llm_unavailable');
 
-  const catalog = (skillCandidates || []).slice(0, 80).map((s) => ({
+  const catalog = rankByBrief(skillCandidates, text).slice(0, 80).map((s) => ({
     name: s.name,
     title: s.display_name || s.name,
     desc: String(s.description || '').slice(0, 80),
@@ -108,6 +130,17 @@ export async function generateAssistantFromNl(brief, skillCandidates = [], promp
     desc: String(s.description || '').slice(0, 80),
   }));
   const promptNames = new Set(promptCatalog.map((c) => c.name));
+  const localNames = new Set((skillCandidates || []).map((s) => s.name));
+  const community = rankByBrief(
+    (communityCandidates || []).filter((c) => c && c.name && !localNames.has(c.name)),
+    text,
+  ).slice(0, 60);
+  const communityCatalog = community.map((c) => ({
+    name: c.name,
+    title: c.display_name || c.name,
+    desc: String(c.description || '').slice(0, 80),
+  }));
+  const communityByName = new Map(community.map((c) => [c.name, c]));
 
   const prompt = [
     '你是智能体设计师。根据用户需求生成一个可运行的 AI 智能体配置。',
@@ -117,13 +150,16 @@ export async function generateAssistantFromNl(brief, skillCandidates = [], promp
     '- display_name: 中文显示名',
     '- description: 一句话简介（≤80字）',
     '- soul: 完整人设/系统提示（角色、职责、工作方式、输出风格；中文，≥80字）',
-    '- skills: 从候选列表中挑选 0～8 个真实 name（可空数组；禁止编造）',
+    '- skills: 从「本机 skills」中挑选 0～8 个真实 name（可空数组；禁止编造）',
+    '- community_skills: 本机没有、但「社区 skills」里有且确实需要的，挑 0～5 个真实 name（禁止编造）',
+    '- missing: 完成这类任务还需要、但本机和社区都没有的能力，用 0～3 个简短中文短语描述（如「读写 Excel」）',
     '- prompts: 从候选提示词中挑选 0～6 个真实 name（可空数组；禁止编造）',
     '- tags: 2～5 个英文小写标签',
     '',
     `用户需求：${text}`,
     '',
-    `候选 skills（只能从 name 中选）：${JSON.stringify(catalog)}`,
+    `本机 skills（只能从 name 中选）：${JSON.stringify(catalog)}`,
+    `社区 skills（本机未安装，只能从 name 中选）：${JSON.stringify(communityCatalog)}`,
     `候选 prompts（只能从 name 中选）：${JSON.stringify(promptCatalog)}`,
   ].join('\n');
 
@@ -165,5 +201,14 @@ export async function generateAssistantFromNl(brief, skillCandidates = [], promp
     .filter(Boolean)
     .slice(0, 8);
 
-  return { name, display_name, description, soul, skills, prompts, tags };
+  const communitySkills = [...new Set((Array.isArray(parsed.community_skills) ? parsed.community_skills : []).map(String))]
+    .map((n) => communityByName.get(n))
+    .filter(Boolean)
+    .slice(0, 5);
+  const missing = (Array.isArray(parsed.missing) ? parsed.missing : [])
+    .map((m) => String(m || '').trim())
+    .filter((m) => m && m.length <= 30)
+    .slice(0, 3);
+
+  return { name, display_name, description, soul, skills, prompts, tags, communitySkills, missing };
 }
