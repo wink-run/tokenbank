@@ -221,7 +221,7 @@ function askDescription(name, body) {
   return new Promise((resolve) => {
     const req = http.request({
       host: host || '127.0.0.1', port: Number(port) || 11430, path: '/v1/chat/completions', method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), 'X-TokenBank-Guardian': '1' },
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), 'X-TokenBank-Guardian': '1', Authorization: 'Bearer tb-guardian' },
       timeout: 60000,
     }, (res) => {
       let buf = '';
@@ -274,6 +274,44 @@ async function completeDescription({ resourceId }) {
   return { ok: true, description: desc };
 }
 
+// 提示词短于这个长度，多半只有一句话，模型很难照着做好
+const SIMPLE_PROMPT_CHARS = 60;
+
+function isSimplePrompt(r) {
+  return !!r && r.type === 'prompt' && String(r.content || '').trim().length > 0
+    && String(r.content || '').trim().length < SIMPLE_PROMPT_CHARS;
+}
+
+/** 改写增强：请本机网关的模型把过于简单的提示词写完整；原版存进记录，可撤销 */
+async function enhancePrompt({ resourceId }) {
+  const m = rm();
+  const r = m.getResource(resourceId);
+  if (!r || r.type !== 'prompt') return { ok: false, error: '只支持提示词' };
+  const original = String(r.content || '').trim();
+  if (!original) return { ok: false, error: '提示词是空的' };
+  const res = await require('./model-call').chat({
+    temperature: 0.3, maxTokens: 800, timeoutMs: 60000,
+    messages: [{ role: 'user', content: [
+      '把下面这条过于简单的提示词改写成一条完整、可直接使用的提示词：写清角色、要做的事、输入是什么、输出格式和注意事项。',
+      '保持原来的意图和语言，不要扩展成别的任务；可以用 {{变量}} 表示需要用户填的内容。只输出改写后的提示词本身。',
+      `原提示词：${original.slice(0, 2000)}`,
+    ].join('\n') }],
+  });
+  const next = String(res.text || '').trim().replace(/^```[a-z]*\n?|```$/g, '').trim();
+  if (!res.ok || next.length <= original.length) return { ok: false, error: '没能生成增强版：需要先在「模型」页接入一个可用的模型' };
+  const before = snapshot(r);
+  const saved = m.saveResource({ ...before, content: next });
+  if (saved && saved.success === false) return { ok: false, error: saved.error };
+  guardian.record({
+    category: 'assets', kind: 'prompt-enhanced', status: 'done',
+    title: `已增强提示词「${label(r)}」`,
+    detail: `原版：${original}`,
+    undo: { type: 'restoreSnapshot', data: { snapshot: before } },
+    meta: { resourceId },
+  });
+  return { ok: true, content: next };
+}
+
 /** 投射前的安全确认：高风险技能需要用户明确同意 */
 function securityGate(resource) {
   if (!resource || resource.type !== 'skill') return null;
@@ -288,4 +326,4 @@ function register() {
   guardian.registerCheck('assets', check, 6 * 60 * 60 * 1000);
 }
 
-module.exports = { register, check, getFlags, updateFromCatalog, completeDescription, securityGate, cmpVersion };
+module.exports = { register, check, getFlags, updateFromCatalog, completeDescription, enhancePrompt, isSimplePrompt, securityGate, cmpVersion };

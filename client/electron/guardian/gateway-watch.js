@@ -40,7 +40,7 @@ function askModel(info) {
   return new Promise((resolve) => {
     const req = http.request({
       host: host || '127.0.0.1', port: Number(port) || 11430, path: '/v1/chat/completions', method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'X-TokenBank-Guardian': '1' },
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'X-TokenBank-Guardian': '1', Authorization: 'Bearer tb-guardian' },
       timeout: 30000,
     }, (res) => {
       let buf = '';

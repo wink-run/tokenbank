@@ -26,7 +26,29 @@ const DEFAULT_SETTINGS = {
   modes: Object.fromEntries(Object.entries(CATEGORIES).map(([k, v]) => [k, v.default])),
   // 规则解释不了的新报错，每天最多请模型分析几次（0 = 只用规则）
   modelExplainPerDay: 10,
+  // 定期自省（离线）：频率、运行时段、单次 token 上限、范围、结果处理
+  introspect: {
+    frequency: 'weekly',        // off | daily | weekly | monthly
+    window: 'idle',             // idle（闲置时）| hour（指定时间）
+    hour: 3,
+    tokenCap: 20000,
+    scope: ['assets', 'routes', 'models', 'savings', 'rules'],
+    handling: 'report',         // report（只出报告）| auto（可撤销的自动采纳）
+  },
 };
+const INTROSPECT_FREQ = new Set(['off', 'daily', 'weekly', 'monthly']);
+const INTROSPECT_SCOPE = new Set(DEFAULT_SETTINGS.introspect.scope);
+
+function normalizeIntrospect(raw = {}, base = DEFAULT_SETTINGS.introspect) {
+  const out = { ...base };
+  if (INTROSPECT_FREQ.has(raw.frequency)) out.frequency = raw.frequency;
+  if (raw.window === 'idle' || raw.window === 'hour') out.window = raw.window;
+  if (Number.isFinite(raw.hour)) out.hour = Math.min(23, Math.max(0, Math.floor(raw.hour)));
+  if (Number.isFinite(raw.tokenCap)) out.tokenCap = Math.min(1000000, Math.max(0, Math.floor(raw.tokenCap)));
+  if (Array.isArray(raw.scope)) out.scope = raw.scope.filter(x => INTROSPECT_SCOPE.has(x));
+  if (raw.handling === 'report' || raw.handling === 'auto') out.handling = raw.handling;
+  return out;
+}
 
 const listeners = new Map();   // event type → Set<fn>
 const actions = new Map();     // action type → fn(data) → { ok, error? }
@@ -38,7 +60,7 @@ function getSettings() {
   const raw = store.readJson('settings.json', {});
   const modes = { ...DEFAULT_SETTINGS.modes, ...(raw.modes || {}) };
   for (const k of Object.keys(modes)) if (!MODES.has(modes[k])) modes[k] = CATEGORIES[k]?.default || 'auto';
-  return { ...DEFAULT_SETTINGS, ...raw, modes };
+  return { ...DEFAULT_SETTINGS, ...raw, modes, introspect: normalizeIntrospect(raw.introspect || {}) };
 }
 
 function setSettings(patch = {}) {
@@ -48,6 +70,9 @@ function setSettings(patch = {}) {
     ...(typeof patch.enabled === 'boolean' ? { enabled: patch.enabled } : {}),
     ...(Number.isFinite(patch.modelExplainPerDay) ? { modelExplainPerDay: Math.max(0, Math.floor(patch.modelExplainPerDay)) } : {}),
     modes: { ...cur.modes },
+    introspect: patch.introspect && typeof patch.introspect === 'object'
+      ? normalizeIntrospect(patch.introspect, cur.introspect)
+      : cur.introspect,
   };
   for (const [k, v] of Object.entries(patch.modes || {})) {
     if (CATEGORIES[k] && MODES.has(v)) next.modes[k] = v;

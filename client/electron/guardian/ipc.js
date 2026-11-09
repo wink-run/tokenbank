@@ -35,6 +35,19 @@ function registerGuardianHandlers() {
   // 资产列表的小标签：质量 / 安全 / 重复 / 新版本
   ipcMain.handle('guardian:assetFlags', safe(() => ({ success: true, flags: require('./asset-checks').getFlags() })));
 
+  // 定期自省：立即运行、报告
+  ipcMain.handle('guardian:introspectNow', safe(async () => {
+    const r = await require('./introspect').run({ manual: true });
+    return r.ok ? { success: true, report: r.report } : { success: false, error: r.error };
+  }));
+  ipcMain.handle('guardian:listReports', safe(() => ({
+    success: true, reports: require('./introspect').listReports(), running: require('./introspect').isRunning(),
+  })));
+  // 按场景投射：新技能启用时该投到哪些应用
+  ipcMain.handle('guardian:preferredTargets', safe((opts) => ({
+    success: true, ...(require('./scene-targets').preferredTargets(opts || {}) || { agentIds: [] }),
+  })));
+
   // 资产一键诊断与修复
   ipcMain.handle('resource:diagnose', safe(({ resourceId } = {}) => require('./diagnose').diagnoseResource(resourceId)));
   ipcMain.handle('resource:fixDiagnosis', safe(({ resourceId, type } = {}) => require('./diagnose').fixResource(resourceId, type)));
@@ -47,6 +60,8 @@ function startGuardian({ gateway, initialDelayMs } = {}) {
   try { require('./projection-heal').register(); } catch (e) { console.warn('[guardian] projection-heal:', e.message); }
   try { require('./asset-checks').register(); } catch (e) { console.warn('[guardian] asset-checks:', e.message); }
   try { require('./setup-check').register(); } catch (e) { console.warn('[guardian] setup-check:', e.message); }
+  try { require('./introspect').register(); } catch (e) { console.warn('[guardian] introspect:', e.message); }
+  try { require('./task-watch').attach(); } catch (e) { console.warn('[guardian] task-watch:', e.message); }
   try { if (gateway) require('./gateway-watch').attach(gateway); } catch (e) { console.warn('[guardian] gateway-watch:', e.message); }
   guardian.start({ initialDelayMs });
   console.log('[guardian] started');

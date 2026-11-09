@@ -190,6 +190,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     dismiss: (id) => ipcRenderer.invoke('guardian:dismiss', id),
     runChecks: () => ipcRenderer.invoke('guardian:runChecks'),
     assetFlags: () => ipcRenderer.invoke('guardian:assetFlags'),
+    introspectNow: () => ipcRenderer.invoke('guardian:introspectNow'),
+    listReports: () => ipcRenderer.invoke('guardian:listReports'),
+    preferredTargets: (opts) => ipcRenderer.invoke('guardian:preferredTargets', opts || {}),
   },
   config: {
     read:  () => ipcRenderer.invoke('config:read'),
