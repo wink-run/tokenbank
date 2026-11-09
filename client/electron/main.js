@@ -2829,6 +2829,8 @@ function registerIPC() {
   registerMcpHandlers();
   const { registerResourceHandlers } = require('./ipc-handlers-resource');
   registerResourceHandlers();
+  // 内置看护（自动处理记录、投射自愈、供给源失败解读、资产诊断）：与 Docker 共用 electron/guardian
+  try { require('./guardian/ipc').registerGuardianHandlers(); } catch (e) { console.warn('[guardian] register:', e.message); }
   
   const billingConfigMod = require('./billing-config');
   ipcMain.on('tray:lang',  (_e, lang)      => { _trayLang = lang === 'en' ? 'en' : 'zh'; refreshTray(); });
@@ -4529,21 +4531,29 @@ function registerIPC() {
     if (!pkg) return { ok: false, error: 'no-npm-package' };
     const extra = (cl.appNpmInstallArgs() || {})[id] || '';
     const npmCmd = `"${resolveNpmCmd()}"`;
-    return await new Promise((resolve) => {
+    const attempt = () => new Promise((resolve) => {
       try {
         require('child_process').exec(`${npmCmd} i -g ${pkg}@latest${extra ? ` ${extra}` : ''}`, { timeout: 300000, windowsHide: true },
           (err, _stdout, stderr) => {
             if (err) resolve({ ok: false, error: (String(stderr || '') || err.message).slice(0, 400) });
-            else {
-              // 清命令探测缓存，使前端刷新时立即检测到刚装的工具（不等 30s TTL）
-              try { require('./shim-installer').clearCommandCache(); } catch {}
-              // 通知前端应用列表刷新（新装的工具即时出现在应用列表虚拟条目）
-              try { mainWindow?.webContents?.send('apps:changed'); } catch {}
-              resolve({ ok: true, pkg });
-            }
+            else resolve({ ok: true, pkg });
           });
       } catch (e) { resolve({ ok: false, error: e.message }); }
     });
+    // 失败时由看护认出原因：中断残留 / 网络抖动自动处理后重试，其它给出办法（与 Docker 共用 guardian/install-fix.js）
+    let name = id;
+    try { name = cl.appEntityById(id)?.name || id; } catch {}
+    const r = await require('./guardian/install-fix').installWithRepair({
+      id, name, pkg, attempt,
+      sweep: async () => { sweepNpmStaging(await npmGlobalRoot(npmCmd), pkg); },
+    });
+    if (r.ok) {
+      // 清命令探测缓存，使前端刷新时立即检测到刚装的工具（不等 30s TTL）
+      try { require('./shim-installer').clearCommandCache(); } catch {}
+      // 通知前端应用列表刷新（新装的工具即时出现在应用列表虚拟条目）
+      try { mainWindow?.webContents?.send('apps:changed'); } catch {}
+    }
+    return r;
   });
 
   // 一键卸载 CLI 工具：跑 npm uninstall -g <包>。与安装对称，装完/卸完都清命令缓存。
@@ -6185,6 +6195,7 @@ app.whenReady().then(() => {
     gateway.start(GATEWAY_PORT, readAgentConfig, writeAgentConfig, '127.0.0.1', (err) => {
       if (err && err.code === 'EADDRINUSE') gatewayPortOccupied();
     });
+    try { require('./guardian/ipc').startGuardian({ gateway }); } catch (e) { console.warn('[guardian] start:', e.message); }
   })();
 
   // ChatGPT 网页源：仅当用户已启用时自启本地 server（未启用不开浏览器/不占端口）

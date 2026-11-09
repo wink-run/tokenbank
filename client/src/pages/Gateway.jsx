@@ -468,7 +468,11 @@ function AppToolbox({ open, busy, onToggle, onClose, refreshKey = 0, syncError =
     setNpmBusy(b => ({ ...b, [app.id]: true }));
     try {
       const r = await getApps().npmGlobalInstall(app.id);
-      if (!r?.ok) window.alert(t('gateway.toolbox.installFailed', { name: app.name, msg: r?.error || '' }));
+      if (!r?.ok) {
+        // 看护认出了原因：先说原因和办法，原始报错放后面
+        const why = r?.guardian ? t('gateway.toolbox.installAdvice', { title: r.guardian.title, advice: r.guardian.advice }) : '';
+        window.alert(t('gateway.toolbox.installFailed', { name: app.name, msg: [why, r?.error || ''].filter(Boolean).join('\n\n') }));
+      }
       await loadItems();
     } catch (e) {
       window.alert(t('gateway.toolbox.installFailed', { name: app.name, msg: e.message }));

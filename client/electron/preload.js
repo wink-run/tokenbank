@@ -176,6 +176,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     /** 轮询最近命中（IPC 丢事件时兜底） */
     pollHit: () => ipcRenderer.invoke('resource:pollHit'),
+    // 一键诊断「为什么应用里看不到」与修复
+    diagnose: (params) => ipcRenderer.invoke('resource:diagnose', params || {}),
+    fixDiagnosis: (params) => ipcRenderer.invoke('resource:fixDiagnosis', params || {}),
+  },
+  // 内置看护：设置、自动处理记录（撤销 / 采纳）、立即检查
+  guardian: {
+    getSettings: () => ipcRenderer.invoke('guardian:getSettings'),
+    setSettings: (patch) => ipcRenderer.invoke('guardian:setSettings', patch || {}),
+    listRecords: (opts) => ipcRenderer.invoke('guardian:listRecords', opts || {}),
+    undo: (id) => ipcRenderer.invoke('guardian:undo', id),
+    apply: (id) => ipcRenderer.invoke('guardian:apply', id),
+    dismiss: (id) => ipcRenderer.invoke('guardian:dismiss', id),
+    runChecks: () => ipcRenderer.invoke('guardian:runChecks'),
   },
   config: {
     read:  () => ipcRenderer.invoke('config:read'),

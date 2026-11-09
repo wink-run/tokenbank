@@ -6,6 +6,7 @@ import { getConfig, getGateway } from '../api/adapter';
 import { alignSyncAccountSecretsFromCloud } from '../lib/sync-account-secrets';
 import { requestAccountsHeartbeat } from '../hooks/useDeviceReporter';
 import { useLang } from '../store/lang';
+import GuardianPanel from '../components/GuardianPanel';
 import { useCurrency } from '../store/currency';
 import { useUpdater } from '../store/updater';
 import { defaultCurrencyForLang, DEFAULT_USD_CNY_RATE } from '../utils/currency';
@@ -537,6 +538,9 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
           />
         </div>
       </div>
+
+      {/* 智能看护：自动处理记录与各类处理方式 */}
+      <GuardianPanel />
 
       {/* Diagnostics / troubleshooting section */}
       <div className="tb-soft-card rounded-2xl overflow-hidden">
