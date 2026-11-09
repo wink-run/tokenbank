@@ -222,7 +222,7 @@ def render_agent_intro(card: dict, related: list | None = None) -> str:
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=36">
+<link rel="stylesheet" href="/static/plaza.css?v=37">
 <script src="/static/plaza-nav.js?v=20"></script>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}

@@ -1039,8 +1039,13 @@ body { background: #faf8f3 !important; color: var(--pz-ink); }
 .dv-al-chips i img, .dv-al-chips i > b { width: 16px; height: 16px; border-radius: 4px; background: #fff; padding: 2px; object-fit: contain; flex-shrink: 0; }
 .dv-al-chips i > b { display: inline-flex; align-items: center; justify-content: center; padding: 0; font-size: 9px; font-weight: 800; color: #1c1a17; }
 .dv-al-chips i.code { font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 11px; }
-.dv-arch-list li:nth-child(3) a { grid-template-columns: 40px minmax(0, 1fr); }
-.dv-arch-list li:nth-child(3) .dv-al-chips, .dv-arch-list li:nth-child(5) .dv-al-chips { grid-column: 2; justify-content: flex-start; max-width: none; }
+/* 六层清单统一左右布局：左侧文字，右侧标签列固定宽度，标签多就换行 */
+.dv-arch-list a { grid-template-columns: 40px minmax(0, 1fr) minmax(0, 46%); }
+.dv-al-chips { max-width: none; justify-content: flex-end; }
+@media (max-width: 1024px) {
+  .dv-arch-list a { grid-template-columns: 30px minmax(0, 1fr); }
+  .dv-al-chips { grid-column: 2; justify-content: flex-start; }
+}
 .dv-al-chips img[src*="kimi"], .dv-plate-logos img[src*="kimi"], .hs-chip img[src*="kimi"] { background: #111; }
 .dv-plate-logos { position: absolute; right: 22px; top: 20px; display: flex; gap: 8px; }
 .dv-plate-logos img, .dv-plate-logos b { width: 30px; height: 30px; border-radius: 8px; background: #fff; padding: 5px; object-fit: contain; box-shadow: 0 6px 10px -4px rgba(0,0,0,.5); }
