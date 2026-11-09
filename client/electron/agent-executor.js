@@ -1751,12 +1751,13 @@ class AgentExecutor extends EventEmitter {
         const { isContributeSessionKey } = require('./contribute-session');
         const confine = options.clientId === 'contribute' || isContributeSessionKey(options.sessionKey);
         if (confine) {
-          // 临时文件写进会话目录，避免再去共用的 /tmp 里碰到别的会话
-          const scratch = path.join(resolvedCwd, '.tmp');
-          try { fs.mkdirSync(scratch, { recursive: true }); } catch { /* 沙箱里再试 */ }
+          // 会话目录太长。Claude 的临时路径超过 44 字节就会去打开共用的 claude-<uid>，沙箱会拒绝。
+          const scratch = require('./workspace-sandbox').sessionTempDir(resolvedCwd);
+          try { fs.mkdirSync(scratch, { recursive: true, mode: 0o700 }); } catch { /* 沙箱里再试 */ }
           spawnEnv.TMPDIR = scratch;
           spawnEnv.TMP = scratch;
           spawnEnv.TEMP = scratch;
+          spawnEnv.CLAUDE_CODE_TMPDIR = scratch;
           const wrapped = require('./workspace-sandbox').wrapConfinedSpawn({
             executable,
             args,

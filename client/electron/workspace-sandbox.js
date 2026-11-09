@@ -4,11 +4,15 @@
  */
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
 const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
+// Claude 自己的限制：临时目录路径超过 44 字节就改回共用的 /tmp/claude-<uid>。
+// 那个目录按工作目录再分子文件夹，会话拆开后仍要先打开父目录，沙箱不放行父目录就会 EPERM。
+const CLAUDE_TEMP_PATH_MAX = 44;
 
 // 进程要读到解释器、库和网络配置，否则 CLI 起不来。
 // 不放行整个 /private：/private/tmp/claude-<uid> 里是所有会话的看图缓存，放开就能读到别的对话的图。
@@ -16,6 +20,23 @@ const SYSTEM_READ = [
   '/usr', '/bin', '/sbin', '/opt', '/Library', '/System', '/Applications',
   '/private/var', '/private/etc', '/dev', '/etc', '/var',
 ];
+
+/**
+ * 每个工作目录一个短临时目录，放在 /private/tmp（macOS 上 /tmp 的真实路径）。
+ * 再拼上 claude-<uid> 也不能超过 44 字节，否则 Claude 会退回大家共用的那一层。
+ */
+function sessionTempDir(workingDir) {
+  const logical = path.resolve(String(workingDir || os.homedir()));
+  const hash = crypto.createHash('sha256').update(logical).digest('hex').slice(0, 8);
+  const root = process.platform === 'darwin' ? '/private/tmp' : os.tmpdir();
+  return path.join(root, `tb-${hash}`);
+}
+
+function claudeUidTempName() {
+  let uid = '0';
+  try { uid = String(process.getuid()); } catch { uid = String(process.env.UID || '0'); }
+  return `claude-${uid}`;
+}
 
 /** Claude 把附图写到 /tmp/claude-<uid>/<工作目录 slug>。只放行这一层。 */
 function claudeScratchDirs(workingDir) {
@@ -147,4 +168,7 @@ module.exports = {
   buildSeatbeltProfile,
   wrapConfinedSpawn,
   claudeScratchDirs,
+  sessionTempDir,
+  claudeUidTempName,
+  CLAUDE_TEMP_PATH_MAX,
 };

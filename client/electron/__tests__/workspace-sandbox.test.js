@@ -2,7 +2,12 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { buildSeatbeltProfile } = require('../workspace-sandbox');
+const {
+  buildSeatbeltProfile,
+  sessionTempDir,
+  claudeUidTempName,
+  CLAUDE_TEMP_PATH_MAX,
+} = require('../workspace-sandbox');
 
 test('沙箱只允许写工作目录和工具自己的状态目录', () => {
   const home = '/Users/demo';
@@ -24,4 +29,22 @@ test('沙箱只允许写工作目录和工具自己的状态目录', () => {
   assert.doesNotMatch(profile, /file-write\* \(subpath "\/private\/tmp"\)/);
   assert.doesNotMatch(profile, /file-read\* \(subpath "\/private"\)/);
   assert.match(profile, /claude-/);
+});
+
+test('会话临时目录短到 Claude 不会退回共用的 claude-uid', () => {
+  const workspace = '/Users/demo/.tokenbank/contribute-workspaces/res-assistant-content-creator/u1/share-abc';
+  const dir = sessionTempDir(workspace);
+  const claudeDir = `${dir}/${claudeUidTempName()}`;
+  assert.ok(Buffer.byteLength(dir) <= CLAUDE_TEMP_PATH_MAX);
+  assert.ok(Buffer.byteLength(claudeDir) <= CLAUDE_TEMP_PATH_MAX);
+  assert.notEqual(sessionTempDir(workspace + '-other'), dir);
+  const profile = buildSeatbeltProfile({
+    workspace,
+    home: '/Users/demo',
+    tmpDir: dir,
+  });
+  assert.match(profile, new RegExp(`file-write\\* \\(subpath "${dir}"\\)`));
+  // 可以写本会话的子目录，但不能写共用的 claude-<uid> 这一层
+  assert.doesNotMatch(profile, /file-write\* \(subpath "\/tmp\/claude-\d+"\)/);
+  assert.doesNotMatch(profile, /file-write\* \(subpath "\/private\/tmp\/claude-\d+"\)/);
 });
