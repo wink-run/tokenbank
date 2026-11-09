@@ -4,6 +4,7 @@ import { loadUserAccounts, saveUserAccounts, syncProviderCatalog } from '../api/
 import { getLocalConfig, getConfig, isElectron } from '../api/adapter';
 import { getServerUrl, normalizeServerBase, getSyncServerBase, syncCloudConfigUrl, bootstrapServerUrl } from '../config';
 import { stopAgent } from '../api/agentControl';
+import { classifyProfileFailure } from '../../shared/contribute-autostart.js';
 
 const AuthContext = createContext(null);
 
@@ -37,20 +38,36 @@ async function syncUserSession(jwt) {
   } catch {}
 }
 
-// Docker / CLI：登录后将 worker_key 写入 config.json，供贡献 Agent 注册
-async function syncAgentCredentials(userData) {
+function workerSocketUrl() {
   const base = normalizeServerBase(getServerUrl());
+  if (!base) return '';
+  return base.replace(/^https?/, (m) => (m === 'https' ? 'wss' : 'ws')) + '/ws/worker';
+}
+
+// 登录后把 worker_key 写入 config.json。桌面版在主进程里只改这两个字段，并按 auto_start 决定是否拉起。
+async function syncAgentCredentials(userData) {
   const wk = userData?.worker_key;
-  if (!base || !wk) return;
+  const serverUrl = workerSocketUrl();
+  if (!wk || !serverUrl) return;
   try {
+    if (isElectron() && window.electronAPI?.contribute?.credentialsReady) {
+      await window.electronAPI.contribute.credentialsReady({ workerKey: wk, serverUrl });
+      return;
+    }
     const current = (await getConfig().read().catch(() => null)) || {};
-    const wsUrl = base.replace(/^https?/, (m) => (m === 'https' ? 'wss' : 'ws')) + '/ws/worker';
-    await getConfig().write({ ...current, server_url: wsUrl, worker_key: wk });
+    await getConfig().write({ ...current, server_url: serverUrl, worker_key: wk });
   } catch {}
 }
 
-/** 登出后清除贡献 Agent 凭证，防止未登录时自动重连 */
-async function clearAgentCredentials() {
+/** 明确登出：停贡献并只丢掉凭证。模型名单和圈子仍留在配置里。 */
+async function logoutContribution() {
+  try {
+    if (isElectron() && window.electronAPI?.contribute?.logout) {
+      await window.electronAPI.contribute.logout();
+      return;
+    }
+  } catch {}
+  try { await stopAgent(); } catch {}
   try {
     const current = (await getConfig().read().catch(() => null)) || {};
     if (!current.worker_key && !current.server_url) return;
@@ -59,6 +76,17 @@ async function clearAgentCredentials() {
     delete next.server_url;
     await getConfig().write(next);
   } catch {}
+}
+
+/** 资料接口认定凭证失效：停贡献，不再用这把 worker_key 重连。 */
+async function rejectContributionAuth() {
+  try {
+    if (isElectron() && window.electronAPI?.contribute?.authRejected) {
+      await window.electronAPI.contribute.authRejected();
+      return;
+    }
+  } catch {}
+  await logoutContribution();
 }
 
 // Push the user's first active cloud key + backend URL into the local gateway
@@ -112,10 +140,56 @@ export function AuthProvider({ children }) {
   const [guest, setGuest] = useState(false);  // 游客模式：不登录浏览（记忆在 localStorage，直到主动登录）
   const timerRef = useRef(null);
 
+  const profileReadyRef = useRef(false);
+  const sessionGenRef = useRef(0);
+
+  async function acceptProfile(r, token) {
+    const gen = sessionGenRef.current;
+    profileReadyRef.current = true;
+    setUser(r.data);
+    startPolling();
+    syncCloudKey();
+    syncCloudConfigUrl();
+    syncUserBilling();
+    syncUserSession(token);
+    window.electronAPI?.tray?.setAuthState?.(true);
+    if (gen !== sessionGenRef.current) return;
+    await syncAgentCredentials(r.data);
+  }
+
+  async function handleProfileFailure(err, onAnonymous) {
+    if (classifyProfileFailure(err) !== 'auth') {
+      // 断网或 5xx：保留 token、worker_key、上架名单。已在跑的贡献不停。
+      if (!profileReadyRef.current) startPolling();
+      return;
+    }
+    profileReadyRef.current = false;
+    sessionGenRef.current += 1;
+    localStorage.removeItem('token');
+    stopPolling();
+    window.electronAPI?.tray?.setAuthState?.(false);
+    await rejectContributionAuth();
+    if (typeof onAnonymous === 'function') onAnonymous();
+  }
+
   function startPolling() {
     if (timerRef.current) clearInterval(timerRef.current);
+    const gen = sessionGenRef.current;
     timerRef.current = setInterval(() => {
-      getProfile().then((r) => setUser(r.data)).catch(() => {});
+      if (gen !== sessionGenRef.current) return;
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      getProfile()
+        .then((r) => {
+          if (gen !== sessionGenRef.current) return;
+          const first = !profileReadyRef.current;
+          setUser(r.data);
+          if (first) acceptProfile(r, token).catch(() => {});
+        })
+        .catch((err) => {
+          if (gen !== sessionGenRef.current) return;
+          handleProfileFailure(err).catch(() => {});
+        });
     }, POLL_INTERVAL);
   }
 
@@ -145,22 +219,8 @@ export function AuthProvider({ children }) {
       await syncRemoteConfig();
       if (!token) { onAnonymous(); setLoading(false); return; }
       getProfile()
-        .then((r) => {
-          setUser(r.data);
-          startPolling();
-          syncAgentCredentials(r.data);
-          syncCloudKey();
-          syncCloudConfigUrl();
-          syncUserBilling();
-          syncUserSession(token);
-          window.electronAPI?.tray?.setAuthState?.(true);
-        })
-        .catch(() => {
-          localStorage.removeItem('token');
-          stopAgent().catch(() => {});
-          clearAgentCredentials().catch(() => {});
-          onAnonymous();  // token 失效：桌面回游客，Docker / CLI 回登录页
-        })
+        .then((r) => acceptProfile(r, token))
+        .catch((err) => handleProfileFailure(err, onAnonymous))
         .finally(() => setLoading(false));
     }).catch(() => {
       // bootstrapServerUrl 失败（如 electronAPI 同步抛错）也必须解除 loading，
@@ -175,9 +235,11 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('guest');   // 登录后退出游客模式
     setGuest(false);
     localStorage.setItem('token', token);
+    profileReadyRef.current = true;
     setUser(userData);
     window.electronAPI?.tray?.setAuthState?.(true);
     startPolling();
+    // 本进程若已手动停止或登出，主进程会拒绝自动拉起，不会抵消这次意图。
     syncAgentCredentials(userData);
     syncCloudKey();
     syncCloudConfigUrl();
@@ -198,9 +260,10 @@ export function AuthProvider({ children }) {
 
   function logout() {
     localStorage.removeItem('token');
+    profileReadyRef.current = false;
+    sessionGenRef.current += 1;
     setUser(null);
     stopPolling();
-    window.electronAPI?.tray?.setAuthState?.(false);
     if (isElectron()) {
       // 桌面退出后仍可浏览网关/设置
       localStorage.setItem('guest', '1');
@@ -210,8 +273,9 @@ export function AuthProvider({ children }) {
       setGuest(false);
     }
     syncUserSession(null);
-    stopAgent().catch(() => {});
-    clearAgentCredentials().catch(() => {});
+    // 先标成未登录再停贡献。logout 会清 worker_key，并抑制本进程自动拉起。
+    window.electronAPI?.tray?.setAuthState?.(false);
+    logoutContribution();
     getLocalConfig().setCloudConfig({ url: null, token: null }).catch(() => {});
   }
 
