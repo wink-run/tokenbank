@@ -4,16 +4,36 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Token Bank · 智能体应用工厂</title>
-<meta name="description" content="Token Bank 开发者中心：统一管理 Pi、Claude Code、Cursor、GrokBot、Muse 等智能体运行时和各家模型供应商（界面与接口）；把智能体分享给自己、圈子或全网分摊费用；从资源市场获取模型、Skill、智能体模板，自用或加工后上架。">
-<link rel="icon" href="/static/logo.svg">
+<meta name="description" content="开源的智能体应用工厂：Claude Code、Codex、Cursor、Pi、GrokBot 等运行时和各家模型一处纳管；一个本地网关提供智能体任务接口和 OpenAI、Anthropic、Codex 三种模型协议；场景路由、Trace、用量看板、跨端归集；上架即得网页应用。限时免费，注册送 50 积分。">
+<meta name="keywords" content="Token Bank,智能体,AI Agent,智能体平台,智能体应用工厂,Claude Code,Codex,Cursor,模型网关,LLM 网关,OneHarness,场景路由,Trace,智能体编排,MCP,Skill">
 <link rel="canonical" href="https://tokenbank.wink.run/">
+<meta name="theme-color" content="#17150f">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Token Bank">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:title" content="Token Bank · 智能体应用工厂">
+<meta property="og:description" content="开源的智能体应用工厂：Claude Code、Codex、Cursor、Pi、GrokBot 等运行时和各家模型一处纳管；一个本地网关提供智能体任务接口和 OpenAI、Anthropic、Codex 三种模型协议；场景路由、Trace、用量看板、跨端归集；上架即得网页应用。限时免费，注册送 50 积分。">
+<meta property="og:url" content="https://tokenbank.wink.run/">
+<meta property="og:image" content="https://tokenbank.wink.run/static/og/token-bank.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Token Bank · 智能体应用工厂">
+<meta name="twitter:description" content="开源的智能体应用工厂：Claude Code、Codex、Cursor、Pi、GrokBot 等运行时和各家模型一处纳管；一个本地网关提供智能体任务接口和 OpenAI、Anthropic、Codex 三种模型协议；场景路由、Trace、用量看板、跨端归集；上架即得网页应用。限时免费，注册送 50 积分。">
+<meta name="twitter:image" content="https://tokenbank.wink.run/static/og/token-bank.png">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "Organization", "name": "Token Bank", "url": "https://tokenbank.wink.run/", "logo": "https://tokenbank.wink.run/static/logo.svg", "sameAs": ["https://github.com/wink-run/tokenbank"]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "WebSite", "name": "Token Bank", "url": "https://tokenbank.wink.run/", "inLanguage": ["zh-CN", "en"], "potentialAction": {"@type": "SearchAction", "target": "https://tokenbank.wink.run/agents?q={search_term_string}", "query-input": "required name=search_term_string"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Token Bank", "applicationCategory": "DeveloperApplication", "operatingSystem": "macOS, Windows, Linux", "description": "开源的智能体应用工厂：Claude Code、Codex、Cursor、Pi、GrokBot 等运行时和各家模型一处纳管；一个本地网关提供智能体任务接口和 OpenAI、Anthropic、Codex 三种模型协议；场景路由、Trace、用量看板、跨端归集；上架即得网页应用。限时免费，注册送 50 积分。", "url": "https://tokenbank.wink.run/", "downloadUrl": "https://github.com/wink-run/tokenbank/releases", "license": "https://www.apache.org/licenses/LICENSE-2.0", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "CNY"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "会改变我使用 AI 工具的习惯吗？", "acceptedAnswer": {"@type": "Answer", "text": "不会。Claude Code、Codex、Cursor 等保持原来的命令、界面和模型名，Token Bank 只是让它们指向一个本地地址；想退出时，点「还原」即可一键恢复官方配置。"}}, {"@type": "Question", "name": "和直接调用 API 有什么区别？", "acceptedAnswer": {"@type": "Answer", "text": "你的工具保持原生模型名和配置不变，Token Bank 作为本地网关夹在中间：追踪每个 Token、按场景路由到合适的来源、转换协议；还能统一调度智能体、管理 Skill 等资产，并把智能体分享出去。"}}, {"@type": "Question", "name": "API Key 会上传到云端吗？", "acceptedAnswer": {"@type": "Answer", "text": "不会。密钥留在本机，仅由本地网关使用。登录只同步用量统计用于多设备归集，不上传你的凭证。"}}, {"@type": "Question", "name": "分享智能体，别人能拿走我的配方吗？", "acceptedAnswer": {"@type": "Answer", "text": "不能。别人只拿到任务结果；提示词、Skill、Key 留在你的机器上，任务也在你的设备上执行。"}}, {"@type": "Question", "name": "社区算力安全吗？", "acceptedAnswer": {"@type": "Answer", "text": "社区路由需主动开启，且仅作兜底。分享者通过出站连接接入，不暴露入站端口；结算规则公开、积分可查。"}}, {"@type": "Question", "name": "支持哪些模型和提供商？", "acceptedAnswer": {"@type": "Answer", "text": "OpenAI、Anthropic、Codex 三种协议自动互通，另含 Ollama、Groq、GitHub Models 以及任意 OpenAI 兼容端点；可按应用更换模型，客户端零改动。"}}, {"@type": "Question", "name": "是免费且开源的吗？", "acceptedAnswer": {"@type": "Answer", "text": "是。Apache-2.0 许可，macOS、Windows、Linux / Docker 均可免费使用。积分靠分享获得。"}}]}</script>
+<link rel="icon" href="/static/logo.svg">
 <!-- AdSense 自动广告（沿用原首页） -->
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9160155823114008" crossorigin="anonymous"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=32">
-<script src="/static/plaza-nav.js?v=19"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=38">
+<script src="/static/plaza-nav.js?v=20"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -24,20 +44,16 @@ a { color: inherit; text-decoration: none; }
 </head>
 <body>
 <div id="app" v-cloak>
+  <a v-if="!loggedIn" class="pz-promo" href="/app?signup=1"><i aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="8.5" width="17" height="4" rx="1"/><path d="M5 12.5V20h14v-7.5M12 8.5V20M12 8.5S10.5 4 8 4.5 7.5 8.5 12 8.5zM12 8.5s1.5-4.5 4-4 .5 4-4 4z"/></svg></i><b>{{ N.promoA }}</b><span>{{ N.promoB }}</span><em>{{ N.promoGo }} →</em></a>
   <nav class="ag-top">
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/">{{ N.modeDev }}</a></div>
-      <div class="ag-navs ag-devnav">
-        <a class="ag-nav on" href="/" aria-current="page">{{ N.dOverview }}</a>
-        <a class="ag-nav" href="/share">{{ N.dShare }}</a>
-        <a class="ag-nav" href="/market">{{ N.dMarket }}</a>
-      </div>
+      <div class="ag-modes ag-main"><a class="ag-mode" href="/agents">{{ N.navPlaza }}</a><a class="ag-mode" href="/share">{{ N.dShare }}</a><a class="ag-mode" href="/market">{{ N.dMarket }}</a></div>
       <div class="ag-top-r">
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
         <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
         <a class="ag-dl hide-sm" href="#download">{{ N.download }}</a>
-        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><em>{{ N.modeUse }}</em><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a></div><div class="ag-menu-g"><em>{{ N.modeDev }}</em><a class="on" aria-current="page" href="/">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a href="/app">{{ loggedIn ? N.account : N.signIn }}</a><a class="dl" href="#download">{{ N.download }}</a></div></div></details>
+        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><a class="on" aria-current="page" href="/">{{ N.home }}</a><a href="/agents">{{ N.navPlaza }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a href="/app">{{ loggedIn ? N.account : N.signIn }}</a><a class="dl" href="#download">{{ N.download }}</a></div></div></details>
       </div>
     </div>
   </nav>
@@ -57,32 +73,46 @@ a { color: inherit; text-decoration: none; }
         <a class="dv-user-door" href="/agents"><span>{{ T.userDoorK }}</span>{{ T.userDoor }} →</a>
       </div>
       <div class="hs-merge dv-merge" aria-hidden="true">
-        <svg viewBox="0 0 440 380">
+        <svg viewBox="0 0 500 405">
           <defs>
-            <linearGradient id="hsIn" x1="0" x2="1"><stop offset="0%" stop-color="#ffffff" stop-opacity=".05"/><stop offset="100%" stop-color="#ffffff" stop-opacity=".45"/></linearGradient>
+            <linearGradient id="hsIn" x1="0" x2="1"><stop offset="0%" stop-color="#ffffff" stop-opacity=".08"/><stop offset="100%" stop-color="#ffffff" stop-opacity=".45"/></linearGradient>
             <linearGradient id="hsOut" x1="0" x2="1"><stop offset="0%" stop-color="#FFD055" stop-opacity=".85"/><stop offset="100%" stop-color="#FFD055" stop-opacity=".1"/></linearGradient>
             <radialGradient id="hsHub" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#FFE08A"/><stop offset="55%" stop-color="#FFD055" stop-opacity=".45"/><stop offset="100%" stop-color="#FFD055" stop-opacity="0"/></radialGradient>
           </defs>
-          <g v-for="(a, i) in heroApps" :key="a.id">
-            <path :d="'M58 ' + a.y + ' C 140 ' + a.y + ', 130 190, 170 190'" stroke="url(#hsIn)" stroke-width="1.2" fill="none"/>
-            <circle v-if="!reduced" r="2.4" fill="#FFD055"><animateMotion :dur="(2.2 + i * 0.25) + 's'" repeatCount="indefinite" :begin="(i * 0.3) + 's'" :path="'M58 ' + a.y + ' C 140 ' + a.y + ', 130 190, 170 190'"/></circle>
-            <rect v-if="!a.full" x="20" :y="a.y - 19" width="38" height="38" rx="10" :fill="a.dark ? '#111' : 'rgba(255,255,255,.94)'" stroke="rgba(255,255,255,.2)"/>
-            <image v-if="a.icon && a.full" :href="a.icon" x="20" :y="a.y - 19" width="38" height="38"/>
-            <image v-else-if="a.icon" :href="a.icon" x="28" :y="a.y - 11" width="22" height="22"/>
-            <text v-else x="38" :y="a.y + 4" text-anchor="middle" font-size="10.5" font-weight="800" fill="#1c1a17">{{ a.short }}</text>
+          <!-- 背景里的散点：网络感 -->
+          <g class="dv-dust" fill="#FFD055"><circle cx="196" cy="34" r="1.4"/><circle cx="222" cy="92" r="1"/><circle cx="178" cy="292" r="1.2"/><circle cx="238" cy="352" r="1"/><circle cx="380" cy="40" r="1.3"/><circle cx="470" cy="360" r="1.1"/><circle cx="352" cy="330" r="1"/></g>
+          <!-- 左侧：智能体部署在哪（错落排布、轻微浮动；每组末尾的 … 表示还有更多） -->
+          <g v-for="(g, i) in heroGroups" :key="g.id" class="dv-dg" :style="{ animationDelay: (i * -1.7) + 's' }">
+            <path :d="'M' + (g.x + 140) + ' ' + g.y + ' C ' + (g.x + 190) + ' ' + g.y + ', 206 195, 240 195'" stroke="url(#hsIn)" stroke-width="1.2" fill="none" :stroke-dasharray="g.ext ? '3 4' : null"/>
+            <circle v-if="!reduced" r="2.4" fill="#FFD055"><animateMotion :dur="(2.4 + i * 0.3) + 's'" repeatCount="indefinite" :begin="(i * 0.4) + 's'" :path="'M' + (g.x + 140) + ' ' + g.y + ' C ' + (g.x + 190) + ' ' + g.y + ', 206 195, 240 195'"/></circle>
+            <rect :x="g.x" :y="g.y - 38" width="140" height="76" rx="14" :fill="g.ext ? 'rgba(255,208,85,.06)' : 'rgba(255,255,255,.045)'" :stroke="g.ext ? 'rgba(255,208,85,.35)' : 'rgba(255,255,255,.13)'" :stroke-dasharray="g.ext ? '4 3' : null"/>
+            <g :transform="'translate(' + (g.x + 12) + ' ' + (g.y - 31) + ') scale(.62)'" fill="none" :stroke="g.ext ? '#FFD055' : 'rgba(255,255,255,.75)'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="g.glyph"/></g>
+            <text :x="g.x + 32" :y="g.y - 18" font-size="11" font-weight="650" :fill="g.ext ? '#FFE8A3' : 'rgba(255,255,255,.82)'">{{ T.deploy[i] }}</text>
+            <g v-for="(a, k) in g.apps" :key="a.icon">
+              <rect v-if="!a.full" :x="g.x + 12 + k * 38" :y="g.y - 7" width="30" height="30" rx="9" :fill="a.dark ? '#111' : 'rgba(255,255,255,.94)'" stroke="rgba(255,255,255,.2)"/>
+              <image v-if="a.full" :href="a.icon" :x="g.x + 12 + k * 38" :y="g.y - 7" width="30" height="30"/>
+              <image v-else :href="a.icon" :x="g.x + 19 + k * 38" :y="g.y" width="16" height="16"/>
+            </g>
+            <rect :x="g.x + 12 + g.apps.length * 38" :y="g.y - 7" width="30" height="30" rx="9" fill="none" stroke="rgba(255,255,255,.28)" stroke-dasharray="3 3"/>
+            <text :x="g.x + 27 + g.apps.length * 38" :y="g.y + 12" text-anchor="middle" font-size="13" font-weight="700" fill="rgba(255,255,255,.6)">…</text>
+          </g>
+          <!-- 还有更多部署位置 -->
+          <g class="dv-dg" style="animation-delay:-3s">
+            <path d="M206 386 C 236 360, 214 240, 240 195" stroke="url(#hsIn)" stroke-width="1" stroke-dasharray="2 5" fill="none" opacity=".7"/>
+            <text x="22" y="394" font-size="11" font-weight="600" fill="rgba(255,255,255,.45)">{{ T.deployMore }}</text>
           </g>
           <g v-for="(o, i) in T.heroOut" :key="o">
-            <path :d="'M290 190 C 322 190, 320 ' + (110 + i * 80) + ', 348 ' + (110 + i * 80)" stroke="url(#hsOut)" stroke-width="1.4" fill="none"/>
-            <rect x="348" :y="92 + i * 80" width="84" height="36" rx="11" fill="rgba(255,208,85,.08)" stroke="rgba(255,208,85,.45)"/>
-            <text x="390" :y="115 + i * 80" text-anchor="middle" font-size="12" font-weight="600" fill="#FFE8A3">{{ o }}</text>
+            <path :d="'M362 195 C 390 195, 388 ' + (115 + i * 80) + ', 408 ' + (115 + i * 80)" stroke="url(#hsOut)" stroke-width="1.4" fill="none"/>
+            <rect x="408" :y="97 + i * 80" width="86" height="36" rx="11" fill="rgba(255,208,85,.08)" stroke="rgba(255,208,85,.45)"/>
+            <text x="451" :y="120 + i * 80" text-anchor="middle" font-size="12" font-weight="600" fill="#FFE8A3">{{ o }}</text>
           </g>
-          <circle cx="230" cy="190" r="86" fill="url(#hsHub)" opacity=".5"/>
-          <circle class="dv-hub-ring" cx="230" cy="190" r="62" fill="#141210" stroke="#FFD055" stroke-width="1.6"/>
-          <image href="/static/logo.svg" x="216" y="142" width="28" height="28"/>
-          <text x="230" y="189" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Token Bank</text>
-          <line x1="200" y1="198" x2="260" y2="198" stroke="rgba(255,208,85,.35)" stroke-width="1"/>
-          <text x="230" y="213" text-anchor="middle" font-size="8.5" font-weight="700" fill="#FFD055" letter-spacing=".14em">ONE HARNESS</text>
-          <text x="230" y="227" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,.6)">{{ T.hubDesc }}</text>
+          <circle cx="301" cy="195" r="86" fill="url(#hsHub)" opacity=".5"/>
+          <circle class="dv-hub-ring" cx="301" cy="195" r="61" fill="#141210" stroke="#FFD055" stroke-width="1.6"/>
+          <image href="/static/logo.svg" x="287" y="147" width="28" height="28"/>
+          <text x="301" y="194" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Token Bank</text>
+          <line x1="271" y1="203" x2="331" y2="203" stroke="rgba(255,208,85,.35)" stroke-width="1"/>
+          <text x="301" y="218" text-anchor="middle" font-size="8.5" font-weight="700" fill="#FFD055" letter-spacing=".14em">ONE HARNESS</text>
+          <text x="301" y="232" text-anchor="middle" font-size="8.5" fill="rgba(255,255,255,.6)">{{ T.hubDesc }}</text>
         </svg>
       </div>
     </div>
@@ -170,15 +200,13 @@ a { color: inherit; text-decoration: none; }
         <ul class="hs-f-points"><li v-for="pt in f.points" :key="pt[0]"><b>{{ pt[0] }}</b>{{ pt[1] }}</li></ul>
       </div>
       <div class="hs-f-visual">
-        <template v-if="f.shots">
-          <div v-if="f.shots.length > 1" class="hs-f-tabs" role="tablist">
-            <button v-for="(sh, si) in f.shots" :key="sh[0]" type="button" role="tab" :aria-selected="shotIdx(f.id) === si" :class="{ on: shotIdx(f.id) === si }" @click="setShot(f.id, si)">{{ sh[1] }}</button>
-          </div>
-          <div class="hs-shot" :class="{ tall: f.shots[shotIdx(f.id)][0] === 'device' }">
-            <img :src="boardSrc(f.shots[shotIdx(f.id)][0])" :alt="f.shots[shotIdx(f.id)][1]">
-          </div>
-        </template>
-        <div v-else-if="f.diagram === 'route'" class="hs-diag">
+        <div v-if="f.shots && f.shots.length > 1" class="hs-f-tabs" role="tablist">
+          <button v-for="(sh, si) in f.shots" :key="sh[0]" type="button" role="tab" :aria-selected="shotIdx(f.id) === si" :class="{ on: shotIdx(f.id) === si }" @click="setShot(f.id, si)">{{ sh[1] }}</button>
+        </div>
+        <div v-if="f.shots && !visOf(f)" class="hs-shot" :class="{ tall: f.shots[shotIdx(f.id)][0] === 'device' }">
+          <img :src="shotSrc(f.shots[shotIdx(f.id)][0])" :alt="f.shots[shotIdx(f.id)][1]">
+        </div>
+        <div v-else-if="visOf(f) === 'route'" class="hs-diag">
           <div class="hs-d-row"><span class="hs-d-k">{{ H.dRoute.app }}</span><div class="hs-d-chips"><i v-for="x in H.dRoute.apps" :key="x">{{ x }}</i></div></div>
           <div class="hs-d-arrow">↓ {{ H.dRoute.bind }}</div>
           <div class="hs-d-row"><span class="hs-d-k">{{ H.dRoute.scene }}</span><div class="hs-d-chips"><i v-for="x in H.dRoute.scenes" :key="x">{{ x }}</i></div></div>
@@ -188,14 +216,14 @@ a { color: inherit; text-decoration: none; }
           <div class="hs-d-chips"><i v-for="x in H.dRoute.policies" :key="x" class="pol">{{ x }}</i></div>
           <p class="hs-d-note">{{ H.dRoute.note }}</p>
         </div>
-        <div v-else-if="f.diagram === 'devices'" class="hs-diag">
+        <div v-else-if="visOf(f) === 'devices'" class="hs-diag">
           <div class="hs-dev3"><div v-for="d in H.dDev.devices" :key="d[0]" class="hs-dev"><b>{{ d[0] }}</b><span>{{ d[1] }}</span><small>{{ d[2] }}</small></div></div>
           <div class="hs-d-arrow">↓ {{ H.dDev.up }}</div>
           <div class="hs-cloud"><b>{{ H.dDev.cloud }}</b><span>{{ H.dDev.cloudD }}</span></div>
           <div class="hs-d-arrow">↓ {{ H.dDev.down }}</div>
           <div class="hs-d-chips"><i v-for="x in H.dDev.views" :key="x">{{ x }}</i></div>
         </div>
-        <div v-else-if="f.diagram === 'orchestrate'" class="hs-plan hs-plan-light">
+        <div v-else-if="visOf(f) === 'orchestrate'" class="hs-plan hs-plan-light">
           <div class="hs-plan-h"><span class="hs-main">{{ H.mainAgent }}</span><span class="hs-task">“{{ H.routeTask }}”</span></div>
           <div v-for="r in H.routes" :key="r[0]" class="hs-row">
             <span class="hs-step">{{ r[0] }}</span><i class="hs-arrow" aria-hidden="true">→</i>
@@ -329,7 +357,7 @@ createApp({
         h1a: '不只是管理智能体，', h1b: '还能把应用架在上面',
         sub: '现成的运行时、模型、资产、接口、观测和分发。你只管做应用。',
         promise: ['不用自己造 harness', '一套接口调智能体和模型', '上架即得网页应用', '开源 · macOS / Windows / Linux'],
-        ctaApi: '看统一接口', heroOut: ['界面', '接口', '你的应用'], hubDesc: '统一纳管 · 统一接口',
+        ctaApi: '看统一接口', heroOut: ['界面', '接口', '你的应用'], hubDesc: '统一纳管 · 统一接口', deploy: ['云端 VPS', '个人 MacBook', '本地 Mac mini', '外部产品'], deployMore: '…还有公司服务器、Docker、树莓派',
         stackKicker: 'THE FACTORY', stackTitle: '六层现成能力', stackLead: '纯模型网关只做最底下那一层。这里从执行引擎到分发，每一层都已经搭好，你只管在最上面做应用。',
         layerChips: [['智能体广场', '资源市场', '圈子', '按次计费'], ['Trace', '盘点', '多设备'], [['智能体 /v1/agent/*', '#A'], ['OpenAI /v1/chat/completions', '/static/brand-icons/openai.svg'], ['Anthropic /v1/messages', '/static/brand-icons/anthropic.svg'], ['Codex /v1/responses', '/static/brand-icons/codex-color.svg']], ['Skill', 'MCP', 'Prompt', '智能体模板'], [['Pi', '#Pi'], ['Claude Code', '/static/brand-icons/claudecode-color.svg'], ['Codex', '/static/brand-icons/codex-color.svg'], ['Cursor', '/static/brand-icons/cursor.svg'], ['Kimi Code', '/static/brand-icons/kimi-color.svg'], ['GrokBot', '/static/brand-icons/grokbot.svg'], ['Muse', '/static/brand-icons/muse.svg'], ['WorkBuddy', '/static/brand-icons/codebuddy-color.svg'], ['OpenClaw', '/static/brand-icons/openclaw-color.svg'], ['Hermes', '/static/brand-icons/hermesagent.svg']], [['Ollama', '/static/brand-icons/ollama.svg'], ['DeepSeek', '/static/brand-icons/deepseek-color.svg'], ['Kimi', '/static/brand-icons/kimi-color.svg'], ['Qwen', '/static/brand-icons/qwen-color.svg'], ['OpenAI', '/static/brand-icons/openai.svg'], ['Claude', '/static/brand-icons/claude-color.svg'], '订阅', '社区']],
         stackTop: '你的应用', stackApps: ['你的产品后台', '网页智能体', '团队内部工具', '你的 Claude Code 工作流'],
@@ -338,7 +366,7 @@ createApp({
           ['观测层', 'Trace、用量、跨端', '每次调用可追溯，多设备归集', '#f-trace'],
           ['接口层', '智能体任务 + 三种模型协议', '换一个 harness_id 换智能体，三种协议互通', '#api'],
           ['资产层', 'Skill、MCP、Prompt、智能体模板', '组合进智能体，投射到各个运行时', '#f-assets'],
-          ['运行时层', 'Pi、Claude Code、Codex、Cursor、GrokBot、Muse…', '已装好的运行时直接当执行引擎', '#f-onboard'],
+          ['运行时层', '各家智能体运行时', '已装好的运行时直接当执行引擎', '#f-onboard'],
           ['模型层', '各家模型 + 场景路由', '本地、免费、订阅、按量、社区，自动兜底', '#f-route'],
         ],
         buildKicker: 'BUILD ON TOP', buildTitle: '在上面架应用，三条路', buildLead: '选哪条都不用从零写运行时、计费和网页。',
@@ -396,7 +424,7 @@ createApp({
         h1a: 'Don\'t just manage agents —', h1b: 'build apps on top of them',
         sub: 'Runtimes, models, assets, interface, observability and distribution — ready. You build the app.',
         promise: ['No harness to build', 'One API for agents and models', 'List it, get a web app', 'Open source · macOS / Windows / Linux'],
-        ctaApi: 'See the interface', heroOut: ['UI', 'API', 'Your app'], hubDesc: 'One place · one API',
+        ctaApi: 'See the interface', heroOut: ['UI', 'API', 'Your app'], hubDesc: 'One place · one API', deploy: ['Cloud VPS', 'Personal MacBook', 'Mac mini server', 'External products'], deployMore: '…plus office servers, Docker, Raspberry Pi',
         stackKicker: 'THE FACTORY', stackTitle: 'Six layers, ready', stackLead: 'A model gateway only covers the bottom layer. Here every layer from execution to distribution is built — you work on the top.',
         layerChips: [['Agent Plaza', 'Market', 'Circles', 'Per-use billing'], ['Trace', 'Usage', 'Devices'], [['Agents /v1/agent/*', '#A'], ['OpenAI /v1/chat/completions', '/static/brand-icons/openai.svg'], ['Anthropic /v1/messages', '/static/brand-icons/anthropic.svg'], ['Codex /v1/responses', '/static/brand-icons/codex-color.svg']], ['Skill', 'MCP', 'Prompt', 'Agent templates'], [['Pi', '#Pi'], ['Claude Code', '/static/brand-icons/claudecode-color.svg'], ['Codex', '/static/brand-icons/codex-color.svg'], ['Cursor', '/static/brand-icons/cursor.svg'], ['Kimi Code', '/static/brand-icons/kimi-color.svg'], ['GrokBot', '/static/brand-icons/grokbot.svg'], ['Muse', '/static/brand-icons/muse.svg'], ['WorkBuddy', '/static/brand-icons/codebuddy-color.svg'], ['OpenClaw', '/static/brand-icons/openclaw-color.svg'], ['Hermes', '/static/brand-icons/hermesagent.svg']], [['Ollama', '/static/brand-icons/ollama.svg'], ['DeepSeek', '/static/brand-icons/deepseek-color.svg'], ['Kimi', '/static/brand-icons/kimi-color.svg'], ['Qwen', '/static/brand-icons/qwen-color.svg'], ['OpenAI', '/static/brand-icons/openai.svg'], ['Claude', '/static/brand-icons/claude-color.svg'], 'Subscriptions', 'Community']],
         stackTop: 'Your apps', stackApps: ['Your product backend', 'Web agents', 'Internal team tools', 'Your Claude Code workflow'],
@@ -405,7 +433,7 @@ createApp({
           ['Observability', 'Trace, usage, devices', 'Every call traceable, rolled up across devices', '#f-trace'],
           ['Interface', 'Agent tasks + three model protocols', 'Change harness_id to change agent; protocols interoperate', '#api'],
           ['Assets', 'Skills, MCP, prompts, agent templates', 'Composed into agents, projected to runtimes', '#f-assets'],
-          ['Runtimes', 'Pi, Claude Code, Codex, Cursor, GrokBot, Muse…', 'Installed runtimes as execution engines', '#f-onboard'],
+          ['Runtimes', 'Every agent runtime', 'Installed runtimes as execution engines', '#f-onboard'],
           ['Models', 'Every provider + scene routing', 'Local, free, subscription, PAYG, community, with fallback', '#f-route'],
         ],
         buildKicker: 'BUILD ON TOP', buildTitle: 'Three ways to build on top', buildLead: 'None of them needs you to write a runtime, billing or a web front end from scratch.',
@@ -489,7 +517,7 @@ createApp({
             shots: [['provider', '模型'], ['gateway', '网关路由']] },
           { id: 'f-route', n: '03', k: '场景路由', t: '场景路由，按任务选供给', d: '每个应用可以绑定自己的场景路由，全局供给链兜底。本地源优先，不够再走社区共享，对智能体全程透明。',
             points: [['场景与任务分型：', 'design / repo-qa / chore / debug 等'], ['供给链：', '本地 → 免费 → 订阅 / 按量 → 社区'], ['策略组：', 'fallback、round-robin、weighted、latency'], ['过滤：', '只用个人源 / 社区 / 免费 / 付费']],
-            diagram: 'route' },
+            shots: [['route', '场景路由'], ['@route', '示意']] },
           { id: 'f-trace', n: '04', k: 'Trace 管理', t: '每一次调用，都能追溯', d: '不管智能体走不走网关，用量都记得下来：网关实时代理加本地会话补录，同一次调用只记一次。',
             points: [['网关实时：', '路由、模型、Token、延迟、费用'], ['会话补录：', '没走网关的也记上，自动去重'], ['Session Trace：', '步骤级工具、Skill、推理'], ['会话管理：', '过滤、交接、导出']],
             shots: [['sessions', '会话'], ['trace', 'Session Trace']] },
@@ -501,10 +529,10 @@ createApp({
             shots: [['dashboard', '盘点'], ['device', '托盘']] },
           { id: 'f-devices', n: '07', k: '跨端归集', t: '多台设备的用量和配置，归到一个账号', d: '桌面版、CLI 版、服务器网关各自注册为独立设备，登录同一账号后用量自动上报、云端合并。',
             points: [['设备注册：', '自动分配，心跳在线'], ['盘点快照：', '1 / 7 / 30 天上报'], ['云端合并：', '分设备或汇总查看'], ['跨端一致：', '订阅与配置登录即同步']],
-            diagram: 'devices' },
+            shots: [['account', '个人页'], ['@devices', '示意']] },
           { id: 'f-orchestrate', n: '08', k: '智能体编排', t: '一句话，派给最擅长的那个', d: '在游乐场设一个主 Agent 作为入口：接收任务、规划步骤，再派发给其他已纳管或已雇佣的智能体，工具流全程可见。',
             points: [['同一张名单：', '本机、雇来的、模型'], ['过程可控：', '看得见，可停可续'], ['编排接口：', 'tb_list_agents、tb_dispatch_agent']],
-            diagram: 'orchestrate' },
+            shots: [['playground', '游乐场'], ['@orchestrate', '示意']] },
         ],
         dRoute: { app: '你的应用', apps: ['Claude Code', 'Codex', 'Cursor', 'Pi'], bind: '按应用绑定路由', scene: '场景 / 任务分型', scenes: ['日常对话', '代码补全', '长文分析', 'design', 'repo-qa', 'chore', 'debug'], chainK: '供给链，逐级直到命中', chain: ['Ollama', '免费 API', '订阅 / 按量', '社区共享'], policyK: '策略组', policies: ['fallback', 'round-robin', 'weighted', 'latency', 'direct'], note: '' },
         dDev: { devices: [['MacBook', '桌面版', '设备 A · 在线'], ['Windows 台式机', '桌面版', '设备 B · 在线'], ['Linux 服务器', 'CLI / Docker 网关', '设备 C · 在线']], up: '定时上报盘点快照', cloud: '你的账号', cloudD: '用量云端合并 · 订阅与配置同步', down: '在任意一台上查看', views: ['各设备占比', '在线状态', '独立明细', '汇总视图'] },
@@ -570,7 +598,7 @@ createApp({
             shots: [['provider', 'Models'], ['gateway', 'Gateway routes']] },
           { id: 'f-route', n: '03', k: 'Scene routing', t: 'Scene routing picks the supply for each task', d: 'Each app can bind its own scene route, with a global supply chain as fallback. Local first, the community when needed — fully transparent to the agent.',
             points: [['Scenes and task types: ', 'chat, completion and long documents on different chains; built-in task types such as design, repo-qa, chore and debug.'], ['Supply chain: ', 'Ollama → free APIs (Groq, GitHub Models) → subscription / pay-as-you-go → community, until one answers.'], ['Policies and failover: ', 'fallback, round-robin, weighted, latency, ordered by tool use and context length; automatic switch when an upstream fails.'], ['Source / price filters: ', 'restrict to personal sources, community only, free only or paid only.']],
-            diagram: 'route' },
+            shots: [['route', 'Scene routes'], ['@route', 'Diagram']] },
           { id: 'f-trace', n: '04', k: 'Trace management', t: 'Every call, traceable', d: 'Whether or not an agent goes through the gateway, usage is recorded: live proxy plus local session back-fill, each call counted once.',
             points: [['Live gateway: ', 'route chain, real model, tokens, latency and cost.'], ['Session back-fill: ', 'scans ~/.claude, ~/.codex, WorkBuddy traces and more for calls that skipped the gateway, de-duplicated.'], ['Session Trace: ', 'step-level tool calls, skills, reasoning and token breakdown.'], ['Session management: ', 'filter by app, see tokens and cost per session, hand off to another agent or export.']],
             shots: [['sessions', 'Sessions'], ['trace', 'Session Trace']] },
@@ -582,10 +610,10 @@ createApp({
             shots: [['dashboard', 'Usage'], ['device', 'Tray']] },
           { id: 'f-devices', n: '07', k: 'Cross-device roll-up', t: 'Usage and config from every device, in one account', d: 'Desktop, CLI and server gateways each register as a device; sign in to the same account and usage is reported and merged in the cloud.',
             points: [['Device registration: ', 'each machine gets a device id and a heartbeat for online status.'], ['Usage snapshots: ', '1 / 7 / 30-day calls, tokens, cost, local vs community mix, top models and apps.'], ['Cloud merge: ', 'profile and usage pages show each device\'s share and status, per-device detail or the combined view.'], ['Consistent everywhere: ', 'subscriptions, pay-as-you-go settings and the tool list sync on sign-in — no reconfiguring.']],
-            diagram: 'devices' },
+            shots: [['account', 'Account'], ['@devices', 'Diagram']] },
           { id: 'f-orchestrate', n: '08', k: 'Agent orchestration', t: 'One sentence, sent to whoever does it best', d: 'Set a main agent in the Playground: it takes the task, plans steps and dispatches them to other onboarded or hired agents, with the tool stream visible throughout.',
             points: [['One roster: ', 'local Pi, Claude Code, Codex, hired community agents and models can all be dispatched to.'], ['In control: ', 'tool calls and chunked output are visible; stop and resume any time.'], ['Orchestration API: ', 'the built-in tokenbank-agent-bridge MCP exposes tb_list_agents and tb_dispatch_agent.']],
-            diagram: 'orchestrate' },
+            shots: [['playground', 'Playground'], ['@orchestrate', 'Diagram']] },
         ],
         dRoute: { app: 'Your apps', apps: ['Claude Code', 'Codex', 'Cursor', 'Pi'], bind: 'route bound per app', scene: 'Scene / task type', scenes: ['chat', 'completion', 'long docs', 'design', 'repo-qa', 'chore', 'debug'], chainK: 'supply chain, until one answers', chain: ['Ollama', 'Free APIs', 'Subscription / PAYG', 'Community'], policyK: 'Policy group', policies: ['fallback', 'round-robin', 'weighted', 'latency', 'direct'], note: 'Native model names kept; failover is fully transparent to the agent.' },
         dDev: { devices: [['MacBook', 'Desktop', 'device A · online'], ['Windows PC', 'Desktop', 'device B · online'], ['Linux server', 'CLI / Docker gateway', 'device C · online']], up: 'usage snapshots reported', cloud: 'Your account', cloudD: 'usage merged · subscriptions and config synced', down: 'view from any device', views: ['share per device', 'online status', 'per-device detail', 'combined view'] },
@@ -633,6 +661,7 @@ createApp({
       try { localStorage.setItem('tb_lang', lang.value) } catch {}
       document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
       document.title = (location.pathname === '/' ? T.value.homeTitle : T.value.title + ' · Token Bank')
+      nextTick(clampChips)
     }
     // 与 app-handlers.yaml 对齐的应用清单（接入方式分三类）
     const APPS = {
@@ -649,6 +678,8 @@ createApp({
     const shotSel = ref({})
     const shotIdx = (id) => shotSel.value[id] || 0
     const setShot = (id, i) => { shotSel.value = { ...shotSel.value, [id]: i } }
+    const visOf = (f) => { if (!f.shots) return f.diagram || ''; const k = f.shots[shotIdx(f.id)][0]; return k.startsWith('@') ? k.slice(1) : '' }
+    const shotSrc = (k) => k.startsWith('/') ? k : boardSrc(k)
     const boardSrc = (key) => '/static/img_cache/' + key + (lang.value === 'en' ? '_en' : '') + '.webp'
     // 功能轮播：进度条走完自动下一项；悬停/聚焦暂停；用户点过就停在那一项
     const featIdx = ref(0), featTick = ref(0), featPaused = ref(false)
@@ -727,11 +758,12 @@ createApp({
       if (ok) { copied.value = true; setTimeout(() => { copied.value = false }, 1500) }
     }
 
-    const heroApps = [
-      { id: 'cc', icon: B + 'claudecode-color.svg', y: 40 }, { id: 'cx', icon: B + 'codex-color.svg', y: 90 },
-      { id: 'cu', icon: B + 'cursor.svg', y: 140 }, { id: 'gk', icon: B + 'grokbot.svg', y: 190, full: true },
-      { id: 'mu', icon: B + 'muse.svg', y: 240, full: true }, { id: 'km', icon: B + 'kimi-color.svg', y: 290, dark: true },
-      { id: 'oc', icon: B + 'openclaw-color.svg', y: 340 },
+    // 首屏左侧：智能体部署在哪（云端、个人电脑、本地服务器，或外部产品）
+    const heroGroups = [
+      { id: 'vps', x: 22, y: 46, glyph: 'M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 9.2 4.5 4.5 0 0 0 7 18z', apps: [{ icon: B + 'openclaw-color.svg' }, { icon: B + 'hermesagent.svg' }] },
+      { id: 'mbp', x: 0, y: 136, glyph: 'M5 6h14v10H5zM2.5 19h19', apps: [{ icon: B + 'claudecode-color.svg' }, { icon: B + 'cursor.svg' }] },
+      { id: 'mini', x: 34, y: 232, glyph: 'M4 9.5h16v6H4zM7.5 12.5h2', apps: [{ icon: B + 'codex-color.svg' }, { icon: B + 'kimi-color.svg', dark: true }] },
+      { id: 'ext', x: 8, y: 326, ext: true, glyph: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18', apps: [{ icon: B + 'grokbot.svg', full: true }, { icon: B + 'muse.svg', full: true }] },
     ]
     const loaded = ref(false), nodes = ref(0), models = ref(0), agents = ref(0), res = ref(0)
     async function load() {
@@ -769,14 +801,36 @@ createApp({
     let archReduced = false
     try { archReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches } catch {}
     if (!archReduced) setInterval(() => { if (!archHover.value) archIdx.value = (archIdx.value + 1) % 6 }, 2200)
+    // 六层清单右侧标签最多三行，放不下的收进「…」
+    function clampChips() {
+      document.querySelectorAll('.dv-al-chips').forEach(box => {
+        box.querySelectorAll('.dv-more').forEach(m => m.remove())
+        const items = [...box.children]
+        items.forEach(c => { c.style.display = '' })
+        const top = (c) => Math.round(c.getBoundingClientRect().top)
+        const rows = [...new Set(items.map(top))].sort((a, b) => a - b)
+        if (rows.length <= 3) return
+        const limit = rows[2]
+        items.forEach(c => { if (top(c) > limit) c.style.display = 'none' })
+        const more = document.createElement('i')
+        more.className = 'dv-more'; more.textContent = '…'; more.title = items.map(c => c.textContent.trim()).join(' · ')
+        box.appendChild(more)
+        let vis = items.filter(c => c.style.display !== 'none')
+        while (top(more) > limit && vis.length) { vis.pop().style.display = 'none'; vis = items.filter(c => c.style.display !== 'none') }
+      })
+    }
+    let clampTimer = 0
+    const reclamp = () => { clearTimeout(clampTimer); clampTimer = setTimeout(clampChips, 120) }
     onMounted(() => {
+      nextTick(clampChips); addEventListener('resize', reclamp)
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(reclamp)
       document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
       document.title = (location.pathname === '/' ? T.value.homeTitle : T.value.title + ' · Token Bank')
       nextTick(setupReveal)
       load()
       featFromHash(); addEventListener('hashchange', featFromHash)
     })
-    return { heroApps, H, featIdx, featTick, featPaused, goFeat, shotIdx, setShot, boardSrc, appGroups, exIdx, examples, copied, copyCode, reduced, lang, T, N, toggleLang, loggedIn, loaded, nodes, models, agents, res, archIdx, archHover, hoverLayer, chipText, chipIcon, chipBadge, plateIcons }
+    return { visOf, shotSrc, heroGroups, H, featIdx, featTick, featPaused, goFeat, shotIdx, setShot, boardSrc, appGroups, exIdx, examples, copied, copyCode, reduced, lang, T, N, toggleLang, loggedIn, loaded, nodes, models, agents, res, archIdx, archHover, hoverLayer, chipText, chipIcon, chipBadge, plateIcons }
   },
 }).mount('#app')
 </script>

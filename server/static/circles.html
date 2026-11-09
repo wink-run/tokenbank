@@ -7,14 +7,33 @@
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9160155823114008"
      crossorigin="anonymous"></script>
 <title>圈子 · Token Bank</title>
-<meta name="description" content="圈子决定你和谁交易：创建或加入圈子，和信任的人共享模型与智能体">
+<meta name="description" content="圈子决定你和谁分享：创建或用邀请码加入圈子，把模型和智能体只开放给信任的人，一起用、一起分摊费用。">
+<meta name="keywords" content="圈子,智能体分享,团队 AI,AI 协作,Token Bank">
+<link rel="canonical" href="https://tokenbank.wink.run/circles">
+<meta name="theme-color" content="#17150f">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Token Bank">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:title" content="圈子 · Token Bank">
+<meta property="og:description" content="圈子决定你和谁分享：创建或用邀请码加入圈子，把模型和智能体只开放给信任的人，一起用、一起分摊费用。">
+<meta property="og:url" content="https://tokenbank.wink.run/circles">
+<meta property="og:image" content="https://tokenbank.wink.run/static/og/token-bank.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="圈子 · Token Bank">
+<meta name="twitter:description" content="圈子决定你和谁分享：创建或用邀请码加入圈子，把模型和智能体只开放给信任的人，一起用、一起分摊费用。">
+<meta name="twitter:image" content="https://tokenbank.wink.run/static/og/token-bank.png">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "WebPage", "name": "圈子 · Token Bank", "description": "圈子决定你和谁分享：创建或用邀请码加入圈子，把模型和智能体只开放给信任的人，一起用、一起分摊费用。", "url": "https://tokenbank.wink.run/circles", "isPartOf": {"@type": "WebSite", "name": "Token Bank", "url": "https://tokenbank.wink.run/"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Token Bank", "item": "https://tokenbank.wink.run/"}, {"@type": "ListItem", "position": 2, "name": "圈子", "item": "https://tokenbank.wink.run/circles"}]}</script>
 <link rel="icon" href="/static/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/community.css">
-<link rel="stylesheet" href="/static/plaza.css?v=32">
-<script src="/static/plaza-nav.js?v=19"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=38">
+<script src="/static/plaza-nav.js?v=20"></script>
 <script src="/static/vue.global.prod.js"></script>
 <script src="/static/app-runtime-icon.js"></script>
 <style>
@@ -52,12 +71,7 @@
   <nav class="ag-top">
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="ag-modes"><a class="ag-mode" href="/agents">{{ N.modeUse }}</a><a class="ag-mode on" href="/">{{ N.modeDev }}</a></div>
-      <div class="ag-navs ag-devnav">
-        <a class="ag-nav" href="/">{{ N.dOverview }}</a>
-        <a class="ag-nav" href="/share">{{ N.dShare }}</a>
-        <a class="ag-nav on" href="/market#circles" aria-current="page">{{ N.dMarket }}</a>
-      </div>
+      <div class="ag-modes ag-main"><a class="ag-mode" href="/agents">{{ N.navPlaza }}</a><a class="ag-mode" href="/share">{{ N.dShare }}</a><a class="ag-mode on" aria-current="page" href="/market">{{ N.dMarket }}</a></div>
       <div class="ag-top-r">
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
         <template v-if="loggedIn">
@@ -65,7 +79,7 @@
           <button class="ag-lang" type="button" @click="logout">{{ T.logout }}</button>
         </template>
         <button v-else class="ag-dl" type="button" @click="openAuth()">{{ T.login }}</button>
-        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><em>{{ N.modeUse }}</em><a href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a></div><div class="ag-menu-g"><em>{{ N.modeDev }}</em><a href="/">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a class="on" aria-current="page" href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a v-if="loggedIn" href="/app">{{ N.account }}</a><a v-else href="#" @click.prevent="openAuth()">{{ N.signIn }}</a><a class="dl" href="/#download">{{ N.download }}</a></div></div></details>
+        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><a href="/">{{ N.home }}</a><a href="/agents">{{ N.navPlaza }}</a><a href="/share">{{ N.dShare }}</a><a class="on" aria-current="page" href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a v-if="loggedIn" href="/app">{{ N.account }}</a><a v-else href="#" @click.prevent="openAuth()">{{ N.signIn }}</a><a class="dl" href="/#download">{{ N.download }}</a></div></div></details>
       </div>
     </div>
   </nav>

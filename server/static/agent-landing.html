@@ -16,7 +16,7 @@
 <script src="/static/app-runtime-icon.js"></script>
 </head>
 <body>
-<div id="app" class="chat-app" v-cloak>
+<div id="app" class="chat-app ag-chat" v-cloak>
   <nav class="cnav">
     <div class="cnav-in">
       <a class="brand" href="/agents"><img src="/static/logo.svg" alt="Token Bank"><span class="nav-title">{{ T.navTitle }}</span></a>
@@ -75,14 +75,14 @@
     <header class="chead">
       <div class="cinner">
         <div v-if="appIcon" class="av brand"><img :src="appIcon" alt=""></div>
-        <div v-else class="av" :style="{ background: avatarColor(agentName) }">{{ agentName.slice(0, 1).toUpperCase() }}</div>
+        <div v-else class="av" :style="{ background: avatarColor(displayName) }">{{ displayName.slice(0, 1).toUpperCase() }}</div>
         <div class="id">
-          <div class="id-t"><span class="id-name">{{ agentName }}</span>
-            <span v-if="agent.visibility" class="tag" :class="{ circle: agent.visibility === 'circle' }">{{ agent.visibility === 'circle' ? T.circleShare : T.publicShare }}</span>
+          <div class="id-t"><a class="id-name" :href="'/agents/' + encodeURIComponent(agent.id || '')">{{ displayName }}</a>
+            <span v-if="agent.visibility === 'circle'" class="tag circle">{{ T.circleShare }}</span>
           </div>
           <div class="id-sub">
             <span><span class="dot" :class="{ off: agentOffline }"></span>&nbsp; {{ agentOffline ? T.offline : T.online }}</span>
-            <template v-if="agent.owner_nickname"><span class="sep">·</span><a :href="'/u/' + encodeURIComponent(agent.owner_nickname)">@{{ agent.owner_nickname }}</a></template>
+            <template v-if="ownerName"><span class="sep">·</span><a :href="'/u/' + encodeURIComponent(ownerName)">@{{ ownerName }}</a></template>
             <span class="sep">·</span><span>{{ T.creditsPerTask.replace('{n}', String(creditsPerTask)) }}</span>
             <template v-if="agent.hire_count"><span class="sep">·</span><span>🔥 {{ T.hires.replace('{n}', String(agent.hire_count)) }}</span></template>
           </div>
@@ -101,7 +101,7 @@
     <div class="cstage">
     <div class="cchat">
     <div class="cmid">
-    <aside class="hist" :class="{ open: histOpen }">
+    <aside class="hist" :class="{ open: histOpen, guest: !loggedIn }">
       <!-- 手机上默认收起，点标题再展开；宽屏这条按钮不显示 -->
       <button type="button" class="hist-fold" @click="histOpen = !histOpen" :aria-expanded="histOpen ? 'true' : 'false'">
         <span class="hist-fold-t">
@@ -143,17 +143,18 @@
       <div class="cinner">
         <div v-if="!messages.length" class="empty">
           <div v-if="appIcon" class="av lg brand"><img :src="appIcon" alt=""></div>
-          <div v-else class="av lg" :style="{ background: avatarColor(agentName) }">{{ agentName.slice(0, 1).toUpperCase() }}</div>
-          <h2>{{ agentName }}</h2>
-          <p>{{ agent.description || T.noDesc }}</p>
-          <div class="sugs">
+          <div v-else class="av lg" :style="{ background: avatarColor(displayName) }">{{ displayName.slice(0, 1).toUpperCase() }}</div>
+          <h2>{{ displayName }}</h2>
+          <p>{{ friendlyDesc }}</p>
+          <div class="empty-chips"><span v-if="!loggedIn" class="hot">{{ T.promoFree }}</span><span v-if="ownerName">{{ T.runsOn.replace('{owner}', '@' + ownerName) }}</span><span>{{ T.creditsPerTask.replace('{n}', String(creditsPerTask)) }}</span></div>
+          <div v-if="!shareReadOnly" class="sugs">
             <button v-for="sg in suggestions" :key="sg.t" type="button" class="sug" @click="useSuggestion(sg)"><b>{{ sg.t }}</b><span>{{ sg.d }}</span></button>
           </div>
         </div>
         <div v-for="(m, i) in messages" :key="i" class="msg" :class="[m.role, { pending: m.pending }]">
           <template v-if="m.role === 'assistant'">
             <div v-if="appIcon" class="av sm brand"><img :src="appIcon" alt=""></div>
-            <div v-else class="av sm" :style="{ background: avatarColor(agentName) }">{{ agentName.slice(0, 1).toUpperCase() }}</div>
+            <div v-else class="av sm" :style="{ background: avatarColor(displayName) }">{{ displayName.slice(0, 1).toUpperCase() }}</div>
             <div class="abody">
               <template v-if="m.parts && m.parts.length">
                 <div v-for="(p, pi) in viewParts(m)" :key="pi" class="apart" :class="p.type === 'tools' ? 'apart-tool' : ('apart-' + p.type)">
@@ -237,12 +238,10 @@
             <span class="box-meta">{{ T.enterHint }}</span>
           </div>
         </div>
-        <div v-else-if="shareReadOnly" class="box locked">
-          <div class="box-lock">{{ T.shareOffline }}</div>
-          <textarea rows="1" disabled :placeholder="T.promptPh"></textarea>
-          <div class="box-row">
-            <span class="box-meta">{{ T.enterHint }}</span>
-          </div>
+        <div v-else-if="shareReadOnly" class="off-card">
+          <span class="off-dot" aria-hidden="true"></span>
+          <div class="off-t"><b>{{ T.offTitle }}</b><span>{{ T.offSub }}</span></div>
+          <a class="off-go" href="/agents">{{ T.offGo }} →</a>
         </div>
         <div v-else-if="guestLocked" class="gate">
           <span class="g-ic">🔒</span>
@@ -294,7 +293,7 @@
         </div>
         <div v-if="!guestLocked" class="foot-hint">
           <template v-if="loggedIn && profile">{{ T.balance.replace('{n}', Number(profile.credits_balance || 0).toFixed(1)) }} · {{ T.runsRemote }}</template>
-          <template v-else>{{ T.chatHint }} · <button type="button" @click="openAuth('register')">{{ T.register }}</button></template>
+          <template v-else>{{ T.chatHint }} · <button type="button" @click="openAuth('register')">{{ T.registerGift }}</button></template>
         </div>
       </div>
     </footer>
@@ -348,7 +347,7 @@ createApp({
     const i18n = {
       zh: {
         loading: '加载中…', unavailable: '无法访问此智能体', backHome: '返回首页',
-        backNetwork: '← 分享与收益', backTools: '← 智能体广场', navTitle: 'TokenBank 智能体',
+        backNetwork: '← 分享与收益', backTools: '← 智能体广场', navTitle: 'Token Bank',
         noDesc: '暂无简介', online: '在线', offline: '离线', publicShare: '全球分享', circleShare: '圈子分享',
         creditsPerTask: '每次交互 {n} 积分', promptPh: '输入消息，或添加图片和文件，Shift+Enter 发送…',
         send: '发送', running: '思考中…', needLogin: '圈子分享仅成员可见；全球分享未登录可试一轮。',
@@ -362,7 +361,7 @@ createApp({
         attachHint: '图片最多 3 张，其他文件最多 4 个',
         attachLimit: '附件数量已达上限',
         attachSize: '附件过大',
-        chatHint: '未登录可试一轮', chatEmpty: '发送一条消息试用；可粘贴图片；登录后可多轮追问。',
+        chatHint: '未登录可试一轮', registerGift: '注册送 50 积分', promoFree: '限时免费中', chatEmpty: '发送一条消息试用；可粘贴图片；登录后可多轮追问。',
         clear: '清空对话', thinking: '…', thinkingLabel: '思考', toolLabel: '工具', streaming: '生成中…', toolRunning: '调用工具：{name}',
         toolDone: '已完成', toolBusy: '执行中', toolFailed: '失败', toolsCount: '{n} 个工具',
         toolNames: {
@@ -389,11 +388,12 @@ createApp({
         turnWait: '请稍等，{name}还在说话。', someone: '有人', guestName: '访客',
         myChat: '我的对话', sharedChat: '分享的对话', sharedBy: '{name}的对话', emptyThread: '暂无内容',
         shareOffline: '这个智能体暂时不在线，现在不能对话，历史记录仍可查看。',
+        offTitle: '这个智能体暂时离线', offSub: '分享者的设备没开着，历史对话仍可查看。', offGo: '看看在线的智能体', runsOn: '在 {owner} 的设备上运行', appDesc: '基于 {app} 的通用编程智能体：写代码、改 bug、跑脚本，任务在分享者的电脑上完成。',
         copy: '复制', copied: '已复制', attach: '添加附件', hires: '{n} 次雇佣',
         imageOnly: '请根据附图完成任务', fileOnly: '请根据附件完成任务',
-        enterHint: 'Enter 换行 · Shift+Enter 发送', trialDone: '本次已用完', gateSub: '登录后可以继续。',
+        enterHint: 'Enter 换行 · Shift+Enter 发送', trialDone: '本次已用完', gateSub: '注册就送 50 积分，登录后接着聊。',
         runsRemote: '任务在分享者设备上执行', authTitleLogin: '登录 Token Bank', authTitleRegister: '注册 Token Bank',
-        authSub: '登录后可多轮对话，按次扣积分。',
+        authSub: '限时免费中，注册就送 50 积分。登录后可多轮对话。',
         sugs: [
           { t: '你能做什么？', d: '介绍一下你的能力和适合的任务' },
           { t: '给个示例', d: '演示一次你最擅长的任务' },
@@ -403,7 +403,7 @@ createApp({
       },
       en: {
         loading: 'Loading…', unavailable: 'Agent unavailable', backHome: 'Home',
-        backNetwork: '← Share & earn', backTools: '← Agent Plaza', navTitle: 'TokenBank Agents',
+        backNetwork: '← Share & earn', backTools: '← Agent Plaza', navTitle: 'Token Bank',
         noDesc: 'No description', online: 'Online', offline: 'Offline', publicShare: 'Global', circleShare: 'Circle',
         creditsPerTask: '{n} credits / turn', promptPh: 'Message, or add an image or file. Shift+Enter to send…',
         send: 'Send', running: 'Thinking…', needLogin: 'Circle agents are members-only. Public agents: one free guest turn.',
@@ -417,7 +417,7 @@ createApp({
         attachHint: 'Up to 3 images and 4 other files',
         attachLimit: 'Too many attachments',
         attachSize: 'Attachment too large',
-        chatHint: 'One free guest turn', chatEmpty: 'Try one message (paste images OK); sign in for multi-turn chat.',
+        chatHint: 'One free guest turn', registerGift: 'Sign up for 50 free credits', promoFree: 'Free for a limited time', chatEmpty: 'Try one message (paste images OK); sign in for multi-turn chat.',
         clear: 'Clear', thinking: '…', thinkingLabel: 'Thinking', toolLabel: 'Tool', streaming: 'Generating…', toolRunning: 'Tool: {name}',
         toolDone: 'Done', toolBusy: 'Running', toolFailed: 'Failed', toolsCount: '{n} tools',
         toolNames: {
@@ -444,11 +444,12 @@ createApp({
         turnWait: 'Please wait, {name} is still talking.', someone: 'someone', guestName: 'Guest',
         myChat: 'My chat', sharedChat: 'Shared chat', sharedBy: "{name}'s chat", emptyThread: 'Empty',
         shareOffline: 'This agent is offline. You can read past chats, but not send new ones.',
+        offTitle: 'This agent is offline', offSub: 'The sharer\'s device is off. Past chats are still readable.', offGo: 'See agents online', runsOn: 'Runs on {owner}\'s device', appDesc: 'A general coding agent on {app}: writes code, fixes bugs, runs scripts — on the sharer\'s machine.',
         copy: 'Copy', copied: 'Copied', attach: 'Add attachment', hires: '{n} hires',
         imageOnly: 'Please use the attached images.', fileOnly: 'Please use the attached files.',
-        enterHint: 'Enter for newline · Shift+Enter to send', trialDone: 'Turn used up', gateSub: 'Sign in to continue.',
+        enterHint: 'Enter for newline · Shift+Enter to send', trialDone: 'Turn used up', gateSub: 'Sign up for 50 free credits and keep chatting.',
         runsRemote: "Runs on the sharer's device", authTitleLogin: 'Sign in to Token Bank', authTitleRegister: 'Create your account',
-        authSub: 'Sign in for multi-turn chat, billed per turn.',
+        authSub: 'Free for a limited time — sign up and get 50 credits. Sign in for multi-turn chat.',
         sugs: [
           { t: 'What can you do?', d: 'Describe your skills and best-fit tasks' },
           { t: 'Show an example', d: 'Demo the task you are best at' },
@@ -3351,6 +3352,24 @@ createApp({
     })
     watch(prompt, (v) => { if (!v) nextTick(() => ChatUI.autoGrow(composerEl.value)) })
     const agentName = computed(() => String(agent.value?.display_name || agent.value?.name || agent.value?.id || '?'))
+    // 和广场名片一致：「作者的名字」拆开显示
+    const nameParts = computed(() => {
+      const name = agentName.value
+      const owner = String(agent.value?.owner_nickname || '').trim()
+      if (owner) return name.startsWith(owner + '的') && name.length > owner.length + 1 ? { name: name.slice(owner.length + 1).trim(), owner } : { name, owner }
+      const m = name.match(/^(.{1,24}?)的(.+)$/)
+      return m ? { name: m[2].trim(), owner: m[1].trim() } : { name, owner: '' }
+    })
+    const displayName = computed(() => nameParts.value.name || '?')
+    const ownerName = computed(() => nameParts.value.owner)
+    const RT = { 'claude-code': 'Claude Code', codex: 'Codex', cursor: 'Cursor', 'kimi-code': 'Kimi Code', pi: 'Pi', gemini: 'Gemini CLI', openclaw: 'OpenClaw', hermes: 'Hermes', opencode: 'OpenCode', grokbot: 'GrokBot', muse: 'Muse' }
+    const friendlyDesc = computed(() => {
+      const d = String(agent.value?.description || '').trim()
+      if (!d) return T.value.noDesc
+      if (!/在出租者本机的该应用里执行|runs inside that app on the owner/i.test(d)) return d
+      const rt = String(agent.value?.runtime || '').toLowerCase()
+      return T.value.appDesc.replace('{app}', RT[rt] || displayName.value)
+    })
     const suggestions = computed(() => {
       const starters = Array.isArray(agent.value?.starters) ? agent.value.starters.filter(Boolean).slice(0, 4) : []
       if (starters.length) return starters.map((x) => ({ t: String(x).slice(0, 18), d: String(x) }))
@@ -3367,7 +3386,14 @@ createApp({
       e.target.value = ''
     }
     const autoGrow = (el) => ChatUI.autoGrow(el)
-    const avatarColor = (n) => ChatUI.avatarColor(n)
+    const PLAZA_COLORS = ['#0a0a0a', '#7c3aed', '#2563eb', '#047857', '#b45309', '#be123c']
+    const avatarColor = (n) => {
+      const s = String(n || '?')
+      if (s !== displayName.value) return ChatUI.avatarColor(n)
+      let k = 0
+      for (let i = 0; i < s.length; i++) k = (k + s.charCodeAt(i)) % PLAZA_COLORS.length
+      return PLAZA_COLORS[k]
+    }
     const appIcon = computed(() => (window.TBAppIcon ? window.TBAppIcon.url(agent.value) : ''))
     const renderRich = (raw, arts) => decorateRich(ChatUI.wrapCode(renderMarkdown(raw), T.value.copy), arts)
     const onChatClick = (e) => ChatUI.onCopyClick(e, T.value.copied, T.value.copy)
@@ -3384,7 +3410,7 @@ createApp({
     }
 
     return {
-      authOpen, openAuth, composerEl, fileEl, agentName, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor, appIcon,
+      authOpen, openAuth, composerEl, fileEl, agentName, displayName, ownerName, friendlyDesc, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor, appIcon,
       runLabel, messageClock, activityLabel, toolElapsed, toolFriendly, toolSummary, toolStatus, thinkLine,
       viewParts, toolGroupTitle, toolGroupStatus, toolGroupClass, toolGroupHint, toolGroupElapsed, currentTool, hiddenAnswer,
       renderRich, onChatClick, onImgOver, onImgOut, onImgHide, onChatScroll, onChatWheel, onChatTouchStart, onChatTouchMove, copyMsg, answerOf, downloadArtifact, isVideoFile,

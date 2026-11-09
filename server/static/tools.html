@@ -4,12 +4,31 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>智能体广场 · Token Bank</title>
-<meta name="description" content="别人调好的智能体，打开就能用：不用买 Key、装环境、写提示词，按次付费。有设备的用户无需网络配置即可随时随地使用自己的智能体，并分享给圈子或全网分摊费用，Skill 不外泄。一个链接就能拉朋友一起玩。">
+<meta name="description" content="别人调好的智能体，打开就能用：不买 Key、不装环境、不写提示词，浏览器里挑一个直接用，按次付费。写文案、配图、做视频、写代码……限时免费，注册送 50 积分。">
+<meta name="keywords" content="智能体广场,AI 智能体,在线智能体,AI 助手,智能体市场,AI 写作,AI 配图,AI 编程,Token Bank">
+<link rel="canonical" href="https://tokenbank.wink.run/agents">
+<meta name="theme-color" content="#17150f">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Token Bank">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:title" content="智能体广场 · Token Bank">
+<meta property="og:description" content="别人调好的智能体，打开就能用：不买 Key、不装环境、不写提示词，浏览器里挑一个直接用，按次付费。写文案、配图、做视频、写代码……限时免费，注册送 50 积分。">
+<meta property="og:url" content="https://tokenbank.wink.run/agents">
+<meta property="og:image" content="https://tokenbank.wink.run/static/og/token-bank.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="智能体广场 · Token Bank">
+<meta name="twitter:description" content="别人调好的智能体，打开就能用：不买 Key、不装环境、不写提示词，浏览器里挑一个直接用，按次付费。写文案、配图、做视频、写代码……限时免费，注册送 50 积分。">
+<meta name="twitter:image" content="https://tokenbank.wink.run/static/og/token-bank.png">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "CollectionPage", "name": "智能体广场", "description": "别人调好的智能体，打开就能用：不买 Key、不装环境、不写提示词，浏览器里挑一个直接用，按次付费。写文案、配图、做视频、写代码……限时免费，注册送 50 积分。", "url": "https://tokenbank.wink.run/agents", "isPartOf": {"@type": "WebSite", "name": "Token Bank", "url": "https://tokenbank.wink.run/"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Token Bank", "item": "https://tokenbank.wink.run/"}, {"@type": "ListItem", "position": 2, "name": "智能体广场", "item": "https://tokenbank.wink.run/agents"}]}</script>
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=32">
+<link rel="stylesheet" href="/static/plaza.css?v=38">
 <script>
   // 模型、技能等开发者资源移到了资源市场
   (function () {
@@ -18,7 +37,7 @@
     else if (h === 'resources') location.replace('/market#skills');
   })();
 </script>
-<script src="/static/plaza-nav.js?v=19"></script>
+<script src="/static/plaza-nav.js?v=20"></script>
 <script src="/static/vue.global.prod.js"></script>
 <script src="/static/app-runtime-icon.js"></script>
 <style>
@@ -109,14 +128,15 @@ a { color: inherit; text-decoration: none; }
 <div id="app" v-cloak>
   <!-- 智能体工具广场 -->
   <div v-if="view === 'list'">
+    <a v-if="!loggedIn" class="pz-promo" href="/app?signup=1"><i aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="8.5" width="17" height="4" rx="1"/><path d="M5 12.5V20h14v-7.5M12 8.5V20M12 8.5S10.5 4 8 4.5 7.5 8.5 12 8.5zM12 8.5s1.5-4.5 4-4 .5 4-4 4z"/></svg></i><b>{{ N.promoA }}</b><span>{{ N.promoB }}</span><em>{{ N.promoGo }} →</em></a>
     <nav class="ag-top">
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="ag-modes"><a class="ag-mode on" href="/agents">{{ N.modeUse }}</a><a class="ag-mode" href="/">{{ N.modeDev }}</a></div>
+      <div class="ag-modes ag-main"><a class="ag-mode on" aria-current="page" href="/agents">{{ N.navPlaza }}</a><a class="ag-mode" href="/share">{{ N.dShare }}</a><a class="ag-mode" href="/market">{{ N.dMarket }}</a></div>
       <div class="ag-top-r">
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
         <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
-        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><em>{{ N.modeUse }}</em><a class="on" aria-current="page" href="/agents">{{ N.navPlaza }}</a><a href="/why">{{ N.navWhy }}</a></div><div class="ag-menu-g"><em>{{ N.modeDev }}</em><a href="/">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a href="/app">{{ loggedIn ? N.account : N.signIn }}</a><a class="dl" href="/#download">{{ N.download }}</a></div></div></details>
+        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><a href="/">{{ N.home }}</a><a class="on" aria-current="page" href="/agents">{{ N.navPlaza }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a href="/app">{{ loggedIn ? N.account : N.signIn }}</a><a class="dl" href="/#download">{{ N.download }}</a></div></div></details>
       </div>
     </div>
   </nav>

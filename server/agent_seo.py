@@ -35,6 +35,35 @@ def _meta_description(card: dict) -> str:
     return text[:147].rstrip() + "…"
 
 
+OG_IMAGE = "/static/og/token-bank.png"
+
+
+def _keywords(card: dict) -> str:
+    name, owner = _split_name(card)
+    bits = [name, "智能体", "AI 智能体", "在线使用"]
+    rt = _runtime_label(card.get("runtime"))
+    if rt:
+        bits.append(rt)
+    if owner:
+        bits.append(owner)
+    bits.append("Token Bank")
+    return ",".join(b for b in bits if b)
+
+
+def _crumbs_ld(name: str, page_url: str) -> str:
+    origin = public_origin()
+    data = {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Token Bank", "item": origin + "/"},
+            {"@type": "ListItem", "position": 2, "name": "智能体广场", "item": origin + "/agents"},
+            {"@type": "ListItem", "position": 3, "name": name, "item": page_url},
+        ],
+    }
+    return json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
+
+
 def _json_ld(card: dict, page_url: str) -> str:
     name = _name(card)
     data = {
@@ -59,108 +88,228 @@ def _json_ld(card: dict, page_url: str) -> str:
     return raw
 
 
-def render_agent_intro(card: dict, related: list | None = None) -> str:
-    """一个智能体一页：标题、介绍、开始对话，以及少量其他上架智能体。"""
-    aid = str(card.get("id") or "").strip()
+_RUNTIMES = {
+    "claude-code": ("Claude Code", "claudecode-color.svg"),
+    "codex": ("Codex", "codex-color.svg"),
+    "cursor": ("Cursor", "cursor.svg"),
+    "kimi-code": ("Kimi Code", "kimi-color.svg"),
+    "kimi": ("Kimi", "kimi-color.svg"),
+    "pi": ("Pi", ""),
+    "gemini": ("Gemini CLI", "geminicli-color.svg"),
+    "gemini-cli": ("Gemini CLI", "geminicli-color.svg"),
+    "openclaw": ("OpenClaw", "openclaw-color.svg"),
+    "hermes": ("Hermes", "hermesagent.svg"),
+    "opencode": ("OpenCode", "opencode.svg"),
+    "qwen": ("Qwen Code", "qwen-color.svg"),
+    "grokbot": ("GrokBot", "grokbot.svg"),
+    "muse": ("Muse", "muse.svg"),
+    "workbuddy": ("WorkBuddy", "codebuddy-color.svg"),
+}
+
+
+def _runtime_label(runtime: str) -> str:
+    k = str(runtime or "").strip().lower()
+    if not k:
+        return ""
+    return _RUNTIMES.get(k, (k[:1].upper() + k[1:], ""))[0]
+
+
+def _split_name(card: dict) -> tuple[str, str]:
+    """和广场页 splitName 一致：去掉「作者的」前缀，名片上作者单独显示。"""
     name = _name(card)
-    desc = _description(card)
-    meta = _meta_description(card)
     owner = str(card.get("owner_nickname") or "").strip()
-    runtime = str(card.get("runtime") or "").strip()
-    online = True if "online" not in card else bool(card.get("online"))
-    origin = public_origin()
-    page = origin + agent_intro_path(aid)
-    status = "当前在线，可以直接对话。" if online else "暂时离线，仍可查看历史对话。"
-    bits = [f"{_esc(name)} 在 Token Bank 上架。"]
     if owner:
-        who = f'<a href="/u/{quote(owner, safe="")}">@{_esc(owner)}</a>'
-        bits.append(f"由 {who} 分享。")
+        if name.startswith(owner + "的") and len(name) > len(owner) + 1:
+            return name[len(owner) + 1:].strip(), owner
+        return name, owner
+    import re
+    m = re.match(r"^(.{1,24}?)的(.+)$", name)
+    return (m.group(2).strip(), m.group(1).strip()) if m else (name, "")
+
+
+def _app_icon(card: dict) -> str:
+    """直接出租的应用（id 里带 app:xxx）用应用图标，自定义智能体用首字。"""
+    import re
+    m = re.search(r"(?:^|:)app:([A-Za-z0-9._-]+)", str(card.get("id") or ""))
+    if not m:
+        return ""
+    rt = m.group(1).split("@")[0].lower()
+    icon = _RUNTIMES.get(rt, ("", ""))[1]
+    return "/static/brand-icons/" + icon if icon else ""
+
+
+def _friendly_desc(card: dict) -> str:
+    d = _description(card)
+    if "在出租者本机的该应用里执行" in d or "runs inside that app on the owner" in d:
+        app = _runtime_label(card.get("runtime")) or _split_name(card)[0]
+        return f"基于 {app} 的通用编程智能体：写代码、改 bug、跑脚本，任务在分享者的电脑上完成。"
+    return d
+
+
+def _avatar_html(card: dict, cls: str = "ag-av") -> str:
+    icon = _app_icon(card)
+    if icon:
+        return f'<span class="{cls} brand"><img src="{_esc(icon)}" alt=""></span>'
+    name = _split_name(card)[0]
+    return f'<span class="{cls}" style="background:{_avatar_color(name)}">{_esc(name[:1] or "?")}</span>'
+
+
+_NAV_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 16.5h14M6.5 16.5l1.3-4.6A2 2 0 0 1 9.7 10.5h4.6a2 2 0 0 1 1.9 1.4l1.3 4.6"/><path d="M4.5 16.5v2.25M19.5 16.5v2.25"/><circle cx="8" cy="16.5" r="1"/><circle cx="16" cy="16.5" r="1"/></svg>'
+
+
+def render_agent_intro(card: dict, related: list | None = None) -> str:
+    """一个智能体一页：深色首屏（名片 + 开始对话）、怎么用、为什么放心、其他智能体。正文都在 HTML 里。"""
+    aid = str(card.get("id") or "").strip()
+    name, owner = _split_name(card)
+    full = _name(card)
+    desc = _friendly_desc(card)
+    meta = _meta_description(card)
+    runtime = _runtime_label(card.get("runtime"))
+    online = True if "online" not in card else bool(card.get("online"))
+    hires = int(card.get("hire_count") or 0) if str(card.get("hire_count") or "0").isdigit() else 0
+    page = public_origin() + agent_intro_path(aid)
+    chat = "/a/" + quote(aid, safe="")
+    state = "在线" if online else "离线"
+    state_tip = "现在就能对话" if online else "分享者的设备暂时离线，可以先看历史对话"
+    cta = "开始对话" if online else "看历史对话"
+
+    owner_html = f'<a href="/u/{quote(owner, safe="")}">@{_esc(owner)}</a>' if owner else ""
+    facts = []
+    if owner:
+        facts.append(f'<div><span>分享者</span><b>{owner_html}</b></div>')
     if runtime:
-        bits.append(f"运行时 {_esc(runtime)}。")
-    bits.append(_esc(status))
+        facts.append(f'<div><span>运行引擎</span><b>{_esc(runtime)}</b></div>')
+    facts.append(f'<div><span>状态</span><b class="ad-state {"on" if online else "off"}"><i></i>{state}</b></div>')
+    if hires:
+        facts.append(f'<div><span>被使用</span><b>{hires} 次</b></div>')
 
     related_html = ""
-    others = render_agent_cards(related, skip_id=aid, limit=8)
+    others = render_agent_cards(related, skip_id=aid, limit=6)
     if others:
         related_html = (
-            '<section class="more"><h2>其他上架智能体</h2>'
-            f'<div class="ag-grid">{others}</div></section>'
+            '<section class="pz-sec ad-more"><div class="pz-kicker">MORE AGENTS</div>'
+            '<h2 class="pz-h2">其他智能体</h2>'
+            f'<div class="ag-grid">{others}</div>'
+            '<a class="ad-all" href="/agents">逛逛整个智能体广场 →</a></section>'
         )
-
-    owner_row = ""
-    if owner:
-        owner_row = f'<a class="fact" href="/u/{quote(owner, safe="")}">@{_esc(owner)}</a>'
-    runtime_row = f'<span class="fact">{_esc(runtime)}</span>' if runtime else ""
-    state = "在线" if online else "离线"
 
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{_esc(name)} · 智能体 · Token Bank</title>
+<title>{_esc(full)} · 智能体 · Token Bank</title>
 <meta name="description" content="{_esc(meta)}">
 <link rel="canonical" href="{_esc(page)}">
 <meta property="og:type" content="website">
-<meta property="og:title" content="{_esc(name)} · Token Bank">
+<meta property="og:title" content="{_esc(full)} · Token Bank">
 <meta property="og:description" content="{_esc(meta)}">
 <meta property="og:url" content="{_esc(page)}">
-<meta name="twitter:card" content="summary">
+<meta property="og:site_name" content="Token Bank">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="{_esc(public_origin() + OG_IMAGE)}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{_esc(full)} · Token Bank">
+<meta name="twitter:description" content="{_esc(meta)}">
+<meta name="twitter:image" content="{_esc(public_origin() + OG_IMAGE)}">
+<meta name="keywords" content="{_esc(_keywords(card))}">
+<meta name="theme-color" content="#17150f">
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+<script type="application/ld+json">{_json_ld(card, page)}</script>
+<script type="application/ld+json">{_crumbs_ld(full, page)}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script type="application/ld+json">{_json_ld(card, page)}</script>
+<link rel="stylesheet" href="/static/plaza.css?v=38">
+<script src="/static/plaza-nav.js?v=20"></script>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
-body{{font-family:Inter,-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;background:#fafafa;color:#0a0a0a;-webkit-font-smoothing:antialiased}}
-a{{color:inherit}}
-.top{{position:sticky;top:0;background:rgba(255,255,255,.92);backdrop-filter:blur(12px);border-bottom:1px solid #eee}}
-.top-in{{max-width:760px;margin:0 auto;height:56px;padding:0 20px;display:flex;align-items:center;gap:16px}}
-.brand{{display:flex;align-items:center;gap:8px;font-weight:650;text-decoration:none}}
-.brand img{{width:26px;height:26px}}
-.back{{font-size:13px;color:#71717a;text-decoration:none}}
-.wrap{{max-width:760px;margin:0 auto;padding:40px 20px 72px}}
-.kicker{{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:#eff6ff;color:#2563eb;font-size:13px;font-weight:600}}
-h1{{margin-top:14px;font-size:40px;letter-spacing:-.03em;line-height:1.15}}
-.lead{{margin-top:14px;font-size:18px;line-height:1.7;color:#3f3f46}}
-.facts{{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}}
-.fact{{padding:4px 10px;border-radius:999px;background:#fff;border:1px solid #e4e4e7;font-size:13px;color:#52525b;text-decoration:none}}
-.prose{{margin-top:22px;font-size:15px;line-height:1.75;color:#3f3f46}}
-.prose a{{color:#18181b}}
-.cta{{display:inline-flex;margin-top:26px;padding:12px 18px;border-radius:12px;background:#18181b;color:#fff;text-decoration:none;font-weight:650}}
-.more{{margin-top:48px;padding-top:22px;border-top:1px solid #e4e4e7}}
-.more h2{{font-size:15px;color:#71717a;font-weight:650;margin-bottom:14px}}
-.ag-grid{{display:grid;grid-template-columns:1fr;gap:12px}}
-.ag-card{{background:#fff;border:1px solid #e4e4e7;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:10px;text-decoration:none;color:inherit}}
-.ag-h{{display:flex;align-items:center;gap:12px;min-width:0}}
-.ag-av{{width:48px;height:48px;border-radius:14px;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:20px;flex-shrink:0}}
-.ag-name{{font-weight:700;font-size:16px;letter-spacing:-.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
-.ag-meta{{margin-top:2px;font-size:13px;color:#a1a1aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
-.ag-desc{{font-size:14px;color:#71717a;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}}
-.ag-foot{{display:flex;align-items:center;gap:8px;margin-top:auto;padding-top:10px;border-top:1px solid #f4f4f5;font-size:13px;color:#71717a}}
-.ag-dot{{width:8px;height:8px;border-radius:50%;display:inline-block}}
-.ag-dot.ok{{background:#16a34a}}
-.ag-dot.off{{background:#d4d4d8}}
-.ag-go{{margin-left:auto;font-weight:650;color:#18181b}}
+body{{font-family:Inter,-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;background:#faf8f3;color:#0a0a0a;-webkit-font-smoothing:antialiased}}
+a{{color:inherit;text-decoration:none}}
 </style>
 </head>
 <body>
-<header class="top">
-  <div class="top-in">
-    <a class="brand" href="/"><img src="/static/logo.svg" alt="Token Bank"><span>Token Bank</span></a>
-    <a class="back" href="/agents">智能体广场</a>
+<a class="pz-promo" id="tb-promo" href="/app?signup=1"><i aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="8.5" width="17" height="4" rx="1"/><path d="M5 12.5V20h14v-7.5M12 8.5V20M12 8.5S10.5 4 8 4.5 7.5 8.5 12 8.5zM12 8.5s1.5-4.5 4-4 .5 4-4 4z"/></svg></i><b>限时免费中</b><span>注册就送 50 积分</span><em>立即注册 →</em></a>
+<nav class="ag-top">
+  <div class="ag-top-in">
+    <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
+    <div class="ag-modes ag-main"><a class="ag-mode on" href="/agents">智能体广场</a><a class="ag-mode" href="/share">分享与收益</a><a class="ag-mode" href="/market">资源市场</a></div>
+    <div class="ag-top-r">
+      <a class="ag-nav hide-sm" href="/app">登录</a>
+      <details class="ag-menu"><summary aria-label="菜单"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><a href="/">首页</a><a class="on" href="/agents">智能体广场</a><a href="/share">分享与收益</a><a href="/market">资源市场</a></div><div class="ag-menu-f"><a href="/app">登录</a><a class="dl" href="/#download">下载客户端</a></div></div></details>
+    </div>
+  </div>
+</nav>
+
+<header class="pz-hero ad-hero">
+  <div class="pz-grid-bg" aria-hidden="true"></div>
+  <div class="ad-hero-in">
+    <a class="ad-crumb" href="/agents">← 智能体广场</a>
+    <div class="ad-id">
+      {_avatar_html(card, "ag-av ad-av")}
+      <div class="ad-title">
+        <h1>{_esc(name)}</h1>
+        <div class="ad-sub">{owner_html}{' · ' if owner and runtime else ''}{_esc(runtime)}<span class="ad-state {'on' if online else 'off'}"><i></i>{state}</span></div>
+      </div>
+    </div>
+    <p class="ad-lead">{_esc(desc)}</p>
+    <div class="ad-ctas nw-ctas">
+      <a class="pz-btn pri" href="{_esc(chat)}">{cta} →</a>
+      <button class="pz-btn ghost" type="button" data-share="{_esc(page)}">复制分享链接</button>
+    </div>
+    <p class="ad-tip">{_esc(state_tip)}。未登录也能先试一轮，<a href="/app?signup=1">注册就送 50 积分</a>。</p>
+    <div class="ad-chat" aria-hidden="true">
+      <div class="ad-chat-bar"><i></i><i></i><i></i><span>{_esc(name)}</span><b class="ad-state {'on' if online else 'off'}"><i></i>{state}</b></div>
+      <div class="ad-chat-body">
+        <div class="ad-msg bot">{_avatar_html(card, "ag-av ad-mini")}<span>你好，我是{_esc(name)}。说说你想做什么？</span></div>
+        <div class="ad-msg me"><span>{_esc(desc[:28] + ("…" if len(desc) > 28 else ""))}</span></div>
+        <div class="ad-msg bot">{_avatar_html(card, "ag-av ad-mini")}<span class="ad-dots"><i></i><i></i><i></i></span></div>
+      </div>
+      <div class="ad-chat-in">输入你的需求…<em>发送</em></div>
+    </div>
+    <div class="ad-facts">{''.join(facts)}</div>
   </div>
 </header>
-<main class="wrap">
-  <span class="kicker">{_esc(state)}</span>
-  <h1>{_esc(name)}</h1>
-  <p class="lead">{_esc(desc)}</p>
-  <div class="facts">{owner_row}{runtime_row}<span class="fact">{_esc(state)}</span></div>
-  <p class="prose">{''.join(bits)}</p>
-  <a class="cta" href="{_esc('/a/' + quote(aid, safe=''))}">开始对话</a>
+
+<main class="ag-page">
+  <section class="pz-sec">
+    <div class="pz-kicker">HOW IT WORKS</div>
+    <h2 class="pz-h2">像打车一样用</h2>
+    <div class="ad-steps">
+      <div><em>1</em><b>说清要做什么</b><span>网页里直接打字，可以带图片和文件。</span></div>
+      <div><em>2</em><b>在分享者设备上执行</b><span>{_esc(name)} 跑在 {owner_html or '分享者'} 调好的环境里，你不用装任何东西。</span></div>
+      <div><em>3</em><b>拿结果，按次付</b><span>用一次扣一次积分，不用订阅。</span></div>
+    </div>
+    <div class="ad-safe">
+      <div><b>配方不外泄</b><span>提示词、Skill 和 Key 留在分享者设备上，你拿到的是结果。</span></div>
+      <div><b>先试再用</b><span>不登录也能先试一轮，觉得好再登录接着聊。</span></div>
+      <div><b>一个链接拉朋友</b><span>把链接发给朋友，大家能在同一场对话里接着聊。</span></div>
+    </div>
+  </section>
   {related_html}
 </main>
+
+<a class="pz-ride-band" href="/why">
+  <div class="pz-ride-in">
+    <i class="pz-ride-ic" aria-hidden="true">{_NAV_ICON}</i>
+    <span><b>买车不如打车</b><small>不用订阅、不用配置，用一次付一次</small></span>
+    <em>为什么 →</em>
+  </div>
+</a>
+<footer class="nw-foot"><span>Token Bank</span><a href="/agents">智能体广场</a><a href="/why">为什么用</a><a href="/">开发者概览</a><a href="/share">分享与收益</a><a href="/market">资源市场</a></footer>
+<script>
+try {{ if (localStorage.getItem('user_token')) document.getElementById('tb-promo').remove(); }} catch (e) {{}}
+document.querySelectorAll('[data-share]').forEach(function (b) {{
+  b.addEventListener('click', function () {{
+    var u = b.getAttribute('data-share'), t = b.textContent;
+    function done() {{ b.textContent = '已复制'; setTimeout(function () {{ b.textContent = t; }}, 1500); }}
+    if (navigator.clipboard) navigator.clipboard.writeText(u).then(done, function () {{ prompt('复制链接', u); }});
+    else prompt('复制链接', u);
+  }});
+}});
+</script>
 </body>
 </html>
 """
@@ -189,24 +338,22 @@ def render_agent_cards(agents: list | None, skip_id: str = "", limit: int = 50) 
         if not aid or aid in seen or aid == skip:
             continue
         seen.add(aid)
-        name = _name(card)
-        owner = str(card.get("owner_nickname") or "").strip()
-        runtime = str(card.get("runtime") or "").strip()
+        name, owner = _split_name(card)
+        runtime = _runtime_label(card.get("runtime"))
         meta = []
         if owner:
             meta.append("@" + owner)
         if runtime:
             meta.append(runtime)
-        desc = " ".join(str(card.get("description") or "").split())
+        desc = _friendly_desc(card) if card.get("description") else ""
         online = True if "online" not in card else bool(card.get("online"))
         state = "在线" if online else "离线"
-        action = "去使用" if online else "记录"
+        action = "去使用" if online else "看记录"
         dot = "ok" if online else "off"
-        initial = _esc(name[:1] or "?")
         items.append(
-            f'<a class="ag-card" href="{_esc(agent_intro_path(aid))}">'
+            f'<a class="ag-card{"" if online else " is-off"}" href="{_esc(agent_intro_path(aid))}">'
             '<div class="ag-h">'
-            f'<span class="ag-av" style="background:{_avatar_color(name)}">{initial}</span>'
+            + _avatar_html(card) +
             '<div style="min-width:0;flex:1">'
             f'<div class="ag-name">{_esc(name)}</div>'
             f'<div class="ag-meta">{_esc(" · ".join(meta))}</div>'
@@ -222,7 +369,7 @@ def render_agent_cards(agents: list | None, skip_id: str = "", limit: int = 50) 
     return "".join(items)
 
 
-def render_sitemap(agents: list | None) -> str:
+def render_sitemap(agents: list | None, models: list | None = None) -> str:
     origin = public_origin()
     locs = [origin + "/", origin + "/agents", origin + "/why", origin + "/share", origin + "/market", origin + "/circles"]
     seen = set()
@@ -236,6 +383,10 @@ def render_sitemap(agents: list | None) -> str:
         locs.append(origin + agent_intro_path(aid))
         if len(locs) >= 2000:
             break
+    for m in models or []:
+        m = str(m or "").strip()
+        if m and len(locs) < 2000:
+            locs.append(origin + "/m/" + quote(m, safe=""))
     body = "".join(f"<url><loc>{_esc(loc)}</loc></url>" for loc in locs)
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'
@@ -275,4 +426,34 @@ def chat_seo_tags(card: dict) -> str:
         f'<meta property="og:title" content="{_esc(name)} · Token Bank">'
         f'<meta property="og:description" content="{_esc(meta)}">'
         f'<meta property="og:url" content="{_esc(canon)}">'
+        f'<meta property="og:image" content="{_esc(public_origin() + OG_IMAGE)}">'
+        '<meta name="twitter:card" content="summary_large_image">'
+        f'<meta name="twitter:image" content="{_esc(public_origin() + OG_IMAGE)}">'
     )
+
+
+def apply_model_seo(html: str, model: str) -> str:
+    """模型试用页：按模型名写标题、描述和规范地址，搜索引擎不用执行脚本也能读到。"""
+    model = " ".join(str(model or "").split())[:120]
+    if not model:
+        return html
+    page = public_origin() + "/m/" + quote(model, safe="")
+    title = f"{model} 在线试用 · Token Bank"
+    desc = f"在浏览器里直接试用 {model}：不用自己的 API Key，由社区节点提供，按积分计费。接进 Claude Code、Codex 等客户端后模型名不变。限时免费，注册送 50 积分。"
+    img = public_origin() + OG_IMAGE
+    tags = (
+        f'<link rel="canonical" href="{_esc(page)}">'
+        f'<meta name="keywords" content="{_esc(model)},在线试用,AI 模型,大模型,模型 API,Token Bank">'
+        '<meta property="og:type" content="website"><meta property="og:site_name" content="Token Bank">'
+        f'<meta property="og:title" content="{_esc(title)}"><meta property="og:description" content="{_esc(desc)}">'
+        f'<meta property="og:url" content="{_esc(page)}"><meta property="og:image" content="{_esc(img)}">'
+        '<meta name="twitter:card" content="summary_large_image">'
+        f'<meta name="twitter:image" content="{_esc(img)}">'
+    )
+    html = html.replace("<title>模型试用 · Token Bank</title>", f"<title>{_esc(title)}</title>", 1)
+    html = html.replace(
+        '<meta name="description" content="在资源市场试用开发者共享的模型">',
+        f'<meta name="description" content="{_esc(desc)}">{tags}',
+        1,
+    )
+    return html
