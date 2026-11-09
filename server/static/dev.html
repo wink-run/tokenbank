@@ -4,9 +4,29 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Token Bank · 智能体应用工厂</title>
-<meta name="description" content="Token Bank 开发者中心：统一管理 Pi、Claude Code、Cursor、GrokBot、Muse 等智能体运行时和各家模型供应商（界面与接口）；把智能体分享给自己、圈子或全网分摊费用；从资源市场获取模型、Skill、智能体模板，自用或加工后上架。">
-<link rel="icon" href="/static/logo.svg">
+<meta name="description" content="开源的智能体应用工厂：Claude Code、Codex、Cursor、Pi、GrokBot 等运行时和各家模型一处纳管；一个本地网关提供智能体任务接口和 OpenAI、Anthropic、Codex 三种模型协议；场景路由、Trace、用量看板、跨端归集；上架即得网页应用。限时免费，注册送 50 积分。">
+<meta name="keywords" content="Token Bank,智能体,AI Agent,智能体平台,智能体应用工厂,Claude Code,Codex,Cursor,模型网关,LLM 网关,OneHarness,场景路由,Trace,智能体编排,MCP,Skill">
 <link rel="canonical" href="https://tokenbank.wink.run/">
+<meta name="theme-color" content="#17150f">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Token Bank">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:title" content="Token Bank · 智能体应用工厂">
+<meta property="og:description" content="开源的智能体应用工厂：Claude Code、Codex、Cursor、Pi、GrokBot 等运行时和各家模型一处纳管；一个本地网关提供智能体任务接口和 OpenAI、Anthropic、Codex 三种模型协议；场景路由、Trace、用量看板、跨端归集；上架即得网页应用。限时免费，注册送 50 积分。">
+<meta property="og:url" content="https://tokenbank.wink.run/">
+<meta property="og:image" content="https://tokenbank.wink.run/static/og/token-bank.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Token Bank · 智能体应用工厂">
+<meta name="twitter:description" content="开源的智能体应用工厂：Claude Code、Codex、Cursor、Pi、GrokBot 等运行时和各家模型一处纳管；一个本地网关提供智能体任务接口和 OpenAI、Anthropic、Codex 三种模型协议；场景路由、Trace、用量看板、跨端归集；上架即得网页应用。限时免费，注册送 50 积分。">
+<meta name="twitter:image" content="https://tokenbank.wink.run/static/og/token-bank.png">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "Organization", "name": "Token Bank", "url": "https://tokenbank.wink.run/", "logo": "https://tokenbank.wink.run/static/logo.svg", "sameAs": ["https://github.com/wink-run/tokenbank"]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "WebSite", "name": "Token Bank", "url": "https://tokenbank.wink.run/", "inLanguage": ["zh-CN", "en"], "potentialAction": {"@type": "SearchAction", "target": "https://tokenbank.wink.run/agents?q={search_term_string}", "query-input": "required name=search_term_string"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Token Bank", "applicationCategory": "DeveloperApplication", "operatingSystem": "macOS, Windows, Linux", "description": "开源的智能体应用工厂：Claude Code、Codex、Cursor、Pi、GrokBot 等运行时和各家模型一处纳管；一个本地网关提供智能体任务接口和 OpenAI、Anthropic、Codex 三种模型协议；场景路由、Trace、用量看板、跨端归集；上架即得网页应用。限时免费，注册送 50 积分。", "url": "https://tokenbank.wink.run/", "downloadUrl": "https://github.com/wink-run/tokenbank/releases", "license": "https://www.apache.org/licenses/LICENSE-2.0", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "CNY"}}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "会改变我使用 AI 工具的习惯吗？", "acceptedAnswer": {"@type": "Answer", "text": "不会。Claude Code、Codex、Cursor 等保持原来的命令、界面和模型名，Token Bank 只是让它们指向一个本地地址；想退出时，点「还原」即可一键恢复官方配置。"}}, {"@type": "Question", "name": "和直接调用 API 有什么区别？", "acceptedAnswer": {"@type": "Answer", "text": "你的工具保持原生模型名和配置不变，Token Bank 作为本地网关夹在中间：追踪每个 Token、按场景路由到合适的来源、转换协议；还能统一调度智能体、管理 Skill 等资产，并把智能体分享出去。"}}, {"@type": "Question", "name": "API Key 会上传到云端吗？", "acceptedAnswer": {"@type": "Answer", "text": "不会。密钥留在本机，仅由本地网关使用。登录只同步用量统计用于多设备归集，不上传你的凭证。"}}, {"@type": "Question", "name": "分享智能体，别人能拿走我的配方吗？", "acceptedAnswer": {"@type": "Answer", "text": "不能。别人只拿到任务结果；提示词、Skill、Key 留在你的机器上，任务也在你的设备上执行。"}}, {"@type": "Question", "name": "社区算力安全吗？", "acceptedAnswer": {"@type": "Answer", "text": "社区路由需主动开启，且仅作兜底。分享者通过出站连接接入，不暴露入站端口；结算规则公开、积分可查。"}}, {"@type": "Question", "name": "支持哪些模型和提供商？", "acceptedAnswer": {"@type": "Answer", "text": "OpenAI、Anthropic、Codex 三种协议自动互通，另含 Ollama、Groq、GitHub Models 以及任意 OpenAI 兼容端点；可按应用更换模型，客户端零改动。"}}, {"@type": "Question", "name": "是免费且开源的吗？", "acceptedAnswer": {"@type": "Answer", "text": "是。Apache-2.0 许可，macOS、Windows、Linux / Docker 均可免费使用。积分靠分享获得。"}}]}</script>
+<link rel="icon" href="/static/logo.svg">
 <!-- AdSense 自动广告（沿用原首页） -->
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9160155823114008" crossorigin="anonymous"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">

@@ -35,6 +35,35 @@ def _meta_description(card: dict) -> str:
     return text[:147].rstrip() + "…"
 
 
+OG_IMAGE = "/static/og/token-bank.png"
+
+
+def _keywords(card: dict) -> str:
+    name, owner = _split_name(card)
+    bits = [name, "智能体", "AI 智能体", "在线使用"]
+    rt = _runtime_label(card.get("runtime"))
+    if rt:
+        bits.append(rt)
+    if owner:
+        bits.append(owner)
+    bits.append("Token Bank")
+    return ",".join(b for b in bits if b)
+
+
+def _crumbs_ld(name: str, page_url: str) -> str:
+    origin = public_origin()
+    data = {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Token Bank", "item": origin + "/"},
+            {"@type": "ListItem", "position": 2, "name": "智能体广场", "item": origin + "/agents"},
+            {"@type": "ListItem", "position": 3, "name": name, "item": page_url},
+        ],
+    }
+    return json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
+
+
 def _json_ld(card: dict, page_url: str) -> str:
     name = _name(card)
     data = {
@@ -176,9 +205,20 @@ def render_agent_intro(card: dict, related: list | None = None) -> str:
 <meta property="og:title" content="{_esc(full)} · Token Bank">
 <meta property="og:description" content="{_esc(meta)}">
 <meta property="og:url" content="{_esc(page)}">
-<meta name="twitter:card" content="summary">
+<meta property="og:site_name" content="Token Bank">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="{_esc(public_origin() + OG_IMAGE)}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{_esc(full)} · Token Bank">
+<meta name="twitter:description" content="{_esc(meta)}">
+<meta name="twitter:image" content="{_esc(public_origin() + OG_IMAGE)}">
+<meta name="keywords" content="{_esc(_keywords(card))}">
+<meta name="theme-color" content="#17150f">
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 <script type="application/ld+json">{_json_ld(card, page)}</script>
+<script type="application/ld+json">{_crumbs_ld(full, page)}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -329,7 +369,7 @@ def render_agent_cards(agents: list | None, skip_id: str = "", limit: int = 50) 
     return "".join(items)
 
 
-def render_sitemap(agents: list | None) -> str:
+def render_sitemap(agents: list | None, models: list | None = None) -> str:
     origin = public_origin()
     locs = [origin + "/", origin + "/agents", origin + "/why", origin + "/share", origin + "/market", origin + "/circles"]
     seen = set()
@@ -343,6 +383,10 @@ def render_sitemap(agents: list | None) -> str:
         locs.append(origin + agent_intro_path(aid))
         if len(locs) >= 2000:
             break
+    for m in models or []:
+        m = str(m or "").strip()
+        if m and len(locs) < 2000:
+            locs.append(origin + "/m/" + quote(m, safe=""))
     body = "".join(f"<url><loc>{_esc(loc)}</loc></url>" for loc in locs)
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'
@@ -382,4 +426,34 @@ def chat_seo_tags(card: dict) -> str:
         f'<meta property="og:title" content="{_esc(name)} · Token Bank">'
         f'<meta property="og:description" content="{_esc(meta)}">'
         f'<meta property="og:url" content="{_esc(canon)}">'
+        f'<meta property="og:image" content="{_esc(public_origin() + OG_IMAGE)}">'
+        '<meta name="twitter:card" content="summary_large_image">'
+        f'<meta name="twitter:image" content="{_esc(public_origin() + OG_IMAGE)}">'
     )
+
+
+def apply_model_seo(html: str, model: str) -> str:
+    """模型试用页：按模型名写标题、描述和规范地址，搜索引擎不用执行脚本也能读到。"""
+    model = " ".join(str(model or "").split())[:120]
+    if not model:
+        return html
+    page = public_origin() + "/m/" + quote(model, safe="")
+    title = f"{model} 在线试用 · Token Bank"
+    desc = f"在浏览器里直接试用 {model}：不用自己的 API Key，由社区节点提供，按积分计费。接进 Claude Code、Codex 等客户端后模型名不变。限时免费，注册送 50 积分。"
+    img = public_origin() + OG_IMAGE
+    tags = (
+        f'<link rel="canonical" href="{_esc(page)}">'
+        f'<meta name="keywords" content="{_esc(model)},在线试用,AI 模型,大模型,模型 API,Token Bank">'
+        '<meta property="og:type" content="website"><meta property="og:site_name" content="Token Bank">'
+        f'<meta property="og:title" content="{_esc(title)}"><meta property="og:description" content="{_esc(desc)}">'
+        f'<meta property="og:url" content="{_esc(page)}"><meta property="og:image" content="{_esc(img)}">'
+        '<meta name="twitter:card" content="summary_large_image">'
+        f'<meta name="twitter:image" content="{_esc(img)}">'
+    )
+    html = html.replace("<title>模型试用 · Token Bank</title>", f"<title>{_esc(title)}</title>", 1)
+    html = html.replace(
+        '<meta name="description" content="在资源市场试用开发者共享的模型">',
+        f'<meta name="description" content="{_esc(desc)}">{tags}',
+        1,
+    )
+    return html

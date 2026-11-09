@@ -300,8 +300,10 @@ async def circle_detail_web_page(circle_id: int):
 @app.get("/m/{model_name:path}")
 async def model_landing_page(model_name: str):
     """公开：模型网页试用落地页"""
-    _ = (model_name or "").strip()
-    return FileResponse("static/model-landing.html")
+    from agent_seo import apply_model_seo
+
+    html = open("static/model-landing.html", encoding="utf-8").read()
+    return HTMLResponse(apply_model_seo(html, (model_name or "").strip()), headers={"Cache-Control": "public, max-age=300"})
 
 
 @app.get("/u/{sharer}")
@@ -357,7 +359,11 @@ async def agent_intro_page(assistant_id: str):
 @app.get("/robots.txt")
 async def robots_txt():
     from agent_artifacts import public_origin
-    body = f"User-agent: *\nAllow: /\nSitemap: {public_origin()}/sitemap.xml\n"
+    body = (
+        "User-agent: *\nAllow: /\n"
+        "Disallow: /api/\nDisallow: /user/\nDisallow: /admin\nDisallow: /app\n"
+        f"Sitemap: {public_origin()}/sitemap.xml\n"
+    )
     return Response(body, media_type="text/plain")
 
 
@@ -369,7 +375,12 @@ async def sitemap_xml():
     except Exception as e:
         logger.warning("sitemap agents failed: %s", e)
         agents = []
-    xml = render_sitemap(agents)
+    try:
+        models = sorted(pool.models_for_user(owner_user_id=None, user_circle_ids=set()).keys())
+    except Exception as e:
+        logger.warning("sitemap models failed: %s", e)
+        models = []
+    xml = render_sitemap(agents, models)
     return Response(xml, media_type="application/xml")
 
 

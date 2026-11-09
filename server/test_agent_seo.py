@@ -46,3 +46,16 @@ def test_index_links_and_sitemap_list_each_agent():
     assert "<loc>" in xml
     tags = chat_seo_tags({"id": "poet", "display_name": "写诗", "description": "短诗"})
     assert 'href="https://tokenbank.wink.run/agents/poet"' in tags or "/agents/poet" in tags
+
+
+def test_model_page_and_social_tags():
+    from agent_seo import apply_model_seo
+    html = open("static/model-landing.html", encoding="utf-8").read()
+    out = apply_model_seo(html, "deepseek-v4-pro")
+    assert "<title>deepseek-v4-pro 在线试用 · Token Bank</title>" in out
+    assert "/m/deepseek-v4-pro" in out and 'rel="canonical"' in out
+    assert "og:image" in out
+    intro = render_agent_intro({"id": "poet", "display_name": "写诗专家", "online": True})
+    assert "summary_large_image" in intro and "BreadcrumbList" in intro
+    xml = render_sitemap([{"id": "poet"}], ["glm-5.1"])
+    assert "/m/glm-5.1" in xml
