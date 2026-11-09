@@ -286,6 +286,8 @@ const EMPTY_EDITOR = {
   assistantExtra: {},
   skillQuery: '',
   promptQuery: '',
+  /** 新建智能体两步：brief（先用一句话描述）→ form（确认人设与绑定） */
+  asStep: 'brief',
 };
 
 /** 是否 Windows 前端环境（路径用反斜杠） */
@@ -1929,6 +1931,10 @@ export default function Resources() {
     setEditorOpen(true);
   }
 
+  /** 新建智能体的第一步：只填一句话描述 */
+  const asstIsNew = () => editorForm.type === 'assistant' && !editorForm.id;
+  const asstBrief = () => asstIsNew() && editorForm.asStep === 'brief';
+
   /** Skill 类型：打开安装对话框，由资源安装智能体执行 */
   function handlePrimaryAction() {
     if (typeFilter === 'skill') {
@@ -2011,6 +2017,7 @@ export default function Resources() {
         skills: gen.skills || [],
         prompts: gen.prompts || [],
         tagsText: (gen.tags || []).join(', ') || prev.tagsText,
+        asStep: 'form',
       }));
       setMsg(t('resources.assistantNlOk'));
     } catch (e) {
@@ -2045,7 +2052,10 @@ export default function Resources() {
   }
 
   async function saveEditor() {
-    const name = String(editorForm.name || '').trim();
+    let name = String(editorForm.name || '').trim();
+    if (!name && editorForm.type === 'assistant' && !editorForm.id) {
+      name = slugifyAssistantId(editorForm.display_name || editorForm.description || '', 'assistant-' + Date.now().toString(36));
+    }
     if (!name) {
       setError(t('resources.editorNameRequired'));
       return;
@@ -3978,9 +3988,9 @@ export default function Resources() {
           >
             <div className="px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
               <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                {editorForm.id ? t('resources.editTitle') : t('resources.createTitle')}
+                {editorForm.id ? t('resources.editTitle') : (editorForm.type === 'assistant' ? t('resources.createAssistantTitle') : t('resources.createTitle'))}
               </h3>
-              <p className="text-[11px] text-zinc-400 mt-1">{t('resources.editorHint')}</p>
+              <p className="text-[11px] text-zinc-400 mt-1">{asstBrief() ? t('resources.assistantBriefHint') : t('resources.editorHint')}</p>
             </div>
             <div className="p-4 space-y-3">
               <label className="block text-xs text-zinc-500">
@@ -4028,6 +4038,7 @@ export default function Resources() {
                   <span className="block mt-1 text-[10px] text-zinc-400">{t('resources.editorPromptKindHint')}</span>
                 </label>
               )}
+              {editorForm.type !== 'assistant' && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorName')}
                 <input
@@ -4038,6 +4049,8 @@ export default function Resources() {
                   className="mt-1 w-full text-xs px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 font-mono"
                 />
               </label>
+              )}
+              {!asstBrief() && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorDisplayName')}
                 <input
@@ -4046,6 +4059,8 @@ export default function Resources() {
                   className="mt-1 w-full text-xs px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
                 />
               </label>
+              )}
+              {!asstBrief() && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorDescription')}
                 <input
@@ -4054,6 +4069,8 @@ export default function Resources() {
                   className="mt-1 w-full text-xs px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
                 />
               </label>
+              )}
+              {editorForm.type !== 'assistant' && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorDetail')}
                 <textarea
@@ -4075,49 +4092,71 @@ export default function Resources() {
                 />
                 <span className="block mt-1 text-[10px] text-zinc-400">{t('resources.editorTagsHint')}</span>
               </label>
+              )}
               {editorForm.type === 'assistant' ? (
                 <>
-                  <div className="rounded-xl border border-violet-200/80 dark:border-violet-800/50 bg-violet-50/50 dark:bg-violet-950/20 p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-medium text-violet-700 dark:text-violet-300">
-                        {t('resources.assistantNlTitle')}
-                      </span>
+                  {asstBrief() ? (
+                  <div className="space-y-2">
+                    <textarea
+                      autoFocus
+                      value={editorForm.nlBrief || ''}
+                      onChange={e => setEditorForm(prev => ({ ...prev, nlBrief: e.target.value }))}
+                      onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) generateAssistantNl(); }}
+                      rows={4}
+                      placeholder={t('resources.assistantNlPh')}
+                      className="w-full text-sm px-3 py-2.5 rounded-xl border border-violet-200 dark:border-violet-800/60 bg-white dark:bg-zinc-950 leading-relaxed focus:outline-none focus:ring-2 focus:ring-violet-400/40"
+                    />
+                    <div className="flex items-center gap-3">
                       <button
                         type="button"
                         disabled={!!busy}
                         onClick={generateAssistantNl}
-                        className="tb-press text-xs px-2.5 py-1 rounded-lg bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-50"
+                        className="tb-press text-xs px-3.5 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-50"
                       >
                         {busy === 'assistant-nl' ? t('resources.busy') : t('resources.assistantNlGenerate')}
                       </button>
+                      <button
+                        type="button"
+                        disabled={!!busy}
+                        onClick={() => setEditorForm(prev => ({ ...prev, asStep: 'form' }))}
+                        className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:underline disabled:opacity-50"
+                      >
+                        {t('resources.assistantManual')}
+                      </button>
                     </div>
-                    <textarea
-                      value={editorForm.nlBrief || ''}
-                      onChange={e => setEditorForm(prev => ({ ...prev, nlBrief: e.target.value }))}
-                      rows={3}
-                      placeholder={t('resources.assistantNlPh')}
-                      className="w-full text-xs px-2 py-1.5 rounded-lg border border-violet-200 dark:border-violet-800/60 bg-white dark:bg-zinc-950 leading-relaxed"
-                    />
-                    <p className="text-[10px] text-violet-500/90 dark:text-violet-400/80">{t('resources.assistantNlHint')}</p>
+                    <p className="text-[10px] text-zinc-400">{t('resources.assistantNlHint')}</p>
                   </div>
+                  ) : (
+                  <>
+                  {asstIsNew() && (
+                    <button
+                      type="button"
+                      onClick={() => setEditorForm(prev => ({ ...prev, asStep: 'brief' }))}
+                      className="text-[11px] text-violet-600 dark:text-violet-400 hover:underline"
+                    >
+                      ← {t('resources.assistantRebrief')}
+                    </button>
+                  )}
                   <label className="block text-xs text-zinc-500">
                     {t('resources.assistantSoul')}
                     <textarea
                       value={editorForm.soul || ''}
                       onChange={e => setEditorForm(prev => ({ ...prev, soul: e.target.value }))}
-                      rows={8}
+                      rows={6}
                       spellCheck={false}
                       placeholder={t('resources.assistantSoulPh')}
                       className="mt-1 w-full text-xs px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 leading-relaxed"
                     />
                   </label>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-zinc-500">{t('resources.assistantSkills')}</span>
+                  <details className="group rounded-lg border border-zinc-200 dark:border-zinc-700 px-2.5 py-2">
+                    <summary className="flex items-center justify-between gap-2 cursor-pointer list-none">
+                      <span className="text-xs text-zinc-600 dark:text-zinc-300">{t('resources.assistantSkills')}</span>
                       <span className="text-[10px] text-zinc-400">
                         {t('resources.assistantSkillsPicked', { n: (editorForm.skills || []).length })}
+                        <span className="ml-1 inline-block transition-transform group-open:rotate-90">›</span>
                       </span>
-                    </div>
+                    </summary>
+                    <div className="space-y-1.5 mt-2">
                     <input
                       value={editorForm.skillQuery || ''}
                       onChange={e => setEditorForm(prev => ({ ...prev, skillQuery: e.target.value }))}
@@ -4166,14 +4205,17 @@ export default function Resources() {
                       })()}
                     </div>
                     <p className="text-[10px] text-zinc-400">{t('resources.assistantSkillsHint')}</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-zinc-500">{t('resources.assistantPrompts')}</span>
+                    </div>
+                  </details>
+                  <details className="group rounded-lg border border-zinc-200 dark:border-zinc-700 px-2.5 py-2">
+                    <summary className="flex items-center justify-between gap-2 cursor-pointer list-none">
+                      <span className="text-xs text-zinc-600 dark:text-zinc-300">{t('resources.assistantPrompts')}</span>
                       <span className="text-[10px] text-zinc-400">
                         {t('resources.assistantPromptsPicked', { n: (editorForm.prompts || []).length })}
+                        <span className="ml-1 inline-block transition-transform group-open:rotate-90">›</span>
                       </span>
-                    </div>
+                    </summary>
+                    <div className="space-y-1.5 mt-2">
                     <input
                       value={editorForm.promptQuery || ''}
                       onChange={e => setEditorForm(prev => ({ ...prev, promptQuery: e.target.value }))}
@@ -4227,7 +4269,36 @@ export default function Resources() {
                       })()}
                     </div>
                     <p className="text-[10px] text-zinc-400">{t('resources.assistantPromptsHint')}</p>
-                  </div>
+                    </div>
+                  </details>
+                  <details className="group">
+                    <summary className="cursor-pointer list-none text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
+                      <span className="inline-block mr-1 transition-transform group-open:rotate-90">›</span>{t('resources.editorAdvanced')}
+                    </summary>
+                    <div className="mt-2 space-y-3">
+                      <label className="block text-xs text-zinc-500">
+                        {t('resources.editorName')}
+                        <input
+                          value={editorForm.name}
+                          disabled={!!editorForm.id}
+                          onChange={e => setEditorForm(prev => ({ ...prev, name: e.target.value }))}
+                          placeholder={t('resources.editorNameAuto')}
+                          className="mt-1 w-full text-xs px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 font-mono"
+                        />
+                      </label>
+                      <label className="block text-xs text-zinc-500">
+                        {t('resources.editorTags')}
+                        <input
+                          value={editorForm.tagsText || ''}
+                          onChange={e => setEditorForm(prev => ({ ...prev, tagsText: e.target.value }))}
+                          placeholder={t('resources.editorTagsPh')}
+                          className="mt-1 w-full text-xs px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                        />
+                      </label>
+                    </div>
+                  </details>
+                  </>
+                  )}
                 </>
               ) : (
                 <label className="block text-xs text-zinc-500">
@@ -4256,6 +4327,7 @@ export default function Resources() {
               >
                 {t('resources.cancel')}
               </button>
+              {!asstBrief() && (
               <button
                 type="button"
                 disabled={!!busy}
@@ -4264,6 +4336,7 @@ export default function Resources() {
               >
                 {busy === 'editor' ? t('resources.busy') : t('resources.save')}
               </button>
+              )}
             </div>
           </div>
         </div>,
