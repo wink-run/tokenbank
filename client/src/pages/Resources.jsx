@@ -40,7 +40,7 @@ import {
   sortIdleByRecommendation,
 } from '../lib/idle-skill-ai';
 import { classifyLifecycle, isLifecycleExempt } from '../lib/resource-lifecycle';
-import { buildInvokeText, copyText } from '../lib/resource-enable';
+import { buildInvokeText, copyText, completeEnablePackage } from '../lib/resource-enable';
 import { catalogSharerHandle } from '../lib/catalog-sharer';
 import {
   formatApiError,
@@ -2022,8 +2022,17 @@ export default function Resources() {
       setMsg(t('resources.assistantNlOk'));
     } catch (e) {
       const code = e?.message || '';
+      // 生成失败不卡在第一步：转手动，把描述带进人设
+      if (code !== 'brief_too_short') {
+        setEditorForm((prev) => ({
+          ...prev,
+          asStep: 'form',
+          soul: prev.soul || brief,
+          description: prev.description || brief.slice(0, 60),
+        }));
+      }
       if (code === 'brief_too_short') setError(t('resources.assistantNlTooShort'));
-      else if (code === 'llm_unavailable') setError(t('resources.assistantNlNoLlm'));
+      else if (code === 'llm_unavailable') setError(t('resources.assistantNlNoLlmManual'));
       else if (code === 'soul_too_short' || code === 'bad_llm_json') setError(t('resources.assistantNlBad'));
       else setError(t('resources.assistantNlFailed', { detail: String(code).slice(0, 120) }));
     } finally {
@@ -2107,6 +2116,20 @@ export default function Resources() {
       setMsg(t('resources.saveOk'));
       changeViewTab('managed');
       if (res.resource) upsertResourceLocally(res.resource);
+      // 新建智能体：保存后直接启用（投射到常用应用 + 复制调用口令），与推荐安装一致
+      if (res.resource && editorForm.type === 'assistant' && !editorForm.id) {
+        try {
+          const pack = await completeEnablePackage(res.resource, { lang });
+          if (pack.invokeText) await copyText(pack.invokeText);
+          const shown = res.resource.display_name || res.resource.name;
+          setMsg(pack.projected
+            ? t('resources.enabledWithInvoke', { name: shown, invoke: pack.invokeText })
+            : t('resources.enabledNeedProject', { name: shown, invoke: pack.invokeText }));
+          const fresh = await window.electronAPI.resource.listResources({ type: 'assistant' });
+          const hit = (fresh?.resources || []).find(r => r.id === res.resource.id);
+          if (hit) upsertResourceLocally(hit);
+        } catch { /* 启用失败保留「已保存」，用户可手动投射 */ }
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -4106,6 +4129,21 @@ export default function Resources() {
                       placeholder={t('resources.assistantNlPh')}
                       className="w-full text-sm px-3 py-2.5 rounded-xl border border-violet-200 dark:border-violet-800/60 bg-white dark:bg-zinc-950 leading-relaxed focus:outline-none focus:ring-2 focus:ring-violet-400/40"
                     />
+                    <div className="flex flex-wrap gap-1.5">
+                      {(t('resources.assistantExamples') || '').split('|').filter(Boolean).map((ex) => {
+                        const [label, text] = ex.split('::');
+                        return (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => setEditorForm(prev => ({ ...prev, nlBrief: text || label }))}
+                            className="text-[11px] px-2 py-1 rounded-full border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-violet-300 hover:text-violet-700 dark:hover:text-violet-300"
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
@@ -4118,7 +4156,7 @@ export default function Resources() {
                       <button
                         type="button"
                         disabled={!!busy}
-                        onClick={() => setEditorForm(prev => ({ ...prev, asStep: 'form' }))}
+                        onClick={() => setEditorForm(prev => ({ ...prev, asStep: 'form', soul: prev.soul || String(prev.nlBrief || '').trim() }))}
                         className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:underline disabled:opacity-50"
                       >
                         {t('resources.assistantManual')}
@@ -4151,8 +4189,15 @@ export default function Resources() {
                   <details className="group rounded-lg border border-zinc-200 dark:border-zinc-700 px-2.5 py-2">
                     <summary className="flex items-center justify-between gap-2 cursor-pointer list-none">
                       <span className="text-xs text-zinc-600 dark:text-zinc-300">{t('resources.assistantSkills')}</span>
-                      <span className="text-[10px] text-zinc-400">
-                        {t('resources.assistantSkillsPicked', { n: (editorForm.skills || []).length })}
+                      <span className="min-w-0 flex items-center gap-1 text-[10px] text-zinc-400">
+                        {(editorForm.skills || []).length ? (
+                          <span className="truncate max-w-[260px] text-zinc-600 dark:text-zinc-300">
+                            {(editorForm.skills || []).map(n => {
+                              const r = (resources || []).find(x => x.type === 'skill' && x.name === n);
+                              return (r && (r.display_name || r.name)) || n;
+                            }).join('、')}
+                          </span>
+                        ) : t('resources.assistantSkillsPicked', { n: 0 })}
                         <span className="ml-1 inline-block transition-transform group-open:rotate-90">›</span>
                       </span>
                     </summary>
@@ -4210,8 +4255,15 @@ export default function Resources() {
                   <details className="group rounded-lg border border-zinc-200 dark:border-zinc-700 px-2.5 py-2">
                     <summary className="flex items-center justify-between gap-2 cursor-pointer list-none">
                       <span className="text-xs text-zinc-600 dark:text-zinc-300">{t('resources.assistantPrompts')}</span>
-                      <span className="text-[10px] text-zinc-400">
-                        {t('resources.assistantPromptsPicked', { n: (editorForm.prompts || []).length })}
+                      <span className="min-w-0 flex items-center gap-1 text-[10px] text-zinc-400">
+                        {(editorForm.prompts || []).length ? (
+                          <span className="truncate max-w-[260px] text-zinc-600 dark:text-zinc-300">
+                            {(editorForm.prompts || []).map(n => {
+                              const r = (resources || []).find(x => x.type === 'prompt' && x.name === n);
+                              return (r && (r.display_name || r.name)) || n;
+                            }).join('、')}
+                          </span>
+                        ) : t('resources.assistantPromptsPicked', { n: 0 })}
                         <span className="ml-1 inline-block transition-transform group-open:rotate-90">›</span>
                       </span>
                     </summary>
@@ -4334,7 +4386,7 @@ export default function Resources() {
                 onClick={saveEditor}
                 className="tb-press text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50"
               >
-                {busy === 'editor' ? t('resources.busy') : t('resources.save')}
+                {busy === 'editor' ? t('resources.busy') : (asstIsNew() ? t('resources.saveAndEnable') : t('resources.save'))}
               </button>
               )}
             </div>
