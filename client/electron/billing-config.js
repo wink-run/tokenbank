@@ -735,22 +735,137 @@ function syncProviderModelsFromAccounts(agentCfg, localCfg) {
   return syncGatewayProvidersFromAccounts(agentCfg, localCfg);
 }
 
+/** 直连源 source/agent → OAuth 供给名。目录 plan_provider_id 对不上自建 id 时靠它认领。 */
+const DIRECT_SOURCE_OAUTH = {
+  claude: 'claude',
+  'claude-code': 'claude',
+  codex: 'codex',
+  copilot: 'copilot',
+  'github-copilot': 'copilot',
+};
+
+/** 与个人源页 OAuth 订阅相同的网关 id。目录还没同步下来时也认这几个。 */
+const DIRECT_SOURCE_GATEWAY = {
+  claude: 'anthropic-paid',
+  'claude-code': 'anthropic-paid',
+  codex: 'openai',
+  copilot: 'github-copilot',
+  'github-copilot': 'github-copilot',
+};
+
+function eachDirectBillingEntry(cfg, fn) {
+  const billing = cfg && cfg.direct_source_billing;
+  if (!billing || typeof billing !== 'object' || Array.isArray(billing)) return;
+  for (const [agentId, entry] of Object.entries(billing)) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    fn(String(agentId), entry);
+  }
+}
+
+function directSourceCatalogMaps(cfg) {
+  const bySource = {};
+  const byAgent = {};
+  const add = (c) => {
+    if (!c) return;
+    const sourceId = c.source_id || c.id;
+    if (sourceId && !bySource[sourceId]) bySource[sourceId] = c;
+    if (c.agent_id && !byAgent[c.agent_id]) byAgent[c.agent_id] = c;
+  };
+  try {
+    for (const c of subscriptionAppCatalog(cfg)) add(c);
+  } catch { /* 目录文件不可用时继续看内存目录 */ }
+  for (const s of _liveSubscriptionSources) {
+    if (!s || (s.kind && s.kind !== 'app_sub' && s.kind !== 'api_sub')) continue;
+    add({
+      source_id: s.source_id || s.id,
+      agent_id: s.agent_id || s.source_id || s.id,
+      plan_provider_id: s.plan_provider_id,
+      provider_id: s.provider_id,
+    });
+  }
+  return { bySource, byAgent };
+}
+
+/** direct_source_billing 对应的网关 provider id（条目上的 id，以及目录 plan_provider_id）。 */
+function directSourceGatewayIds(cfg = {}) {
+  const ids = new Set();
+  const { bySource, byAgent } = directSourceCatalogMaps(cfg);
+  eachDirectBillingEntry(cfg, (agentId, entry) => {
+    for (const id of [entry.gateway_id, entry.provider_id, entry.plan_provider_id]) {
+      if (id) ids.add(id);
+    }
+    const sourceId = entry.source_id || agentId;
+    if (DIRECT_SOURCE_GATEWAY[sourceId]) ids.add(DIRECT_SOURCE_GATEWAY[sourceId]);
+    if (DIRECT_SOURCE_GATEWAY[agentId]) ids.add(DIRECT_SOURCE_GATEWAY[agentId]);
+    const cat = (entry.source_id && bySource[entry.source_id]) || byAgent[agentId] || null;
+    if (cat?.plan_provider_id) ids.add(cat.plan_provider_id);
+    if (cat?.provider_id) ids.add(cat.provider_id);
+  });
+  return ids;
+}
+
+function directSourceOAuthNames(cfg = {}) {
+  const names = new Set();
+  eachDirectBillingEntry(cfg, (agentId, entry) => {
+    if (entry.oauth_provider) names.add(String(entry.oauth_provider));
+    const sourceId = entry.source_id || agentId;
+    if (DIRECT_SOURCE_OAUTH[sourceId]) names.add(DIRECT_SOURCE_OAUTH[sourceId]);
+    if (DIRECT_SOURCE_OAUTH[agentId]) names.add(DIRECT_SOURCE_OAUTH[agentId]);
+  });
+  return names;
+}
+
+function providerKeptForDirectSource(provider, directIds, oauthNames) {
+  if (!provider) return false;
+  if (provider.id && directIds.has(provider.id)) return true;
+  return !!(provider.oauth_provider && oauthNames.has(provider.oauth_provider));
+}
+
+/** 订阅实例是否就是某条直连源计费（按 agent、source 或 gateway id）。 */
+function subscriptionMatchesDirectBilling(sub, cfg) {
+  if (!sub || typeof sub !== 'object') return false;
+  const billing = cfg && cfg.direct_source_billing;
+  if (!billing || typeof billing !== 'object') return false;
+  if (sub.agent_id && billing[sub.agent_id]) return true;
+  for (const [id, entry] of Object.entries(billing)) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (sub.source_id && (entry.source_id === sub.source_id || id === sub.source_id)) return true;
+    if (sub.agent_id && (id === sub.agent_id || entry.source_id === sub.agent_id)) return true;
+    if (sub.gateway_id && (
+      entry.gateway_id === sub.gateway_id
+      || entry.provider_id === sub.gateway_id
+      || entry.plan_provider_id === sub.gateway_id
+    )) return true;
+  }
+  return false;
+}
+
 /**
  * 清理旧逻辑遗留的供给源配置：
  * - 移除未在个人页登记的 custom-* 供给源
  * - 未启用的付费源清空 models（去掉 yaml 预填）
  * - 已启用但不在个人页登记列表的付费源强制禁用
+ * direct_source_billing 登记的订阅源算已登记：不禁用、不清它的模型列表。
  */
 function migrateAgentProviders(cfg = {}) {
   const gatewayIds = new Set(resolveUserGatewayProviderIds(cfg));
+  const directIds = directSourceGatewayIds(cfg);
+  const directOAuth = directSourceOAuthNames(cfg);
+  for (const id of directIds) gatewayIds.add(id);
   if (!Array.isArray(cfg.providers)) return { cfg, changed: false };
   let changed = false;
   const next = [];
   for (const raw of cfg.providers) {
     const p = { ...raw };
     if (p.type === 'paid') {
-      if (String(p.id || '').startsWith('custom-') && !gatewayIds.has(p.id)) {
+      const keepDirect = providerKeptForDirectSource(p, directIds, directOAuth);
+      if (String(p.id || '').startsWith('custom-') && !gatewayIds.has(p.id) && !keepDirect) {
         changed = true;
+        continue;
+      }
+      // 直连源计费对应的供给源保持原样（含自建 id 的 OAuth 订阅）。显式关闭的仍按旧规则清模型。
+      if (keepDirect && p.enabled !== false) {
+        next.push(p);
         continue;
       }
       if (!p.enabled) {
@@ -1003,6 +1118,8 @@ function prunePricingMap(map, allowed) {
 function pruneLocalBillingAgainstServer(cfg = {}) {
   const modelSets = catalogModelSetsByProvider();
   const { paygIds, appSubIds, apiSubIds, allTemplateKeys, pricingProviderIds } = serverCatalogKeySets();
+  const directIds = directSourceGatewayIds(cfg);
+  const directOAuth = directSourceOAuthNames(cfg);
   let changed = false;
 
   if (cfg.custom_source_templates && Object.keys(cfg.custom_source_templates).length) {
@@ -1024,6 +1141,7 @@ function pruneLocalBillingAgainstServer(cfg = {}) {
   const keepSub = (s) => {
     if (!s || typeof s !== 'object') return false;
     if (s.custom) return true; // 自定义实例纯本地，不参与 catalog 裁剪
+    if (subscriptionMatchesDirectBilling(s, cfg)) return true; // 直连源计费不是 catalog 垃圾
     const sid = s.source_id;
     if (!sid) return false;
     if (s.subscription_kind === 'api') return apiSubIds.has(sid);
@@ -1062,6 +1180,7 @@ function pruneLocalBillingAgainstServer(cfg = {}) {
   // 按量 / API 订阅实例：去掉服务端已下线的模型，保留用户改过价的自配模型
   const nextSubsWithModels = (cfg.user_subscriptions || []).map(s => {
     if (!s || s.custom) return s;
+    if (subscriptionMatchesDirectBilling(s, cfg)) return s;
     const pid = s.plan_provider_id || s.source_id;
     if (!pid || !modelSets[pid]) return s;
     const allowed = allowedModelsForProvider(cfg, pid, modelSets[pid]);
@@ -1085,6 +1204,8 @@ function pruneLocalBillingAgainstServer(cfg = {}) {
   if (Array.isArray(cfg.providers)) {
     const nextProviders = cfg.providers.map(p => {
       if (!p?.id || !modelSets[p.id]) return p;
+      // 直连源计费的模型以本地登记为准，不因服务端目录暂未收录就删掉。
+      if (providerKeptForDirectSource(p, directIds, directOAuth)) return p;
       const allowed = allowedModelsForProvider(cfg, p.id, modelSets[p.id]);
       const ms = (p.models || []).filter(m => {
         const n = typeof m === 'string' ? m : (m.name || m.id || m.model);
