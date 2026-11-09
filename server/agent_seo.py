@@ -182,8 +182,8 @@ def render_agent_intro(card: dict, related: list | None = None) -> str:
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=35">
-<script src="/static/plaza-nav.js?v=19"></script>
+<link rel="stylesheet" href="/static/plaza.css?v=36">
+<script src="/static/plaza-nav.js?v=20"></script>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{font-family:Inter,-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;background:#faf8f3;color:#0a0a0a;-webkit-font-smoothing:antialiased}}
@@ -191,6 +191,7 @@ a{{color:inherit;text-decoration:none}}
 </style>
 </head>
 <body>
+<a class="pz-promo" id="tb-promo" href="/app?signup=1"><i aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="8.5" width="17" height="4" rx="1"/><path d="M5 12.5V20h14v-7.5M12 8.5V20M12 8.5S10.5 4 8 4.5 7.5 8.5 12 8.5zM12 8.5s1.5-4.5 4-4 .5 4-4 4z"/></svg></i><b>限时免费中</b><span>注册就送 50 积分</span><em>立即注册 →</em></a>
 <nav class="ag-top">
   <div class="ag-top-in">
     <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
@@ -218,7 +219,7 @@ a{{color:inherit;text-decoration:none}}
       <a class="pz-btn pri" href="{_esc(chat)}">{cta} →</a>
       <button class="pz-btn ghost" type="button" data-share="{_esc(page)}">复制分享链接</button>
     </div>
-    <p class="ad-tip">{_esc(state_tip)}。未登录也能先试一轮。</p>
+    <p class="ad-tip">{_esc(state_tip)}。未登录也能先试一轮，<a href="/app?signup=1">注册就送 50 积分</a>。</p>
     <div class="ad-chat" aria-hidden="true">
       <div class="ad-chat-bar"><i></i><i></i><i></i><span>{_esc(name)}</span><b class="ad-state {'on' if online else 'off'}"><i></i>{state}</b></div>
       <div class="ad-chat-body">
@@ -259,6 +260,7 @@ a{{color:inherit;text-decoration:none}}
 </a>
 <footer class="nw-foot"><span>Token Bank</span><a href="/agents">智能体广场</a><a href="/why">为什么用</a><a href="/">开发者概览</a><a href="/share">分享与收益</a><a href="/market">资源市场</a></footer>
 <script>
+try {{ if (localStorage.getItem('user_token')) document.getElementById('tb-promo').remove(); }} catch (e) {{}}
 document.querySelectorAll('[data-share]').forEach(function (b) {{
   b.addEventListener('click', function () {{
     var u = b.getAttribute('data-share'), t = b.textContent;
