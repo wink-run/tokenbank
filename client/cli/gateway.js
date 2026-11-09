@@ -183,6 +183,12 @@ async function cmdStart(port, adminPort) {
   adminApi.start(adminPort, gateway, bindHost, { reporterGetStats });
   console.log(`[gateway] Admin API started on port ${adminPort}`);
 
+  // 内置看护（与桌面版共用 electron/guardian）：handler 经 ipc-bridge 注册，这里登记检查并挂网关失败事件
+  try {
+    require('./ipc-bridge').init();
+    require('../electron/guardian/ipc').startGuardian({ gateway });
+  } catch (e) { console.warn('[guardian] start:', e.message); }
+
   // Init device reporter（仅登录用户才向云端注册/心跳）
   const identity = deviceIdentity.collect({
     type: 'cli',

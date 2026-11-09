@@ -1,6 +1,7 @@
 // 闲置 Skill 大模型分析：分批处理；结合画像 / Trace 习惯 / 质量 / 命中综合判断
 
 /** 每批送给模型的条数 */
+import { resolveGatewayBase } from './gateway-base';
 const BATCH_SIZE = 30;
 /** 模型最多分析条数；超出部分仅用启发式逐条上屏 */
 const MAX_AI_ITEMS = 300;
@@ -21,17 +22,6 @@ function yieldToUi() {
 }
 
 /** 解析本地网关 base（与 resource-purpose 一致） */
-async function resolveGatewayBase() {
-  let base = 'http://127.0.0.1:11430';
-  if (!window.electronAPI?.gateway?.status) return base;
-  try {
-    const st = await window.electronAPI.gateway.status();
-    const port = st?.port || st?.listenPort || st?.localPort;
-    if (port) base = `http://127.0.0.1:${port}`;
-    else if (st?.url || st?.baseUrl) base = String(st.url || st.baseUrl).replace(/\/$/, '');
-  } catch { /* 默认口 */ }
-  return base;
-}
 
 /** 读取个性化推荐缓存的用户画像（若有） */
 function loadPortraitFromStorage() {

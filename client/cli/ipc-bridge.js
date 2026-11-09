@@ -18,7 +18,7 @@ const https = require('https');
 const path = require('path');
 
 const STUB_PATH = path.join(__dirname, 'electron-stub.js');
-const ALLOWED_PREFIXES = ['resource:', 'agent:', 'community:'];
+const ALLOWED_PREFIXES = ['resource:', 'agent:', 'community:', 'guardian:'];
 const LOCAL_ONLY_CHANNELS = new Set(['llm:fetch']);
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
@@ -84,6 +84,7 @@ function init() {
     installElectronStub();
     require('../electron/ipc-handlers-resource').registerResourceHandlers();
     require('../electron/ipc-handlers-agent').registerAgentHandlers();
+    require('../electron/guardian/ipc').registerGuardianHandlers();
     stub.__handlers.set('llm:fetch', llmFetch);
     // 没有系统文件对话框：选工作目录 = 校验 Web 界面填写的路径，默认 /workspace（挂载的项目目录）
     stub.__handlers.set('agent:pickWorkingDir', async (_event, opts = {}) => {

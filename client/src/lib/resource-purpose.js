@@ -2,6 +2,7 @@
  * 资源用途分类：把零散 tags 聚合到 SkillHub 一级用途（与个性化推荐一致）。
  * 流程：静态别名 → AI 映射缓存 → 未命中则跳过（不展示碎片标签）。
  */
+import { resolveGatewayBase } from './gateway-base';
 
 /** 与 PersonalizedRecommend CATEGORY_SLUGS 对齐 */
 export const PURPOSE_SLUGS = [
@@ -219,17 +220,6 @@ export function resolvePurposes(item, aiMap = {}) {
 }
 
 /** 解析本地网关 base（与 idle-skill-ai 一致） */
-async function resolveGatewayBase() {
-  let base = 'http://127.0.0.1:11430';
-  if (!window.electronAPI?.gateway?.status) return base;
-  try {
-    const st = await window.electronAPI.gateway.status();
-    const port = st?.port || st?.listenPort || st?.localPort;
-    if (port) base = `http://127.0.0.1:${port}`;
-    else if (st?.url || st?.baseUrl) base = String(st.url || st.baseUrl).replace(/\/$/, '');
-  } catch { /* 默认口 */ }
-  return base;
-}
 
 /**
  * 用本地网关小模型把未知标签归入用途；失败则返回原缓存。

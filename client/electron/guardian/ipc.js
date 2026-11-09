@@ -1,0 +1,51 @@
+// client/electron/guardian/ipc.js
+// 看护的 IPC：桌面版 main.js 注册；Docker 经 cli/ipc-bridge.js 以 HTTP 暴露（同一组 handler）。
+'use strict';
+
+const { ipcMain } = require('electron');
+const guardian = require('./index');
+
+let startedOnce = false;
+
+function safe(fn) {
+  return async (_event, ...args) => {
+    try {
+      return await fn(...args);
+    } catch (e) {
+      console.error('[guardian] ipc error:', e.message);
+      return { success: false, error: e.message };
+    }
+  };
+}
+
+function registerGuardianHandlers() {
+  ipcMain.handle('guardian:getSettings', safe(() => ({ success: true, settings: guardian.getSettings() })));
+  ipcMain.handle('guardian:setSettings', safe((patch) => ({ success: true, settings: guardian.setSettings(patch || {}) })));
+  ipcMain.handle('guardian:listRecords', safe((opts) => ({ success: true, records: guardian.listRecords(opts || {}) })));
+  ipcMain.handle('guardian:undo', safe(async (id) => {
+    const r = await guardian.undo(id);
+    return { success: !!r.ok, error: r.error };
+  }));
+  ipcMain.handle('guardian:apply', safe(async (id) => {
+    const r = await guardian.apply(id);
+    return { success: !!r.ok, error: r.error };
+  }));
+  ipcMain.handle('guardian:dismiss', safe((id) => ({ success: guardian.dismiss(id) })));
+  ipcMain.handle('guardian:runChecks', safe(async () => ({ success: true, results: await guardian.runChecks() })));
+
+  // 资产一键诊断与修复
+  ipcMain.handle('resource:diagnose', safe(({ resourceId } = {}) => require('./diagnose').diagnoseResource(resourceId)));
+  ipcMain.handle('resource:fixDiagnosis', safe(({ resourceId, type } = {}) => require('./diagnose').fixResource(resourceId, type)));
+}
+
+/** 启动看护：登记各项检查、挂网关失败事件、开定时。gatewayModule 为 electron/local-gateway */
+function startGuardian({ gateway, initialDelayMs } = {}) {
+  if (startedOnce) return;
+  startedOnce = true;
+  try { require('./projection-heal').register(); } catch (e) { console.warn('[guardian] projection-heal:', e.message); }
+  try { if (gateway) require('./gateway-watch').attach(gateway); } catch (e) { console.warn('[guardian] gateway-watch:', e.message); }
+  guardian.start({ initialDelayMs });
+  console.log('[guardian] started');
+}
+
+module.exports = { registerGuardianHandlers, startGuardian };

@@ -11,6 +11,7 @@ import PersonalizedRecommend from '../components/PersonalizedRecommend';
 import McpProvidersTab from '../components/McpProvidersTab';
 import SkillInstallDialog from '../components/SkillInstallDialog';
 import AiNeedNotice from '../components/AiNeedNotice';
+import DiagnosePanel from '../components/DiagnosePanel';
 import { useAiReadiness } from '../lib/ai-readiness';
 import { isWebBridge } from '../api/webBridge';
 import {
@@ -3421,6 +3422,7 @@ export default function Resources() {
                 {busy === li.resourceId ? t('resources.busy') : t('resources.project')}
               </button>
             )}
+            {li.resourceId && <DiagnosePanel resourceId={li.resourceId} onChanged={() => loadAll({ silent: true })} />}
           </div>
         </InspectorSection>
         {li.type === 'assistant' && (() => {

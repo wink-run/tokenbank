@@ -85,6 +85,19 @@ const resource = {
   extractDescription: call('resource:extractDescription', {}),
   onHit: on('resource:hit'),
   pollHit: call0('resource:pollHit'),
+  diagnose: call('resource:diagnose', {}),
+  fixDiagnosis: call('resource:fixDiagnosis', {}),
+};
+
+// 与 preload.js 的 guardian 段一致
+const guardian = {
+  getSettings: call0('guardian:getSettings'),
+  setSettings: call('guardian:setSettings', {}),
+  listRecords: call('guardian:listRecords', {}),
+  undo: (id) => invoke('guardian:undo', id),
+  apply: (id) => invoke('guardian:apply', id),
+  dismiss: (id) => invoke('guardian:dismiss', id),
+  runChecks: call0('guardian:runChecks'),
 };
 
 // preload 的 agent 段里「智能体聚合」部分；设备代理的 start/stop/getStatus/日志在 CLI 已有 /api/agent/*，不放这里
@@ -132,7 +145,7 @@ export async function installWebBridge({ timeoutMs = 1500 } = {}) {
     if (!res.ok) return false;
     const body = await res.json().catch(() => null);
     if (!body || !body.ok) return false;
-    window.electronAPI = { __web: true, resource, agent, llm };
+    window.electronAPI = { __web: true, resource, agent, llm, guardian };
     return true;
   } catch {
     return false;

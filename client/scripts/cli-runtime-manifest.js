@@ -18,6 +18,7 @@ const CLI_ENTRY_POINTS = [
   // 资产管理与命令行智能体纳管：ipc-bridge 运行时才 require，静态扫描需显式列出
   path.join(CLIENT_ROOT, 'electron', 'ipc-handlers-resource.js'),
   path.join(CLIENT_ROOT, 'electron', 'ipc-handlers-agent.js'),
+  path.join(CLIENT_ROOT, 'electron', 'guardian', 'ipc.js'),
 ];
 
 /**

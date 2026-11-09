@@ -1,6 +1,7 @@
 /**
  * 自然语言创建智能体：用本地网关生成 name / 人设，并从候选 skill 中挑选绑定。
  */
+import { resolveGatewayBase } from './gateway-base';
 
 /** 英文标识：小写 + 连字符 */
 export function slugifyAssistantId(raw = '') {
@@ -66,17 +67,6 @@ export function buildAssistantContent({
   return JSON.stringify(payload, null, 2);
 }
 
-async function resolveGatewayBase() {
-  let base = 'http://127.0.0.1:11430';
-  if (!window.electronAPI?.gateway?.status) return base;
-  try {
-    const st = await window.electronAPI.gateway.status();
-    const port = st?.port || st?.listenPort || st?.localPort;
-    if (port) base = `http://127.0.0.1:${port}`;
-    else if (st?.url || st?.baseUrl) base = String(st.url || st.baseUrl).replace(/\/$/, '');
-  } catch { /* 默认口 */ }
-  return base;
-}
 
 function extractJsonObject(text) {
   const raw = String(text || '');

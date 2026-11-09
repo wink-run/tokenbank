@@ -298,13 +298,28 @@ function runNpm(args, timeout = 300000) {
   });
 }
 
+function npmRootGlobal() {
+  return new Promise((resolve) => {
+    require('child_process').execFile('npm', ['root', '-g'], { timeout: 20000, env: process.env },
+      (err, stdout) => resolve(err ? null : (String(stdout || '').trim() || null)));
+  });
+}
+
 async function npmGlobalInstall(id) {
   const pkg = (configLoader.appNpmPackages() || {})[id];
   if (!pkg) return { ok: false, error: 'no-npm-package' };
   const extra = String((configLoader.appNpmInstallArgs() || {})[id] || '').split(/\s+/).filter(Boolean);
-  const r = await runNpm(['i', '-g', `${pkg}@latest`, ...extra]);
+  let name = id;
+  try { name = configLoader.appEntityById(id)?.name || id; } catch { /* ignore */ }
+  // 失败时由看护认出原因：中断残留 / 网络抖动自动处理后重试，其它给出办法（见 electron/guardian/install-fix.js）
+  const { installWithRepair, sweepNpmStaging } = require('../electron/guardian/install-fix');
+  const r = await installWithRepair({
+    id, name, pkg,
+    attempt: () => runNpm(['i', '-g', `${pkg}@latest`, ...extra]),
+    sweep: async () => { sweepNpmStaging(await npmRootGlobal(), pkg); },
+  });
   invalidateAgentCaches();
-  return r.ok ? { ok: true, pkg } : r;
+  return r.ok ? { ok: true, pkg, guardian: r.guardian } : r;
 }
 
 async function npmGlobalUninstall(id) {
