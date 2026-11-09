@@ -518,6 +518,7 @@ async def _prepare_agent_task(
     session_key: Optional[str] = None,
     idempotency_key: Optional[str] = None,
     idempotency_digest: Optional[str] = None,
+    caller_device_id: Optional[str] = None,
 ) -> tuple[Optional[dict], Optional[dict]]:
     """预检 + 下发。成功返回 (ctx, None)；失败返回 (None, error_dict)。"""
     from web_public import (
@@ -579,9 +580,22 @@ async def _prepare_agent_task(
     else:
         circles = set()
 
+    caller_dev = (caller_device_id or "").strip()
     workers = pool.pick_agent_workers(
         aid, user_circle_ids=circles, worker_id=worker_id, owner=owner,
+        exclude_device_id=caller_dev or None,
     )
+    if not workers and caller_dev:
+        # 只有本机自己在线时，上面会被排除光。这和「没人在线」不是同一件事。
+        own = pool.pick_agent_workers(
+            aid, user_circle_ids=circles, worker_id=worker_id, owner=owner,
+        )
+        if own:
+            return None, {
+                "ok": False,
+                "error": "不能雇佣本机上的智能体",
+                "status": "rejected",
+            }
     if not workers:
         return None, {
             "ok": False,
@@ -850,6 +864,7 @@ async def handle_agent_task(
     session_key: Optional[str] = None,
     idempotency_key: Optional[str] = None,
     idempotency_digest: Optional[str] = None,
+    caller_device_id: Optional[str] = None,
 ) -> dict:
     """选节点，按本人或雇佣校验，下发后等到终态。失败退款。"""
     ctx, err = await _prepare_agent_task(
@@ -866,6 +881,7 @@ async def handle_agent_task(
         session_key=session_key,
         idempotency_key=idempotency_key,
         idempotency_digest=idempotency_digest,
+        caller_device_id=caller_device_id,
     )
     if err:
         if guest_ip and err.get("status") == "rejected":
@@ -1111,6 +1127,7 @@ async def iter_agent_task_sse(
     session_key: Optional[str] = None,
     idempotency_key: Optional[str] = None,
     idempotency_digest: Optional[str] = None,
+    caller_device_id: Optional[str] = None,
 ) -> AsyncIterator[str]:
     """SSE：progress 事件推正文，done/error 收尾。页面断开后任务仍继续。"""
     ctx, err = await _prepare_agent_task(
@@ -1127,6 +1144,7 @@ async def iter_agent_task_sse(
         session_key=session_key,
         idempotency_key=idempotency_key,
         idempotency_digest=idempotency_digest,
+        caller_device_id=caller_device_id,
     )
     if err:
         # 还没派到设备上：这次不算试用，避免第一条还没回复就被额度拦住

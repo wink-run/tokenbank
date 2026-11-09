@@ -1105,9 +1105,24 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
   const [sortBy, setSortBy] = useState('popular');
   // 行内「雇佣」：先选中再在下一帧执行（hireSelected 读取 selected）
   const [pendingHire, setPendingHire] = useState(null);
+  // 本机设备号。和名片上的 device_id 相同就是自己这台，不能雇。
+  const [myDeviceId, setMyDeviceId] = useState('');
   // KeepAlive 下用 pathname 判断是否在交易页（再次进入需立刻刷新）
   const pageActive = location.pathname === '/contribute';
   const refreshRef = useRef(null);
+
+  useEffect(() => {
+    try {
+      const id = window.electronAPI?.app?.getDeviceId?.();
+      if (id) setMyDeviceId(String(id));
+    } catch { /* 浏览器里没有设备号 */ }
+  }, []);
+
+  function isSelfMachine(a) {
+    const mine = String(myDeviceId || '');
+    const dev = String(a?.device_id || '');
+    return !!(mine && dev && mine === dev);
+  }
 
   function refreshHired() {
     if (!window.electronAPI?.agent?.listHiredCommunity) return;
@@ -1124,19 +1139,25 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
     const quiet = !!opts.quiet;
     if (!quiet) setLoading(true);
     try {
+      let list = [];
       try {
         const r = await listCommunityAgents();
-        setAgents(r.data?.agents || []);
+        list = r.data?.agents || [];
         if (r.data?.credits_per_task != null) setCredits(r.data.credits_per_task);
       } catch {
-        // 未登录或鉴权失败时回退公开列表
-        try {
-          const r = await listPublicCommunityAgents();
-          setAgents(r.data?.agents || []);
-        } catch {
-          setAgents([]);
-        }
+        list = [];
       }
+      // 登录接口只含此刻在线的名片。库里还有上架时补上，避免市场空白。
+      try {
+        const pub = await listPublicCommunityAgents();
+        const seen = new Set(list.map((a) => a && a.id).filter(Boolean));
+        for (const a of pub.data?.agents || []) {
+          if (!a?.id || seen.has(a.id)) continue;
+          seen.add(a.id);
+          list.push(a);
+        }
+      } catch { /* 公开列表失败时保留已拿到的在线名片 */ }
+      setAgents(list);
     } finally {
       if (!quiet) setLoading(false);
     }
@@ -1169,6 +1190,10 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
 
   async function hireSelected() {
     if (!selected || busy) return;
+    if (isSelfMachine(selectedRow || selected)) {
+      setErr(t('contribute.hireSelf'));
+      return;
+    }
     setErr('');
     setHireMsg('');
     setBusy('hire');
@@ -1284,7 +1309,8 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
     : '';
   const selectedRow = selected ? agents.find(a => a.id === selected.id && a.worker_id === selected.worker_id) : null;
   const hiredCount = agents.filter(a => hiredIds.has(a.id)).length;
-  const idleCount = agents.filter(a => !(Number(a.active_requests) > 0)).length;
+  const onlineAgents = agents.filter(a => a.online !== false);
+  const idleCount = onlineAgents.filter(a => !(Number(a.active_requests) > 0)).length;
 
   const scopeOptions = [
     { id: 'all', label: t('contribute.scope.all') },
@@ -1313,7 +1339,7 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
           <div className="min-w-0 flex-1">
             <div className="text-[15px] font-semibold text-zinc-900 dark:text-zinc-50">{t('contribute.marketTitle')}</div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 flex flex-wrap items-center gap-x-2">
-              <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" aria-hidden />{t('contribute.marketOnline', { n: agents.length, idle: idleCount })}</span>
+              <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" aria-hidden />{t('contribute.marketOnline', { n: onlineAgents.length, idle: idleCount })}</span>
               <span className="text-zinc-300 dark:text-zinc-600">·</span>
               <span>{t('contribute.marketHired', { n: hiredCount })}</span>
               {credits != null && (<><span className="text-zinc-300 dark:text-zinc-600">·</span><span>{t('contribute.agentTaskCost', { n: credits })}</span></>)}
@@ -1418,6 +1444,8 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
                 const key = `${a.worker_id}:${a.id}`;
                 const sel = !!selected && selected.id === a.id && selected.worker_id === a.worker_id;
                 const hired = hiredIds.has(a.id);
+                const offline = a.online === false;
+                const self = isSelfMachine(a);
                 const busyNow = Number(a.active_requests) > 0;
                 const hires = Number(a.hire_count) || 0;
                 const { name: title, owner } = parseCommunityAgent(a);
@@ -1473,18 +1501,19 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
                         : <span className="text-[10px] px-1.5 py-px rounded bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300">{t('contribute.newListing')}</span>}
                     </div>
                     <div className="hidden md:flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300">
-                      <span className={`w-1.5 h-1.5 rounded-full ${busyNow ? 'bg-amber-500' : 'bg-green-500'}`} aria-hidden />
-                      {busyNow ? t('network.busy') : t('network.idle')}
+                      <span className={`w-1.5 h-1.5 rounded-full ${offline ? 'bg-zinc-300' : busyNow ? 'bg-amber-500' : 'bg-green-500'}`} aria-hidden />
+                      {offline ? t('network.offline') : busyNow ? t('network.busy') : t('network.idle')}
                     </div>
                     <div className="flex justify-end md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
                       {!hired && (
                         <button
                           type="button"
-                          disabled={!!busy}
+                          disabled={!!busy || self || offline}
+                          title={self ? t('contribute.hireSelf') : undefined}
                           onClick={() => { selectAgent(a, { toggle: false }); setPendingHire(a); }}
                           className="tb-press whitespace-nowrap text-[11px] px-2.5 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-45"
                         >
-                          {t('contribute.hireShort')}
+                          {self ? t('contribute.hireSelf') : t('contribute.hireShort')}
                         </button>
                       )}
                     </div>
@@ -1523,10 +1552,13 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
                 <button
                   type="button"
                   onClick={hireSelected}
-                  disabled={!!busy}
+                  disabled={!!busy || isSelfMachine(selectedRow) || selectedRow?.online === false}
+                  title={isSelfMachine(selectedRow) ? t('contribute.hireSelf') : undefined}
                   className="tb-press flex-1 text-xs font-medium px-3.5 py-2 rounded-lg bg-blue-600 text-white shadow-sm shadow-blue-600/25 hover:bg-blue-500 disabled:opacity-50"
                 >
-                  {busy === 'hire' ? t('contribute.hiring') : (selectedHired ? t('contribute.hiredAgain') : t('contribute.hireBtn'))}
+                  {isSelfMachine(selectedRow)
+                    ? t('contribute.hireSelf')
+                    : (busy === 'hire' ? t('contribute.hiring') : (selectedHired ? t('contribute.hiredAgain') : t('contribute.hireBtn')))}
                 </button>
                 {selectedHired && (
                   <button

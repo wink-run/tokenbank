@@ -1340,6 +1340,7 @@ function connect(cfg) {
     // 超过服务端注册超时就会永远 registration timeout → Network 智能体=0。
     regMsg.agents = [];
     thisSocket.send(JSON.stringify(regMsg));
+    const wanted = normalizeContributeAssistants(liveCfg);
     collectAgentCardsForRegister(liveCfg).then((agents) => {
       // null：探测失败。不发 agents_ready 空名单，避免把这一端上次的上架清掉。
       if (!Array.isArray(agents)) {
@@ -1351,9 +1352,13 @@ function connect(cfg) {
       } else {
         log('[agent] agents: (none — contribute list empty or filtered)');
       }
-      if (thisSocket.readyState === WebSocket.OPEN) {
-        thisSocket.send(JSON.stringify({ type: 'agents_update', agents, agents_ready: true }));
+      if (thisSocket.readyState !== WebSocket.OPEN) return;
+      // 勾了智能体但名片没建成时不发空名单。空的 agents_ready 会把上次上架清掉，市场就变成 0。
+      if (!agents.length && wanted.length) {
+        log('[agent] agents: keep previous listing');
+        return;
       }
+      thisSocket.send(JSON.stringify({ type: 'agents_update', agents, agents_ready: true }));
     }).catch((e) => {
       log(`[agent] agents card build failed: ${e.message}`);
     });

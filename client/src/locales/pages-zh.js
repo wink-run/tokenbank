@@ -1319,6 +1319,7 @@ export default {
   'contribute.agentOwner': '所有者 · {owner}',
   'contribute.agentRuntime': '运行时 · {runtime}',
   'contribute.hireBtn': '雇佣到本机',
+  'contribute.hireSelf': '本机不能雇佣本机',
   'contribute.hiredAgain': '已雇佣 · 更新',
   'contribute.unhireBtn': '取消雇佣',
   'contribute.hiring': '雇佣中…',

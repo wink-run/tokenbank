@@ -307,10 +307,14 @@ async function runCommunityAgentTask({ assistantId, prompt, owner, timeoutMs, im
   const who = await resolveCommunityOwner(aid, owner);
   // stream 开关：打开才向云端要 SSE，否则等整段结果
   const wantStream = !!stream;
+  let callerDeviceId = '';
+  try { callerDeviceId = require('../shared/device-id').ensureDeviceId('desktop'); } catch { /* 没有设备号就不排除 */ }
   const taskBody = {
     assistant_id: aid,
     prompt: text,
     owner: who || undefined,
+    // 云端据此不把任务派回这台正在出租的设备
+    caller_device_id: callerDeviceId || undefined,
     timeout_ms: timeoutMs || undefined,
     images: Array.isArray(images) && images.length ? images : undefined,
     files: Array.isArray(files) && files.length ? files : undefined,

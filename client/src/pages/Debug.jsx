@@ -66,6 +66,8 @@ import AgentSessionHistoryPanel from '../components/AgentSessionHistoryPanel';
 import LlmSessionHistoryPanel from '../components/LlmSessionHistoryPanel';
 import LocalFilePreviewHost from '../components/LocalFilePreview';
 import { StreamMarkdownContent } from '../components/RichMediaContent';
+import CopyMessageButton from '../components/CopyMessageButton';
+import { onMessageCopy } from '../lib/copy-message';
 import { openLocalPath } from '../lib/local-path';
 import { saveAgentSessionSnapshot, saveLlmSessionSnapshot, listAgentSessionSnapshots, listLlmSessionSnapshots, findAgentSessionForContinue, historySnapshotMatchesOpenSession, isAgentHistoryTaskHidden } from '../lib/debug-session-history';
 import {
@@ -895,7 +897,6 @@ export default function Debug() {
   const [panels,         setPanels]        = useState(() => ({ main: loadDebugPanel() }));
   const [sending,        setSending]       = useState(false);
   const [lightbox,       setLightbox]      = useState(null);
-  const [copiedMsgIdx,   setCopiedMsgIdx]  = useState(null);
   // 待发附件（图片 dataURL；Agent 模式还可带普通文件）
   const [pendingImages,  setPendingImages] = useState([]);
   const [attachError,    setAttachError]   = useState('');
@@ -1568,6 +1569,7 @@ export default function Debug() {
         cliSessionId: patch.taskResult?.cliSessionId || sess.cliSessionId || null,
         workingDir: normalizeWorkingDir(sess.sessionWorkingDir || agentWorkingDir.trim()),
         timestamp: patch.currentTask?.completed_at || Date.now(),
+        sentAt: patch.currentTask?.created_at || patch.currentTask?.started_at || sess.currentTask?.created_at || null,
       });
     }
 
@@ -2005,7 +2007,7 @@ export default function Debug() {
           routeTaskMirror(childTaskId, agentKey);
           patchSession(agentKey, {
             currentUserPrompt: prompt,
-            currentTask: { id: childTaskId, status: 'running', parentTaskId },
+            currentTask: { id: childTaskId, status: 'running', parentTaskId, created_at: Date.now() },
             taskSteps: [],
             taskResult: null,
             executing: true,
@@ -2023,7 +2025,7 @@ export default function Debug() {
       routeTask(childTaskId, ownerKey);
       patchSession(ownerKey, {
         currentUserPrompt: prompt,
-        currentTask: { id: childTaskId, status: 'running' },
+        currentTask: { id: childTaskId, status: 'running', created_at: Date.now() },
         taskSteps: [],
         taskResult: null,
         executing: true,
@@ -2086,6 +2088,7 @@ export default function Debug() {
               id: taskId,
               status: 'running',
               parentTaskId: parentTaskId || agentSess.currentTask?.parentTaskId,
+              created_at: agentSess.currentTask?.created_at || Date.now(),
             },
             taskSteps: coalesceAgentSteps(agentSess.taskSteps || [], stepData),
             executing: true,
@@ -2561,7 +2564,7 @@ export default function Debug() {
           executing: true,
           taskSteps: [],
           taskResult: null,
-          currentTask: { id: result.taskId, status: 'running' },
+          currentTask: { id: result.taskId, status: 'running', created_at: Date.now() },
           agentPrompt: '',
         });
         // IPC 完成事件丢失时的轮询兜底
@@ -2676,6 +2679,7 @@ export default function Debug() {
         cliSessionId: cliSid || null,
         workingDir: normalizeWorkingDir(snap.sessionWorkingDir || agentWorkingDir.trim()),
         timestamp: Date.now(),
+        sentAt: task?.created_at || task?.started_at || null,
       });
       patchSession(execKey, {
         executing: false,
@@ -3378,11 +3382,21 @@ export default function Debug() {
                   })()}
                 </div>
               ) : (
-                <div className={`relative group rounded-xl px-4 py-2.5 text-sm ${
-                  msg.role === 'user'
-                    ? 'bg-blue-600 text-white whitespace-pre-wrap'
-                    : 'tb-soft-bubble text-zinc-900 dark:text-zinc-100'
-                }`}>
+                <div
+                  className={`relative group rounded-xl px-4 py-2.5 text-sm select-text ${
+                    msg.role === 'user'
+                      ? 'bg-blue-600 text-white whitespace-pre-wrap'
+                      : 'tb-soft-bubble text-zinc-900 dark:text-zinc-100'
+                  }`}
+                  onCopy={onMessageCopy}
+                >
+                  {!msg.streaming && (
+                    <CopyMessageButton
+                      text={msg.content || ''}
+                      images={msg.images}
+                      tone={msg.role === 'user' ? 'onBlue' : 'soft'}
+                    />
+                  )}
                   {msg.role === 'assistant' ? (
                     <>
                       <StreamMarkdownContent
@@ -3392,22 +3406,6 @@ export default function Debug() {
                       />
                       {msg.streaming && (
                         <span className="animate-pulse text-blue-400 dark:text-blue-400 ml-0.5">▊</span>
-                      )}
-                      {/* 悬停显示复制；复制原文 Markdown */}
-                      {!msg.streaming && String(msg.content || '').trim() && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(msg.content);
-                              setCopiedMsgIdx(i);
-                              setTimeout(() => setCopiedMsgIdx(v => (v === i ? null : v)), 1500);
-                            } catch { /* ignore */ }
-                          }}
-                          className="absolute top-2 right-2 px-2 py-0.5 text-[11px] rounded-lg bg-zinc-100/90 dark:bg-zinc-700/90 text-zinc-500 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          {copiedMsgIdx === i ? t('debug.copied') : t('debug.copy')}
-                        </button>
                       )}
                     </>
                   ) : (

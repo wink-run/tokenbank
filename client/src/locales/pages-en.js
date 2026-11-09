@@ -1339,6 +1339,7 @@ export default {
   'contribute.agentOwner': 'Owner · {owner}',
   'contribute.agentRuntime': 'Runtime · {runtime}',
   'contribute.hireBtn': 'Hire locally',
+  'contribute.hireSelf': 'This device can’t hire itself',
   'contribute.hiredAgain': 'Hired · update',
   'contribute.unhireBtn': 'Cancel hire',
   'contribute.hiring': 'Hiring…',

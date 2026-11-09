@@ -91,7 +91,7 @@ a { color: inherit; text-decoration: none; }
       </div>
     </div>
     <div class="pz-stats" style="grid-template-columns:repeat(4,1fr)">
-      <div v-for="(s, i) in statRow" :key="s.k" class="pz-stat"><div class="pz-stat-k"><i v-if="i === 0" class="pz-live"></i>{{ s.label }}</div><div class="pz-stat-v">{{ loaded ? s.n : '—' }}</div></div>
+      <div v-for="(s, i) in statRow" :key="s.k" class="pz-stat"><div class="pz-stat-k"><i v-if="i === 0" class="pz-live"></i>{{ s.label }}</div><div class="pz-stat-v">{{ s.ready ? s.n : '—' }}</div></div>
     </div>
   </header>
 
@@ -141,7 +141,7 @@ a { color: inherit; text-decoration: none; }
 
       <template v-else>
       <div class="pz-tabs" role="tablist">
-        <button v-for="tb in tabs" :key="tb.id" type="button" role="tab" :aria-selected="tab === tb.id" :class="{ on: tab === tb.id }" @click="setTab(tb.id)">{{ tb.label }}<em>{{ loaded ? tb.n : '' }}</em></button>
+        <button v-for="tb in tabs" :key="tb.id" type="button" role="tab" :aria-selected="tab === tb.id" :class="{ on: tab === tb.id }" @click="setTab(tb.id)">{{ tb.label }}<em>{{ tb.ready ? tb.n : '' }}</em></button>
       </div>
 
       <!-- 供给排行：谁在分享、在线模型（原共享网络页） -->
@@ -149,7 +149,7 @@ a { color: inherit; text-decoration: none; }
         <div class="nw-board" style="margin-top:18px">
           <div class="nw-card" id="rank">
             <div class="nw-card-h"><h3>🏆 {{ T.rankTitle }}</h3><span>{{ T.rankSub }}</span></div>
-            <div v-if="!loaded" class="nw-empty">{{ T.loading }}</div>
+            <div v-if="!netReady" class="nw-empty">{{ T.loading }}</div>
             <template v-else-if="topSharers.length">
               <component :is="w.sharer ? 'a' : 'div'" v-for="(w, i) in topSharers.slice(0, 10)" :key="w.sharer || w.worker_id || w.name"
                          class="nw-rk" :class="{ top: i < 3 }" :href="w.sharer ? '/u/' + encodeURIComponent(w.sharer) : undefined">
@@ -163,7 +163,7 @@ a { color: inherit; text-decoration: none; }
           </div>
           <div class="nw-card">
             <div class="nw-card-h"><h3>{{ T.supplyTitle }}</h3><span>{{ T.supplySub }}</span></div>
-            <div v-if="!loaded" class="nw-empty">{{ T.loading }}</div>
+            <div v-if="!netReady" class="nw-empty">{{ T.loading }}</div>
             <div v-else-if="supplyRows.length" class="nw-supply">
               <div v-for="r in supplyRows" :key="r.name" class="nw-sp">
                 <span class="pz-mono" :title="r.name">{{ r.name }}</span>
@@ -181,7 +181,7 @@ a { color: inherit; text-decoration: none; }
         <div class="pz-subbar">
           <button v-for="f in modelFilters" :key="f.id" type="button" :class="['ag-chip', { on: mtype === f.id }]" :aria-pressed="mtype === f.id" @click="mtype = f.id">{{ f.label }}<em>{{ f.n }}</em></button>
         </div>
-        <div v-if="!loaded" class="loading">{{ T.loading }}</div>
+        <div v-if="!netReady" class="loading">{{ T.loading }}</div>
         <div v-else-if="!shownModels.length" class="pz-empty"><b>{{ q ? T.noMatch : T.emptyModels }}</b></div>
         <div v-else class="pz-table">
           <div class="pz-tr pz-th"><span>{{ T.colModel }}</span><span class="pz-num hide-sm">{{ T.colNodes }}</span><span class="pz-num hide-sm">{{ T.colLatency }}</span><span></span></div>
@@ -195,7 +195,7 @@ a { color: inherit; text-decoration: none; }
       </template>
 
       <template v-else>
-        <div v-if="!loaded" class="loading">{{ T.loading }}</div>
+        <div v-if="tab === 'scenes' ? !stuReady : !resReady" class="loading">{{ T.loading }}</div>
         <article v-else-if="detailItem" class="res-page">
           <button type="button" class="pz-back" @click="closeDetail">← {{ T.back }}</button>
           <div class="ag-h">
@@ -372,7 +372,10 @@ createApp({
     const q = ref('')
     const mtype = ref('all')
     const limit = ref(24)
-    const loaded = ref(false)
+    // 模型表和目录分开就绪：慢的那一个不再挡住另一个
+    const netReady = ref(false)
+    const resReady = ref(false)
+    const stuReady = ref(false)
     const summary = ref({})
     const workers = ref([]), availableModels = ref([]), modelTypes = ref({}), catalog = ref([]), scenes = ref([]), mods = ref([])
     const match = (...v) => { const k = q.value.trim().toLowerCase(); return !k || v.some(x => String(x || '').toLowerCase().includes(k)) }
@@ -423,18 +426,27 @@ createApp({
     const shownRes = computed(() => resources.value.filter(r => r.kind === tab.value && match(r.name, r.desc, r.meta)))
     const tabs = computed(() => {
       const t = T.value
+      const net = netReady.value
+      const res = resReady.value
       return [
-        { id: 'models', label: t.tabModels, n: models.value.length },
-        { id: 'skills', label: t.tabSkills, n: count('skills') },
-        { id: 'templates', label: t.tabTemplates, n: count('templates') },
-        { id: 'prompts', label: t.tabPrompts, n: count('prompts') },
-        { id: 'scenes', label: t.tabScenes, n: count('scenes') },
-        { id: 'board', label: t.tabBoard, n: topSharers.value.length },
-      ].filter(x => x.id === 'models' || x.id === 'board' || !loaded.value || x.n > 0)
+        { id: 'models', label: t.tabModels, n: models.value.length, ready: net },
+        { id: 'skills', label: t.tabSkills, n: count('skills'), ready: res },
+        { id: 'templates', label: t.tabTemplates, n: count('templates'), ready: res },
+        { id: 'prompts', label: t.tabPrompts, n: count('prompts'), ready: res },
+        { id: 'scenes', label: t.tabScenes, n: count('scenes'), ready: stuReady.value },
+        { id: 'board', label: t.tabBoard, n: topSharers.value.length, ready: net },
+      ].filter(x => x.id === 'models' || x.id === 'board' || !x.ready || x.n > 0)
     })
     const statRow = computed(() => {
       const t = T.value
-      return [{ k: 'm', label: t.sModels, n: models.value.length }, { k: 's', label: t.sSkills, n: count('skills') }, { k: 't', label: t.sTemplates, n: count('templates') }, { k: 'p', label: t.sPrompts, n: count('prompts') }]
+      const net = netReady.value
+      const res = resReady.value
+      return [
+        { k: 'm', label: t.sModels, n: models.value.length, ready: net },
+        { k: 's', label: t.sSkills, n: count('skills'), ready: res },
+        { k: 't', label: t.sTemplates, n: count('templates'), ready: res },
+        { k: 'p', label: t.sPrompts, n: count('prompts'), ready: res },
+      ]
     })
     // 供给排行：同一分享者多台节点合并
     const mNames = w => (w.models || []).map(m => typeof m === 'string' ? m : m?.name).filter(Boolean)
@@ -471,12 +483,44 @@ createApp({
     function jump() { document.getElementById('list')?.scrollIntoView({ block: 'start' }) }
 
     async function load() {
-      try {
-        const [n, c, s] = await Promise.all([fetch('/public/network').catch(() => null), fetch('/api/community-catalog').catch(() => null), fetch('/public/studio').catch(() => null)])
-        if (n && n.ok) { const d = await n.json(); workers.value = d.workers || []; availableModels.value = d.available_models || []; modelTypes.value = d.available_model_types || {}; summary.value = d.summary || {}; publicCircles.value = d.available_circles || []; liveAgents.value = (d.available_agents || []).filter(a => a && a.online !== false && a.id) }
-        if (c && c.ok) { const cd = await c.json(); catalog.value = Array.isArray(cd?.resources) ? cd.resources : (Array.isArray(cd?.data?.resources) ? cd.data.resources : []) }
-        if (s && s.ok) { const sd = await s.json(); scenes.value = sd.scenes || []; mods.value = sd.mods || [] }
-      } catch {} finally { loaded.value = true }
+      // 模型表只等网络接口。目录和场景晚到就补上数字，不再挡住首屏。
+      const netP = (async () => {
+        try {
+          const n = await fetch('/public/network')
+          if (n.ok) {
+            const d = await n.json()
+            workers.value = d.workers || []
+            availableModels.value = d.available_models || []
+            modelTypes.value = d.available_model_types || {}
+            summary.value = d.summary || {}
+            publicCircles.value = d.available_circles || []
+            liveAgents.value = (d.available_agents || []).filter(a => a && a.online !== false && a.id)
+          }
+        } catch {}
+        netReady.value = true
+      })()
+      const catP = (async () => {
+        try {
+          const c = await fetch('/api/community-catalog?cards=1')
+          if (c.ok) {
+            const cd = await c.json()
+            catalog.value = Array.isArray(cd?.resources) ? cd.resources : (Array.isArray(cd?.data?.resources) ? cd.data.resources : [])
+          }
+        } catch {}
+        resReady.value = true
+      })()
+      const stuP = (async () => {
+        try {
+          const s = await fetch('/public/studio')
+          if (s.ok) {
+            const sd = await s.json()
+            scenes.value = sd.scenes || []
+            mods.value = sd.mods || []
+          }
+        } catch {}
+        stuReady.value = true
+      })()
+      await Promise.all([netP, catP, stuP])
     }
     // 可见范围：公开 / 我的圈子（圈子只是可见性不同，列表同一套）
     const scope = ref(location.hash === '#circles' ? 'circle' : 'public')
@@ -530,7 +574,7 @@ createApp({
       load()
       if (scope.value === 'circle') loadCircles()
     })
-    return { lang, T, N, toggleLang, loggedIn, summary, topSharers, offerText, supplyRows, maxNodes, fmtTok, scope, setScope, circles, circleLoaded, circleId, circleItems, shownCircleItems, publicCircles, tab, setTab, q, mtype, limit, loaded, tabs, statRow, modelFilters, shownModels, shownRes, curCount, typeLabel, typeBadge, fmtMs, fmtListed, speedCls, color, jump, detailItem, openDetail, closeDetail, onCard, chatOf, renderMd }
+    return { lang, T, N, toggleLang, loggedIn, summary, topSharers, offerText, supplyRows, maxNodes, fmtTok, scope, setScope, circles, circleLoaded, circleId, circleItems, shownCircleItems, publicCircles, tab, setTab, q, mtype, limit, netReady, resReady, stuReady, tabs, statRow, modelFilters, shownModels, shownRes, curCount, typeLabel, typeBadge, fmtMs, fmtListed, speedCls, color, jump, detailItem, openDetail, closeDetail, onCard, chatOf, renderMd }
   },
 }).mount('#app')
 </script>

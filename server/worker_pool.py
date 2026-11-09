@@ -918,6 +918,8 @@ class WorkerPool:
                     "runtime": card.get("runtime") or "",
                     "worker_id": w.worker_id,
                     "worker_name": w.name[:1] + "***" if w.name else "***",
+                    # 雇佣页用来认出本机，避免雇到正在这台设备上跑的智能体
+                    "device_id": str(getattr(w, "device_id", None) or ""),
                     "owner_nickname": owner,
                     "sharer": worker_sharer(w),
                     "active_requests": w.active_requests,
@@ -957,10 +959,35 @@ class WorkerPool:
         self._agent_hire_counts[aid] = int(self._agent_hire_counts.get(aid, 0) or 0) + 1
         return self._agent_hire_counts[aid]
 
+    def rehydrate_blank_agent_cards(self, by_owner: dict) -> None:
+        """在线节点名片是空的、且该账号只有这一台在线时，把库里的上架挂回去。
+
+        空的 agents_update 会把内存名片清掉，市场就显示 0。多台设备同时在线时分不清是谁的，不猜。
+        """
+        groups: dict[int, list] = {}
+        for w in self._workers:
+            uid = getattr(w, "user_id", None)
+            if uid is None:
+                continue
+            groups.setdefault(int(uid), []).append(w)
+        for uid, workers in groups.items():
+            if len(workers) != 1:
+                continue
+            worker = workers[0]
+            if getattr(worker, "agents", None):
+                continue
+            cards = by_owner.get(uid) or []
+            kept = [dict(c) for c in cards if isinstance(c, dict) and str(c.get("id") or "").strip()]
+            if not kept:
+                continue
+            worker.agents = kept
+            self.remember_agent_cards(worker)
+
     def pick_agent_workers(self, assistant_id: str,
                            user_circle_ids: Optional[set] = None,
                            worker_id: Optional[str] = None,
-                           owner: Optional[str] = None) -> list:
+                           owner: Optional[str] = None,
+                           exclude_device_id: Optional[str] = None) -> list:
         """可服务该智能体的真实 worker，按负载升序。
 
         owner 指定时只在该出租者当前在线的设备里自动选，不钉设备 id。
@@ -972,10 +999,14 @@ class WorkerPool:
         circles = user_circle_ids or set()
         pinned = (worker_id or "").strip() or None
         owner_q = (owner or "").strip().casefold()
+        # 调用方自己这台设备不接自己发出的雇佣
+        skip_dev = (exclude_device_id or "").strip()
 
         def collect(require_wid: Optional[str]) -> list:
             out = []
             for w in self._workers:
+                if skip_dev and str(getattr(w, "device_id", None) or "").strip() == skip_dev:
+                    continue
                 if require_wid and w.worker_id != require_wid:
                     continue
                 if owner_q:

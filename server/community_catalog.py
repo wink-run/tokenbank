@@ -302,9 +302,20 @@ async def load_community_catalog_doc() -> dict:
     return load_default_doc()
 
 
+# 公开目录短时间内复用。市场页和客户端同步会连着打，不必每次都整份解析。
+_PAYLOAD_TTL = 15.0
+_payload_cache: tuple[float, dict] | None = None
+
+
+def _drop_catalog_cache() -> None:
+    global _payload_cache
+    _payload_cache = None
+
+
 async def save_catalog_doc(doc: dict) -> None:
     payload = normalize_catalog_doc(doc)
     await db.set_config(CONFIG_KEY, json.dumps(payload, ensure_ascii=False, indent=2))
+    _drop_catalog_cache()
 
 
 async def import_from_defaults() -> dict:
@@ -313,11 +324,24 @@ async def import_from_defaults() -> dict:
     return {"ok": True, "counts": {k: len(doc[k]) for k in _SECTIONS}}
 
 
-async def community_catalog_payload() -> dict:
-    """公开下发：隐藏已下架条目；附带扁平 resources 列表（含分享人）。"""
-    doc = catalog_payload_from_doc(await load_community_catalog_doc(), public=True)
-    resources = flatten_public_resources(doc)
-    return {**doc, "resources": resources, "resource_count": len(resources)}
+async def community_catalog_payload(*, cards_only: bool = False) -> dict:
+    """公开下发：隐藏已下架条目；附带扁平 resources 列表（含分享人）。
+
+    cards_only 只给列表卡片，不带各段原文。市场页用这个，避免把整份技能正文再传一遍。
+    """
+    global _payload_cache
+    now = time.monotonic()
+    cached = _payload_cache
+    if cached and now - cached[0] < _PAYLOAD_TTL:
+        full = cached[1]
+    else:
+        doc = catalog_payload_from_doc(await load_community_catalog_doc(), public=True)
+        resources = flatten_public_resources(doc)
+        full = {**doc, "resources": resources, "resource_count": len(resources)}
+        _payload_cache = (now, full)
+    if cards_only:
+        return {"resources": full["resources"], "resource_count": full["resource_count"]}
+    return full
 
 
 async def publish_community_catalog() -> dict:

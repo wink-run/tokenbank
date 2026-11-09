@@ -439,6 +439,7 @@ export function mergeTaskIntoStore(status) {
           cliSessionId: status.result?.cliSessionId || null,
           workingDir: ctx.workingDir || getStoreSession(agentKey).sessionWorkingDir || '',
           timestamp: status.completed_at || Date.now(),
+          sentAt: status.created_at || status.started_at || null,
         });
         const after = getStoreSession(agentKey);
         patchStoreSession(agentKey, {
@@ -497,6 +498,7 @@ export function mergeTaskIntoStore(status) {
       cliSessionId: status.result?.cliSessionId || null,
       workingDir: ctx.workingDir || getStoreSession(key).sessionWorkingDir || '',
       timestamp: status.completed_at || Date.now(),
+      sentAt: status.created_at || status.started_at || null,
     });
     const afterArchive = getStoreSession(key);
     patchStoreSession(key, {
@@ -732,6 +734,7 @@ export function archiveCompletedTurn(sessionKey, turn) {
       result: richer ? mergedResult : (prev.result || mergedResult),
       status: turn.status || prev.status,
       timestamp: turn.timestamp || prev.timestamp,
+      sentAt: prev.sentAt || turn.sentAt || null,
       // 保留先到的附图；新归档有图则覆盖
       images: (images && images.length) ? images : prev.images,
     };
@@ -744,6 +747,7 @@ export function archiveCompletedTurn(sessionKey, turn) {
       status: turn.status || 'completed',
       taskId: turn.taskId || null,
       timestamp: turn.timestamp || Date.now(),
+      sentAt: turn.sentAt || null,
       ...(images && images.length ? { images } : {}),
     });
   }

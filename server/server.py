@@ -434,10 +434,12 @@ async def public_catalog():
 
 
 @app.get("/api/community-catalog")
-async def public_community_catalog():
-    """公开接口：社区推荐目录(mcp/prompts/skills/assistants)"""
+async def public_community_catalog(cards: int = 0):
+    """公开接口：社区推荐目录(mcp/prompts/skills/assistants)。
+    cards=1 只回卡片，给市场列表用，不带各段原文。
+    """
     import community_catalog as cc
-    return await cc.community_catalog_payload()
+    return await cc.community_catalog_payload(cards_only=bool(cards))
 
 
 @app.get("/public/studio")
@@ -633,24 +635,32 @@ async def public_network(request: Request):
     distinct_users = len({w.user_id for w in all_ws if w.user_id})
     # 与匿名 /v1/models 同源：公开 worker 模型（不含圈子限定）
     public_models = pool.models_for_user(owner_user_id=None, user_circle_ids=set())
-    circle_count = await db.count_public_circles()
-    # 已登录：带入圈状态，便于「进主页 / 申请加入」
-    if uid is not None:
-        browsable = await db.list_browsable_circles(uid)
-        public_circles = [{
-            "id": c["id"],
-            "name": c.get("name") or "",
-            "description": c.get("description") or "",
-            "max_members": c.get("max_members"),
-            "member_count": int(c.get("member_count") or 0),
-            "full": bool(c.get("full")),
-            "join_status": c.get("join_status") or "none",
-            "code": c.get("code"),
-        } for c in browsable[:50]]
-    else:
-        public_circles = await db.list_public_circles(50)
-        for row in public_circles:
+
+    async def _public_circles() -> list:
+        # 已登录：带入圈状态，便于「进主页 / 申请加入」
+        if uid is not None:
+            browsable = await db.list_browsable_circles(uid)
+            return [{
+                "id": c["id"],
+                "name": c.get("name") or "",
+                "description": c.get("description") or "",
+                "max_members": c.get("max_members"),
+                "member_count": int(c.get("member_count") or 0),
+                "full": bool(c.get("full")),
+                "join_status": c.get("join_status") or "none",
+                "code": c.get("code"),
+            } for c in browsable[:50]]
+        rows = await db.list_public_circles(50)
+        for row in rows:
             row["join_status"] = "none"
+        return rows
+
+    # 圈子、公开智能体和计数互不依赖，一起查，避免市场页把它们串成三次等待
+    circle_count, public_circles, agents = await asyncio.gather(
+        db.count_public_circles(),
+        _public_circles(),
+        _list_public_agents(),
+    )
     return {
         "summary": {
             "online_workers": len(workers_data),
@@ -664,7 +674,7 @@ async def public_network(request: Request):
         "available_model_types": {
             m: infer_model_type(m, public_models) for m in public_models
         },
-        "available_agents": await _list_public_agents(),
+        "available_agents": agents,
         "available_circles": public_circles,
     }
 
@@ -775,8 +785,19 @@ async def _public_agent_card(assistant_id: str):
     return await db.get_stored_public_agent(aid)
 
 
+async def _rehydrate_public_agent_cards() -> None:
+    """在线节点的名片被空更新清掉后，单设备账号从库里把上架挂回去。"""
+    try:
+        grouped = await db.stored_public_agent_cards_by_owner()
+    except Exception as e:
+        logger.warning("rehydrate public agents failed: %s", e)
+        return
+    pool.rehydrate_blank_agent_cards(grouped)
+
+
 async def _list_public_agents() -> list:
     """公开智能体：在线的在前，最近 7 天离线的补在后面。与工具页同一套名片。"""
+    await _rehydrate_public_agent_cards()
     await backfill_worker_owner_labels()
     live = pool.list_agents_for_user(public_only=True) or []
     rows = []
@@ -789,9 +810,8 @@ async def _list_public_agents() -> list:
             continue
         seen.add(aid)
         rows.append({**card, "online": True})
+    # 名片在节点注册和 agents_update 时已经落库。打开页面再逐台重写，每次浏览都要多等一轮数据库。
     try:
-        from tools_router import _snapshot_live_public_agents
-        await _snapshot_live_public_agents()
         stored = await db.list_stored_public_agents()
     except Exception as e:
         logger.warning("list public agents with offline failed: %s", e)
@@ -1111,6 +1131,7 @@ async def web_image(body: WebImageBody, uid: int = Depends(auth_api_key_or_jwt))
 @app.get("/api/agents")
 async def api_agents(uid: int = Depends(auth_api_key_or_jwt)):
     """可见智能体：公开 + 所属圈子（鉴权与模型一致：API Key 或 JWT）"""
+    await _rehydrate_public_agent_cards()
     await backfill_worker_owner_labels()
     circles = set(await db.get_user_circle_ids(uid))
     return {
@@ -1169,6 +1190,8 @@ class AgentTaskBody(BaseModel):
     session_key: Optional[str] = None
     # 相同键再提交接上同一单，不另扣。请求体变了就拒绝
     idempotency_key: Optional[str] = None
+    # 调用方设备。和在线节点的 device_id 相同就不派给自己
+    caller_device_id: Optional[str] = None
 
 
 @app.post("/api/agent-tasks")
@@ -1222,6 +1245,7 @@ async def create_agent_task(
             session_key=body.session_key,
             idempotency_key=idem or None,
             idempotency_digest=digest,
+            caller_device_id=body.caller_device_id,
         )
         return StreamingResponse(
             gen,
@@ -1246,6 +1270,7 @@ async def create_agent_task(
         share_id=body.share_id,
         session_key=body.session_key,
         idempotency_key=idem or None,
+        caller_device_id=body.caller_device_id,
         idempotency_digest=digest,
     )
     if not result.get("ok"):

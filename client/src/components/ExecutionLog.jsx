@@ -18,6 +18,8 @@ import { usePinBottomScroll } from '../lib/use-pin-bottom-scroll';
 import { closePendingToolSteps, hasOpenToolCalls } from '../lib/debug-agent-store';
 import { ResolvedDebugImage } from './ResolvedDebugImage';
 import { fileMarkerName } from '../lib/debug-image-store';
+import CopyMessageButton from './CopyMessageButton';
+import { onMessageCopy } from '../lib/copy-message';
 
 /** 启动/Hook 类系统事件：只进「正在执行」细节，不单独占卡片 */
 function isEphemeralSystemEvent(ev) {
@@ -161,11 +163,11 @@ function stripLeakedAssistantsWhenThinking(items) {
 }
 
 /** 合并连续 output / thinking 步骤，减少碎片化 */
-function buildTimeline(userPrompt, steps = [], delegations = {}, agentNames = {}, userImages = []) {
+function buildTimeline(userPrompt, steps = [], delegations = {}, agentNames = {}, userImages = [], sentAt = null) {
   const items = [];
   const imgs = Array.isArray(userImages) ? userImages.filter(Boolean) : [];
   if (userPrompt || imgs.length) {
-    items.push({ kind: 'user', content: userPrompt || '', images: imgs });
+    items.push({ kind: 'user', content: userPrompt || '', images: imgs, timestamp: sentAt || null });
   }
 
   let outputBuf = [];
@@ -186,6 +188,7 @@ function buildTimeline(userPrompt, steps = [], delegations = {}, agentNames = {}
     if (!thinkingBuf.length) return;
     const content = mergeStreamingContents(thinkingBuf);
     const count = thinkingBuf.length;
+    const startedAt = thinkingBuf.find((s) => s?.timestamp)?.timestamp || null;
     const ts = thinkingBuf[thinkingBuf.length - 1]?.timestamp;
     thinkingBuf = [];
     // 避免与上一条推理卡片重复
@@ -197,6 +200,7 @@ function buildTimeline(userPrompt, steps = [], delegations = {}, agentNames = {}
       kind: 'thinking_group',
       content,
       count,
+      startedAt,
       timestamp: ts,
     });
   };
@@ -365,6 +369,8 @@ function mergeToolCallResultPairs(items = []) {
           resultContent: next.content,
           resultImages: next.images,
           is_error: !!next.is_error,
+          startedAt: it.timestamp || null,
+          endedAt: next.timestamp || null,
           timestamp: next.timestamp || it.timestamp,
           tool_use_id: it.tool_use_id || next.tool_use_id || null,
         });
@@ -379,6 +385,8 @@ function mergeToolCallResultPairs(items = []) {
         resultContent: null,
         is_error: false,
         pending: true,
+        startedAt: it.timestamp || null,
+        endedAt: null,
         timestamp: it.timestamp,
         tool_use_id: it.tool_use_id || null,
       });
@@ -395,6 +403,8 @@ function mergeToolCallResultPairs(items = []) {
           resultImages: it.images,
           is_error: !!it.is_error,
           pending: false,
+          startedAt: out[idx].startedAt || out[idx].timestamp || null,
+          endedAt: it.timestamp || null,
           timestamp: it.timestamp || out[idx].timestamp,
         };
         pendingById.delete(id);
@@ -410,6 +420,8 @@ function mergeToolCallResultPairs(items = []) {
           resultImages: it.images,
           is_error: !!it.is_error,
           pending: false,
+          startedAt: prev.startedAt || prev.timestamp || null,
+          endedAt: it.timestamp || null,
           timestamp: it.timestamp || prev.timestamp,
         };
         if (prev.tool_use_id) pendingById.delete(prev.tool_use_id);
@@ -450,6 +462,7 @@ function collapseAdjacentThinkingGroups(items) {
           : item.content;
         prev.content = longer;
         prev.count = (prev.count || 1) + (item.count || 1);
+        prev.startedAt = prev.startedAt || item.startedAt || prev.timestamp || null;
         prev.timestamp = item.timestamp || prev.timestamp;
         continue;
       }
@@ -563,7 +576,19 @@ function buildTurnTimeline(turn, delegations = {}, agentNames = {}, t) {
         : (t?.('debug.agent.noResult') || '未收到结果'),
     )
     : rawSteps;
-  let items = buildTimeline(turn.user, steps, delegations, agentNames, turn.images);
+  let items = buildTimeline(
+    turn.user,
+    steps,
+    delegations,
+    agentNames,
+    turn.images,
+    turn.sentAt || null,
+  );
+  // 旧归档没有发送时间时，用这一轮第一条步骤的时间顶上
+  if (items[0]?.kind === 'user' && !items[0].timestamp) {
+    const firstStepAt = steps.find((s) => s?.timestamp)?.timestamp || null;
+    if (firstStepAt) items[0] = { ...items[0], timestamp: firstStepAt };
+  }
   const hasCleanAssistant = items.some(
     it => it.kind === 'assistant' && it.content?.trim() && !looksLikeLeakedReasoning(it.content),
   );
@@ -597,6 +622,32 @@ function attachTurnArtifacts(items, artifacts) {
 function formatTime(ts) {
   if (!ts) return '';
   return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+/** 工具和推理的耗时。不到 10 秒保留一位小数。 */
+function formatDuration(ms) {
+  if (ms == null || !Number.isFinite(ms) || ms < 50) return '';
+  const sec = ms / 1000;
+  if (sec < 10) return `${sec.toFixed(1)}s`;
+  if (sec < 60) return `${Math.round(sec)}s`;
+  const minutes = Math.floor(sec / 60);
+  const rest = Math.round(sec % 60);
+  return `${minutes}m ${String(rest).padStart(2, '0')}s`;
+}
+
+/** 还在跑就按当前时间滚动；已经结束就用结束时间。 */
+function useRunDuration(startedAt, endedAt, live) {
+  const [now, setNow] = useState(() => Date.now());
+  const ticking = !!(live && startedAt && !endedAt);
+  useEffect(() => {
+    if (!ticking) return undefined;
+    const id = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [ticking]);
+  if (!startedAt) return '';
+  const end = endedAt || (ticking ? now : (live ? now : null));
+  if (!end || end < startedAt) return '';
+  return formatDuration(end - startedAt);
 }
 
 /** 若整段/尾部是 Claude result 信封 JSON，只保留可读正文（防泄漏兜底） */
@@ -1027,6 +1078,7 @@ function ToolGroupCard({ step, live = false }) {
   const hasDetail = (!payload.empty && callContent != null)
     || (resultContent != null && String(resultContent).trim());
   const [open, setOpen] = useState(false);
+  const duration = useRunDuration(step.startedAt || step.timestamp, step.endedAt, pending);
 
   let status = '';
   if (err) status = t('debug.log.failed');
@@ -1067,6 +1119,11 @@ function ToolGroupCard({ step, live = false }) {
                   : 'text-zinc-400 dark:text-zinc-500'
             }`}>
               {status}{pending ? '…' : ''}
+            </span>
+          )}
+          {duration && (
+            <span className="text-[10px] shrink-0 tabular-nums text-zinc-400 dark:text-zinc-500">
+              {duration}
             </span>
           )}
           {summary && (
@@ -1248,6 +1305,34 @@ function lastThinkingPreview(text, maxChars = 140) {
   return `…${last.slice(-maxChars)}`;
 }
 
+/** 推理、工具、终端都是过程，不是回复。同一段里只显示最后一条，新的来了就换掉上一行。 */
+function isActivityRow(item) {
+  const kind = item?.kind;
+  return kind === 'thinking_group' || kind === 'thinking'
+    || kind === 'tool_group' || kind === 'tool_call' || kind === 'tool_result'
+    || kind === 'terminal' || kind === 'code_edit';
+}
+
+/** 后面还有过程行时，这一行不画。中间被藏起来的系统事件不算打断。 */
+function activitySuperseded(items, index, hidden) {
+  for (let j = index + 1; j < items.length; j++) {
+    if (hidden(items[j])) continue;
+    return isActivityRow(items[j]);
+  }
+  return false;
+}
+
+/** 同一段过程共用一个 key，后一条直接换掉前一条，而不是再往下堆一行。 */
+function activityRunStart(items, index, hidden) {
+  let start = index;
+  for (let j = index - 1; j >= 0; j--) {
+    if (hidden(items[j])) continue;
+    if (!isActivityRow(items[j])) break;
+    start = j;
+  }
+  return start;
+}
+
 /** 推理卡：默认折叠；live 时用动效提示仍在执行 */
 function ThinkingGroupCard({ item, live = false }) {
   const { t } = useLang();
@@ -1255,6 +1340,7 @@ function ThinkingGroupCard({ item, live = false }) {
   const raw = normalizeDisplayText(item.content);
   const preview = lastThinkingPreview(raw);
   const meta = getStepMeta(t).thinking;
+  const duration = useRunDuration(item.startedAt, live ? null : item.timestamp, live);
 
   return (
     <div className="flex justify-start items-start">
@@ -1312,7 +1398,10 @@ function ThinkingGroupCard({ item, live = false }) {
               {t('debug.log.live')}
             </span>
           )}
-          <span className="ml-auto text-[10px] text-zinc-400 shrink-0">{formatTime(item.timestamp)}</span>
+          {duration && (
+            <span className="ml-auto text-[10px] text-zinc-400 shrink-0 tabular-nums">{duration}</span>
+          )}
+          <span className={`${duration ? '' : 'ml-auto '}text-[10px] text-zinc-400 shrink-0`}>{formatTime(item.timestamp)}</span>
           <span className="text-xs text-zinc-400 shrink-0">{open ? '▾' : '▸'}</span>
         </button>
         {open && (
@@ -1437,11 +1526,13 @@ function DelegationCard({ item }) {
                   {t('debug.log.agentOutput', { name: item.agentName || item.agentId || 'Agent' })}
                 </p>
                 {groupNestedSteps(item.nestedSteps).map((ns, idx, arr) => {
+                  const hideGap = (row) => running && (row?.kind === 'system_event' || row?.kind === 'system_event_group');
+                  if (isActivityRow(ns) && activitySuperseded(arr, idx, hideGap)) return null;
                   if (ns.kind === 'thinking_group') {
                     const lastThink = [...arr].reverse().find((x) => x.kind === 'thinking_group');
                     return (
                       <ThinkingGroupCard
-                        key={idx}
+                        key={`act-${activityRunStart(arr, idx, hideGap)}`}
                         item={ns}
                         live={running && ns === lastThink}
                       />
@@ -1464,7 +1555,9 @@ function DelegationCard({ item }) {
                       </div>
                     );
                   }
-                  return <ToolCard key={idx} step={{ kind: ns.kind || ns.stepType, ...ns }} />;
+                  const step = { kind: ns.kind || ns.stepType, ...ns };
+                  const key = isActivityRow(ns) ? `act-${activityRunStart(arr, idx, hideGap)}` : idx;
+                  return <ToolCard key={key} step={step} />;
                 })}
               </div>
             )}
@@ -1514,7 +1607,8 @@ export default function ExecutionLog({
       items.push(...buildTurnTimeline(turn, turn.delegations || {}, agentNames, t));
     }
     const currentStart = items.length;
-    items.push(...buildTimeline(userPrompt, steps, delegations, agentNames, userImages));
+    const sentAt = task?.created_at || task?.started_at || null;
+    items.push(...buildTimeline(userPrompt, steps, delegations, agentNames, userImages, sentAt));
     // 当前轮已完成但 steps 无干净回复时，用 result 摘要补全（跳过泄漏推理）
     if (status === 'completed' && result) {
       const currentSlice = items.slice(currentStart);
@@ -1531,7 +1625,7 @@ export default function ExecutionLog({
       items.splice(currentStart, items.length - currentStart, ...withArts);
     }
     return { timeline: items, currentStart };
-  }, [conversationTurns, userPrompt, userImages, steps, delegations, agentNames, status, result, task?.completed_at, t]);
+  }, [conversationTurns, userPrompt, userImages, steps, delegations, agentNames, status, result, task?.completed_at, task?.created_at, task?.started_at, t]);
 
   // 仅在本轮内找「正在流式」的气泡，避免光标粘在历史回复上
   const lastAssistantIdx = useMemo(() => {
@@ -1595,7 +1689,12 @@ export default function ExecutionLog({
           const text = normalizeDisplayText(item.content);
           return (
             <div key={`u-${i}`} className="flex justify-end">
-              <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-sm bg-blue-600 text-white">
+              <div className="flex max-w-[80%] flex-col items-end">
+              <div
+                className="relative group max-w-full rounded-xl px-4 py-2.5 text-sm bg-blue-600 text-white select-text"
+                onCopy={onMessageCopy}
+              >
+                <CopyMessageButton text={text} images={imgs} tone="onBlue" />
                 {imgs.length > 0 && (
                   <div className={`flex flex-wrap gap-1.5 ${text ? 'mb-2' : ''}`}>
                     {imgs.map((src, j) => {
@@ -1630,6 +1729,10 @@ export default function ExecutionLog({
                   <MarkdownContent content={text} theme="inverted" />
                 ) : null}
               </div>
+              {item.timestamp ? (
+                <span className="mt-1 px-1 text-[10px] text-zinc-400 tabular-nums">{formatTime(item.timestamp)}</span>
+              ) : null}
+              </div>
             </div>
           );
         }
@@ -1639,7 +1742,17 @@ export default function ExecutionLog({
           // 紧挨在推理卡后：头像已在推理行，回复只缩进对齐
           return (
             <div key={`a-${i}`} className="flex justify-start">
-              <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-sm tb-soft-bubble text-zinc-900 dark:text-zinc-100">
+              <div className="flex max-w-[80%] flex-col items-start">
+              <div
+                className="relative group max-w-full rounded-xl px-4 py-2.5 text-sm tb-soft-bubble text-zinc-900 dark:text-zinc-100 select-text"
+                onCopy={onMessageCopy}
+              >
+                {!isLive && (
+                  <CopyMessageButton
+                    text={normalizeDisplayText(item.content)}
+                    artifacts={item.artifacts}
+                  />
+                )}
                 <StreamMarkdownContent
                   content={normalizeDisplayText(item.content)}
                   live={isLive}
@@ -1649,6 +1762,10 @@ export default function ExecutionLog({
                   <span className="inline-block animate-pulse text-blue-500 dark:text-blue-400 ml-0.5">▊</span>
                 )}
               </div>
+              {!isLive && item.timestamp ? (
+                <span className="mt-1 px-1 text-[10px] text-zinc-400 tabular-nums">{formatTime(item.timestamp)}</span>
+              ) : null}
+              </div>
             </div>
           );
         }
@@ -1657,9 +1774,22 @@ export default function ExecutionLog({
           return <DelegationCard key={`d-${i}`} item={item} />;
         }
 
+        const hideActivityGap = (row) => (
+          row?.kind === 'system_event' || row?.kind === 'system_event_group'
+        ) && (status === 'running' || isEphemeralSystemItem(row));
+        if (isActivityRow(item) && activitySuperseded(timeline, i, hideActivityGap)) {
+          return null;
+        }
+
         if (item.kind === 'thinking_group') {
           const isLive = status === 'running' && i >= currentStart && i === lastThinkingIdx;
-          return <ThinkingGroupCard key={`tg-${i}`} item={item} live={isLive} />;
+          return (
+            <ThinkingGroupCard
+              key={`act-${activityRunStart(timeline, i, hideActivityGap)}`}
+              item={item}
+              live={isLive}
+            />
+          );
         }
 
         // 启动/Hook 类已在 buildTimeline 过滤；执行中其余 system 也只进底部状态条
@@ -1675,7 +1805,7 @@ export default function ExecutionLog({
 
         return (
           <ToolCard
-            key={`t-${i}`}
+            key={isActivityRow(item) ? `act-${activityRunStart(timeline, i, hideActivityGap)}` : `t-${i}`}
             step={item}
             live={status === 'running' && i >= currentStart}
           />

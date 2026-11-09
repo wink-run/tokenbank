@@ -152,6 +152,49 @@ def test_pick_agent_workers_by_owner_skips_device_pin():
         pool._workers = old
 
 
+def test_pick_skips_caller_device_and_rehydrates_blank_worker():
+    """本机不接自己的雇佣；只有一台在线且名片是空的，从库里的上架挂回去。"""
+    from worker_pool import pool
+
+    class _W:
+        def __init__(self, wid, device, agents, uid=1):
+            self.worker_id = wid
+            self.device_id = device
+            self.user_id = uid
+            self.agents = agents
+            self.active_requests = 0
+            self.circle_ids = []
+            self.circle_id = None
+            self.owner_nickname = "adam"
+            self.name = "adam"
+
+    old = list(pool._workers)
+    saved = dict(pool._agent_cards)
+    try:
+        pool._workers = [
+            _W("self", "dev-aaa", [{"id": "a1", "visibility": "public"}]),
+            _W("other", "dev-bbb", [{"id": "a1", "visibility": "public"}], uid=2),
+        ]
+        hit = pool.pick_agent_workers("a1", exclude_device_id="dev-aaa")
+        assert [w.worker_id for w in hit] == ["other"]
+        # 空名片的单设备，挂回该账号的上架
+        pool._workers = [_W("self", "dev-aaa", [])]
+        pool.rehydrate_blank_agent_cards({
+            1: [{"id": "app:cursor", "name": "cursor", "visibility": "public"}],
+        })
+        assert pool._workers[0].agents[0]["id"] == "app:cursor"
+        rows = pool.list_agents_for_user(public_only=True)
+        assert rows[0]["device_id"] == "dev-aaa"
+        # 两台都在线时不猜
+        pool._workers = [_W("a", "dev-a", [], uid=1), _W("b", "dev-b", [], uid=1)]
+        pool.rehydrate_blank_agent_cards({1: [{"id": "x", "visibility": "public"}]})
+        assert pool._workers[0].agents == []
+        assert pool._workers[1].agents == []
+    finally:
+        pool._workers = old
+        pool._agent_cards = saved
+
+
 def test_list_agents_exposes_only_shared_circle_ids():
     from worker_pool import pool
 

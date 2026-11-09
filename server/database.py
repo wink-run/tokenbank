@@ -704,6 +704,39 @@ async def replace_owner_public_agents(owner_user_id: int, cards: list) -> None:
     await prune_public_agent_cards()
 
 
+async def stored_public_agent_cards_by_owner() -> dict[int, list[dict]]:
+    """按出租账号分组的上架名片。给在线但内存名片被清掉的那一台挂回去，不进公开响应。"""
+    await prune_public_agent_cards()
+    async with connect() as db:
+        async with db.execute(
+            f"""SELECT assistant_id, name, display_name, description, runtime, owner_user_id
+               FROM public_agent_cards
+               WHERE owner_user_id IS NOT NULL
+                 AND updated_at >= NOW() - INTERVAL '{_PUBLIC_AGENT_KEEP}'
+               ORDER BY updated_at DESC"""
+        ) as cur:
+            rows = await cur.fetchall()
+    grouped: dict[int, list[dict]] = {}
+    for row in rows:
+        item = dict(row)
+        try:
+            uid = int(item.get("owner_user_id"))
+        except (TypeError, ValueError):
+            continue
+        aid = str(item.get("assistant_id") or "").strip()
+        if not aid:
+            continue
+        grouped.setdefault(uid, []).append({
+            "id": aid,
+            "name": item.get("name") or aid,
+            "display_name": item.get("display_name") or item.get("name") or aid,
+            "description": item.get("description") or "",
+            "visibility": "public",
+            "runtime": item.get("runtime") or "",
+        })
+    return grouped
+
+
 async def list_stored_public_agents() -> list[dict]:
     """最近 7 天内上线过的上架智能体。"""
     await prune_public_agent_cards()
