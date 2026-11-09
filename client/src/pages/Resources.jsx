@@ -4207,6 +4207,8 @@ export default function Resources() {
                 />
                 <span className="block mt-1 text-[10px] text-zinc-400">{t('resources.editorDetailHint')}</span>
               </label>
+              )}
+              {editorForm.type !== 'assistant' && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorTags')}
                 <input
@@ -4519,6 +4521,17 @@ export default function Resources() {
                       <span className="inline-block mr-1 transition-transform group-open:rotate-90">›</span>{t('resources.editorAdvanced')}
                     </summary>
                     <div className="mt-2 space-y-3">
+                      <label className="block text-xs text-zinc-500">
+                        {t('resources.editorDetail')}
+                        <textarea
+                          value={editorForm.detail || ''}
+                          onChange={e => setEditorForm(prev => ({ ...prev, detail: e.target.value }))}
+                          rows={5}
+                          placeholder={t('resources.editorDetailHint')}
+                          className="mt-1 w-full text-xs px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 leading-relaxed"
+                        />
+                        <span className="block mt-1 text-[10px] text-zinc-400">{t('resources.editorDetailHint')}</span>
+                      </label>
                       <label className="block text-xs text-zinc-500">
                         {t('resources.editorName')}
                         <input
