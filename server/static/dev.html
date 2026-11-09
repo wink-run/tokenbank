@@ -401,7 +401,7 @@ createApp({
         apiMore: '看完整示例',
         apiLines: [
           ['# 本机运行时：pi、claude-code、codex、cursor、kimi-code', false], ['"harness_id": "pi"', true],
-          ['# 投射的专业智能体', false], ['"harness_id": "assistant:<资源 id>"', true],
+          ['# 投射的个人智能体', false], ['"harness_id": "assistant:<资源 id>"', true],
           ['# 雇来的社区智能体', false], ['"harness_id": "community:<id>@<owner>"', true],
           ['# 模型：三种协议都可以，原生模型名不变', false], ['POST /v1/chat/completions   # OpenAI', true], ['POST /v1/messages           # Anthropic', true], ['POST /v1/responses          # Codex', true],
         ],
@@ -470,7 +470,7 @@ createApp({
         apiMore: 'Full examples',
         apiLines: [
           ['# local runtime: pi, claude-code, codex, cursor, kimi-code', false], ['"harness_id": "pi"', true],
-          ['# projected specialist agent', false], ['"harness_id": "assistant:<resource-id>"', true],
+          ['# projected personal agent', false], ['"harness_id": "assistant:<resource-id>"', true],
           ['# hired community agent', false], ['"harness_id": "community:<id>@<owner>"', true],
           ['# models: any of three protocols, native names kept', false], ['POST /v1/chat/completions   # OpenAI', true], ['POST /v1/messages           # Anthropic', true], ['POST /v1/responses          # Codex', true],
         ],
@@ -559,7 +559,7 @@ createApp({
         routeNote: '示例',
         apiKicker: 'ONE INTERFACE', apiTitle: '一个网关：智能体任务 + 三种模型协议', apiLead: '本机和社区智能体同一个任务接口；模型保持原生名。',
         copy: '复制', copied: '已复制',
-        exLabels: ['本机 Claude Code', '本机 Codex', '社区智能体', '模型 · OpenAI', '模型 · Anthropic', '模型 · Codex', '专业智能体'],
+        exLabels: ['本机 Claude Code', '本机 Codex', '社区智能体', '模型 · OpenAI', '模型 · Anthropic', '模型 · Codex', '个人智能体'],
         exNotes: [
           '本机网关监听 11430 端口，Authorization 用客户端里的本机网关 Key。',
           '只改了 harness_id，其他一个字不用动。',
@@ -567,7 +567,7 @@ createApp({
           'OpenAI Chat 协议。模型名照常写，网关按你的路由选本地源、订阅或社区共享。',
           'Anthropic Messages 协议，x-api-key 和 Authorization 都可以。Claude Code 这类客户端原样接入。',
           'Codex Responses 协议，含工具调用转发。三种协议之间可以互相转换，同一个模型换个协议也能用。',
-          '资产页投射过的专业智能体用 assistant:<资源 id>（智能体详情里可复制），在本机执行，自动带上它的提示词和技能。',
+          '资产页投射过的个人智能体用 assistant:<资源 id>（智能体详情里可复制），在本机执行，自动带上它的提示词和技能。',
         ],
         prompt: '修一下登录页的报错',
         promptAssistant: '做一条 30 秒的产品介绍视频',
@@ -642,7 +642,7 @@ createApp({
         routeNote: 'Example. Who gets what depends on the agents you have onboarded and hired; every tool call is visible and you can stop or resume any time.',
         apiKicker: 'ONE INTERFACE', apiTitle: 'One gateway: agent tasks + three model protocols', apiLead: 'One task endpoint for local and community agents; models keep native names.',
         copy: 'Copy', copied: 'Copied',
-        exLabels: ['Local Claude Code', 'Local Codex', 'Community agent', 'Model · OpenAI', 'Model · Anthropic', 'Model · Codex', 'Specialist agent'],
+        exLabels: ['Local Claude Code', 'Local Codex', 'Community agent', 'Model · OpenAI', 'Model · Anthropic', 'Model · Codex', 'Personal agent'],
         exNotes: [
           'The local gateway listens on port 11430; use the local gateway key from the app as Authorization.',
           'Only harness_id changed. Nothing else.',
@@ -650,7 +650,7 @@ createApp({
           'OpenAI Chat protocol. Write the model name as usual; the gateway routes to local, subscription or community sources.',
           'Anthropic Messages protocol; x-api-key or Authorization both work. Clients like Claude Code connect as is.',
           'Codex Responses protocol, tool calls included. The three protocols translate into each other, so any model works on any of them.',
-          'Specialist agents projected from the Assets page use assistant:<resource-id> (copy it from the agent details). They run locally with their own prompts and skills.',
+          'Personal agents projected from the Assets page use assistant:<resource-id> (copy it from the agent details). They run locally with their own prompts and skills.',
         ],
         prompt: 'Fix the error on the login page',
         promptAssistant: 'Make a 30-second product intro video',
