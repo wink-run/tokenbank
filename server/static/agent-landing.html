@@ -159,7 +159,7 @@
               <template v-if="m.parts && m.parts.length">
                 <div v-for="(p, pi) in viewParts(m)" :key="pi" class="apart" :class="p.type === 'tools' ? 'apart-tool' : ('apart-' + p.type)">
                   <template v-if="p.type === 'thinking'">
-                    <!-- 和工具条一样：默认一行，展开后才是全文 -->
+                    <!-- 同一条回复里的思考收成一行，展开才是全文 -->
                     <details class="tool-fold think-fold">
                       <summary>
                         <span class="tool-chev" aria-hidden="true"></span>
@@ -1142,21 +1142,32 @@ createApp({
       if (!p.done && m && m.pending) return T.value.toolBusy
       return T.value.toolDone
     }
-    // 一条回复里的工具调用合成一块，正文仍留在原来的位置
+    // 一条回复里的工具、思考各收成一块，正文仍留在原来的位置
     function viewParts(m) {
       const parts = Array.isArray(m && m.parts) ? m.parts : []
       const tools = parts.filter(p => p && p.type === 'tool')
-      let placed = false
+      const thoughts = parts.filter(p => p && p.type === 'thinking' && String(p.text || '').trim())
+      let toolsPlaced = false
+      let thinkPlaced = false
       const out = []
       for (const p of parts) {
-        if (!p || p.type !== 'tool') {
-          out.push(p)
+        if (!p) continue
+        if (p.type === 'tool') {
+          if (!toolsPlaced && tools.length) {
+            out.push({ type: 'tools', items: tools })
+            toolsPlaced = true
+          }
           continue
         }
-        if (!placed) {
-          out.push({ type: 'tools', items: tools })
-          placed = true
+        if (p.type === 'thinking') {
+          // 后一句盖掉前一句的预览，展开仍能看到全部思考
+          if (!thinkPlaced && thoughts.length) {
+            out.push({ type: 'thinking', text: thoughts.map(t => String(t.text || '').trim()).join('\n') })
+            thinkPlaced = true
+          }
+          continue
         }
+        out.push(p)
       }
       return out
     }
