@@ -110,7 +110,7 @@ async def lifespan(app: FastAPI):
     await db.close_pool()
 
 
-# 产品截图，需长期保留（统一管理页 /harness 按 img_cache/{key}.webp 引用）
+# 产品截图，需长期保留（首页「统一管理」功能轮播按 img_cache/{key}.webp 引用）
 _LANDING_SCREENSHOTS = frozenset({
     "dashboard.webp", "gateway.webp", "provider.webp",
     "dashboard_en.webp", "gateway_en.webp", "provider_en.webp",
@@ -124,6 +124,9 @@ _LANDING_SCREENSHOTS = frozenset({
     "playground.webp", "playground_en.webp",
     "portrait.webp", "portrait_en.webp",
     "assets.webp", "assets_en.webp",
+    # 首页：场景路由、个人页（跨端归集）
+    "route.webp", "route_en.webp",
+    "account.webp", "account_en.webp",
 })
 
 

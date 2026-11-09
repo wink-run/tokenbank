@@ -180,15 +180,13 @@ a { color: inherit; text-decoration: none; }
         <ul class="hs-f-points"><li v-for="pt in f.points" :key="pt[0]"><b>{{ pt[0] }}</b>{{ pt[1] }}</li></ul>
       </div>
       <div class="hs-f-visual">
-        <template v-if="f.shots">
-          <div v-if="f.shots.length > 1" class="hs-f-tabs" role="tablist">
-            <button v-for="(sh, si) in f.shots" :key="sh[0]" type="button" role="tab" :aria-selected="shotIdx(f.id) === si" :class="{ on: shotIdx(f.id) === si }" @click="setShot(f.id, si)">{{ sh[1] }}</button>
-          </div>
-          <div class="hs-shot" :class="{ tall: f.shots[shotIdx(f.id)][0] === 'device' }">
-            <img :src="boardSrc(f.shots[shotIdx(f.id)][0])" :alt="f.shots[shotIdx(f.id)][1]">
-          </div>
-        </template>
-        <div v-else-if="f.diagram === 'route'" class="hs-diag">
+        <div v-if="f.shots && f.shots.length > 1" class="hs-f-tabs" role="tablist">
+          <button v-for="(sh, si) in f.shots" :key="sh[0]" type="button" role="tab" :aria-selected="shotIdx(f.id) === si" :class="{ on: shotIdx(f.id) === si }" @click="setShot(f.id, si)">{{ sh[1] }}</button>
+        </div>
+        <div v-if="f.shots && !visOf(f)" class="hs-shot" :class="{ tall: f.shots[shotIdx(f.id)][0] === 'device' }">
+          <img :src="shotSrc(f.shots[shotIdx(f.id)][0])" :alt="f.shots[shotIdx(f.id)][1]">
+        </div>
+        <div v-else-if="visOf(f) === 'route'" class="hs-diag">
           <div class="hs-d-row"><span class="hs-d-k">{{ H.dRoute.app }}</span><div class="hs-d-chips"><i v-for="x in H.dRoute.apps" :key="x">{{ x }}</i></div></div>
           <div class="hs-d-arrow">↓ {{ H.dRoute.bind }}</div>
           <div class="hs-d-row"><span class="hs-d-k">{{ H.dRoute.scene }}</span><div class="hs-d-chips"><i v-for="x in H.dRoute.scenes" :key="x">{{ x }}</i></div></div>
@@ -198,14 +196,14 @@ a { color: inherit; text-decoration: none; }
           <div class="hs-d-chips"><i v-for="x in H.dRoute.policies" :key="x" class="pol">{{ x }}</i></div>
           <p class="hs-d-note">{{ H.dRoute.note }}</p>
         </div>
-        <div v-else-if="f.diagram === 'devices'" class="hs-diag">
+        <div v-else-if="visOf(f) === 'devices'" class="hs-diag">
           <div class="hs-dev3"><div v-for="d in H.dDev.devices" :key="d[0]" class="hs-dev"><b>{{ d[0] }}</b><span>{{ d[1] }}</span><small>{{ d[2] }}</small></div></div>
           <div class="hs-d-arrow">↓ {{ H.dDev.up }}</div>
           <div class="hs-cloud"><b>{{ H.dDev.cloud }}</b><span>{{ H.dDev.cloudD }}</span></div>
           <div class="hs-d-arrow">↓ {{ H.dDev.down }}</div>
           <div class="hs-d-chips"><i v-for="x in H.dDev.views" :key="x">{{ x }}</i></div>
         </div>
-        <div v-else-if="f.diagram === 'orchestrate'" class="hs-plan hs-plan-light">
+        <div v-else-if="visOf(f) === 'orchestrate'" class="hs-plan hs-plan-light">
           <div class="hs-plan-h"><span class="hs-main">{{ H.mainAgent }}</span><span class="hs-task">“{{ H.routeTask }}”</span></div>
           <div v-for="r in H.routes" :key="r[0]" class="hs-row">
             <span class="hs-step">{{ r[0] }}</span><i class="hs-arrow" aria-hidden="true">→</i>
@@ -499,7 +497,7 @@ createApp({
             shots: [['provider', '模型'], ['gateway', '网关路由']] },
           { id: 'f-route', n: '03', k: '场景路由', t: '场景路由，按任务选供给', d: '每个应用可以绑定自己的场景路由，全局供给链兜底。本地源优先，不够再走社区共享，对智能体全程透明。',
             points: [['场景与任务分型：', 'design / repo-qa / chore / debug 等'], ['供给链：', '本地 → 免费 → 订阅 / 按量 → 社区'], ['策略组：', 'fallback、round-robin、weighted、latency'], ['过滤：', '只用个人源 / 社区 / 免费 / 付费']],
-            diagram: 'route' },
+            shots: [['route', '场景路由'], ['@route', '示意']] },
           { id: 'f-trace', n: '04', k: 'Trace 管理', t: '每一次调用，都能追溯', d: '不管智能体走不走网关，用量都记得下来：网关实时代理加本地会话补录，同一次调用只记一次。',
             points: [['网关实时：', '路由、模型、Token、延迟、费用'], ['会话补录：', '没走网关的也记上，自动去重'], ['Session Trace：', '步骤级工具、Skill、推理'], ['会话管理：', '过滤、交接、导出']],
             shots: [['sessions', '会话'], ['trace', 'Session Trace']] },
@@ -511,10 +509,10 @@ createApp({
             shots: [['dashboard', '盘点'], ['device', '托盘']] },
           { id: 'f-devices', n: '07', k: '跨端归集', t: '多台设备的用量和配置，归到一个账号', d: '桌面版、CLI 版、服务器网关各自注册为独立设备，登录同一账号后用量自动上报、云端合并。',
             points: [['设备注册：', '自动分配，心跳在线'], ['盘点快照：', '1 / 7 / 30 天上报'], ['云端合并：', '分设备或汇总查看'], ['跨端一致：', '订阅与配置登录即同步']],
-            diagram: 'devices' },
+            shots: [['account', '个人页'], ['@devices', '示意']] },
           { id: 'f-orchestrate', n: '08', k: '智能体编排', t: '一句话，派给最擅长的那个', d: '在游乐场设一个主 Agent 作为入口：接收任务、规划步骤，再派发给其他已纳管或已雇佣的智能体，工具流全程可见。',
             points: [['同一张名单：', '本机、雇来的、模型'], ['过程可控：', '看得见，可停可续'], ['编排接口：', 'tb_list_agents、tb_dispatch_agent']],
-            diagram: 'orchestrate' },
+            shots: [['playground', '游乐场'], ['@orchestrate', '示意']] },
         ],
         dRoute: { app: '你的应用', apps: ['Claude Code', 'Codex', 'Cursor', 'Pi'], bind: '按应用绑定路由', scene: '场景 / 任务分型', scenes: ['日常对话', '代码补全', '长文分析', 'design', 'repo-qa', 'chore', 'debug'], chainK: '供给链，逐级直到命中', chain: ['Ollama', '免费 API', '订阅 / 按量', '社区共享'], policyK: '策略组', policies: ['fallback', 'round-robin', 'weighted', 'latency', 'direct'], note: '' },
         dDev: { devices: [['MacBook', '桌面版', '设备 A · 在线'], ['Windows 台式机', '桌面版', '设备 B · 在线'], ['Linux 服务器', 'CLI / Docker 网关', '设备 C · 在线']], up: '定时上报盘点快照', cloud: '你的账号', cloudD: '用量云端合并 · 订阅与配置同步', down: '在任意一台上查看', views: ['各设备占比', '在线状态', '独立明细', '汇总视图'] },
@@ -580,7 +578,7 @@ createApp({
             shots: [['provider', 'Models'], ['gateway', 'Gateway routes']] },
           { id: 'f-route', n: '03', k: 'Scene routing', t: 'Scene routing picks the supply for each task', d: 'Each app can bind its own scene route, with a global supply chain as fallback. Local first, the community when needed — fully transparent to the agent.',
             points: [['Scenes and task types: ', 'chat, completion and long documents on different chains; built-in task types such as design, repo-qa, chore and debug.'], ['Supply chain: ', 'Ollama → free APIs (Groq, GitHub Models) → subscription / pay-as-you-go → community, until one answers.'], ['Policies and failover: ', 'fallback, round-robin, weighted, latency, ordered by tool use and context length; automatic switch when an upstream fails.'], ['Source / price filters: ', 'restrict to personal sources, community only, free only or paid only.']],
-            diagram: 'route' },
+            shots: [['route', 'Scene routes'], ['@route', 'Diagram']] },
           { id: 'f-trace', n: '04', k: 'Trace management', t: 'Every call, traceable', d: 'Whether or not an agent goes through the gateway, usage is recorded: live proxy plus local session back-fill, each call counted once.',
             points: [['Live gateway: ', 'route chain, real model, tokens, latency and cost.'], ['Session back-fill: ', 'scans ~/.claude, ~/.codex, WorkBuddy traces and more for calls that skipped the gateway, de-duplicated.'], ['Session Trace: ', 'step-level tool calls, skills, reasoning and token breakdown.'], ['Session management: ', 'filter by app, see tokens and cost per session, hand off to another agent or export.']],
             shots: [['sessions', 'Sessions'], ['trace', 'Session Trace']] },
@@ -592,10 +590,10 @@ createApp({
             shots: [['dashboard', 'Usage'], ['device', 'Tray']] },
           { id: 'f-devices', n: '07', k: 'Cross-device roll-up', t: 'Usage and config from every device, in one account', d: 'Desktop, CLI and server gateways each register as a device; sign in to the same account and usage is reported and merged in the cloud.',
             points: [['Device registration: ', 'each machine gets a device id and a heartbeat for online status.'], ['Usage snapshots: ', '1 / 7 / 30-day calls, tokens, cost, local vs community mix, top models and apps.'], ['Cloud merge: ', 'profile and usage pages show each device\'s share and status, per-device detail or the combined view.'], ['Consistent everywhere: ', 'subscriptions, pay-as-you-go settings and the tool list sync on sign-in — no reconfiguring.']],
-            diagram: 'devices' },
+            shots: [['account', 'Account'], ['@devices', 'Diagram']] },
           { id: 'f-orchestrate', n: '08', k: 'Agent orchestration', t: 'One sentence, sent to whoever does it best', d: 'Set a main agent in the Playground: it takes the task, plans steps and dispatches them to other onboarded or hired agents, with the tool stream visible throughout.',
             points: [['One roster: ', 'local Pi, Claude Code, Codex, hired community agents and models can all be dispatched to.'], ['In control: ', 'tool calls and chunked output are visible; stop and resume any time.'], ['Orchestration API: ', 'the built-in tokenbank-agent-bridge MCP exposes tb_list_agents and tb_dispatch_agent.']],
-            diagram: 'orchestrate' },
+            shots: [['playground', 'Playground'], ['@orchestrate', 'Diagram']] },
         ],
         dRoute: { app: 'Your apps', apps: ['Claude Code', 'Codex', 'Cursor', 'Pi'], bind: 'route bound per app', scene: 'Scene / task type', scenes: ['chat', 'completion', 'long docs', 'design', 'repo-qa', 'chore', 'debug'], chainK: 'supply chain, until one answers', chain: ['Ollama', 'Free APIs', 'Subscription / PAYG', 'Community'], policyK: 'Policy group', policies: ['fallback', 'round-robin', 'weighted', 'latency', 'direct'], note: 'Native model names kept; failover is fully transparent to the agent.' },
         dDev: { devices: [['MacBook', 'Desktop', 'device A · online'], ['Windows PC', 'Desktop', 'device B · online'], ['Linux server', 'CLI / Docker gateway', 'device C · online']], up: 'usage snapshots reported', cloud: 'Your account', cloudD: 'usage merged · subscriptions and config synced', down: 'view from any device', views: ['share per device', 'online status', 'per-device detail', 'combined view'] },
@@ -659,6 +657,8 @@ createApp({
     const shotSel = ref({})
     const shotIdx = (id) => shotSel.value[id] || 0
     const setShot = (id, i) => { shotSel.value = { ...shotSel.value, [id]: i } }
+    const visOf = (f) => { if (!f.shots) return f.diagram || ''; const k = f.shots[shotIdx(f.id)][0]; return k.startsWith('@') ? k.slice(1) : '' }
+    const shotSrc = (k) => k.startsWith('/') ? k : boardSrc(k)
     const boardSrc = (key) => '/static/img_cache/' + key + (lang.value === 'en' ? '_en' : '') + '.webp'
     // 功能轮播：进度条走完自动下一项；悬停/聚焦暂停；用户点过就停在那一项
     const featIdx = ref(0), featTick = ref(0), featPaused = ref(false)
@@ -787,7 +787,7 @@ createApp({
       load()
       featFromHash(); addEventListener('hashchange', featFromHash)
     })
-    return { heroGroups, H, featIdx, featTick, featPaused, goFeat, shotIdx, setShot, boardSrc, appGroups, exIdx, examples, copied, copyCode, reduced, lang, T, N, toggleLang, loggedIn, loaded, nodes, models, agents, res, archIdx, archHover, hoverLayer, chipText, chipIcon, chipBadge, plateIcons }
+    return { visOf, shotSrc, heroGroups, H, featIdx, featTick, featPaused, goFeat, shotIdx, setShot, boardSrc, appGroups, exIdx, examples, copied, copyCode, reduced, lang, T, N, toggleLang, loggedIn, loaded, nodes, models, agents, res, archIdx, archHover, hoverLayer, chipText, chipIcon, chipBadge, plateIcons }
   },
 }).mount('#app')
 </script>
