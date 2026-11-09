@@ -79,7 +79,7 @@ export default function Login() {
   }, [user, navigate, returnTo]);
 
   useEffect(() => {
-    if (!window.electronAPI) return;
+    if (!isElectron()) return;
     window.electronAPI.config.read().then((cfg) => { if (!cfg) setFirstRun(true); });
     bootstrapServerUrl().then((url) => { if (url) setServerUrl(url); });
   }, []);
@@ -90,7 +90,7 @@ export default function Login() {
     await syncCloudConfigUrl(base);
     const profileRes = await getProfile();
     loginSuccess(token, profileRes.data);
-    if (window.electronAPI) {
+    if (isElectron()) {
       const current = (await window.electronAPI.config.read()) || {};
       const wsUrl = serverUrl.replace(/^https?/, (m) => (m === 'https' ? 'wss' : 'ws')) + '/ws/worker';
       await window.electronAPI.config.write({ ...current, server_url: wsUrl, worker_key: profileRes.data.worker_key || '' });

@@ -61,3 +61,6 @@ Thumbs.db
 # 头脑风暴产物（mockup HTML，勿提交）
 .superpowers/
 docs/
+
+# Docker 网关：智能体工作目录（docker-compose 挂到 /workspace）
+workspace/

@@ -3,13 +3,16 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ServiceIcon from '../components/ServiceIcon';
 import {
-  FilterMenu, SplitButton, AppIconStack, LIFE_DOT,
+  FilterMenu, AppIconStack, LIFE_DOT,
   LIB_LIST_CLS, libRowCls, LibrarySectionHead, LibraryRowTitle,
   LibraryInspector, InspectorSection, InspectorPreview,
 } from '../components/LibraryControls';
 import PersonalizedRecommend from '../components/PersonalizedRecommend';
 import McpProvidersTab from '../components/McpProvidersTab';
 import SkillInstallDialog from '../components/SkillInstallDialog';
+import AiNeedNotice from '../components/AiNeedNotice';
+import { useAiReadiness } from '../lib/ai-readiness';
+import { isWebBridge } from '../api/webBridge';
 import {
   ASSET_BTN_GHOST,
   ASSET_BTN_MANAGED,
@@ -170,12 +173,10 @@ function saveDiscoverType(type) {
 function readTypeFilter() {
   try {
     const v = localStorage.getItem(TYPE_FILTER_KEY);
-    // 缺省 / 空 = 全部；记住用户上次选择
-    if (v === null || v === undefined) return '';
-    if (v === '') return '';
+    // 资产库不再有「全部」：缺省落到技能；记住用户上次选择
     if (v === 'prompt' || v === 'skill' || v === 'assistant' || v === 'mcp') return v;
-    return '';
-  } catch { return ''; }
+    return 'skill';
+  } catch { return 'skill'; }
 }
 
 function saveTypeFilter(type) {
@@ -551,6 +552,13 @@ export default function Resources() {
   /** 用途筛选（空 = 全部；值为 purpose slug） */
   const [tagFilter, setTagFilter] = useState('');
   /** Hit-or-Exit 分层：'' | active | pending | dormant | cold | shelf */
+  // 智能功能前置条件：模型（网关 model:auto）+ 应用（内置智能体投射目标）
+  const ai = useAiReadiness();
+  const [aiNoticeHidden, setAiNoticeHidden] = useState(() => (readJson('tokenbank.resources.aiNoticeHide', 0) || 0) > Date.now());
+  const hideAiNotice = () => {
+    writeJson('tokenbank.resources.aiNoticeHide', Date.now() + 7 * 24 * 60 * 60 * 1000);
+    setAiNoticeHidden(true);
+  };
   // 技能系列展开状态（默认收起）
   const [openSeries, setOpenSeries] = useState(() => new Set(readJson(SERIES_OPEN_KEY, [])));
   const toggleSeries = useCallback((key) => {
@@ -2118,10 +2126,14 @@ export default function Resources() {
     }
   }
 
-  function openCreateEditor() {
+  function openCreateEditor(presetType, pickType = false) {
+    const type = ['prompt', 'skill', 'assistant'].includes(presetType)
+      ? presetType
+      : (['prompt', 'skill', 'assistant'].includes(typeFilter) ? typeFilter : 'prompt');
     setEditorForm({
       ...EMPTY_EDITOR,
-      type: typeFilter || 'prompt',
+      type,
+      pickType,
       // 新建时若正筛「图片」提示词，默认归为图片类
       promptKind: typeFilter === 'prompt' && promptKindFilter === 'image' ? 'image' : 'text',
       // 当前标签筛选项预填，便于归类
@@ -2134,6 +2146,8 @@ export default function Resources() {
   /** 新建智能体的第一步：只填一句话描述 */
   const asstIsNew = () => editorForm.type === 'assistant' && !editorForm.id;
   const asstBrief = () => asstIsNew() && editorForm.asStep === 'brief';
+  /** 新建提示词默认只露出内容；其余字段收进「更多设置」 */
+  const quickPrompt = () => editorForm.type === 'prompt' && !editorForm.id && !editorForm.moreOpen;
   /** 新建智能体本次要付费纳管的技能数 / 总积分（价格未知时为 null） */
   const asstPaidCount = () => (editorForm.suggestSkills || []).filter((c) => c.checked && c.paid).length;
   const asstCost = () => {
@@ -2143,13 +2157,6 @@ export default function Resources() {
   };
 
   /** Skill 类型：打开安装对话框，由资源安装智能体执行 */
-  function handlePrimaryAction() {
-    if (typeFilter === 'skill') {
-      setSkillInstallOpen(true);
-      return;
-    }
-    openCreateEditor();
-  }
 
   function openEditEditor(resource) {
     const base = {
@@ -2289,6 +2296,25 @@ export default function Resources() {
     if (!name && editorForm.type === 'assistant' && !editorForm.id) {
       name = slugifyAssistantId(editorForm.display_name || editorForm.description || '', 'assistant-' + Date.now().toString(36));
     }
+    // 新建提示词：只写内容也能保存，名称 / 标识 / 简介从内容推出
+    let derived = {};
+    if (editorForm.type === 'prompt' && !editorForm.id) {
+      const body = String(editorForm.content || '').trim();
+      if (!body) {
+        setError(t('resources.promptContentRequired'));
+        return;
+      }
+      const firstLine = body.split(/\r?\n/).map(l => l.replace(/^[#>*\-\s]+/, '').trim()).find(Boolean) || '';
+      const display = String(editorForm.display_name || '').trim() || (firstLine.length > 24 ? firstLine.slice(0, 24) + '…' : firstLine);
+      if (!name) {
+        const ascii = display.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+        name = ascii.length >= 3 ? ascii : `prompt-${Date.now().toString(36)}`;
+      }
+      derived = {
+        display_name: display,
+        description: String(editorForm.description || '').trim() || (body.replace(/\s+/g, ' ').slice(0, 60)),
+      };
+    }
     if (!name) {
       setError(t('resources.editorNameRequired'));
       return;
@@ -2362,8 +2388,8 @@ export default function Resources() {
         id: editorForm.id || undefined,
         type: editorForm.type,
         name,
-        display_name: editorForm.display_name || name,
-        description: editorForm.description || '',
+        display_name: derived.display_name || editorForm.display_name || name,
+        description: derived.description ?? (editorForm.description || ''),
         content,
         metadata,
       });
@@ -3186,7 +3212,7 @@ export default function Resources() {
         disabled: !!busy && busy !== recKey && busy !== li.resourceId,
         onClick: () => handleRecommendToCommunity(item),
       },
-      li.path && {
+      li.path && !isWebBridge() && {
         key: 'open',
         label: t('resources.openFolder'),
         onClick: () => handleOpenPath(li.path),
@@ -3711,35 +3737,49 @@ export default function Resources() {
                 <kbd className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] px-1.5 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-400 font-sans pointer-events-none">/</kbd>
               )}
             </div>
-            {isMcp ? (
-              <SplitButton
-                label={t('resources.addAsset')}
-                onClick={() => setMcpCreateSignal(n => n + 1)}
-                menuLabel={t('resources.moreActions')}
-                items={[
-                  { key: 'catalog', label: t('resources.mcp.browseCatalog'), hint: t('resources.mcp.browseCatalogHint'), onClick: () => changeViewTab('recommend') },
-                ]}
-              />
-            ) : (
-            <SplitButton
-              label={t('resources.addAsset')}
-              onClick={handlePrimaryAction}
-              disabled={busy === 'editor' || busy === 'cleanup'}
-              menuLabel={t('resources.moreActions')}
-              items={[
-                { key: 'create', label: typeFilter ? t('resources.createOf', { type: t(`resources.tabType.${typeFilter}`) }) : t('resources.create'), hint: t('resources.menu.createHint'), onClick: openCreateEditor },
-                { key: 'install', label: t('resources.skillInstallFromLink'), hint: t('resources.menu.installHint'), onClick: () => setSkillInstallOpen(true) },
-                { key: 'import', label: busy === 'import' ? t('resources.busy') : t('resources.import'), hint: t('resources.menu.importHint'), disabled: busy === 'import' || busy === 'cleanup' || busy === 'editor', onClick: handleImportFile },
-                showSkillTabs && { key: 'scan', label: t('resources.scan'), hint: t('resources.menu.scanHint'), onClick: () => setScanExpanded(true) },
-                typeFilter === 'skill' && { key: 'cleanup', label: idleLoading ? t('resources.cleanupScanning') : t('resources.cleanup'), hint: t('resources.cleanupTitle'), disabled: busy === 'cleanup' || idleLoading, onClick: openSkillCleanup },
-              ]}
-            />
-            )}
+            {(() => {
+              const busyEdit = busy === 'editor' || busy === 'cleanup';
+              const primaryCls = 'tb-press text-xs font-medium px-3.5 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 shadow-sm shadow-blue-600/20 disabled:opacity-50 whitespace-nowrap';
+              const ghostCls = 'tb-press text-xs px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/70 dark:bg-zinc-900/50 text-zinc-700 dark:text-zinc-200 hover:bg-white dark:hover:bg-zinc-800 disabled:opacity-50 whitespace-nowrap';
+              if (isMcp) {
+                return (
+                  <>
+                    <button type="button" className={ghostCls} onClick={() => changeViewTab('recommend')} title={t('resources.mcp.browseCatalogHint')}>{t('resources.mcp.browseCatalog')}</button>
+                    <button type="button" className={primaryCls} onClick={() => setMcpCreateSignal(n => n + 1)}>＋ {t('resources.mcp.add')}</button>
+                  </>
+                );
+              }
+              const typed = ['prompt', 'skill', 'assistant'].includes(typeFilter);
+              return (
+                <>
+                  {showSkillTabs && (
+                    <button type="button" className={ghostCls} onClick={() => setScanExpanded(v => !v)} title={t('resources.menu.scanHint')}>{t('resources.scanShort')}</button>
+                  )}
+                  {typeFilter === 'skill' && (
+                    <button type="button" className={ghostCls} disabled={busy === 'cleanup' || idleLoading} onClick={openSkillCleanup} title={t('resources.cleanupTitle')}>
+                      {idleLoading ? t('resources.cleanupScanning') : t('resources.cleanup')}
+                    </button>
+                  )}
+                  {/* Docker / Web 版没有本机文件对话框，不提供从文件导入 */}
+                  {!isWebBridge() && (
+                  <button type="button" className={ghostCls} disabled={busy === 'import' || busyEdit} onClick={handleImportFile} title={t('resources.menu.importHint')}>
+                    {busy === 'import' ? t('resources.busy') : t('resources.importShort')}
+                  </button>
+                  )}
+                  {showSkillTabs && (
+                    <button type="button" className={ghostCls} onClick={() => setSkillInstallOpen(true)} title={t('resources.menu.installHint')}>{t('resources.skillInstallShort')}</button>
+                  )}
+                  <button type="button" className={primaryCls} disabled={busyEdit} onClick={() => openCreateEditor(typed ? typeFilter : '', !typed)}>
+                    ＋ {typed ? t('resources.createOf', { type: t(`resources.tabType.${typeFilter}`) }) : t('resources.create')}
+                  </button>
+                </>
+              );
+            })()}
           </div>
         </div>
         {/* 主导航：资产类型直接作为一级 Tab（带数量），「发现」与之以竖线分隔 */}
         <div className="mt-4 flex flex-wrap items-end gap-x-6 gap-y-1 border-b border-zinc-200/80 dark:border-white/[0.08]" role="tablist">
-          {TYPE_OPTIONS.map(opt => {
+          {TYPE_OPTIONS.filter(o => o.id).map(opt => {
             const active = viewTab === 'managed' && typeFilter === opt.id;
             const n = typeCounts[opt.id || 'all'];
             return (
@@ -3868,6 +3908,9 @@ export default function Resources() {
           )}
         </div>
 
+        {!isMcp && !aiNoticeHidden && (
+          <AiNeedNotice model={ai.model} agent={ai.agent} onRetry={() => ai.refresh()} onDismiss={hideAiNotice} />
+        )}
         {!isMcp && viewTab === 'managed' && !layerFilter && (
           <>
         {lifecycleNudges.length > 0 && (() => {
@@ -3971,6 +4014,7 @@ export default function Resources() {
                   : (scanning ? t('resources.scanning') : t('resources.scanStart'))}
               </button>
             </div>
+            <AiNeedNotice model={ai.model} agent={null} feature={t('resources.aiNeed.feat.tagging')} compact onRetry={() => ai.refresh()} />
             {lastScan && (
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400 flex flex-wrap gap-x-3">
                 <span>{t('resources.scanLast.total', { n: lastScan.total })}</span>
@@ -4174,9 +4218,13 @@ export default function Resources() {
               <p className="text-[10px] text-zinc-400">
                 {t('resources.cleanupHint', { days: idleDays })}
               </p>
+              {ai.model === false ? (
+                <AiNeedNotice model={false} agent={null} feature={t('resources.aiNeed.feat.cleanup')} compact onRetry={() => ai.refresh()} />
+              ) : (
               <p className="text-[10px] text-violet-600/90 dark:text-violet-400/90">
                 {t('resources.cleanupAiHint')}
               </p>
+              )}
               {!hasStoredPortrait() && (
                 <div className="flex items-start gap-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 px-2.5 py-2">
                   <p className="min-w-0 flex-1 text-[10px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
@@ -4480,12 +4528,28 @@ export default function Resources() {
           >
             <div className="px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
               <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                {editorForm.id ? t('resources.editTitle') : (editorForm.type === 'assistant' ? t('resources.createAssistantTitle') : t('resources.createTitle'))}
+                {editorForm.id ? t('resources.editTitle') : t('resources.createOf', { type: t(`resources.tabType.${editorForm.type}`) })}
               </h3>
               <p className="text-[11px] text-zinc-400 mt-1">{asstBrief() ? t('resources.assistantBriefHint') : (asstIsNew() ? t('resources.assistantReviewHint') : t('resources.editorHint'))}</p>
             </div>
             <div className="p-4 space-y-3">
-              {!(asstIsNew() && !editorForm.showType) && (
+              {!editorForm.id && editorForm.pickType && (
+                <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-800/70" role="radiogroup" aria-label={t('resources.editorType')}>
+                  {['prompt', 'skill', 'assistant'].map(ty => (
+                    <button
+                      key={ty}
+                      type="button"
+                      role="radio"
+                      aria-checked={editorForm.type === ty}
+                      onClick={() => setEditorForm(prev => ({ ...prev, type: ty, asStep: ty === 'assistant' ? (prev.asStep || 'brief') : prev.asStep }))}
+                      className={`text-xs py-1.5 rounded-lg transition ${editorForm.type === ty ? 'bg-white dark:bg-zinc-900 shadow-sm font-medium text-zinc-900 dark:text-zinc-100' : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'}`}
+                    >
+                      {t(`resources.tabType.${ty}`)}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!!editorForm.id && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorType')}
                 <select
@@ -4536,7 +4600,48 @@ export default function Resources() {
                   </button>
                 </div>
               )}
-              {editorForm.type === 'prompt' && (
+              {editorForm.type === 'prompt' && !editorForm.id && !editorForm.moreOpen && (
+                <div className="space-y-2">
+                  <textarea
+                    autoFocus
+                    value={editorForm.content}
+                    onChange={e => setEditorForm(prev => ({ ...prev, content: e.target.value }))}
+                    rows={10}
+                    placeholder={editorForm.promptKind === 'image' ? t('resources.promptQuickPhImage') : t('resources.promptQuickPh')}
+                    className="w-full text-[13px] px-3 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 leading-relaxed"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="inline-flex p-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-800/70" role="radiogroup" aria-label={t('resources.editorPromptKind')}>
+                      {['text', 'image'].map(k => (
+                        <button
+                          key={k}
+                          type="button"
+                          role="radio"
+                          aria-checked={(editorForm.promptKind === 'image' ? 'image' : 'text') === k}
+                          onClick={() => setEditorForm(prev => ({ ...prev, promptKind: k }))}
+                          className={`text-[11px] px-2.5 py-1 rounded-md ${(editorForm.promptKind === 'image' ? 'image' : 'text') === k ? 'bg-white dark:bg-zinc-900 shadow-sm text-zinc-900 dark:text-zinc-100 font-medium' : 'text-zinc-500'}`}
+                        >
+                          {t(`resources.promptKind.${k}`)}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      value={editorForm.display_name}
+                      onChange={e => setEditorForm(prev => ({ ...prev, display_name: e.target.value }))}
+                      placeholder={t('resources.promptQuickNamePh')}
+                      className="flex-1 min-w-[10rem] text-xs px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditorForm(prev => ({ ...prev, moreOpen: true }))}
+                    className="text-[11px] text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                  >
+                    {t('resources.promptQuickMore')}
+                  </button>
+                </div>
+              )}
+              {editorForm.type === 'prompt' && (editorForm.id || editorForm.moreOpen) && (
                 <label className="block text-xs text-zinc-500">
                   {t('resources.editorPromptKind')}
                   <select
@@ -4550,7 +4655,7 @@ export default function Resources() {
                   <span className="block mt-1 text-[10px] text-zinc-400">{t('resources.editorPromptKindHint')}</span>
                 </label>
               )}
-              {editorForm.type !== 'assistant' && (
+              {editorForm.type !== 'assistant' && !quickPrompt() && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorName')}
                 <input
@@ -4562,7 +4667,7 @@ export default function Resources() {
                 />
               </label>
               )}
-              {!asstBrief() && !(asstIsNew() && editorForm.display_name && !editorForm.metaEdit) && (
+              {!asstBrief() && !quickPrompt() && !(asstIsNew() && editorForm.display_name && !editorForm.metaEdit) && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorDisplayName')}
                 <input
@@ -4572,7 +4677,7 @@ export default function Resources() {
                 />
               </label>
               )}
-              {!asstBrief() && !(asstIsNew() && editorForm.display_name && !editorForm.metaEdit) && (
+              {!asstBrief() && !quickPrompt() && !(asstIsNew() && editorForm.display_name && !editorForm.metaEdit) && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorDescription')}
                 <input
@@ -4582,7 +4687,7 @@ export default function Resources() {
                 />
               </label>
               )}
-              {editorForm.type !== 'assistant' && (
+              {editorForm.type !== 'assistant' && !quickPrompt() && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorDetail')}
                 <textarea
@@ -4595,7 +4700,7 @@ export default function Resources() {
                 <span className="block mt-1 text-[10px] text-zinc-400">{t('resources.editorDetailHint')}</span>
               </label>
               )}
-              {editorForm.type !== 'assistant' && (
+              {editorForm.type !== 'assistant' && !quickPrompt() && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorTags')}
                 <input
@@ -4611,11 +4716,12 @@ export default function Resources() {
                 <>
                   {asstBrief() ? (
                   <div className="space-y-2">
+                    <AiNeedNotice model={ai.model} agent={null} feature={t('resources.aiNeed.feat.assistant')} compact onRetry={() => ai.refresh()} />
                     <textarea
                       autoFocus
                       value={editorForm.nlBrief || ''}
                       onChange={e => setEditorForm(prev => ({ ...prev, nlBrief: e.target.value }))}
-                      onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) generateAssistantNl(); }}
+                      onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && ai.model !== false) generateAssistantNl(); }}
                       rows={4}
                       placeholder={t('resources.assistantNlPh')}
                       className="w-full text-sm px-3 py-2.5 rounded-xl border border-violet-200 dark:border-violet-800/60 bg-white dark:bg-zinc-950 leading-relaxed focus:outline-none focus:ring-2 focus:ring-violet-400/40"
@@ -4638,7 +4744,8 @@ export default function Resources() {
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
-                        disabled={!!busy}
+                        disabled={!!busy || ai.model === false}
+                        title={ai.model === false ? t('resources.aiNeed.title.model', { feature: t('resources.aiNeed.feat.assistant') }) : undefined}
                         onClick={generateAssistantNl}
                         className="tb-press text-xs px-3.5 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-50"
                       >
@@ -4943,7 +5050,7 @@ export default function Resources() {
                   </>
                   )}
                 </>
-              ) : (
+              ) : quickPrompt() ? null : (
                 <label className="block text-xs text-zinc-500">
                   {t('resources.editorContent')}
                   <textarea
@@ -4962,15 +5069,6 @@ export default function Resources() {
               )}
             </div>
             <div className="px-4 py-3 border-t border-zinc-100 dark:border-zinc-800 flex gap-2 justify-end items-center">
-              {asstIsNew() && !editorForm.showType && (
-                <button
-                  type="button"
-                  onClick={() => setEditorForm(prev => ({ ...prev, showType: true }))}
-                  className="mr-auto text-[11px] text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:underline"
-                >
-                  {t('resources.editorOtherType')}
-                </button>
-              )}
               <button
                 type="button"
                 onClick={() => setEditorOpen(false)}

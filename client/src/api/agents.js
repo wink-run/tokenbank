@@ -2,7 +2,7 @@
 // CLI agent 透明接入 IPC 封装（Electron 模式专用）。
 
 export function isElectron() {
-  return typeof window !== 'undefined' && !!window.electronAPI;
+  return typeof window !== 'undefined' && !!window.electronAPI && !window.electronAPI.__web;
 }
 
 export async function listAgents() {

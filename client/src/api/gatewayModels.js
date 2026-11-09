@@ -136,6 +136,11 @@ async function fetchLocalGatewayV1ModelsJson() {
   }
 }
 
+/** 仅本地网关的 /v1/models 原始 JSON，不回退云端（智能功能可用性检测用） */
+export function fetchLocalGatewayModelsJsonOnly() {
+  return fetchLocalGatewayV1ModelsJson();
+}
+
 /** 本地网关 /v1/models（网关未启动时返回 null） */
 async function fetchLocalGatewayV1Models(provById) {
   const json = await fetchLocalGatewayV1ModelsJson();

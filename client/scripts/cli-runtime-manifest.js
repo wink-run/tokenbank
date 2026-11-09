@@ -12,21 +12,22 @@ const CLI_ENTRY_POINTS = [
   path.join(CLIENT_ROOT, 'cli', 'gateway.js'),
   path.join(CLIENT_ROOT, 'cli', 'admin-api.js'),
   path.join(CLIENT_ROOT, 'cli', 'agent-control.js'),
+  path.join(CLIENT_ROOT, 'cli', 'docker-entry.js'),
+  path.join(CLIENT_ROOT, 'cli', 'ipc-bridge.js'),
+  path.join(CLIENT_ROOT, 'cli', 'electron-stub.js'),
+  // 资产管理与命令行智能体纳管：ipc-bridge 运行时才 require，静态扫描需显式列出
+  path.join(CLIENT_ROOT, 'electron', 'ipc-handlers-resource.js'),
+  path.join(CLIENT_ROOT, 'electron', 'ipc-handlers-agent.js'),
 ];
 
 /**
  * 仅 Electron 桌面壳使用，CLI/Docker 镜像中可安全删除。
  * 桌面版 electron-builder 仍打包完整 electron 目录（含这些文件）。
  */
+// detect-tools / agent-linker / shim-installer 等纯 Node 模块保留在 CLI：命令行智能体探测与接入网关要用
 const DESKTOP_ONLY_FILES = new Set([
   'main.js',
   'preload.js',
-  'detect-tools.js',
-  'agent-linker.js',
-  'shim-installer.js',
-  'mitm-proxy.js',
-  'injector.js',
-  'ca-manager.js',
   'entitlements.mac.plist',
   'entitlements.mac.inherit.plist',
 ]);

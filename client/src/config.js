@@ -19,7 +19,7 @@ export function getServerUrl() {
  * Vite dev 且目标为默认远程服务时走同源代理，避免 CORS。
  */
 export function getApiBaseUrl() {
-  if (import.meta.env.DEV && typeof window !== 'undefined' && !window.electronAPI) {
+  if (import.meta.env.DEV && typeof window !== 'undefined' && (!window.electronAPI || window.electronAPI.__web)) {
     const stored = getServerUrl();
     const proxyTarget = defaultServerUrlFromEnv();
     if (!stored || stored === proxyTarget) {

@@ -117,13 +117,19 @@ services:
       - "11430:11430"   # OpenAI-compatible gateway (OPENAI_BASE_URL)
       - "11431:11431"   # Admin API + Web UI
     volumes:
+      # 整个 /data：命令行智能体（装在 /data/.npm-global）、它们的登录状态（~/.claude、~/.pi…）、资产库
+      - gateway_home:/data
       - ./gateway-data:/data/.llm-agent          # 配置；local-config.json 首次启动自动创建
       - ./gateway-data/tokenbank:/data/.tokenbank # 请求记录 / 用量库，重启容器后保留
+      - ./workspace:/workspace                   # 智能体默认工作目录：放要处理的项目
     environment:
       - HOME=/data
       - NODE_ENV=production
       - GATEWAY_BIND_HOST=0.0.0.0
       - TOKEN_SERVER_URL=https://tokenbank.wink.run/
+      # 容器以普通用户运行（默认 1000）；想让 ./gateway-data、./workspace 归宿主机用户，改成 `id -u` / `id -g`
+      # - TOKENBANK_UID=1000
+      # - TOKENBANK_GID=1000
     restart: unless-stopped
     healthcheck:
       test:
@@ -148,3 +154,4 @@ volumes:
   app_data:
   pgdata:
   certbot_www:
+  gateway_home:
