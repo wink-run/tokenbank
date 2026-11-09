@@ -18,7 +18,7 @@
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
     "@lobehub/icons-static-svg": "^1.91.0",
-    "adm-zip": "^0.6.0",
+    "adm-zip": "^0.6.1",
     "axios": "^1.7.2",
     "better-sqlite3": "^12.10.0",
     "electron-store": "^9.0.0",
