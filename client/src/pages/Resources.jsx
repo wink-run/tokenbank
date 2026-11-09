@@ -144,6 +144,17 @@ function saveViewTab(tab) {
   try { localStorage.setItem(VIEW_TAB_KEY, tab); } catch {}
 }
 
+const DISCOVER_TYPE_KEY = 'tokenbank.resources.discoverType';
+function readDiscoverType() {
+  try {
+    const v = localStorage.getItem(DISCOVER_TYPE_KEY) || '';
+    return TYPE_OPTIONS.some((o) => o.id === v) ? v : '';
+  } catch { return ''; }
+}
+function saveDiscoverType(type) {
+  try { localStorage.setItem(DISCOVER_TYPE_KEY, type || ''); } catch { /* ignore */ }
+}
+
 function readTypeFilter() {
   try {
     const v = localStorage.getItem(TYPE_FILTER_KEY);
@@ -467,7 +478,8 @@ export default function Resources() {
   const pageActive = location.pathname === '/resources';
   const { t, lang } = useLang();
   const [viewTab, setViewTab] = useState(readViewTab);
-  const [typeFilter, setTypeFilter] = useState(readTypeFilter);
+  // 资产列表和发现页各记各的类型，互不影响
+  const [typeFilter, setTypeFilter] = useState(() => (readViewTab() === 'recommend' ? readDiscoverType() : readTypeFilter()));
   const [query, setQuery] = useState('');
   const searchInputRef = useRef(null);
   /** 选中行（右侧详情面板）：资产库 r-/d-，社区 cat:，推荐 reco: */
@@ -509,6 +521,12 @@ export default function Resources() {
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
+  /** 社区付费资源单价（登录后拉取；未知为 null） */
+  const [communityCost, setCommunityCost] = useState(null);
+  /** 付费资源第一次点击后进入「确认扣分」状态的 catalogId */
+  const [payConfirmId, setPayConfirmId] = useState('');
+  /** 缺依赖的智能体：等用户在详情里确认 */
+  const [depsPendingId, setDepsPendingId] = useState('');
   const [msg, setMsg] = useState('');
   const [expandedId, setExpandedId] = useState(null);
   const [projectMenu, setProjectMenu] = useState(null);
@@ -1015,17 +1033,24 @@ export default function Resources() {
     setProjectMenu(prev => (prev ? { ...prev, x: left, y: top } : null));
   }, [projectMenu, agents, promptAgents, assistantAgents, managedAppTargets]);
 
+  const lastCatalogSyncRef = useRef(0);
   function changeViewTab(tab) {
+    if (tab !== viewTab) setTypeFilter(tab === 'recommend' ? readDiscoverType() : readTypeFilter());
     setViewTab(tab);
     setSelectedKey(null);
     saveViewTab(tab);
-    // 再点「发现」也要拉一次，已停在该 tab 时页面不会重新挂载
-    if (tab === 'recommend') refreshCommunityCatalog();
+    // 进入「发现」时同步社区目录；一分钟内重复进入不再拉，避免闪烁
+    if (tab === 'recommend' && Date.now() - lastCatalogSyncRef.current > 60000) {
+      lastCatalogSyncRef.current = Date.now();
+      refreshCommunityCatalog();
+    }
   }
 
-  function changeTypeFilter(type) {
+  /** tab 指明写入哪一边的类型记忆（切 tab 的同一次点击里 viewTab 还没更新） */
+  function changeTypeFilter(type, tab = viewTab) {
     setTypeFilter(type);
-    saveTypeFilter(type);
+    if (tab === 'recommend') saveDiscoverType(type);
+    else saveTypeFilter(type);
     setSelectedKey(null);
   }
 
@@ -1096,6 +1121,64 @@ export default function Resources() {
     setScanExpanded(v => !v);
   }
 
+  useEffect(() => {
+    if (!localStorage.getItem('token')) return;
+    getCommunityCatalogPricing()
+      .then((r) => { const c = Number(r?.data?.install_cost); if (Number.isFinite(c)) setCommunityCost(c); })
+      .catch(() => {});
+  }, []);
+
+  const isPaidCatalog = (item) => !!(item?.metadata?.user_recommended && item?.metadata?.recommender_user_id);
+
+  /** 应用 id → 展示名（与网关列表同源） */
+  function appLabelOf(id) {
+    const hit = (managedAppTargets || []).find((a) => a.id === id)
+      || (agents || []).find((a) => a.id === id);
+    return (hit && (hit.label || hit.name)) || id;
+  }
+
+  /**
+   * 所有「拿到一个资产」的入口统一收尾：投射到常用应用 + 复制调用口令。
+   * 返回一句提示（写清用在了哪些应用），失败时返回空串，不影响入库结果。
+   */
+  async function enableResource(resource) {
+    if (!resource?.id || resource.type === 'mcp') return '';
+    try {
+      const pack = await completeEnablePackage(resource, { lang });
+      if (pack.invokeText) await copyText(pack.invokeText);
+      try {
+        const fresh = await window.electronAPI.resource.listResources({ type: resource.type });
+        const hit = (fresh?.resources || []).find((r) => r.id === resource.id);
+        if (hit) upsertResourceLocally(hit);
+      } catch { /* ignore */ }
+      const name = resource.display_name || resource.name;
+      if (pack.projected && (pack.agentIds || []).length) {
+        return t('resources.enabledIn', {
+          name,
+          apps: pack.agentIds.map(appLabelOf).join('、'),
+          invoke: pack.invokeText,
+        });
+      }
+      return pack.projected
+        ? t('resources.enabledWithInvoke', { name, invoke: pack.invokeText })
+        : t('resources.enabledNeedProject', { name, invoke: pack.invokeText });
+    } catch {
+      return '';
+    }
+  }
+
+  /** 新建 / 导入后：切到该类型的资产列表并选中这一条 */
+  function focusResource(resource) {
+    if (!resource?.id) return;
+    setViewTab('managed');
+    saveViewTab('managed');
+    if (resource.type && TYPE_OPTIONS.some((o) => o.id === resource.type)) {
+      setTypeFilter(resource.type);
+      saveTypeFilter(resource.type);
+    }
+    setTimeout(() => setSelectedKey(`r-${resource.id}`), 0);
+  }
+
   /** 新建智能体时顺带纳管社区技能：不动全局 busy/msg，返回落库名 */
   async function installCatalogQuiet(c) {
     try {
@@ -1119,13 +1202,26 @@ export default function Resources() {
     }
   }
 
-  async function handleInstall(catalogId) {
-    // 依赖缺失的智能体：纳管前确认，避免静默带上坏数据
+  async function handleInstall(catalogId, { force = false } = {}) {
     const catalogItem = catalog.find(c => c.catalogId === catalogId);
-    if (catalogItem?.type === 'assistant' && catalogItem.depsBroken && catalogItem.missingDeps?.length) {
-      const list = catalogItem.missingDeps.map(d => `${d.type}:${d.name}`).join(', ');
-      if (!window.confirm(t('resources.depsBrokenConfirm', { list }))) return;
+    // 依赖缺失的智能体：先打开详情列出缺什么，由用户在详情里确认
+    if (!force && catalogItem?.type === 'assistant' && catalogItem.depsBroken && catalogItem.missingDeps?.length) {
+      setDepsPendingId(catalogId);
+      setSelectedKey(`cat:${catalogId}`);
+      return;
     }
+    // 付费资源：第一次点击只显示价格确认，第二次才扣分
+    if (isPaidCatalog(catalogItem) && !catalogItem.installed && payConfirmId !== catalogId) {
+      if (!localStorage.getItem('token')) {
+        setError(t('resources.recommendNeedLogin'));
+        return;
+      }
+      setPayConfirmId(catalogId);
+      setTimeout(() => setPayConfirmId((cur) => (cur === catalogId ? '' : cur)), 6000);
+      return;
+    }
+    setPayConfirmId('');
+    setDepsPendingId('');
     setBusy(catalogId);
     setMsg('');
     setError('');
@@ -1159,13 +1255,18 @@ export default function Resources() {
 
       const res = await window.electronAPI.resource.installCatalog({ catalogId });
       if (!res.success) {
-        setError(res.error || t('resources.installFailed'));
+        // 已结算过的付费项：服务端按「已付过」放行，重试不会重复扣分
+        setError(needSettle ? t('resources.installFailedPaidRetry') : (res.error || t('resources.installFailed')));
         return;
       }
       setMsg((prev) => {
         const base = res.alreadyInstalled ? t('resources.alreadyManaged') : t('resources.installOk');
         return prev && needSettle ? `${prev} · ${base}` : base;
       });
+      if (res.resource) {
+        const note = await enableResource(res.resource);
+        if (note) setMsg((prev) => (prev && needSettle ? `${prev.split(' · ')[0]} · ${note}` : note));
+      }
       // 局部更新目录/本机列表，避免 loadAll 整页闪烁
       if (res.resource) {
         upsertResourceLocally(res.resource);
@@ -2133,6 +2234,12 @@ export default function Resources() {
       if (detail) metadata.detail = detail;
       else delete metadata.detail;
       let content = editorForm.content || '';
+      // 新建技能：正文没写 YAML 头时按名称和描述补上，生成标准 SKILL.md
+      if (editorForm.type === 'skill' && !/^\s*---/.test(content)) {
+        const esc = (v) => String(v || '').replace(/\r?\n/g, ' ').replace(/"/g, '\\"');
+        const header = `---\nname: ${name}\ndescription: "${esc(editorForm.description || editorForm.display_name || name)}"\n---\n\n`;
+        content = header + (content.trim() || `# ${editorForm.display_name || name}\n`);
+      }
       // 智能体：用人设 + 勾选 skill / prompt 拼 JSON
       let extraSkills = [];
       let skillInstallNote = '';
@@ -2198,19 +2305,11 @@ export default function Resources() {
       setMsg(t('resources.saveOk'));
       changeViewTab('managed');
       if (res.resource) upsertResourceLocally(res.resource);
-      // 新建智能体：保存后直接启用（投射到常用应用 + 复制调用口令），与推荐安装一致
-      if (res.resource && editorForm.type === 'assistant' && !editorForm.id) {
-        try {
-          const pack = await completeEnablePackage(res.resource, { lang });
-          if (pack.invokeText) await copyText(pack.invokeText);
-          const shown = res.resource.display_name || res.resource.name;
-          setMsg((skillInstallNote ? skillInstallNote + ' · ' : '') + (pack.projected
-            ? t('resources.enabledWithInvoke', { name: shown, invoke: pack.invokeText })
-            : t('resources.enabledNeedProject', { name: shown, invoke: pack.invokeText })));
-          const fresh = await window.electronAPI.resource.listResources({ type: 'assistant' });
-          const hit = (fresh?.resources || []).find(r => r.id === res.resource.id);
-          if (hit) upsertResourceLocally(hit);
-        } catch { /* 启用失败保留「已保存」，用户可手动投射 */ }
+      // 新建：保存后直接启用（投射到常用应用 + 复制调用口令），并在对应类型列表里选中
+      if (res.resource && !editorForm.id) {
+        focusResource(res.resource);
+        const note = await enableResource(res.resource);
+        if (note || skillInstallNote) setMsg([skillInstallNote, note].filter(Boolean).join(' · '));
       }
     } catch (e) {
       setError(e.message);
@@ -2241,7 +2340,12 @@ export default function Resources() {
       else if (res.alreadyInstalled) setMsg(t('resources.alreadyManaged'));
       else setMsg(t('resources.importOk'));
       changeViewTab('managed');
-      if (res.resource) upsertResourceLocally(res.resource);
+      if (res.resource) {
+        upsertResourceLocally(res.resource);
+        focusResource(res.resource);
+        const note = await enableResource(res.resource);
+        if (note) setMsg(note);
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -3206,14 +3310,23 @@ export default function Resources() {
   function renderCatalogAction(item, { block = false } = {}) {
     const builtin = isBuiltinResource(item);
     const done = item.installed || builtin;
+    const paid = !done && isPaidCatalog(item);
+    const confirming = paid && payConfirmId === item.catalogId;
+    const costText = communityCost != null ? t('resources.costCredits', { cost: communityCost }) : t('resources.costPaid');
+    let label = t('resources.enable');
+    if (busy === item.catalogId) label = t('resources.busy');
+    else if (done) label = t('resources.enabled');
+    else if (confirming) label = communityCost != null ? t('resources.confirmPay', { cost: communityCost }) : t('resources.confirmPayUnknown');
+    else if (paid) label = `${t('resources.enable')} · ${costText}`;
     return (
       <button
         type="button"
         disabled={(!!busy && busy !== item.catalogId) || done}
         onClick={() => handleInstall(item.catalogId)}
-        className={`${done ? ASSET_BTN_MANAGED : ASSET_BTN_PRIMARY} ${block ? 'w-full' : '!px-3 !py-1 !text-[11px] !rounded-lg'}`}
+        title={paid ? t('resources.paidHint') : undefined}
+        className={`${done ? ASSET_BTN_MANAGED : ASSET_BTN_PRIMARY} ${confirming ? '!bg-amber-500 hover:!bg-amber-600 !text-white' : ''} ${block ? 'w-full' : '!px-3 !py-1 !text-[11px] !rounded-lg whitespace-nowrap'}`}
       >
-        {busy === item.catalogId ? t('resources.busy') : done ? t('resources.managed') : t('resources.addManage')}
+        {label}
       </button>
     );
   }
@@ -3238,8 +3351,29 @@ export default function Resources() {
           </>
         )}
         desc={resourceDescription(item)}
-        footer={renderCatalogAction(item, { block: true })}
+        footer={item.depsBroken && item.missingDeps?.length && !item.installed ? (
+          <button
+            type="button"
+            disabled={!!busy}
+            onClick={() => handleInstall(item.catalogId, { force: true })}
+            className={`${ASSET_BTN_PRIMARY} w-full`}
+          >
+            {busy === item.catalogId ? t('resources.busy') : t('resources.depsEnableAnyway')}
+          </button>
+        ) : renderCatalogAction(item, { block: true })}
       >
+        {item.depsBroken && item.missingDeps?.length > 0 && !item.installed && (
+          <InspectorSection title={t('resources.depsMissingTitle')}>
+            <div className={`rounded-lg border px-2.5 py-2 space-y-1 ${depsPendingId === item.catalogId ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/30' : 'border-amber-200/70 bg-amber-50/60 dark:bg-amber-950/20'}`}>
+              <p className="text-[11px] text-amber-800 dark:text-amber-300">{t('resources.depsMissingHint')}</p>
+              <ul className="text-[11px] text-amber-900 dark:text-amber-200 list-disc pl-4">
+                {item.missingDeps.map((d) => (
+                  <li key={`${d.type}:${d.name}`}>{typeBadge(d.type, t)} · {d.name}</li>
+                ))}
+              </ul>
+            </div>
+          </InspectorSection>
+        )}
         {purposes.length > 0 && (
           <InspectorSection title={t('resources.filter.purpose')}>
             <div className="flex flex-wrap gap-1.5">
@@ -3407,7 +3541,7 @@ export default function Resources() {
             </div>
             {isMcp ? (
               <SplitButton
-                label={t('resources.mcp.add')}
+                label={t('resources.addAsset')}
                 onClick={() => setMcpCreateSignal(n => n + 1)}
                 menuLabel={t('resources.moreActions')}
                 items={[
@@ -3416,16 +3550,16 @@ export default function Resources() {
               />
             ) : (
             <SplitButton
-              label={typeFilter === 'skill' ? t('resources.skillInstall') : t('resources.create')}
+              label={t('resources.addAsset')}
               onClick={handlePrimaryAction}
               disabled={busy === 'editor' || busy === 'cleanup'}
               menuLabel={t('resources.moreActions')}
               items={[
-                typeFilter !== 'skill' && { key: 'install', label: t('resources.skillInstall'), hint: t('resources.menu.installHint'), onClick: () => setSkillInstallOpen(true) },
-                typeFilter === 'skill' && { key: 'create', label: t('resources.create'), hint: t('resources.menu.createHint'), onClick: openCreateEditor },
+                { key: 'create', label: typeFilter ? t('resources.createOf', { type: t(`resources.tabType.${typeFilter}`) }) : t('resources.create'), hint: t('resources.menu.createHint'), onClick: openCreateEditor },
+                { key: 'install', label: t('resources.skillInstallFromLink'), hint: t('resources.menu.installHint'), onClick: () => setSkillInstallOpen(true) },
                 { key: 'import', label: busy === 'import' ? t('resources.busy') : t('resources.import'), hint: t('resources.menu.importHint'), disabled: busy === 'import' || busy === 'cleanup' || busy === 'editor', onClick: handleImportFile },
                 showSkillTabs && { key: 'scan', label: t('resources.scan'), hint: t('resources.menu.scanHint'), onClick: () => setScanExpanded(true) },
-                { key: 'cleanup', label: idleLoading ? t('resources.cleanupScanning') : t('resources.cleanup'), hint: t('resources.cleanupTitle'), disabled: busy === 'cleanup' || idleLoading, onClick: openSkillCleanup },
+                typeFilter === 'skill' && { key: 'cleanup', label: idleLoading ? t('resources.cleanupScanning') : t('resources.cleanup'), hint: t('resources.cleanupTitle'), disabled: busy === 'cleanup' || idleLoading, onClick: openSkillCleanup },
               ]}
             />
             )}
@@ -3444,7 +3578,7 @@ export default function Resources() {
                 aria-selected={active}
                 onClick={() => {
                   if (viewTab !== 'managed') changeViewTab('managed');
-                  changeTypeFilter(opt.id);
+                  changeTypeFilter(opt.id, 'managed');
                   if (opt.id !== 'prompt') setPromptKindFilter('');
                 }}
                 className={`-mb-px pb-2.5 text-[13px] border-b-2 transition-colors ${
@@ -3485,9 +3619,8 @@ export default function Resources() {
                 key={opt.id || 'all'}
                 type="button"
                 onClick={() => {
-                  changeTypeFilter(opt.id);
+                  changeTypeFilter(opt.id, 'recommend');
                   if (opt.id !== 'prompt') setPromptKindFilter('');
-                  refreshCommunityCatalog();
                 }}
                 className={`tb-press text-xs px-2.5 py-1 rounded-md transition-colors ${
                   typeFilter === opt.id
@@ -3818,7 +3951,7 @@ export default function Resources() {
                     onClick={() => {
                       abortIdleAi();
                       setCleanupOpen(false);
-                      if (typeFilter !== 'skill') changeTypeFilter('skill');
+                      saveDiscoverType('skill');
                       changeViewTab('recommend');
                     }}
                     className="shrink-0 text-[10px] text-violet-600 dark:text-violet-400 hover:underline disabled:opacity-50"
@@ -4076,10 +4209,27 @@ export default function Resources() {
           setSkillInstallOpen(false);
           navigate('/gateway');
         }}
-        onInstalled={async () => {
-          // 安装完成后静默刷新一次（不自动打标，避免空白/重复）
+        onInstalled={async ({ resource } = {}) => {
+          // 安装完成：扫描即纳管，找出新入库的技能，直接启用并选中
+          const before = new Set((resources || []).filter(r => r.type === 'skill').map(r => r.id));
           await loadAll({ silent: true });
-          setScanExpanded(true);
+          let fresh = [];
+          try {
+            const res = await window.electronAPI.resource.listResources({ type: 'skill' });
+            fresh = (res?.resources || []).filter(r => !before.has(r.id));
+          } catch { /* ignore */ }
+          if (resource?.id && !fresh.some(r => r.id === resource.id)) fresh.unshift(resource);
+          if (!fresh.length) {
+            setMsg(t('resources.skillInstall.nothingNew'));
+            return;
+          }
+          const notes = [];
+          for (const r of fresh.slice(0, 5)) {
+            const note = await enableResource(r);
+            if (note) notes.push(note);
+          }
+          focusResource(fresh[0]);
+          setMsg(notes.length ? notes.join(' · ') : t('resources.installOk'));
         }}
       />
 
@@ -4506,7 +4656,7 @@ export default function Resources() {
                           type="button"
                           onClick={() => {
                             setEditorOpen(false);
-                            changeTypeFilter('skill');
+                            saveDiscoverType('skill');
                             changeViewTab('recommend');
                           }}
                           className="text-[11px] text-amber-800 dark:text-amber-300 underline underline-offset-2"
@@ -4566,7 +4716,7 @@ export default function Resources() {
                     spellCheck={false}
                     placeholder={
                       editorForm.type === 'skill'
-                        ? '---\nname: my-skill\ndescription: ...\n---\n\n# Skill'
+                        ? t('resources.skillBodyPh')
                         : ''
                     }
                     className="mt-1 w-full text-xs px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 font-mono leading-relaxed"
@@ -4601,7 +4751,7 @@ export default function Resources() {
               >
                 {busy === 'editor' ? t('resources.busy') : (asstIsNew()
                   ? (asstPaidCount() && asstCost() != null ? t('resources.saveAndEnableCost', { cost: asstCost() }) : t('resources.saveAndEnable'))
-                  : t('resources.save'))}
+                  : (!editorForm.id ? t('resources.saveAndEnable') : t('resources.save')))}
               </button>
               )}
             </div>

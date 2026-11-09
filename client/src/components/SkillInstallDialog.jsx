@@ -137,14 +137,14 @@ export default function SkillInstallDialog({
     return () => window.removeEventListener('keydown', onKey);
   }, [open, phase, onClose]);
 
-  const finishOk = useCallback(async (text) => {
+  const finishOk = useCallback(async (text, resource) => {
     setPhase('done');
     setTaskId(null);
     setSummary(String(text || '').trim());
     setMsg(t('resources.skillInstall.done'));
     setStatus(t('resources.skillInstall.scanHint'));
     try {
-      if (typeof onInstalled === 'function') await onInstalled();
+      if (typeof onInstalled === 'function') await onInstalled({ resource: resource || null });
     } catch { /* ignore */ }
   }, [onInstalled, t]);
 
@@ -253,7 +253,7 @@ export default function SkillInstallDialog({
           res.skillDir ? `安装路径：${res.skillDir}` : '',
           res.sourceUrl ? `来源：${res.sourceUrl}` : '',
         ].filter(Boolean);
-        await finishOk(lines.join('\n'));
+        await finishOk(lines.join('\n'), res.resource);
       } catch (e) {
         setErr(e.message || String(e));
         setPhase('idle');

@@ -768,6 +768,7 @@ export default function PersonalizedRecommend({
   const [runtimes, setRuntimes] = useState([]);
   const [selectedRuntime, setSelectedRuntime] = useState(readRuntimePref);
   const [runtimeBusy, setRuntimeBusy] = useState(false);
+  const isRecommendPanelRef = useRef(true);
   const [phase, setPhase] = useState(saved0.phase || 'idle'); // idle | mining | analyzing | review | discovering | done
   const [digest, setDigest] = useState(saved0.digest || null);
   const [installed, setInstalled] = useState(saved0.installed || null);
@@ -1224,8 +1225,11 @@ export default function PersonalizedRecommend({
     } catch (e) { setErr(e.message || String(e)); setMsg(''); }
   };
 
+  // 「为我推荐」：分析画像完成后自动接着发现，不再停在确认需求这一步
+  const autoChainRef = useRef(false);
   // 第一步:采对话素材 → 推测 persona + 目标 + 资源需求
   const mine = async () => {
+    if (isRecommendPanelRef.current) autoChainRef.current = true;
     // 无可用 runtime 时直接拦住，避免进入分析再失败
     if (ready.step !== 'ready') {
       setErr(t('resources.reco.needAgent'));
@@ -1248,6 +1252,13 @@ export default function PersonalizedRecommend({
       await runAgent(digestToAnalyzePrompt(res.digest, res.installed, rtype, typeLabel, langLine), { type: 'analyze' }, 'analyzing');
     } catch (e) { setErr(e.message || String(e)); setPhase('done'); clearRun(rtype); }
   };
+
+  useEffect(() => {
+    if (phase !== 'review' || !autoChainRef.current) return;
+    autoChainRef.current = false;
+    if (err) return;
+    discover();
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 第二步:据身份+风格+能力域+延伸发现资源
   const discover = async () => {
@@ -1477,6 +1488,7 @@ export default function PersonalizedRecommend({
   const runtimeLabel = (runtimes.find((r) => r.id === runtimeAgent) || {}).label || runtimeAgent;
   const isPortraitPanel = panel === 'portrait';
   const isRecommendPanel = panel !== 'portrait';
+  isRecommendPanelRef.current = isRecommendPanel;
 
   /** 运行时选择条：有 1+ 可选时展示 */
   function renderRuntimePicker({ compact = false } = {}) {
@@ -1542,28 +1554,20 @@ export default function PersonalizedRecommend({
   return (
     <div className="space-y-3">
       {ready.step === 'needAgent' && (
-        <div className={`${LIB_LIST_CLS} p-4 text-xs space-y-2`}>
-          <p className="flex items-center gap-1.5 text-[13px] font-semibold text-zinc-900 dark:text-zinc-50">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" aria-hidden />
-            {t('resources.reco.needAgent')}
-          </p>
-          <p className="text-zinc-500 dark:text-zinc-400">{t('resources.reco.needAgentHint')}</p>
-          <div className="flex flex-wrap gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => (onNeedAgent ? onNeedAgent() : (onNeedProject ? onNeedProject() : null))}
-              className={ASSET_BTN_PRIMARY}
-            >
-              {t('resources.skillInstall.goManageAgent')}
-            </button>
-            <button
-              type="button"
-              onClick={retryBuiltinSetup}
-              className={ASSET_BTN_GHOST}
-            >
-              {t('resources.skillInstall.retrySetup')}
-            </button>
-          </div>
+        // 没有可用运行时不再挡住整页：一行提示，下面照常看社区热门
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-zinc-200/80 dark:border-zinc-700/70 bg-white/50 dark:bg-zinc-900/40 px-3 py-2 text-[11px]">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1 text-zinc-600 dark:text-zinc-300">{t('resources.reco.needAgentSoft')}</span>
+          <button
+            type="button"
+            onClick={() => (onNeedAgent ? onNeedAgent() : (onNeedProject ? onNeedProject() : null))}
+            className="text-violet-600 dark:text-violet-400 hover:underline"
+          >
+            {t('resources.skillInstall.goManageAgent')}
+          </button>
+          <button type="button" onClick={retryBuiltinSetup} className="text-zinc-400 hover:text-zinc-600 hover:underline">
+            {t('resources.skillInstall.retrySetup')}
+          </button>
         </div>
       )}
 
