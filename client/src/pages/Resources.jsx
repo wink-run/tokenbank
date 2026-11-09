@@ -4013,9 +4013,10 @@ export default function Resources() {
               <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                 {editorForm.id ? t('resources.editTitle') : (editorForm.type === 'assistant' ? t('resources.createAssistantTitle') : t('resources.createTitle'))}
               </h3>
-              <p className="text-[11px] text-zinc-400 mt-1">{asstBrief() ? t('resources.assistantBriefHint') : t('resources.editorHint')}</p>
+              <p className="text-[11px] text-zinc-400 mt-1">{asstBrief() ? t('resources.assistantBriefHint') : (asstIsNew() ? t('resources.assistantReviewHint') : t('resources.editorHint'))}</p>
             </div>
             <div className="p-4 space-y-3">
+              {!(asstIsNew() && !editorForm.showType) && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorType')}
                 <select
@@ -4047,6 +4048,25 @@ export default function Resources() {
                   ))}
                 </select>
               </label>
+              )}
+              {asstIsNew() && !asstBrief() && editorForm.display_name && !editorForm.metaEdit && (
+                <div className="flex items-start gap-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/70 dark:bg-zinc-800/40 px-3 py-2.5">
+                  <span className="shrink-0 w-9 h-9 rounded-lg bg-violet-600 text-white flex items-center justify-center text-sm font-bold">
+                    {String(editorForm.display_name).trim().slice(0, 1).toUpperCase()}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate">{editorForm.display_name}</div>
+                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400 line-clamp-2">{editorForm.description || t('resources.emptyDetail')}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditorForm(prev => ({ ...prev, metaEdit: true }))}
+                    className="shrink-0 text-[11px] text-violet-600 dark:text-violet-400 hover:underline"
+                  >
+                    {t('resources.editorEdit')}
+                  </button>
+                </div>
+              )}
               {editorForm.type === 'prompt' && (
                 <label className="block text-xs text-zinc-500">
                   {t('resources.editorPromptKind')}
@@ -4073,7 +4093,7 @@ export default function Resources() {
                 />
               </label>
               )}
-              {!asstBrief() && (
+              {!asstBrief() && !(asstIsNew() && editorForm.display_name && !editorForm.metaEdit) && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorDisplayName')}
                 <input
@@ -4083,7 +4103,7 @@ export default function Resources() {
                 />
               </label>
               )}
-              {!asstBrief() && (
+              {!asstBrief() && !(asstIsNew() && editorForm.display_name && !editorForm.metaEdit) && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorDescription')}
                 <input
@@ -4175,6 +4195,27 @@ export default function Resources() {
                       ← {t('resources.assistantRebrief')}
                     </button>
                   )}
+                  {asstIsNew() && String(editorForm.soul || '').trim() && !editorForm.soulEdit ? (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs text-zinc-500">
+                        <span>{t('resources.assistantSoul')}</span>
+                        <button
+                          type="button"
+                          onClick={() => setEditorForm(prev => ({ ...prev, soulEdit: true }))}
+                          className="text-[11px] text-violet-600 dark:text-violet-400 hover:underline"
+                        >
+                          {t('resources.editorExpandEdit')}
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEditorForm(prev => ({ ...prev, soulEdit: true }))}
+                        className="w-full text-left text-xs leading-relaxed whitespace-pre-wrap line-clamp-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50/70 dark:bg-zinc-800/40 px-2.5 py-2 text-zinc-700 dark:text-zinc-300 hover:border-violet-300"
+                      >
+                        {editorForm.soul}
+                      </button>
+                    </div>
+                  ) : (
                   <label className="block text-xs text-zinc-500">
                     {t('resources.assistantSoul')}
                     <textarea
@@ -4186,6 +4227,7 @@ export default function Resources() {
                       className="mt-1 w-full text-xs px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 leading-relaxed"
                     />
                   </label>
+                  )}
                   <details className="group rounded-lg border border-zinc-200 dark:border-zinc-700 px-2.5 py-2">
                     <summary className="flex items-center justify-between gap-2 cursor-pointer list-none">
                       <span className="text-xs text-zinc-600 dark:text-zinc-300">{t('resources.assistantSkills')}</span>
@@ -4370,7 +4412,16 @@ export default function Resources() {
                 </label>
               )}
             </div>
-            <div className="px-4 py-3 border-t border-zinc-100 dark:border-zinc-800 flex gap-2 justify-end">
+            <div className="px-4 py-3 border-t border-zinc-100 dark:border-zinc-800 flex gap-2 justify-end items-center">
+              {asstIsNew() && !editorForm.showType && (
+                <button
+                  type="button"
+                  onClick={() => setEditorForm(prev => ({ ...prev, showType: true }))}
+                  className="mr-auto text-[11px] text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:underline"
+                >
+                  {t('resources.editorOtherType')}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setEditorOpen(false)}
