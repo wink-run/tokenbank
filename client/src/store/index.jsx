@@ -4,7 +4,7 @@ import { loadUserAccounts, saveUserAccounts, syncProviderCatalog } from '../api/
 import { getLocalConfig, getConfig, isElectron } from '../api/adapter';
 import { getServerUrl, normalizeServerBase, getSyncServerBase, syncCloudConfigUrl, bootstrapServerUrl } from '../config';
 import { stopAgent } from '../api/agentControl';
-import { classifyProfileFailure } from '../../shared/contribute-autostart.js';
+import { classifyProfileFailure } from '../../shared/contribute-autostart.mjs';
 
 const AuthContext = createContext(null);
 
