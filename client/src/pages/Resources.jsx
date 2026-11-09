@@ -2159,7 +2159,20 @@ export default function Resources() {
     }
   }
 
+  // MCP 不是提示词：关掉通用表单，打开命令 / URL 的自定义接入
+  function openMcpCreate() {
+    setEditorOpen(false);
+    setViewTab('managed');
+    saveViewTab('managed');
+    changeTypeFilter('mcp', 'managed');
+    setMcpCreateSignal((n) => n + 1);
+  }
+
   function openCreateEditor(presetType, pickType = false) {
+    if (presetType === 'mcp' || typeFilter === 'mcp') {
+      openMcpCreate();
+      return;
+    }
     const type = ['prompt', 'skill', 'assistant'].includes(presetType)
       ? presetType
       : (['prompt', 'skill', 'assistant'].includes(typeFilter) ? typeFilter : 'prompt');
@@ -4649,6 +4662,11 @@ export default function Resources() {
                   disabled={!!editorForm.id}
                   onChange={e => {
                     const type = e.target.value;
+                    // 选 MCP 时不要停在简介/标签这套字段上
+                    if (type === 'mcp') {
+                      openMcpCreate();
+                      return;
+                    }
                     setEditorForm((prev) => {
                       if (type === 'assistant' && prev.type !== 'assistant') {
                         const parsed = parseAssistantEditorContent(prev.content);
