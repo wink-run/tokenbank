@@ -37,6 +37,12 @@
 body { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; background: #fafafb; color: #0a0a0a; min-height: 100vh; -webkit-font-smoothing: antialiased; }
 a { color: inherit; text-decoration: none; }
 .loading { text-align: center; padding: 3rem 1.5rem; color: #a1a1aa; }
+.ag-name-btn { cursor: pointer; }
+.ag-intro { margin-top: 10px; font-size: 13px; line-height: 1.7; color: #3f3f46; white-space: pre-wrap; max-height: 280px; overflow: auto; }
+.pz-back { border: 0; background: none; color: #71717a; font-size: 13px; cursor: pointer; margin: 4px 0 12px; padding: 0; }
+.res-page { background: #fff; border: 1px solid #ececef; border-radius: 18px; padding: 22px; }
+.res-page .ag-desc { display: block; -webkit-line-clamp: unset; overflow: visible; min-height: 0; }
+.res-page .ag-intro { max-height: none; font-size: 15px; }
 </style>
 </head>
 <body>
@@ -176,22 +182,45 @@ a { color: inherit; text-decoration: none; }
 
       <template v-else>
         <div v-if="!loaded" class="loading">{{ T.loading }}</div>
+        <article v-else-if="detailItem" class="res-page">
+          <button type="button" class="pz-back" @click="closeDetail">← {{ T.back }}</button>
+          <div class="ag-h">
+            <span class="ag-av" :style="{ background: color(detailItem.name) }">{{ detailItem.icon || detailItem.name.slice(0, 1) }}</span>
+            <div style="min-width:0;flex:1"><h2 class="ag-name">{{ detailItem.name }}</h2><div class="ag-meta">{{ detailItem.meta }}</div></div>
+            <span class="pz-tag-s" :class="detailItem.badge">{{ detailItem.typeLabel }}</span>
+          </div>
+          <p class="ag-desc">{{ detailItem.desc || T.noDesc }}</p>
+          <div v-if="detailItem.detail" class="ag-intro">{{ detailItem.detail }}</div>
+          <div class="ag-foot">
+            <span v-if="detailItem.listedAt" class="pz-side" style="margin-left:0">{{ T.listed.replace('{d}', fmtListed(detailItem.listedAt)) }}</span>
+            <a v-if="detailItem.href" class="ag-go" style="margin-left:auto" :href="detailItem.href">{{ T.useIt }}</a>
+            <a v-else class="ag-go sub" style="margin-left:auto" href="/#download">{{ T.adopt }}</a>
+          </div>
+        </article>
         <div v-else-if="!shownRes.length" class="pz-empty"><b>{{ q ? T.noMatch : T.emptyRes }}</b></div>
-        <div v-else class="ag-grid">
+        <template v-else>
+        <div class="ag-grid">
           <component :is="r.href ? 'a' : 'div'" v-for="r in shownRes.slice(0, limit)" :key="r.key" class="ag-card res" :href="r.href || undefined">
             <div class="ag-h">
               <span class="ag-av" :style="{ background: color(r.name) }">{{ r.icon || r.name.slice(0, 1) }}</span>
-              <div style="min-width:0;flex:1"><div class="ag-name">{{ r.name }}</div><div class="ag-meta">{{ r.meta }}</div></div>
+              <div style="min-width:0;flex:1">
+                <div class="ag-name" :class="{ 'ag-name-btn': r.detail }" @click="onName(r, $event)">{{ r.name }}</div>
+                <div class="ag-meta">{{ r.meta }}</div>
+              </div>
               <span class="pz-tag-s" :class="r.badge">{{ r.typeLabel }}</span>
             </div>
             <p class="ag-desc">{{ r.desc || T.noDesc }}</p>
+            <div v-if="expandedKey === r.key && r.detail" class="ag-intro">{{ r.detail }}</div>
             <div class="ag-foot">
-              <span v-if="r.href" class="ag-go">{{ T.useIt }} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m9 18 6-6-6-6"/></svg></span>
-              <template v-else><span class="pz-side" style="margin-left:0">{{ r.side }}</span><a class="ag-go sub" href="/#download" @click.stop>{{ T.adopt }}</a></template>
+              <span v-if="r.listedAt" class="pz-side" style="margin-left:0">{{ T.listed.replace('{d}', fmtListed(r.listedAt)) }}</span>
+              <button v-if="r.detail" type="button" class="ag-go sub" @click.stop="toggleExpand(r)">{{ expandedKey === r.key ? T.collapse : T.intro }}</button>
+              <span v-if="r.href" class="ag-go" style="margin-left:auto">{{ T.useIt }} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m9 18 6-6-6-6"/></svg></span>
+              <template v-else><span class="pz-side" :style="{ marginLeft: r.listedAt || r.detail ? 'auto' : '0' }">{{ r.side }}</span><a class="ag-go sub" href="/#download" @click.stop>{{ T.adopt }}</a></template>
             </div>
           </component>
         </div>
         <div v-if="shownRes.length > limit" class="pz-more"><button type="button" @click="limit = shownRes.length">{{ T.showMore.replace('{n}', String(shownRes.length)) }}</button></div>
+        </template>
       </template>
       </template>
     </section>
@@ -229,7 +258,8 @@ createApp({
         modelHint: '首字延迟越低越快', colModel: '模型', colNodes: '节点', colLatency: '首字延迟', nodesN: '{n} 个节点', tryIt: '试用', apiOnly: '仅 API',
         typeChat: '文本', typeVision: '图文', typeImage: '生图', typeEmbedding: '嵌入',
         rtSkill: 'Skill', rtPrompt: '提示词', rtAssistant: '智能体模板', rtScene: '场景', rtPlugin: '插件',
-        official: '官方', userShare: '用户推荐', sharedBy: '@{h} 分享', inApp: '客户端纳管', adopt: '纳管', useIt: '使用', noDesc: '暂无简介',
+        official: '官方', userShare: '用户推荐', sharedBy: '@{h} 分享', inApp: '客户端纳管', adopt: '纳管', useIt: '使用', noDesc: '暂无简介', listed: '上架 {d}',
+        intro: '介绍', collapse: '收起', back: '返回列表',
         all: '全部', loading: '加载中…', noMatch: '没有匹配的结果', emptyModels: '暂时没有在线模型', emptyRes: '暂时没有资源', showMore: '显示全部 {n} 个',
         tabBoard: '供给排行', rankTitle: '供给排行', rankSub: '本周期 Token', rankFoot: '被调用越多，排名越高。', rankJoin: '怎么分享', emptyRank: '暂时还没有供给数据', supplyTitle: '在线模型', supplySub: '节点数', boardFoot: '本周期网络供给 {n} tok · {u} 位活跃分享者',
         scopeLabel: '可见范围', scopePublic: '公开', scopeCircle: '我的圈子', manageCircles: '管理圈子', circleTitle: '圈子里共享的',
@@ -261,7 +291,8 @@ createApp({
         modelHint: 'Lower first-token latency is faster', colModel: 'Model', colNodes: 'Nodes', colLatency: 'First token', nodesN: '{n} nodes', nodes1: '{n} node', tryIt: 'Try', apiOnly: 'API only',
         typeChat: 'Text', typeVision: 'Vision', typeImage: 'Image', typeEmbedding: 'Embedding',
         rtSkill: 'Skill', rtPrompt: 'Prompt', rtAssistant: 'Agent template', rtScene: 'Scene', rtPlugin: 'Plugin',
-        official: 'Official', userShare: 'User pick', sharedBy: 'by @{h}', inApp: 'Adopt in the app', adopt: 'Adopt', useIt: 'Use', noDesc: 'No description',
+        official: 'Official', userShare: 'User pick', sharedBy: 'by @{h}', inApp: 'Adopt in the app', adopt: 'Adopt', useIt: 'Use', noDesc: 'No description', listed: 'Listed {d}',
+        intro: 'Guide', collapse: 'Collapse', back: 'Back',
         all: 'All', loading: 'Loading…', noMatch: 'No matches', emptyModels: 'No models online right now', emptyRes: 'Nothing here yet', showMore: 'Show all {n}',
         tabBoard: 'Supply board', rankTitle: 'Supply board', rankSub: 'Tokens this period', rankFoot: 'More calls, higher rank.', rankJoin: 'How to share', emptyRank: 'No supply data yet', supplyTitle: 'Online models', supplySub: 'Nodes', boardFoot: '{n} tokens supplied this period · {u} active sharers',
         scopeLabel: 'Visibility', scopePublic: 'Public', scopeCircle: 'My circles', manageCircles: 'Manage circles', circleTitle: 'Shared in your circles',
@@ -288,7 +319,13 @@ createApp({
 
     const VALID = ['models', 'skills', 'prompts', 'templates', 'scenes', 'board']
     const tab = ref(VALID.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'models')
-    function setTab(id) { tab.value = id; limit.value = 24; try { history.replaceState(null, '', '#' + id) } catch {} }
+    const expandedKey = ref('')
+    const detailItem = ref(null)
+    function setTab(id) { tab.value = id; limit.value = 24; detailItem.value = null; expandedKey.value = ''; try { history.replaceState(null, '', '#' + id) } catch {} }
+    function toggleExpand(r) { expandedKey.value = expandedKey.value === r.key ? '' : r.key }
+    function openDetail(r) { if (!r || !r.detail) return; detailItem.value = r; expandedKey.value = '' }
+    function closeDetail() { detailItem.value = null }
+    function onName(r, e) { if (!r || !r.detail) return; e.preventDefault(); e.stopPropagation(); openDetail(r) }
     const q = ref('')
     const mtype = ref('all')
     const limit = ref(24)
@@ -314,6 +351,12 @@ createApp({
     function typeLabel(t) { const x = T.value; return t === 'image' ? x.typeImage : t === 'vision' ? x.typeVision : t === 'embedding' ? x.typeEmbedding : x.typeChat }
     function typeBadge(t) { return t === 'image' ? 'purple' : t === 'vision' ? 'blue' : t === 'embedding' ? '' : 'green' }
     function fmtMs(ms) { return ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : Math.round(ms) + 'ms' }
+    function fmtListed(ms) {
+      const d = new Date(Number(ms))
+      if (!ms || Number.isNaN(d.getTime())) return ''
+      if (lang.value === 'zh') return (d.getMonth() + 1) + '月' + d.getDate() + '日'
+      return d.toLocaleDateString('en', { month: 'short', day: 'numeric' })
+    }
     function speedCls(ms) { if (!ms) return ''; return ms < 1200 ? 'pz-fast' : ms < 2500 ? 'pz-mid' : 'pz-slow' }
     const modelFilters = computed(() => {
       const c = t => models.value.filter(m => m.mtype === t).length
@@ -328,7 +371,7 @@ createApp({
       const lbl = { skills: t.rtSkill, prompts: t.rtPrompt, templates: t.rtAssistant }
       const cls = { skills: 'blue', prompts: 'amber', templates: 'purple' }
       return [
-        ...catalog.value.map(r => { const k = kindOf(r); return { key: 'c' + r.catalog_id, kind: k, name: r.display_name || r.name || '—', desc: r.description, typeLabel: lbl[k], badge: cls[k], meta: r.sharer ? t.sharedBy.replace('{h}', r.sharer) : (r.user_recommended ? t.userShare : t.official), side: t.inApp } }),
+        ...catalog.value.map(r => { const k = kindOf(r); return { key: 'c' + r.catalog_id, kind: k, name: r.display_name || r.name || '—', desc: r.description, detail: r.detail || '', typeLabel: lbl[k], badge: cls[k], listedAt: r.listed_at || 0, meta: r.sharer ? t.sharedBy.replace('{h}', r.sharer) : (r.user_recommended ? t.userShare : t.official), side: t.inApp } }),
         ...scenes.value.map(s => ({ key: 's' + s.id, kind: 'scenes', name: s.name || '—', icon: s.icon, desc: s.intro, typeLabel: t.rtScene, badge: 'green', meta: s.default_model || t.official, href: '/studio/chat?id=' + s.id })),
         ...mods.value.map(m => ({ key: 'm' + m.id, kind: 'scenes', name: m.name || '—', desc: m.intro, typeLabel: t.rtPlugin, badge: '', meta: (m.price ?? 0) + ' ⚡', side: t.official })),
       ]
@@ -444,7 +487,7 @@ createApp({
       load()
       if (scope.value === 'circle') loadCircles()
     })
-    return { lang, T, N, toggleLang, loggedIn, summary, topSharers, offerText, supplyRows, maxNodes, fmtTok, scope, setScope, circles, circleLoaded, circleId, circleItems, shownCircleItems, publicCircles, tab, setTab, q, mtype, limit, loaded, tabs, statRow, modelFilters, shownModels, shownRes, curCount, typeLabel, typeBadge, fmtMs, speedCls, color, jump }
+    return { lang, T, N, toggleLang, loggedIn, summary, topSharers, offerText, supplyRows, maxNodes, fmtTok, scope, setScope, circles, circleLoaded, circleId, circleItems, shownCircleItems, publicCircles, tab, setTab, q, mtype, limit, loaded, tabs, statRow, modelFilters, shownModels, shownRes, curCount, typeLabel, typeBadge, fmtMs, fmtListed, speedCls, color, jump, expandedKey, detailItem, toggleExpand, openDetail, closeDetail, onName }
   },
 }).mount('#app')
 </script>

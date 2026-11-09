@@ -8,6 +8,7 @@ import {
   AssetLogo,
   buildPreviewText,
   resourceDescription,
+  resourceIntro,
   resourceDisplayName,
   typeVisual,
 } from './ResourceAssetCard';
@@ -1851,6 +1852,11 @@ export default function PersonalizedRecommend({
                 <p className="text-[11px] text-zinc-500 break-all">{sel.rec.source}</p>
               </InspectorSection>
             )}
+            {resourceIntro(sel.cardItem) ? (
+              <InspectorSection title={t('resources.detailIntro')}>
+                <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-300 whitespace-pre-wrap">{resourceIntro(sel.cardItem)}</p>
+              </InspectorSection>
+            ) : null}
             <InspectorSection title={t('resources.preview')}>
               <InspectorPreview text={buildPreviewText(rtype, {
                 ...sel.cardItem,

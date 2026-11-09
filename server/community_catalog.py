@@ -148,6 +148,111 @@ def sharer_handle_for_item(item: dict) -> str:
     return _SYSTEM_HANDLES[_hash_seed(seed) % len(_SYSTEM_HANDLES)]
 
 
+def listed_at_ms(item: dict) -> int | None:
+    """上架时间，毫秒。用户推荐用 recommended_at；没有则留给调用方决定要不要兜底。"""
+    meta = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    for key in ("listed_at", "recommended_at"):
+        raw = meta.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            n = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if n <= 0:
+            continue
+        # 秒级时间戳补成毫秒
+        if n < 10_000_000_000:
+            n *= 1000
+        return n
+    return None
+
+
+def _seed_listed_ms() -> int | None:
+    """默认目录没有逐条上架时间时，用种子文件的修改时间。"""
+    try:
+        return int(RESOURCES_DEFAULT.stat().st_mtime * 1000)
+    except OSError:
+        return None
+
+
+_PLACEHOLDER_RE = re.compile(r"\{\{\s*#?(?:if|unless)?\s*([A-Za-z_][\w]*)")
+
+
+def resource_detail(item: dict) -> str:
+    """给人看的详细介绍（特点与用法）。卡片上的简介仍用 description。"""
+    explicit = str(item.get("detail") or "").strip()
+    meta = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    if not explicit:
+        explicit = str(meta.get("detail") or "").strip()
+    if explicit:
+        return explicit[:4000]
+
+    rtype = str(item.get("type") or "").strip()
+    if rtype == "agent":
+        rtype = "assistant"
+    desc = str(item.get("description") or "").strip()
+    raw = str(item.get("content") or "").strip()
+    if rtype == "skill":
+        body = re.sub(r"^---\r?\n[\s\S]*?\r?\n---\s*", "", raw, count=1).strip()
+        return body[:4000]
+    if rtype == "assistant":
+        return _assistant_detail(raw)
+    if rtype == "prompt":
+        return _prompt_detail(desc, raw)
+    return ""
+
+
+def _assistant_detail(raw: str) -> str:
+    """从智能体配置抽出人设，并列出已搭配的技能和提示词。"""
+    soul = ""
+    skills: list[str] = []
+    prompts: list[str] = []
+    try:
+        obj = json.loads(raw) if raw else {}
+        if isinstance(obj, dict):
+            soul = str(obj.get("soul") or obj.get("system_prompt") or obj.get("systemPrompt") or "").strip()
+            skills = [str(x).strip() for x in (obj.get("skills") or []) if str(x).strip()]
+            prompts = [str(x).strip() for x in (obj.get("prompts") or []) if str(x).strip()]
+    except (TypeError, ValueError, json.JSONDecodeError):
+        soul = raw.strip()
+    lines: list[str] = []
+    if soul:
+        lines += ["特点", soul]
+    if skills or prompts:
+        lines += ["", "用法", "在客户端纳管后直接对话即可。"]
+        if skills:
+            lines.append("已搭配技能：" + "、".join(skills))
+        if prompts:
+            lines.append("已搭配提示词：" + "、".join(prompts))
+    return "\n".join(lines).strip()[:4000]
+
+
+def _prompt_detail(desc: str, raw: str) -> str:
+    """提示词：一句话特点 + 要填的占位和模板本身。"""
+    names: list[str] = []
+    for m in _PLACEHOLDER_RE.finditer(raw or ""):
+        name = m.group(1)
+        if name and name not in names:
+            names.append(name)
+    lines: list[str] = []
+    if desc:
+        lines += ["特点", desc]
+    lines += ["", "用法"]
+    if names:
+        lines.append("纳管后选用这条提示词，补上：" + "、".join(names) + "。")
+    else:
+        lines.append("纳管后直接选用，把要处理的内容发给智能体即可。")
+    body = (raw or "").strip()
+    if body:
+        lines += ["", body[:2500]]
+    text = "\n".join(lines).strip()
+    # 只有一句「用法」套话、没有特点和模板时，不占详情位
+    if text == "用法\n纳管后直接选用，把要处理的内容发给智能体即可。":
+        return ""
+    return text[:4000]
+
+
 def flatten_public_resources(doc: dict) -> list[dict]:
     """上架中的 prompt/skill/assistant 扁平列表（供全球网络等展示）。"""
     doc = catalog_payload_from_doc(doc, public=True)
@@ -164,7 +269,10 @@ def flatten_public_resources(doc: dict) -> list[dict]:
                 continue
             meta = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
             name = str(item.get("name") or cid).strip()
-            out.append({
+            listed = listed_at_ms(item)
+            if listed is None and not meta.get("user_recommended"):
+                listed = _seed_listed_ms()
+            row = {
                 "catalog_id": cid,
                 "type": typ if item.get("type") != "agent" else "assistant",
                 "name": name,
@@ -172,7 +280,14 @@ def flatten_public_resources(doc: dict) -> list[dict]:
                 "description": str(item.get("description") or "").strip(),
                 "sharer": sharer_handle_for_item(item),
                 "user_recommended": bool(meta.get("user_recommended")),
-            })
+            }
+            # 详细介绍不进卡片简介，只给详情页和展开用
+            detail = resource_detail({**item, "type": row["type"]})
+            if detail and detail != row["description"]:
+                row["detail"] = detail
+            if listed:
+                row["listed_at"] = listed
+            out.append(row)
     # 用户推荐靠前，其余按名称
     out.sort(key=lambda x: (0 if x["user_recommended"] else 1, x["display_name"]))
     return out
@@ -440,6 +555,10 @@ async def upsert_user_recommendation(
         "content": content,
         "metadata": meta,
     }
+    # 作者写的详细介绍单独留下，卡片简介仍是 description
+    authored = str(meta.get("detail") or "").strip()
+    if authored:
+        item["detail"] = authored[:4000]
 
     bucket = list(doc.get(section) or [])
     # 同一用户、同一名称已在社区：沿用原 catalog_id 覆盖，避免重复推送拆成两条
@@ -452,9 +571,12 @@ async def upsert_user_recommendation(
             catalog_id = old_id
             item["catalog_id"] = old_id
         old_meta = old.get("metadata") if isinstance(old.get("metadata"), dict) else {}
+        # 再次保存不改第一次上架时间
+        if old_meta.get("recommended_at"):
+            meta["recommended_at"] = old_meta["recommended_at"]
         if old_meta.get("enabled") is False:
             meta["enabled"] = False
-            item["metadata"] = meta
+        item["metadata"] = meta
         bucket[hit] = item
     else:
         bucket.append(item)

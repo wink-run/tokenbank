@@ -19,6 +19,7 @@ import {
   buildPreviewText,
   resourceDescription,
   resourceDisplayName,
+  resourceIntro,
   shortenHomePath,
   typeVisual,
 } from '../components/ResourceAssetCard';
@@ -270,6 +271,7 @@ const EMPTY_EDITOR = {
   name: '',
   display_name: '',
   description: '',
+  detail: '',
   content: '',
   promptKind: 'text',
   tagsText: '',
@@ -1943,6 +1945,7 @@ export default function Resources() {
       name: resource.name || '',
       display_name: resource.display_name || resource.name || '',
       description: resource.description || '',
+      detail: String(resource.metadata?.detail || resource.detail || ''),
       content: resource.content || '',
       promptKind: promptKindOf(resource),
       tagsText: resourceTags(resource).join(', '),
@@ -2054,6 +2057,9 @@ export default function Resources() {
         metadata.promptKind = editorForm.promptKind === 'image' ? 'image' : 'text';
       }
       metadata.tags = parseTagsInput(editorForm.tagsText);
+      const detail = String(editorForm.detail || '').trim();
+      if (detail) metadata.detail = detail;
+      else delete metadata.detail;
       let content = editorForm.content || '';
       // 智能体：用人设 + 勾选 skill / prompt 拼 JSON
       if (editorForm.type === 'assistant') {
@@ -3037,6 +3043,11 @@ export default function Resources() {
             </button>
           </InspectorSection>
         )}
+        {resourceIntro(previewSrc) ? (
+          <InspectorSection title={t('resources.detailIntro')}>
+            <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-300 whitespace-pre-wrap">{resourceIntro(previewSrc)}</p>
+          </InspectorSection>
+        ) : null}
         <InspectorSection title={t('resources.preview')}>
           <InspectorPreview text={buildPreviewText(li.type, previewSrc) || t('resources.emptyDetail')} />
         </InspectorSection>
@@ -3124,6 +3135,11 @@ export default function Resources() {
             </div>
           </InspectorSection>
         )}
+        {resourceIntro(item) ? (
+          <InspectorSection title={t('resources.detailIntro')}>
+            <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-300 whitespace-pre-wrap">{resourceIntro(item)}</p>
+          </InspectorSection>
+        ) : null}
         <InspectorSection title={t('resources.preview')}>
           <InspectorPreview text={buildPreviewText(item.type, item) || t('resources.emptyDetail')} />
         </InspectorSection>
@@ -4037,6 +4053,17 @@ export default function Resources() {
                   onChange={e => setEditorForm(prev => ({ ...prev, description: e.target.value }))}
                   className="mt-1 w-full text-xs px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
                 />
+              </label>
+              <label className="block text-xs text-zinc-500">
+                {t('resources.editorDetail')}
+                <textarea
+                  value={editorForm.detail || ''}
+                  onChange={e => setEditorForm(prev => ({ ...prev, detail: e.target.value }))}
+                  rows={5}
+                  placeholder={t('resources.editorDetailHint')}
+                  className="mt-1 w-full text-xs px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 leading-relaxed"
+                />
+                <span className="block mt-1 text-[10px] text-zinc-400">{t('resources.editorDetailHint')}</span>
               </label>
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorTags')}

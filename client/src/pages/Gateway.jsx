@@ -4027,6 +4027,16 @@ function tierDot(tier) {
   if (tier === 'paid') return 'bg-amber-500';
   return 'bg-emerald-500';
 }
+// 路由明细的本地/远程：模型只把社区节点算远程，个人源（含公网 API）算本地。
+// 智能体则看入口：WebSocket 派发是远程，直接调用是本地。已写入的 place 对模型不再采信。
+function routeLogPlace(entry) {
+  if (!entry) return '';
+  if (entry.kind === 'agent') return entry.place === 'remote' ? 'remote' : 'local';
+  if (entry.tier === 'p2p' || entry.via === 'tokenbank-p2p' || entry.worker) return 'remote';
+  if (entry.tier === 'free' || entry.tier === 'paid' || entry.via) return 'local';
+  return '';
+}
+
 // 路由明细 inline 短标签：远程(p2p) / 本地(free/paid)
 function tierShortLabel(tier, t) {
   if (tier === 'p2p') return t('gateway.app.tier.remoteShort');
@@ -4943,6 +4953,7 @@ function RouteLogDetailModal({ entry, onClose }) {
 
   const fmtMs = n => (n != null && n > 0) ? (n >= 1000 ? (n/1000).toFixed(1)+'s' : n+'ms') : '—';
   const isError = entry.status === 'error';
+  const place = routeLogPlace(entry);
   const errorText = entry.error || '';
   const providerErrors = entry.provider_errors || [];
 
@@ -4981,10 +4992,13 @@ function RouteLogDetailModal({ entry, onClose }) {
           <DetailRow label={t('gateway.log.app')}>
             {entry.app_name || entry.caller || '—'}
           </DetailRow>
+          <DetailRow label={t('gateway.log.place')}>
+            {place === 'remote' ? t('gateway.log.remote') : place === 'local' ? t('gateway.log.local') : '—'}
+          </DetailRow>
           <DetailRow label={t('gateway.log.prompt')}>
             {entry.prompt_preview || '—'}
           </DetailRow>
-          <DetailRow label={t('gateway.log.requestedModel')}>
+          <DetailRow label={entry.kind === 'agent' ? t('gateway.surface.agent') : t('gateway.log.requestedModel')}>
             <span className="font-mono">{entry.requested_model || '—'}</span>
           </DetailRow>
           {entry.claude_from && (
@@ -5007,7 +5021,7 @@ function RouteLogDetailModal({ entry, onClose }) {
               <span className="font-mono text-red-400">{entry.tried.join(' → ')}</span>
             </DetailRow>
           )}
-          {entry.model && (
+          {entry.model && entry.kind !== 'agent' && (
             <DetailRow label={t('gateway.log.actualModel')}>
               <span className="font-mono">{entry.model}</span>
               {entry.tier && <span className="ml-1 text-zinc-400">({entry.tier})</span>}
@@ -5028,13 +5042,18 @@ function RouteLogDetailModal({ entry, onClose }) {
               </span>
             </DetailRow>
           )}
-          {(entry.via_label || entry.via) && (
+          {entry.kind === 'agent' && entry.call_context && (
+            <DetailRow label={t('gateway.log.provider')}>
+              {t(`gateway.log.ctx.${entry.call_context}`)}
+            </DetailRow>
+          )}
+          {entry.kind !== 'agent' && (entry.via_label || entry.via) && (
             <DetailRow label={t('gateway.log.provider')}>
               {entry.via_label || entry.via}
             </DetailRow>
           )}
           {entry.status === 'ok' && (
-            <DetailRow label={t('gateway.log.latency')}>
+            <DetailRow label={entry.kind === 'agent' ? t('gateway.stat.agentDuration') : t('gateway.log.latency')}>
               {fmtMs(entry.first_token_ms ?? entry.latency_ms)}
             </DetailRow>
           )}
@@ -5101,6 +5120,8 @@ export default function Gateway() {
   const [selectedLog, setSelectedLog] = useState(null);
   const [restarting, setRestarting] = useState(false);
   const [mainTab, setMainTab]   = useState(0);   // 0=应用列表 1=场景路由 2=会话
+  const routeLogRef = useRef(null);
+  const pendingRouteLogScroll = useRef(false);
   // 其它页跳转到场景路由：navigate('/gateway', { state: { gatewayTab: 'routes' } })
   const gwLocation = useLocation();
   const gwNavigate = useNavigate();
@@ -5111,6 +5132,20 @@ export default function Gateway() {
     else if (want === 'apps') setMainTab(0);
     gwNavigate(gwLocation.pathname, { replace: true, state: null });
   }, [gwLocation.state]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 顶部「请求 / 任务」点进来：先切到场景路由（明细只挂在这个 Tab），再滚到列表。
+  const jumpToRouteLog = () => {
+    if (mainTab === 1) {
+      routeLogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    pendingRouteLogScroll.current = true;
+    setMainTab(1);
+  };
+  useEffect(() => {
+    if (mainTab !== 1 || !pendingRouteLogScroll.current) return;
+    pendingRouteLogScroll.current = false;
+    routeLogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [mainTab]);
   const [sessionsMounted, setSessionsMounted] = useState(false); // 首次进入会话 Tab 后保持挂载
 
   // Scene routing
@@ -5371,7 +5406,10 @@ export default function Gateway() {
             <CopyButton text={localBase} label={t('gateway.common.copy')} className="ml-auto py-0.5 text-xs shrink-0" />
           </div>
           <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-            <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{stats ? headerCalls.toLocaleString() : '—'}</b> {t('gateway.stat.requests')}</span>
+            <button type="button" onClick={jumpToRouteLog} title={t('gateway.log.jump')}
+              className="hover:text-zinc-800 dark:hover:text-zinc-200 underline-offset-2 hover:underline">
+              <b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{stats ? headerCalls.toLocaleString() : '—'}</b> {t('gateway.stat.requests')}
+            </button>
             <span><b className="text-blue-600 dark:text-blue-400 tabular-nums">{stats ? fmtTokens(headerTokens) : '—'}</b> Token</span>
             <span><b className="text-violet-600 dark:text-violet-400 tabular-nums">{gatewayRatio !== null ? `${gatewayRatio}%` : '—'}</b> {t('gateway.stat.forward')}</span>
             <span title={t('gateway.stat.avgLatencyHint')}><b className="text-zinc-700 dark:text-zinc-200 tabular-nums">{avgLatency > 0 ? `${avgLatency}ms` : '—'}</b> {t('gateway.stat.firstToken')}</span>
@@ -5384,7 +5422,10 @@ export default function Gateway() {
             <CopyButton text={`${localBase.replace(/\/$/, '')}/agent`} label={t('gateway.common.copy')} className="ml-auto py-0.5 text-xs shrink-0" />
           </div>
           <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-            <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentStats ? agentStats.tasks : '—'}</b> {t('gateway.stat.agentTasks')}</span>
+            <button type="button" onClick={jumpToRouteLog} title={t('gateway.log.jump')}
+              className="hover:text-zinc-800 dark:hover:text-zinc-200 underline-offset-2 hover:underline">
+              <b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentStats ? agentStats.tasks : '—'}</b> {t('gateway.stat.agentTasks')}
+            </button>
             <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentStats ? agentStats.running : '—'}</b> {t('gateway.stat.agentRunning')}</span>
             <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentStats ? agentStats.failed : '—'}</b> {t('gateway.stat.agentFailed')}</span>
             <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentDurationLabel(agentStats?.avg_duration_ms, fmtMs)}</b> {t('gateway.stat.agentDuration')}</span>
@@ -5580,7 +5621,7 @@ export default function Gateway() {
 
       {/* 路由明细 — 仅在「场景路由」Tab 显示，应用列表 Tab 不显示 */}
       {mainTab === 1 && (
-      <div className="tb-soft-card rounded-2xl p-5">
+      <div ref={routeLogRef} tabIndex={-1} className="tb-soft-card rounded-2xl p-5 scroll-mt-3 outline-none">
         <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-3">{t('gateway.log.title')}</h2>
         {logEntries.length === 0 ? (
           <p className="text-sm text-zinc-500">
@@ -5591,6 +5632,7 @@ export default function Gateway() {
           <div className="max-h-80 overflow-y-auto space-y-1.5 pr-1">
             {logEntries.map((e, i) => {
               const isRouter = e.requested_model?.startsWith('llm-router-');
+              const place = routeLogPlace(e);
               // 社区(p2p)派发：e.worker=服务/失败的 worker_id → join /public/network 显示分享者
               const wi = e.worker ? workerInfo(e.worker, network) : null;
               const workerName = wi?.name || (e.worker ? String(e.worker).slice(0, 8) : null);
@@ -5647,15 +5689,26 @@ export default function Gateway() {
                                               'text-green-600 dark:text-green-500'
                         }`}>({tierShortLabel(e.tier, t)})</span>
                       )}
-                      {!e.claude_from && !isRouter && (
+                      {e.kind !== 'agent' && !e.claude_from && !isRouter && (
                         <span title={t('gateway.log.directTitle')} className="ml-1 text-xs text-zinc-400">{t('gateway.log.direct')}</span>
                       )}
                     </span>
                   </div>
 
+                  {(place === 'local' || place === 'remote') && (
+                    <span className={`shrink-0 text-[11px] px-1 py-0.5 rounded border ${
+                      place === 'remote'
+                        ? 'border-blue-200 dark:border-blue-800/50 text-blue-600 dark:text-blue-400'
+                        : 'border-zinc-200 dark:border-zinc-700 text-zinc-500'
+                    }`}>
+                      {place === 'remote' ? t('gateway.log.remote') : t('gateway.log.local')}
+                    </span>
+                  )}
                   <span className="text-zinc-400 shrink-0">→</span>
                   <span className={`shrink-0 font-medium ${e.status === 'ok' ? 'text-blue-600 dark:text-blue-400' : 'text-red-500'}`}>
-                    {e.status === 'ok' ? (e.via_label || e.via || '—') : t('gateway.log.failed')}
+                    {e.status === 'ok'
+                      ? (e.kind === 'agent' ? t('gateway.surface.agent') : (e.via_label || e.via || '—'))
+                      : t('gateway.log.failed')}
                   </span>
                   {/* 社区节点归因：哪个分享者的 worker 服务/失败了本次请求 */}
                   {workerName && (

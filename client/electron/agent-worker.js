@@ -885,12 +885,32 @@ function deliveryText(body, parts) {
   return bits.join('\n');
 }
 
+/** WebSocket 派来的任务记进路由明细，位置固定为远程。 */
+function recordWsAgentCall(info) {
+  try {
+    require('./local-gateway').recordAgentRouteLog({ ...info, channel: 'ws' });
+  } catch (e) {
+    log(`[agent] route log failed: ${e.message}`);
+  }
+}
+
 /** 处理社区派发的武将任务（支持过程中推送 agent_task_progress） */
 async function handleAgentTask(msg, cfg) {
+  const started = Date.now();
   const taskId = String(msg.task_id || msg.req_id || '').trim();
   const assistantId = String(msg.assistant_id || '').trim();
   const prompt = String(msg.prompt || '').trim();
+  const noteRoute = (ok, error) => recordWsAgentCall({
+    ts: started,
+    latencyMs: Date.now() - started,
+    harnessId: assistantId,
+    prompt,
+    ok,
+    error,
+    callContext: msg.call_context,
+  });
   if (!taskId || !assistantId || !prompt) {
+    noteRoute(false, 'missing task_id, assistant_id or prompt');
     send({
       type: 'agent_task_result',
       task_id: taskId || null,
@@ -907,10 +927,10 @@ async function handleAgentTask(msg, cfg) {
       throw new Error(`app not rentable: ${assistantId}`);
     }
   } catch (e) {
+    noteRoute(false, e.message);
     send({ type: 'agent_task_result', task_id: taskId, status: 'rejected', error: e.message });
     return;
   }
-  const started = Date.now();
   // 按调用方隔离：不同用户不共用 CLI sessionKey / 工作目录，也不污染本机游乐场标签
   const consumerKey = resolveConsumerKey(msg);
   const sessionKey = contributeSessionKey(assistantId, consumerKey);
@@ -1114,6 +1134,7 @@ async function handleAgentTask(msg, cfg) {
       cliSessionId: String(msg.cli_session_id || '').trim() || undefined,
       images: attachImages.length ? attachImages : undefined,
       files: attachFiles.length ? attachFiles : undefined,
+      callContext: String(msg.call_context || '').trim().toLowerCase() || undefined,
     });
     trackedTaskId = localId;
     liveAgentTasks.set(taskId, localId);
@@ -1149,6 +1170,7 @@ async function handleAgentTask(msg, cfg) {
         output: partial,
         usage: { duration_ms: Date.now() - started },
       }, artifacts);
+      noteRoute(false, `Agent task timeout (${Math.round(localTimeoutMs / 1000)}s)`);
       return;
     }
 
@@ -1184,7 +1206,9 @@ async function handleAgentTask(msg, cfg) {
       usage: { duration_ms: Date.now() - started },
       cli_session_id: cliSessionId || undefined,
     }, artifacts);
+    noteRoute(ok, ok ? undefined : (status?.error || status?.result?.output || 'failed'));
   } catch (e) {
+    noteRoute(false, e.message);
     send({
       type: 'agent_task_result',
       task_id: taskId,

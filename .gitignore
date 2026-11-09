@@ -31,6 +31,9 @@ ENV/
 *.sqlite3
 # Docker 网关请求记录与用量库（运行时生成）
 gateway-data/tokenbank/
+# 本机网关配置（含 device_id，各实例首次启动自己生成，勿提交）
+gateway-data/config.json
+gateway-data/local-config.json
 
 # 测试与类型检查
 .pytest_cache/

@@ -33,18 +33,18 @@ function currentDispatchContext() {
 const TOOLS = [
   {
     name: 'tb_list_agents',
-    description: '【仅编排】列出本机已雇佣的社区智能体(community:*)，供 tb_dispatch_agent 派发。不含未雇佣的在线目录、本地 assistant、CLI，避免列表过长。雇佣请在 Token Bank「交易」页操作。',
+    description: '【仅编排】列出可派发目标：本地智能体(assistant:*)、已雇佣社区智能体(community:*)、本机 CLI。不含未雇佣的在线目录。本地优先。',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'tb_dispatch_agent',
-    description: '【仅编排】向已雇佣社区智能体派发子任务并等待完成。agent_id 须为 community:<id>（见 tb_list_agents）。任务在对方设备执行、不下载正文。prompt 须含目标+约束+期望产出。',
+    description: '【仅编排】向 tb_list_agents 返回的目标派发子任务并等待完成。优先 assistant:<id>（本机执行）；社区用 community:<assistantId>@<用户名>（对方设备执行，不下载正文）。prompt 须含目标+约束+期望产出。',
     inputSchema: {
       type: 'object',
       properties: {
         agent_id: {
           type: 'string',
-          description: '已雇佣目标 ID：community:<assistantId>@<用户名>（以 tb_list_agents 为准，不带设备 id）',
+          description: '目标 ID：优先 assistant:<resourceId>；社区为 community:<assistantId>@<用户名>；兜底可用 codex、claude-code、cursor',
         },
         prompt: {
           type: 'string',
@@ -103,27 +103,30 @@ function textResult(text, isError = false) {
 async function handleToolCall(name, args = {}) {
   if (name === 'tb_list_agents') {
     const agents = await dispatchClient.listAgents();
-    // MCP 仅返回已雇佣社区智能体，避免 CLI / 本地 assistant / 未雇目录撑爆上下文
-    const hired = (agents || []).filter((a) => a && a.type === 'community');
-    const sorted = [...hired].sort((a, b) =>
-      String(a.name || '').localeCompare(String(b.name || '')),
+    // 本地智能体优先，其次已雇佣社区，最后本机 CLI。未雇佣的在线目录不在这份列表里。
+    const rank = (t) => (t === 'assistant' ? 0 : t === 'community' ? 1 : 2);
+    const sorted = [...(agents || [])].filter((a) => a && a.id).sort((a, b) =>
+      rank(a.type) - rank(b.type) || String(a.name || '').localeCompare(String(b.name || '')),
     );
     const lines = sorted.map((a) => {
+      const kind = a.type === 'assistant' ? '本地智能体' : a.type === 'community' ? '社区智能体(远程)' : 'CLI';
       const caps = (a.capabilities || []).join(', ');
       const desc = a.description ? ` — ${String(a.description).slice(0, 160)}` : '';
+      const ver = a.version ? ` (v${a.version})` : '';
       const runtime = a.runtimeName ? ` @${a.runtimeName}` : '';
-      return `- ${a.id}: ${a.name}${runtime} [社区智能体(远程)]${caps ? ` (${caps})` : ''}${desc}`;
+      return `- ${a.id}: ${a.name}${ver}${runtime} [${kind}]${caps ? ` (${caps})` : ''}${desc}`;
     });
     const hint = [
       '【编排规则】',
-      '1. 下列仅为本机已雇佣的社区智能体；有匹配则用 tb_dispatch_agent 派发，勿自己做。',
-      '2. 任务在对方设备执行，只拿结果，勿尝试拉取正文。',
-      '3. 子任务 prompt 写清：目标 + 约束 + 期望产出。',
-      '4. 列表为空：请用户在 Token Bank「交易 → 社区智能体」雇佣后再派发；或自行完成并告知用户。',
+      '1. 优先匹配「本地智能体」(assistant:*)，用 tb_dispatch_agent 派发；有匹配必须派发，勿自己做。',
+      '2. 其次是已雇佣的社区智能体(community:*)。任务在对方设备执行，只拿结果，勿拉取正文。',
+      '3. 都没有匹配时，才派发 CLI（codex / claude-code / cursor）或自行完成。',
+      '4. 子任务 prompt 写清：目标 + 约束 + 期望产出。',
+      '5. 只从上面这份名单里选。任务已有工程、时间线或指定工具链时，选描述覆盖该链路的；不要因为名字更泛就改派另一个。',
     ].join('\n');
     return textResult(lines.length
       ? `${hint}\n\n${lines.join('\n')}`
-      : `${hint}\n\n（尚无已雇佣社区智能体 — 请到「交易」页雇佣，或自行完成）`);
+      : `${hint}\n\n（无可用 Agent — 请降级自行完成，并告知用户）`);
   }
 
   if (name === 'tb_list_community_agents') {

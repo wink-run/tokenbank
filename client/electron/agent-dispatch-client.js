@@ -2,19 +2,41 @@
 // bridge MCP 子进程侧：优先走主进程 HTTP 派发，无 TB_DISPATCH_URL 时回退本地模块（单测用）。
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
 const agentExecutor = require('./agent-executor');
 const resourceManager = require('./resource-manager');
 
-const DISPATCH_URL = (process.env.TB_DISPATCH_URL || '').replace(/\/$/, '');
-const DISPATCH_TOKEN = process.env.TB_DISPATCH_TOKEN || '';
+const INFO_PATH = path.join(os.homedir(), '.tokenbank', 'dispatch-server.json');
+
+/**
+ * 每次调用再读端点。启动脚本里的 TB_DISPATCH_URL 在客户端重启后会过期
+ * （端口是 listen(0) 随机分配的），以 dispatch-server.json 为准。
+ */
+function currentDispatchEndpoint() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(INFO_PATH, 'utf8'));
+    const url = String(parsed?.url || '').replace(/\/$/, '');
+    const token = String(parsed?.token || '');
+    if (url && token) return { url, token };
+  } catch { /* 文件还没写出来时用启动脚本里的值 */ }
+  const url = String(process.env.TB_DISPATCH_URL || '').replace(/\/$/, '');
+  const token = String(process.env.TB_DISPATCH_TOKEN || '');
+  if (url && token) return { url, token };
+  return null;
+}
 
 function useHttpDispatch() {
-  return !!(DISPATCH_URL && DISPATCH_TOKEN);
+  return !!currentDispatchEndpoint();
 }
 
 async function httpRequest(method, pathWithQuery, body) {
+  const ep = currentDispatchEndpoint();
+  if (!ep) throw new Error('派发服务未启动');
   const headers = {
-    Authorization: `Bearer ${DISPATCH_TOKEN}`,
+    Authorization: `Bearer ${ep.token}`,
   };
   let bodyStr;
   if (body != null) {
@@ -22,11 +44,17 @@ async function httpRequest(method, pathWithQuery, body) {
     bodyStr = JSON.stringify(body);
   }
 
-  const res = await fetch(`${DISPATCH_URL}${pathWithQuery}`, {
-    method,
-    headers,
-    body: bodyStr,
-  });
+  let res;
+  try {
+    res = await fetch(`${ep.url}${pathWithQuery}`, {
+      method,
+      headers,
+      body: bodyStr,
+    });
+  } catch (e) {
+    const cause = e?.cause?.code || e?.cause?.message || '';
+    throw new Error(`无法连接派发服务 ${ep.url}${cause ? ` (${cause})` : ''}。请确认 Token Bank 客户端在运行。`);
+  }
 
   let data = {};
   try { data = await res.json(); } catch { /* ignore */ }

@@ -4053,8 +4053,28 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
   fail(null, null, routeErrors);
 }
 
+/** 模型只有走到社区节点才算远程。个人源打到 DeepSeek 这类公网接口，仍是自己的调用。 */
+function routePlace(entry) {
+  if (entry.kind === 'agent') return entry.place === 'remote' ? 'remote' : 'local';
+  if (entry.tier === 'p2p' || entry.via === 'tokenbank-p2p' || entry.worker) return 'remote';
+  if (entry.tier === 'free' || entry.tier === 'paid') return 'local';
+  let providers = [];
+  try { providers = _getConfig?.()?.providers || []; } catch { providers = []; }
+  const provider = providers.find((p) => p && p.id && p.id === entry.via);
+  if (!provider) return '';
+  if (provider.type === 'p2p') return 'remote';
+  if (provider.type === 'free' || provider.type === 'paid') return 'local';
+  return '';
+}
+
+function recordAgentRouteLog(info) {
+  const agentHttp = require('./agent-http');
+  pushLog(agentHttp.buildAgentRouteLog(info || {}));
+}
+
 function pushLog(entry) {
-  log.push(entry);
+  const place = routePlace(entry);
+  log.push(place ? { ...entry, place } : entry);
   if (log.length > LOG_MAX) log.shift();
   _saveRouteLog();
 }
@@ -4414,6 +4434,12 @@ function handleRequest(req, res) {
       method,
       cleanPath,
       knownKey: (key) => _appKeys.has(key) || (!!_agentApiKey && key === _agentApiKey),
+      // 发起任务写入路由明细，和模型补全同一份日志。
+      onCall: (info) => {
+        const entry = agentHttp.buildAgentRouteLog(info);
+        const ctx = routeLogContext(info.callerKey || '', cleanPath, null, req.headers['user-agent'] || '');
+        pushLog({ ...ctx, ...entry });
+      },
     }).catch((e) => {
       console.error('[agent-http]', e.message);
       if (!res.headersSent) {
@@ -4662,7 +4688,7 @@ function setLocalConfigReader(fn) {
 }
 
 module.exports = {
-  start, stop, restart, setStrategy, getStatus, getLog,
+  start, stop, restart, setStrategy, getStatus, getLog, recordAgentRouteLog,
   setKeySceneMap, setClaudeShimScene, setCodexGptFallback, setRouterModelMap, setPeerModels, setBackendConfig, setUserAuth,
   setStatsRecorder, setLocalStats, setLocalConfigReader, setAppControls, setAgentApiKey,
   setClaudeModels,

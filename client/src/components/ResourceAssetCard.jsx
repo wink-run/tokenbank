@@ -335,9 +335,74 @@ export function resourceDisplayName(type, item) {
   return String(item.display_name || item.name || item.slug || '').trim();
 }
 
-/** 统一说明 */
+/** 统一说明（卡片上的一句简介） */
 export function resourceDescription(item) {
   return String(item?.description || '').trim();
+}
+
+/**
+ * 详细介绍：特点和用法。卡片不展示这段。
+ * 作者写在 detail / metadata.detail 里的优先；否则从正文整理。
+ * 与 server/community_catalog.py 的 resource_detail 对齐。
+ */
+export function resourceDetailText(item) {
+  const explicit = String(item?.detail || item?.metadata?.detail || '').trim();
+  if (explicit) return explicit.slice(0, 4000);
+  const type = item?.type === 'agent' ? 'assistant' : (item?.type || '');
+  const desc = String(item?.description || '').trim();
+  const raw = String(item?.content || item?.soul || '').trim();
+  if (type === 'skill') {
+    return raw.replace(/^---\r?\n[\s\S]*?\r?\n---\s*/, '').trim().slice(0, 4000);
+  }
+  if (type === 'assistant') {
+    let soul = '';
+    let skills = [];
+    let prompts = [];
+    try {
+      const obj = JSON.parse(raw || '{}');
+      soul = String(obj?.soul || obj?.system_prompt || obj?.systemPrompt || '').trim();
+      skills = (obj?.skills || []).map((x) => String(x || '').trim()).filter(Boolean);
+      prompts = (obj?.prompts || []).map((x) => String(x || '').trim()).filter(Boolean);
+    } catch {
+      soul = raw;
+    }
+    const lines = [];
+    if (soul) lines.push('特点', soul);
+    if (skills.length || prompts.length) {
+      lines.push('', '用法', '在客户端纳管后直接对话即可。');
+      if (skills.length) lines.push(`已搭配技能：${skills.join('、')}`);
+      if (prompts.length) lines.push(`已搭配提示词：${prompts.join('、')}`);
+    }
+    return lines.join('\n').trim().slice(0, 4000);
+  }
+  if (type === 'prompt') {
+    const names = [];
+    const re = /\{\{\s*#?(?:if|unless)?\s*([A-Za-z_][\w]*)/g;
+    let m = re.exec(raw);
+    while (m) {
+      if (m[1] && !names.includes(m[1])) names.push(m[1]);
+      m = re.exec(raw);
+    }
+    const lines = [];
+    if (desc) lines.push('特点', desc);
+    lines.push('', '用法');
+    lines.push(names.length
+      ? `纳管后选用这条提示词，补上：${names.join('、')}。`
+      : '纳管后直接选用，把要处理的内容发给智能体即可。');
+    if (raw) lines.push('', raw.slice(0, 2500));
+    const text = lines.join('\n').trim();
+    if (text === '用法\n纳管后直接选用，把要处理的内容发给智能体即可。') return '';
+    return text.slice(0, 4000);
+  }
+  return '';
+}
+
+/** 详情里要展示的介绍。和卡片简介完全一样时不重复。 */
+export function resourceIntro(item) {
+  const text = resourceDetailText(item);
+  const desc = resourceDescription(item);
+  if (!text || text === desc) return '';
+  return text;
 }
 
 /**
@@ -386,7 +451,8 @@ export default function ResourceAssetCard({
   const visual = typeVisual(type);
   const title = resourceDisplayName(type, item);
   const desc = description != null ? String(description).trim() : resourceDescription(item);
-  const detail = previewText != null ? String(previewText) : buildPreviewText(type, item);
+  const intro = resourceIntro(item);
+  const detail = previewText != null ? String(previewText) : (intro || buildPreviewText(type, item));
   const icon = item?.icon || item?.metadata?.icon;
   const stacked = layout === 'stack';
   const hasActions = !!(actions || (showPreviewBtn && onTogglePreview));

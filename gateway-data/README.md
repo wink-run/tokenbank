@@ -8,13 +8,9 @@
 
 | 文件 | 说明 |
 |------|------|
-| `local-config.json` | 场景路由、`apps`、P2P `cloud_config` 等（UI 写入） |
-| `config.json` | Agent 贡献节点配置（若使用独立 Agent） |
+| `local-config.json` | 场景路由、`apps`、P2P `cloud_config` 等（UI 写入，不入库） |
+| `config.json` | Agent 贡献节点配置，含本机 `device_id`（不入库） |
 | `tokenbank/local-stats.db` | 请求用量，重启后保留 |
 | `tokenbank/gateway-route-log.json` | 最近路由明细，重启后保留 |
 
-Docker 可通过环境变量 `TOKEN_SERVER_URL` 在首次创建时预填 `cloud_config.url`。
-
-## 可选：结构参考
-
-见 `local-config.json.example`（仅文档用途，安装不必复制）。
+Docker 可通过环境变量 `TOKEN_SERVER_URL` 在首次创建时预填 `cloud_config.url`。这两个 JSON 已在 `.gitignore` 中，避免各环境共用同一 `device_id`。

@@ -896,6 +896,8 @@ class AgentExecutor extends EventEmitter {
         sessionInstanceId: options.sessionInstanceId || null,
         // 社区接单标记：本机游乐场列表/事件应忽略
         clientId: options.clientId || null,
+        // local / owner = 本机，hired = 雇佣。来自请求 metadata.call_context。
+        callContext: options.callContext || null,
       }),
       Date.now(),
     );

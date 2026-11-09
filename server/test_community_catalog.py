@@ -80,6 +80,73 @@ class TestDefaultDoc(unittest.TestCase):
         )
         self.assertIsNone(other)
 
+    def test_public_resources_include_listed_at(self):
+        doc = {
+            "version": 1,
+            "prompts": [],
+            "skills": [{
+                "catalog_id": "user-skill-1-draw",
+                "name": "draw",
+                "display_name": "画画",
+                "metadata": {"user_recommended": True, "recommended_at": 1_700_000_000_000},
+            }],
+            "assistants": [{
+                "catalog_id": "python-expert",
+                "name": "python-expert",
+                "display_name": "Python 专家",
+            }],
+        }
+        rows = {r["catalog_id"]: r for r in cc.flatten_public_resources(doc)}
+        self.assertEqual(rows["user-skill-1-draw"]["listed_at"], 1_700_000_000_000)
+        self.assertNotIn("detail", rows["user-skill-1-draw"])
+        self.assertGreater(rows["python-expert"]["listed_at"], 0)
+        self.assertEqual(cc.listed_at_ms({"metadata": {"recommended_at": 1_700_000_000}}), 1_700_000_000_000)
+
+    def test_detail_keeps_card_summary(self):
+        skill = {
+            "catalog_id": "git-commit-skill",
+            "type": "skill",
+            "name": "git-commit",
+            "description": "生成规范提交信息",
+            "content": "---\nname: git-commit\ndescription: x\n---\n\n# Git\n\n## 何时使用\n写 commit 时。\n",
+        }
+        prompt = {
+            "catalog_id": "polish-prompt",
+            "type": "prompt",
+            "name": "polish",
+            "description": "润色文字",
+            "content": "请润色：{{text}}",
+        }
+        assistant = {
+            "catalog_id": "coach-assistant",
+            "type": "assistant",
+            "name": "coach",
+            "description": "写作教练",
+            "content": '{"soul":"你是写作教练","skills":["proofreader"],"prompts":["text-polish"]}',
+        }
+        authored = {
+            "catalog_id": "fast-skill",
+            "type": "skill",
+            "name": "fast",
+            "description": "一句简介",
+            "metadata": {"detail": "特点：快。\n用法：纳管后说一声。"},
+            "content": "ignored",
+        }
+        self.assertIn("何时使用", cc.resource_detail(skill))
+        self.assertNotIn("---", cc.resource_detail(skill))
+        self.assertIn("{{text}}", cc.resource_detail(prompt))
+        self.assertIn("润色文字", cc.resource_detail(prompt))
+        self.assertIn("写作教练", cc.resource_detail(assistant))
+        self.assertIn("proofreader", cc.resource_detail(assistant))
+        self.assertEqual(cc.resource_detail(authored), "特点：快。\n用法：纳管后说一声。")
+        rows = {r["name"]: r for r in cc.flatten_public_resources({
+            "version": 1, "prompts": [prompt], "skills": [skill, authored], "assistants": [assistant],
+        })}
+        self.assertEqual(rows["git-commit"]["description"], "生成规范提交信息")
+        self.assertIn("何时使用", rows["git-commit"]["detail"])
+        self.assertEqual(rows["fast"]["description"], "一句简介")
+        self.assertIn("纳管后说一声", rows["fast"]["detail"])
+
     def test_slug_and_paid_flag(self):
         self.assertEqual(cc._slug_name("Hello World!"), "hello-world")
         paid = {"metadata": {"user_recommended": True, "recommender_user_id": 3}}
