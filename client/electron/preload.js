@@ -189,6 +189,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     apply: (id) => ipcRenderer.invoke('guardian:apply', id),
     dismiss: (id) => ipcRenderer.invoke('guardian:dismiss', id),
     runChecks: () => ipcRenderer.invoke('guardian:runChecks'),
+    assetFlags: () => ipcRenderer.invoke('guardian:assetFlags'),
   },
   config: {
     read:  () => ipcRenderer.invoke('config:read'),

@@ -32,6 +32,8 @@ function registerGuardianHandlers() {
   }));
   ipcMain.handle('guardian:dismiss', safe((id) => ({ success: guardian.dismiss(id) })));
   ipcMain.handle('guardian:runChecks', safe(async () => ({ success: true, results: await guardian.runChecks() })));
+  // 资产列表的小标签：质量 / 安全 / 重复 / 新版本
+  ipcMain.handle('guardian:assetFlags', safe(() => ({ success: true, flags: require('./asset-checks').getFlags() })));
 
   // 资产一键诊断与修复
   ipcMain.handle('resource:diagnose', safe(({ resourceId } = {}) => require('./diagnose').diagnoseResource(resourceId)));
@@ -43,6 +45,8 @@ function startGuardian({ gateway, initialDelayMs } = {}) {
   if (startedOnce) return;
   startedOnce = true;
   try { require('./projection-heal').register(); } catch (e) { console.warn('[guardian] projection-heal:', e.message); }
+  try { require('./asset-checks').register(); } catch (e) { console.warn('[guardian] asset-checks:', e.message); }
+  try { require('./setup-check').register(); } catch (e) { console.warn('[guardian] setup-check:', e.message); }
   try { if (gateway) require('./gateway-watch').attach(gateway); } catch (e) { console.warn('[guardian] gateway-watch:', e.message); }
   guardian.start({ initialDelayMs });
   console.log('[guardian] started');

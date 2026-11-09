@@ -249,9 +249,16 @@ function registerResourceHandlers() {
     }
   });
 
-  ipcMain.handle('resource:project', async (_event, { resourceId, agentIds, scope, force } = {}) => {
+  ipcMain.handle('resource:project', async (_event, { resourceId, agentIds, scope, force, allowRisky } = {}) => {
     try {
       resourceManager.init();
+      // 看护安全巡检：高风险技能（下载即执行、外发密钥等）投射前要用户确认一次
+      if (!allowRisky) {
+        try {
+          const risk = require('./guardian/asset-checks').securityGate(resourceManager.getResource(resourceId));
+          if (risk) return { success: false, error: 'security-risk', securityFindings: risk.findings };
+        } catch (e) { console.warn('[guardian] security gate:', e.message); }
+      }
       const result = resourceManager.projectToAgents(resourceId, agentIds, scope || 'global', { force: !!force });
       return result;
     } catch (error) {

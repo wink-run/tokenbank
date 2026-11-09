@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useLang } from '../store/lang';
 
-const CATS = ['projection', 'gateway', 'install'];
+const CATS = ['projection', 'gateway', 'install', 'assets', 'setup'];
 const MODES = ['auto', 'suggest', 'off'];
 
 const STATUS_CLS = {
@@ -11,6 +12,7 @@ const STATUS_CLS = {
   failed: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300',
   undone: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400',
   dismissed: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400',
+  resolved: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400',
 };
 
 function fmtTime(ts, lang) {
@@ -25,6 +27,7 @@ function fmtTime(ts, lang) {
  */
 export default function GuardianPanel() {
   const { t, lang } = useLang();
+  const navigate = useNavigate();
   const api = typeof window !== 'undefined' ? window.electronAPI?.guardian : null;
   const [settings, setSettings] = useState(null);
   const [records, setRecords] = useState([]);
@@ -66,9 +69,11 @@ export default function GuardianPanel() {
     try {
       const r = await api.runChecks();
       const p = r?.results?.projection;
-      setMsg(p && !p.skipped
-        ? t('guardian.checkDone', { broken: p.broken || 0, repaired: p.repaired || 0, suggested: p.suggested || 0 })
-        : t('guardian.checkDoneSimple'));
+      const a = r?.results?.assets;
+      const parts = [];
+      if (p && !p.skipped) parts.push(t('guardian.checkDone', { broken: p.broken || 0, repaired: p.repaired || 0, suggested: p.suggested || 0 }));
+      if (a && !a.skipped) parts.push(t('guardian.assetsDone', { skills: a.skills || 0, quality: a.quality || 0, risky: a.risky || 0, dups: a.duplicates || 0, updates: a.updates || 0 }));
+      setMsg(parts.length ? parts.join('；') : t('guardian.checkDoneSimple'));
       await load();
     } finally {
       setBusy('');
@@ -119,9 +124,9 @@ export default function GuardianPanel() {
         </div>
       )}
 
-      <div className="px-5 py-3 flex items-center gap-3">
-        <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 flex-1">{t('guardian.records')}</h3>
-        {msg && <span className="text-[11px] text-zinc-500 dark:text-zinc-400">{msg}</span>}
+      <div className="px-5 py-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 flex-1 whitespace-nowrap">{t('guardian.records')}</h3>
+        {msg && <span className="order-last basis-full text-[11px] text-zinc-500 dark:text-zinc-400">{msg}</span>}
         <button type="button" onClick={runChecks} disabled={busy === 'checks'}
           className="text-xs px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-white dark:hover:bg-zinc-800 disabled:opacity-50">
           {busy === 'checks' ? t('guardian.checking') : t('guardian.checkNow')}
@@ -147,7 +152,7 @@ export default function GuardianPanel() {
                 </button>
                 <span className="shrink-0 text-[10px] text-zinc-400 tabular-nums">{fmtTime(r.lastAt || r.at, lang)}</span>
               </div>
-              {(r.status === 'done' && r.undo) || r.status === 'suggested' || ['info', 'failed', 'suggested'].includes(r.status) ? (
+              {(r.status === 'done' && r.undo) || r.link || ['info', 'failed', 'suggested'].includes(r.status) ? (
                 <div className="flex gap-1.5 mt-1.5 pl-[3.25rem]">
                   {r.status === 'done' && r.undo && (
                     <button type="button" disabled={!!busy} onClick={() => act('undo', r.id)}
@@ -159,6 +164,12 @@ export default function GuardianPanel() {
                     <button type="button" disabled={!!busy} onClick={() => act('apply', r.id)}
                       className="text-[11px] px-2 py-0.5 rounded-md bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50">
                       {busy === `apply:${r.id}` ? t('resources.busy') : t('guardian.apply')}
+                    </button>
+                  )}
+                  {r.link && ['info', 'failed', 'suggested'].includes(r.status) && (
+                    <button type="button" onClick={() => navigate(r.link.to, r.link.state ? { state: r.link.state } : undefined)}
+                      className="text-[11px] px-2 py-0.5 rounded-md border border-blue-200 dark:border-blue-900/60 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40">
+                      {r.link.label || t('guardian.go')} →
                     </button>
                   )}
                   {['info', 'failed', 'suggested'].includes(r.status) && (
