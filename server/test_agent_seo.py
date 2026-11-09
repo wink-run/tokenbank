@@ -50,7 +50,9 @@ def test_index_links_and_sitemap_list_each_agent():
 
 def test_model_page_and_social_tags():
     from agent_seo import apply_model_seo
-    html = open("static/model-landing.html", encoding="utf-8").read()
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    html = open(os.path.join(here, "static", "model-landing.html"), encoding="utf-8").read()
     out = apply_model_seo(html, "deepseek-v4-pro")
     assert "<title>deepseek-v4-pro 在线试用 · Token Bank</title>" in out
     assert "/m/deepseek-v4-pro" in out and 'rel="canonical"' in out
