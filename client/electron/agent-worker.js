@@ -803,7 +803,46 @@ function send(obj) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }
 
-/** 构建注册用武将名片（无正文）；runtime 不可用则不上报 */
+/** 只认已安装的 CLI。社区智能体 id 混进来会让「探测成功」变成误判，勾选被全部滤成 runtime_unavailable。 */
+function installedCliIdsFromAgentList(agents) {
+  return new Set(
+    (agents || [])
+      .filter((a) => a && a.type === 'cli' && a.installed && a.id)
+      .map((a) => a.id),
+  );
+}
+
+function registerCardFilterReasons(entries, resources, installedIds) {
+  const runtimeCheck = installedIds.size > 0 ? (id) => installedIds.has(id) : undefined;
+  return entries.map((e) => {
+    if (isContributedAppId(e.id)) {
+      const rt = contributedAppRuntime(e.id);
+      return `${e.id}:${installedIds.has(rt) ? 'filtered' : 'runtime_unavailable'}`;
+    }
+    const r = resources.find((x) => x.id === e.id);
+    const v = r
+      ? validateAssistantEligible(r, { isRuntimeAvailable: runtimeCheck || (() => true) })
+      : { ok: false, reason: 'not_found' };
+    return `${e.id}:${v.reason || 'filtered'}`;
+  });
+}
+
+/**
+ * 用已安装的 CLI 组名片。一个都没探到时，不把空集合当成「运行时确认不可用」。
+ * 这种结果如果同时还勾了应用，调用方会整组作废，避免只留下智能体、把应用从上架里换掉。
+ */
+function cardsForInstalledCli(entries, resources, installedIds) {
+  const runtimeCheck = installedIds.size > 0 ? (id) => installedIds.has(id) : undefined;
+  return [
+    ...buildAgentCards(entries, resources, { isRuntimeAvailable: runtimeCheck }),
+    ...buildAppCards(entries, { isRuntimeAvailable: (id) => installedIds.has(id) }),
+  ];
+}
+
+/**
+ * 构建注册用武将名片（无正文）。
+ * 返回 null：探测失败，调用方不要发空名单。返回 []：勾选确实为空或已确认不合格。
+ */
 async function collectAgentCardsForRegister(cfg) {
   const entries = normalizeContributeAssistants(cfg);
   if (!entries.length) return [];
@@ -811,51 +850,46 @@ async function collectAgentCardsForRegister(cfg) {
     const resourceManager = require('./resource-manager');
     resourceManager.init();
     const resources = resourceManager.listResources({ type: 'assistant' }) || [];
-    let availableIds = null; // null=探测失败，跳过 runtime 可用性硬过滤
-    let installedAppIds = new Set();
-    try {
-      const executor = require('./agent-executor');
-      const agents = await executor.listAvailableAgents();
-      availableIds = new Set(
-        (agents || [])
-          .map((a) => a.id)
-          .filter((id) => id && !String(id).startsWith('assistant:')),
-      );
-      // 应用只上报已安装的 CLI，未安装的不上架
-      installedAppIds = new Set(
-        (agents || [])
-          .filter((a) => a && a.type === 'cli' && a.installed && a.id)
-          .map((a) => a.id),
-      );
-    } catch { /* 探测失败时仍按投射资格上报，接单时再拒 */ }
+    const wantsApp = entries.some((e) => isContributedAppId(e.id));
 
-    // 空 Set 仍为 truthy，不能当成「探测失败」；无 CLI 时保留投射校验、放宽 runtime 探测
-    const runtimeCheck = (availableIds && availableIds.size > 0)
-      ? (id) => availableIds.has(id)
-      : undefined;
+    const probe = async (force) => {
+      let installedIds = new Set();
+      let probed = false;
+      try {
+        const executor = require('./agent-executor');
+        const agents = await executor.listAvailableAgents(force ? { force: true } : undefined);
+        installedIds = installedCliIdsFromAgentList(agents);
+        probed = true;
+      } catch { /* 探测失败时仍按投射资格上报，接单时再拒 */ }
+      return {
+        probed,
+        installedIds,
+        cards: cardsForInstalledCli(entries, resources, installedIds),
+      };
+    };
 
-    const cards = [
-      ...buildAgentCards(entries, resources, { isRuntimeAvailable: runtimeCheck }),
-      ...buildAppCards(entries, { isRuntimeAvailable: (id) => installedAppIds.has(id) }),
-    ];
-    if (entries.length && !cards.length) {
-      const reasons = entries.map((e) => {
-        if (isContributedAppId(e.id)) {
-          const rt = contributedAppRuntime(e.id);
-          return `${e.id}:${installedAppIds.has(rt) ? 'filtered' : 'runtime_unavailable'}`;
-        }
-        const r = resources.find((x) => x.id === e.id);
-        const v = r
-          ? validateAssistantEligible(r, { isRuntimeAvailable: runtimeCheck || (() => true) })
-          : { ok: false, reason: 'not_found' };
-        return `${e.id}:${v.reason || 'filtered'}`;
-      });
+    let result = await probe(false);
+    // 勾选了应用，却一个已安装 CLI 都没有：命令探测偶发失手。清缓存再探一次，不要立刻当成全部下架。
+    const missed = (r) => !r.probed || (wantsApp && r.installedIds.size === 0);
+    if (missed(result)) {
+      try { require('./shim-installer').clearCommandCache(); } catch { /* ignore */ }
+      try { require('./agent-executor').invalidateAgentListCache(); } catch { /* ignore */ }
+      result = await probe(true);
+    }
+    // 探测仍不可信时不返回残缺名片。残缺名单带 agents_ready 会把上次的应用从上架里换掉。
+    if (missed(result)) {
+      const reasons = registerCardFilterReasons(entries, resources, result.installedIds);
+      log(`[agent] agents probe missed (${reasons.join(', ')}); keep previous listing`);
+      return null;
+    }
+    if (!result.cards.length) {
+      const reasons = registerCardFilterReasons(entries, resources, result.installedIds);
       log(`[agent] contribute assistants filtered out: ${reasons.join(', ')}`);
     }
-    return cards;
+    return result.cards;
   } catch (e) {
     log(`[agent] agents card build failed: ${e.message}`);
-    return [];
+    return null;
   }
 }
 
@@ -1307,13 +1341,17 @@ function connect(cfg) {
     regMsg.agents = [];
     thisSocket.send(JSON.stringify(regMsg));
     collectAgentCardsForRegister(liveCfg).then((agents) => {
+      // null：探测失败。不发 agents_ready 空名单，避免把这一端上次的上架清掉。
+      if (!Array.isArray(agents)) {
+        log('[agent] agents probe failed — keep previous listing');
+        return;
+      }
       if (agents.length) {
         log(`[agent] agents: ${agents.map((a) => a.display_name || a.name).join(', ')}`);
       } else {
         log('[agent] agents: (none — contribute list empty or filtered)');
       }
       if (thisSocket.readyState === WebSocket.OPEN) {
-        // agents_ready：这是探测完的真实勾选。失败时不发空名单，避免把上次上架清掉
         thisSocket.send(JSON.stringify({ type: 'agents_update', agents, agents_ready: true }));
       }
     }).catch((e) => {
