@@ -263,6 +263,33 @@ function providerModelTypeMap(cfg) {
   return map;
 }
 
+/** Codex 订阅上架名单：账户不支持的名字不注册。别的供给源的同名模型保留。 */
+function codexRegisterDrop(cfg) {
+  const providers = cfg?.providers || [];
+  const codexNames = [];
+  const other = [];
+  let hasCodex = false;
+  for (const p of providers) {
+    if (!p || p.type === 'p2p') continue;
+    const isCodex = p.auth_type === 'oauth' && p.oauth_provider === 'codex';
+    if (isCodex) hasCodex = true;
+    for (const m of p.models || []) {
+      const n = typeof m === 'string' ? String(m).trim() : String(m?.name || m?.id || '').trim();
+      if (!n) continue;
+      if (isCodex) codexNames.push(n);
+      else other.push(n);
+    }
+  }
+  if (!hasCodex) return new Set();
+  let supported = [];
+  try { supported = require('./codex-account-models').listedModelNames(); } catch { supported = []; }
+  return require('../shared/codex-subscription-models').contributionNamesToDrop({
+    supported,
+    codexProviderNames: codexNames,
+    otherNames: other,
+  });
+}
+
 /**
  * 注册用模型列表：带上 type。
  * 贡献配置里常残留 type=chat；用 providers 上的图文/生图覆盖。
@@ -272,6 +299,7 @@ function modelsForRegister(cfg) {
   const raw = cfg?.model_groups?.length
     ? cfg.model_groups.flatMap(g => g.models || [])
     : (cfg?.models || []);
+  const dropCodex = codexRegisterDrop(cfg);
   const out = [];
   const seen = new Set();
   for (const m of raw) {
@@ -283,7 +311,7 @@ function modelsForRegister(cfg) {
       name = String(m.name || m.id || '').trim();
       type = normalizeRegModelType(m.type || 'chat');
     } else continue;
-    if (!name || seen.has(name)) continue;
+    if (!name || seen.has(name) || dropCodex.has(name)) continue;
     seen.add(name);
     const fromProv = typeMap[name];
     if (fromProv && modelTypeRank(fromProv) >= modelTypeRank(type)) type = fromProv;

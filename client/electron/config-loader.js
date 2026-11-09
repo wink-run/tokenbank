@@ -63,6 +63,12 @@ function reloadRegistryDoc() {
   loadRegistryDoc();
 }
 
+/** 测试注入目录。生产路径仍只读本机同步下来的 registry。 */
+function setRegistryDocForTests(doc) {
+  _registryDoc = mergeRegistryDoc(doc || {});
+  return _registryDoc;
+}
+
 // ── 占位符 / 路径解析 ────────────────────────────────────────────────────────
 
 // 展开 ~ 为主目录
@@ -640,7 +646,7 @@ module.exports = {
   appInstallGuides, appUninstallGuides, normalizeGuide, resolveGuide,
   subscriptionApps, apiSubscriptionApps, paygProviders, registryProviders, builtinCatalogPayload,
   registryDefaultDoc, mergeRegistryDoc, subscriptionPlansDefaults,
-  billingSourcesList, reloadRegistryDoc, modelsFromBillingSource: _modelsFromSource,
+  billingSourcesList, reloadRegistryDoc, setRegistryDocForTests, modelsFromBillingSource: _modelsFromSource,
   resolveRef, resolvePlaceholders, expandHome,
   appsRuntime, appEntities, appEntitiesExpanded, appEntityById, appCapabilities,
   handoffTargets,

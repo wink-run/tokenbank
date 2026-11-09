@@ -1,5 +1,11 @@
 // 与供给源页「按模型视图」一致的可用模型列表（网关应用路由下拉复用）
 
+import {
+  CODEX_LISTED_MODELS,
+  filterCodexChatModels,
+  isCodexChatGptSubscription,
+} from '../../shared/codex-subscription-models.mjs';
+
 const OAUTH_SUB_SOURCE_TO_PID = { claude: 'anthropic-paid', codex: 'openai', copilot: 'github-copilot' };
 const PRICING_OVERRIDE_META_KEYS = new Set(['_excluded_models']);
 
@@ -109,6 +115,14 @@ export function resolveModelsForModelView(
   if (inst.kind === 'sub') {
     if (inst.tag === 'app_sub') return [];
     const s = userSubscriptions.find(x => x.id === inst.id);
+    // ChatGPT Codex 订阅不展示 OpenAI 按量目录。名单来自账户实时列表，失败时用固定的 8 个对话模型。
+    if (isCodexChatGptSubscription(s) || isCodexChatGptSubscription({ source_id: inst.source_id })) {
+      const live = catalog.codexSubscriptionModels;
+      const names = Array.isArray(live) && live.length
+        ? filterCodexChatModels(live)
+        : CODEX_LISTED_MODELS;
+      return finalizeModelNames(new Set(names), excluded);
+    }
     const pricingPid = s?.plan_provider_id
       || OAUTH_SUB_SOURCE_TO_PID[s?.source_id]
       || s?.source_id
@@ -233,6 +247,7 @@ export function collectPersonalAvailableModels(cfg = {}, accounts = {}) {
       {
         paygCatalog: accounts?.payg_provider_catalog || [],
         providerPricing: accounts?.provider_pricing || {},
+        codexSubscriptionModels: accounts?.codex_subscription_models,
       },
     );
     const tier = tierForInstance(inst, providers);
@@ -271,6 +286,12 @@ export function enrichProvidersForRouting(providers = [], accounts = {}) {
       if (subInstGatewayId(s) !== gatewayId) continue;
       const isApi = s.subscription_kind === 'api' || s.subscription_to_api;
       if (!isApi) continue;
+      if (isCodexChatGptSubscription(s)) {
+        const live = accounts.codex_subscription_models;
+        const list = Array.isArray(live) && live.length ? filterCodexChatModels(live) : CODEX_LISTED_MODELS;
+        for (const n of list) names.add(n);
+        continue;
+      }
       for (const m of s.models || []) { const n = modelEntryName(m); if (n) names.add(n); }
       const pid = s.plan_provider_id || OAUTH_SUB_SOURCE_TO_PID[s.source_id] || s.source_id;
       for (const k of configuredModelsFromOverrides(pid, pricingOverrides)) names.add(k);
@@ -280,6 +301,11 @@ export function enrichProvidersForRouting(providers = [], accounts = {}) {
   }
 
   return providers.map(p => {
+    if (p && p.auth_type === 'oauth' && p.oauth_provider === 'codex') {
+      const live = accounts.codex_subscription_models;
+      const names = Array.isArray(live) && live.length ? filterCodexChatModels(live) : CODEX_LISTED_MODELS;
+      return { ...p, models: names.map(name => ({ name, type: 'chat' })) };
+    }
     const extra = extraNames(p.id);
     if (!extra.size) return p;
     const names = new Set((p.models || []).map(modelEntryName).filter(Boolean));
