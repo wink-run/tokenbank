@@ -1187,3 +1187,13 @@ body { background: #faf8f3 !important; color: var(--pz-ink); }
 /* ── 一级导航：智能体广场 · 分享与收益 · 资源市场（首页即开发者概览，点 Logo 回首页） ── */
 .ag-main { margin-left: 8px; }
 @media (max-width: 1024px) { .ag-main { display: none; } }
+
+/* 首屏接入示意：分组轻微浮动、散点闪烁、中心呼吸 */
+.dv-dg { animation: dv-float 6.5s ease-in-out infinite; }
+@keyframes dv-float { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(3px, -5px); } }
+.dv-dust circle { animation: dv-twinkle 3.2s ease-in-out infinite; opacity: .25; }
+.dv-dust circle:nth-child(2n) { animation-delay: -1.1s; } .dv-dust circle:nth-child(3n) { animation-delay: -2.2s; }
+@keyframes dv-twinkle { 50% { opacity: .9; } }
+.dv-hub-ring { animation: dv-breathe 3.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes dv-breathe { 50% { filter: drop-shadow(0 0 28px rgba(255,201,74,.6)); } }
+@media (prefers-reduced-motion: reduce) { .dv-dg, .dv-dust circle, .dv-hub-ring { animation: none; } }

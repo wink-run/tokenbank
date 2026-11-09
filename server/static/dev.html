@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=33">
+<link rel="stylesheet" href="/static/plaza.css?v=34">
 <script src="/static/plaza-nav.js?v=19"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -52,24 +52,33 @@ a { color: inherit; text-decoration: none; }
         <a class="dv-user-door" href="/agents"><span>{{ T.userDoorK }}</span>{{ T.userDoor }} →</a>
       </div>
       <div class="hs-merge dv-merge" aria-hidden="true">
-        <svg viewBox="0 0 500 390">
+        <svg viewBox="0 0 500 405">
           <defs>
             <linearGradient id="hsIn" x1="0" x2="1"><stop offset="0%" stop-color="#ffffff" stop-opacity=".08"/><stop offset="100%" stop-color="#ffffff" stop-opacity=".45"/></linearGradient>
             <linearGradient id="hsOut" x1="0" x2="1"><stop offset="0%" stop-color="#FFD055" stop-opacity=".85"/><stop offset="100%" stop-color="#FFD055" stop-opacity=".1"/></linearGradient>
             <radialGradient id="hsHub" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#FFE08A"/><stop offset="55%" stop-color="#FFD055" stop-opacity=".45"/><stop offset="100%" stop-color="#FFD055" stop-opacity="0"/></radialGradient>
           </defs>
-          <!-- 左侧：智能体部署在哪 -->
-          <g v-for="(g, i) in heroGroups" :key="g.id">
-            <path :d="'M146 ' + g.y + ' C 196 ' + g.y + ', 206 195, 240 195'" stroke="url(#hsIn)" stroke-width="1.2" fill="none"/>
-            <circle v-if="!reduced" r="2.4" fill="#FFD055"><animateMotion :dur="(2.4 + i * 0.3) + 's'" repeatCount="indefinite" :begin="(i * 0.4) + 's'" :path="'M146 ' + g.y + ' C 196 ' + g.y + ', 206 195, 240 195'"/></circle>
-            <rect x="6" :y="g.y - 38" width="140" height="76" rx="14" :fill="g.ext ? 'rgba(255,208,85,.06)' : 'rgba(255,255,255,.045)'" :stroke="g.ext ? 'rgba(255,208,85,.35)' : 'rgba(255,255,255,.13)'" :stroke-dasharray="g.ext ? '4 3' : null"/>
-            <g :transform="'translate(18 ' + (g.y - 31) + ') scale(.62)'" fill="none" :stroke="g.ext ? '#FFD055' : 'rgba(255,255,255,.75)'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="g.glyph"/></g>
-            <text x="38" :y="g.y - 18" font-size="11" font-weight="650" :fill="g.ext ? '#FFE8A3' : 'rgba(255,255,255,.82)'">{{ T.deploy[i] }}</text>
+          <!-- 背景里的散点：网络感 -->
+          <g class="dv-dust" fill="#FFD055"><circle cx="196" cy="34" r="1.4"/><circle cx="222" cy="92" r="1"/><circle cx="178" cy="292" r="1.2"/><circle cx="238" cy="352" r="1"/><circle cx="380" cy="40" r="1.3"/><circle cx="470" cy="360" r="1.1"/><circle cx="352" cy="330" r="1"/></g>
+          <!-- 左侧：智能体部署在哪（错落排布、轻微浮动；每组末尾的 … 表示还有更多） -->
+          <g v-for="(g, i) in heroGroups" :key="g.id" class="dv-dg" :style="{ animationDelay: (i * -1.7) + 's' }">
+            <path :d="'M' + (g.x + 140) + ' ' + g.y + ' C ' + (g.x + 190) + ' ' + g.y + ', 206 195, 240 195'" stroke="url(#hsIn)" stroke-width="1.2" fill="none" :stroke-dasharray="g.ext ? '3 4' : null"/>
+            <circle v-if="!reduced" r="2.4" fill="#FFD055"><animateMotion :dur="(2.4 + i * 0.3) + 's'" repeatCount="indefinite" :begin="(i * 0.4) + 's'" :path="'M' + (g.x + 140) + ' ' + g.y + ' C ' + (g.x + 190) + ' ' + g.y + ', 206 195, 240 195'"/></circle>
+            <rect :x="g.x" :y="g.y - 38" width="140" height="76" rx="14" :fill="g.ext ? 'rgba(255,208,85,.06)' : 'rgba(255,255,255,.045)'" :stroke="g.ext ? 'rgba(255,208,85,.35)' : 'rgba(255,255,255,.13)'" :stroke-dasharray="g.ext ? '4 3' : null"/>
+            <g :transform="'translate(' + (g.x + 12) + ' ' + (g.y - 31) + ') scale(.62)'" fill="none" :stroke="g.ext ? '#FFD055' : 'rgba(255,255,255,.75)'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="g.glyph"/></g>
+            <text :x="g.x + 32" :y="g.y - 18" font-size="11" font-weight="650" :fill="g.ext ? '#FFE8A3' : 'rgba(255,255,255,.82)'">{{ T.deploy[i] }}</text>
             <g v-for="(a, k) in g.apps" :key="a.icon">
-              <rect v-if="!a.full" :x="18 + k * 40" :y="g.y - 7" width="32" height="32" rx="9" :fill="a.dark ? '#111' : 'rgba(255,255,255,.94)'" stroke="rgba(255,255,255,.2)"/>
-              <image v-if="a.full" :href="a.icon" :x="18 + k * 40" :y="g.y - 7" width="32" height="32"/>
-              <image v-else :href="a.icon" :x="25 + k * 40" :y="g.y" width="18" height="18"/>
+              <rect v-if="!a.full" :x="g.x + 12 + k * 38" :y="g.y - 7" width="30" height="30" rx="9" :fill="a.dark ? '#111' : 'rgba(255,255,255,.94)'" stroke="rgba(255,255,255,.2)"/>
+              <image v-if="a.full" :href="a.icon" :x="g.x + 12 + k * 38" :y="g.y - 7" width="30" height="30"/>
+              <image v-else :href="a.icon" :x="g.x + 19 + k * 38" :y="g.y" width="16" height="16"/>
             </g>
+            <rect :x="g.x + 12 + g.apps.length * 38" :y="g.y - 7" width="30" height="30" rx="9" fill="none" stroke="rgba(255,255,255,.28)" stroke-dasharray="3 3"/>
+            <text :x="g.x + 27 + g.apps.length * 38" :y="g.y + 12" text-anchor="middle" font-size="13" font-weight="700" fill="rgba(255,255,255,.6)">…</text>
+          </g>
+          <!-- 还有更多部署位置 -->
+          <g class="dv-dg" style="animation-delay:-3s">
+            <path d="M206 386 C 236 360, 214 240, 240 195" stroke="url(#hsIn)" stroke-width="1" stroke-dasharray="2 5" fill="none" opacity=".7"/>
+            <text x="22" y="394" font-size="11" font-weight="600" fill="rgba(255,255,255,.45)">{{ T.deployMore }}</text>
           </g>
           <g v-for="(o, i) in T.heroOut" :key="o">
             <path :d="'M362 195 C 390 195, 388 ' + (115 + i * 80) + ', 408 ' + (115 + i * 80)" stroke="url(#hsOut)" stroke-width="1.4" fill="none"/>
@@ -329,7 +338,7 @@ createApp({
         h1a: '不只是管理智能体，', h1b: '还能把应用架在上面',
         sub: '现成的运行时、模型、资产、接口、观测和分发。你只管做应用。',
         promise: ['不用自己造 harness', '一套接口调智能体和模型', '上架即得网页应用', '开源 · macOS / Windows / Linux'],
-        ctaApi: '看统一接口', heroOut: ['界面', '接口', '你的应用'], hubDesc: '统一纳管 · 统一接口', deploy: ['云端 VPS', '个人 MacBook', '本地 Mac mini', '外部产品'],
+        ctaApi: '看统一接口', heroOut: ['界面', '接口', '你的应用'], hubDesc: '统一纳管 · 统一接口', deploy: ['云端 VPS', '个人 MacBook', '本地 Mac mini', '外部产品'], deployMore: '…还有公司服务器、Docker、树莓派',
         stackKicker: 'THE FACTORY', stackTitle: '六层现成能力', stackLead: '纯模型网关只做最底下那一层。这里从执行引擎到分发，每一层都已经搭好，你只管在最上面做应用。',
         layerChips: [['智能体广场', '资源市场', '圈子', '按次计费'], ['Trace', '盘点', '多设备'], [['智能体 /v1/agent/*', '#A'], ['OpenAI /v1/chat/completions', '/static/brand-icons/openai.svg'], ['Anthropic /v1/messages', '/static/brand-icons/anthropic.svg'], ['Codex /v1/responses', '/static/brand-icons/codex-color.svg']], ['Skill', 'MCP', 'Prompt', '智能体模板'], [['Pi', '#Pi'], ['Claude Code', '/static/brand-icons/claudecode-color.svg'], ['Codex', '/static/brand-icons/codex-color.svg'], ['Cursor', '/static/brand-icons/cursor.svg'], ['Kimi Code', '/static/brand-icons/kimi-color.svg'], ['GrokBot', '/static/brand-icons/grokbot.svg'], ['Muse', '/static/brand-icons/muse.svg'], ['WorkBuddy', '/static/brand-icons/codebuddy-color.svg'], ['OpenClaw', '/static/brand-icons/openclaw-color.svg'], ['Hermes', '/static/brand-icons/hermesagent.svg']], [['Ollama', '/static/brand-icons/ollama.svg'], ['DeepSeek', '/static/brand-icons/deepseek-color.svg'], ['Kimi', '/static/brand-icons/kimi-color.svg'], ['Qwen', '/static/brand-icons/qwen-color.svg'], ['OpenAI', '/static/brand-icons/openai.svg'], ['Claude', '/static/brand-icons/claude-color.svg'], '订阅', '社区']],
         stackTop: '你的应用', stackApps: ['你的产品后台', '网页智能体', '团队内部工具', '你的 Claude Code 工作流'],
@@ -396,7 +405,7 @@ createApp({
         h1a: 'Don\'t just manage agents —', h1b: 'build apps on top of them',
         sub: 'Runtimes, models, assets, interface, observability and distribution — ready. You build the app.',
         promise: ['No harness to build', 'One API for agents and models', 'List it, get a web app', 'Open source · macOS / Windows / Linux'],
-        ctaApi: 'See the interface', heroOut: ['UI', 'API', 'Your app'], hubDesc: 'One place · one API', deploy: ['Cloud VPS', 'Personal MacBook', 'Mac mini server', 'External products'],
+        ctaApi: 'See the interface', heroOut: ['UI', 'API', 'Your app'], hubDesc: 'One place · one API', deploy: ['Cloud VPS', 'Personal MacBook', 'Mac mini server', 'External products'], deployMore: '…plus office servers, Docker, Raspberry Pi',
         stackKicker: 'THE FACTORY', stackTitle: 'Six layers, ready', stackLead: 'A model gateway only covers the bottom layer. Here every layer from execution to distribution is built — you work on the top.',
         layerChips: [['Agent Plaza', 'Market', 'Circles', 'Per-use billing'], ['Trace', 'Usage', 'Devices'], [['Agents /v1/agent/*', '#A'], ['OpenAI /v1/chat/completions', '/static/brand-icons/openai.svg'], ['Anthropic /v1/messages', '/static/brand-icons/anthropic.svg'], ['Codex /v1/responses', '/static/brand-icons/codex-color.svg']], ['Skill', 'MCP', 'Prompt', 'Agent templates'], [['Pi', '#Pi'], ['Claude Code', '/static/brand-icons/claudecode-color.svg'], ['Codex', '/static/brand-icons/codex-color.svg'], ['Cursor', '/static/brand-icons/cursor.svg'], ['Kimi Code', '/static/brand-icons/kimi-color.svg'], ['GrokBot', '/static/brand-icons/grokbot.svg'], ['Muse', '/static/brand-icons/muse.svg'], ['WorkBuddy', '/static/brand-icons/codebuddy-color.svg'], ['OpenClaw', '/static/brand-icons/openclaw-color.svg'], ['Hermes', '/static/brand-icons/hermesagent.svg']], [['Ollama', '/static/brand-icons/ollama.svg'], ['DeepSeek', '/static/brand-icons/deepseek-color.svg'], ['Kimi', '/static/brand-icons/kimi-color.svg'], ['Qwen', '/static/brand-icons/qwen-color.svg'], ['OpenAI', '/static/brand-icons/openai.svg'], ['Claude', '/static/brand-icons/claude-color.svg'], 'Subscriptions', 'Community']],
         stackTop: 'Your apps', stackApps: ['Your product backend', 'Web agents', 'Internal team tools', 'Your Claude Code workflow'],
@@ -729,10 +738,10 @@ createApp({
 
     // 首屏左侧：智能体部署在哪（云端、个人电脑、本地服务器，或外部产品）
     const heroGroups = [
-      { id: 'vps', y: 50, glyph: 'M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 9.2 4.5 4.5 0 0 0 7 18z', apps: [{ icon: B + 'openclaw-color.svg' }, { icon: B + 'hermesagent.svg' }] },
-      { id: 'mbp', y: 145, glyph: 'M5 6h14v10H5zM2.5 19h19', apps: [{ icon: B + 'claudecode-color.svg' }, { icon: B + 'cursor.svg' }] },
-      { id: 'mini', y: 240, glyph: 'M4 9.5h16v6H4zM7.5 12.5h2', apps: [{ icon: B + 'codex-color.svg' }, { icon: B + 'kimi-color.svg', dark: true }] },
-      { id: 'ext', y: 335, ext: true, glyph: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18', apps: [{ icon: B + 'grokbot.svg', full: true }, { icon: B + 'muse.svg', full: true }] },
+      { id: 'vps', x: 22, y: 46, glyph: 'M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 9.2 4.5 4.5 0 0 0 7 18z', apps: [{ icon: B + 'openclaw-color.svg' }, { icon: B + 'hermesagent.svg' }] },
+      { id: 'mbp', x: 0, y: 136, glyph: 'M5 6h14v10H5zM2.5 19h19', apps: [{ icon: B + 'claudecode-color.svg' }, { icon: B + 'cursor.svg' }] },
+      { id: 'mini', x: 34, y: 232, glyph: 'M4 9.5h16v6H4zM7.5 12.5h2', apps: [{ icon: B + 'codex-color.svg' }, { icon: B + 'kimi-color.svg', dark: true }] },
+      { id: 'ext', x: 8, y: 326, ext: true, glyph: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18', apps: [{ icon: B + 'grokbot.svg', full: true }, { icon: B + 'muse.svg', full: true }] },
     ]
     const loaded = ref(false), nodes = ref(0), models = ref(0), agents = ref(0), res = ref(0)
     async function load() {
