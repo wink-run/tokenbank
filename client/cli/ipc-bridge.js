@@ -26,6 +26,10 @@ let _installed = false;
 let _ready = false;
 let _initError = null;
 let stub = null;
+let _appsGetter = null;
+
+/** admin-api 注入网关页同口径的应用列表（已保存 + 检测到的命令行智能体） */
+function setAppsGetter(fn) { _appsGetter = typeof fn === 'function' ? fn : null; }
 
 /** 让共用模块里的 require('electron') 拿到替身（只装一次，须在加载 handler 之前） */
 function installElectronStub() {
@@ -81,11 +85,11 @@ function init() {
     require('../electron/ipc-handlers-resource').registerResourceHandlers();
     require('../electron/ipc-handlers-agent').registerAgentHandlers();
     stub.__handlers.set('llm:fetch', llmFetch);
-    // 已纳管应用与 Web 界面「网关」页同源（CLI 的 local-config.json）
+    // 已纳管应用与 Web 界面「网关」页同源：admin-api 注入（含检测到的命令行智能体），否则读 local-config
     try {
       const { readLocalConfig } = require('../shared/config-loader');
       require('../electron/mcp-gateway-targets').setAppsGetter(() => {
-        try { return readLocalConfig()?.apps || []; } catch { return []; }
+        try { return _appsGetter ? _appsGetter() : (readLocalConfig()?.apps || []); } catch { return []; }
       });
     } catch { /* 回退到默认路径读取 */ }
     try { require('../electron/resource-manager').ensureBuiltinAssistants(); } catch { /* 无可投射目标时只纳管 */ }
@@ -187,4 +191,4 @@ async function handle(req, res, url, method) {
   return true;
 }
 
-module.exports = { handle, init, installElectronStub, _internal: { channelAllowed, sameOrigin } };
+module.exports = { handle, init, installElectronStub, setAppsGetter, _internal: { channelAllowed, sameOrigin } };

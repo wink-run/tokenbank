@@ -137,6 +137,61 @@ function readAppsCfg() {
   return cfg;
 }
 
+/**
+ * 已保存的应用 + 本机检测到、尚未保存的命令行智能体（与桌面版 apps:list 的虚拟 shim 条目同口径）。
+ * Docker 里装了 pi、Claude Code、Codex 等 CLI 后，网关页即可看到并「纳管」。
+ */
+function listAppsWithDetected() {
+  const saved = readAppsCfg().apps;
+  let detected = [];
+  try {
+    const agentLinker = require('../electron/agent-linker');
+    const { canonicalAppEntityId } = require('../electron/app-handlers');
+    const toolIds = new Set((configLoader.tools() || []).map(t => t.id));
+    const apiKeyIds = (configLoader.apiKeyApps() || []).map(a => a.id);
+    const shimIds = new Set(saved.filter(a => a.link_method === 'shim').map(a => a.agent_id));
+    const apiKeyCanonical = new Set([
+      ...saved.filter(a => a.link_method === 'api-key' && a.preset_id).map(a => canonicalAppEntityId(a.preset_id)),
+      ...apiKeyIds.map(id => canonicalAppEntityId(id)),
+    ]);
+    detected = agentLinker.list()
+      .filter(t => t.installed && !shimIds.has(t.id) && toolIds.has(t.id))
+      .filter(t => !apiKeyCanonical.has(canonicalAppEntityId(t.id)))
+      .filter(t => {
+        const caps = configLoader.appCapabilities(t.id);
+        return caps ? !!caps.gateway_proxy : true;
+      })
+      .map(t => {
+        let ent = null;
+        try { ent = configLoader.appEntityById(t.id); } catch { /* ignore */ }
+        return {
+          id: 'app-shim-' + t.id,
+          name: ent?.name || t.name || t.id,
+          icon: ent?.icon || '🤖',
+          capabilities: ent?.capabilities || t.capabilities || null,
+          link_method: 'shim',
+          agent_id: t.id,
+          api_key: null,
+          route_id: null,
+          description: '',
+          type: t.type || 'cli',
+          route_bindable: ent ? ent.route_bindable !== false : (t.route_bindable !== false),
+          unsupported: !!t.unsupported,
+          note: t.note || null,
+          installed: t.installed,
+          linked: t.linked,
+          hosted: true,
+          _virtual: true,
+        };
+      });
+  } catch (e) {
+    console.warn('[admin-api] detect CLI agents failed:', e.message);
+  }
+  return [...saved, ...detected];
+}
+
+ipcBridge.setAppsGetter(listAppsWithDetected);
+
 function persistAppsCfg(cfg) {
   writeLocalConfig(cfg);
   syncGateway(cfg);
@@ -728,8 +783,29 @@ async function handleRequest(req, res) {
   // ── Apps（Docker Web UI 新建/编辑应用）──────────────────────────────────────
 
   if (method === 'GET' && url === '/api/apps') {
+    return json(res, 200, listAppsWithDetected());
+  }
+
+  // 检测到的命令行智能体落成正式记录（与桌面版 apps:ensureShimApp 一致）
+  if (method === 'POST' && url === '/api/apps/ensure-shim') {
+    const body = await readBody(req);
+    const agentId = String(body.agent_id || '').trim();
+    if (!agentId) return json(res, 400, { error: 'agent_id required' });
     const cfg = readAppsCfg();
-    return json(res, 200, cfg.apps);
+    const existing = cfg.apps.find(a => a.agent_id === agentId && a.link_method === 'shim');
+    if (existing) return json(res, 200, existing);
+    const app = {
+      id: 'app-shim-' + agentId,
+      name: body.name || agentId, icon: body.icon || '🤖',
+      link_method: 'shim', agent_id: agentId,
+      api_key: 'sk-local-' + rndHex(16), route_id: null,
+      description: '', allowed_models: [], max_rpm: null,
+      max_concurrent: null, allow_stream: true,
+      created_at: new Date().toISOString(),
+    };
+    cfg.apps.push(app);
+    persistAppsCfg(cfg);
+    return json(res, 200, app);
   }
 
   if (method === 'GET' && url === '/api/apps/claude-models') {
