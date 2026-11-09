@@ -91,6 +91,9 @@ def agent_resume_message(task_id: str, entry: dict) -> dict:
         "consumer_user_id": (entry or {}).get("consumer_user_id"),
         "continue_session": True if started else ((entry or {}).get("continue_session") or None),
         "cli_session_id": sid or None,
+        # 重连必须回到原来的会话目录，不能因为没带 share/session 而新开一层
+        "share_id": (entry or {}).get("share_id") or None,
+        "session_key": (entry or {}).get("session_key") or None,
     }
     if (entry or {}).get("call_context"):
         body["call_context"] = entry["call_context"]

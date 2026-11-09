@@ -1092,6 +1092,7 @@ class AgentExecutor extends EventEmitter {
         timeoutMs: options.timeoutMs,
         images: options.images,
         files: options.files,
+        sessionKey: options.historyThreadId || options.parentSessionKey || '',
         stream: !!options.stream,
         onProgress: options.stream
           ? (ev) => this._noteCommunityProgress(parentTaskId || taskId, ev, progress)
@@ -1277,6 +1278,7 @@ class AgentExecutor extends EventEmitter {
       // 对方设备执行：附图 / 文件随任务下发，由对方落盘
       images: options.images,
       files: options.files,
+      sessionKey: options.historyThreadId || '',
       stream: !!options.stream,
       onProgress: options.stream
         ? (ev) => this._noteCommunityProgress(taskId, ev, progress)
@@ -1393,18 +1395,32 @@ class AgentExecutor extends EventEmitter {
 
       // 本地 CLI：附图落盘；Claude 走多模态 stdin，其它 Agent 拼路径进 prompt
       const { mode = 'direct', workingDir = process.cwd(), mcpProfile, continueSession, cliSessionId } = options;
+      const { agentId: effectiveAgentId, assistant } = this._resolveAssistant(agentId);
+      const { isContributeSessionKey, ensureLocalSessionDir } = require('./contribute-session');
+      const confined = options.clientId === 'contribute' || isContributeSessionKey(options.sessionKey);
+      const claudeFamily = effectiveAgentId === 'claude-code' || !!(assistant?.launch?.claudeExtraArgs);
+      // 本机 Claude 按对话线程换目录。看图缓存跟着工作目录走，不再和这个项目里的其他会话挤在一起。
+      // 用户选的项目仍用 --add-dir 放行。接单任务的目录已经按会话拆过，这里不再套一层。
+      let runDir = workingDir;
+      let projectDir = '';
+      if (!confined && claudeFamily) {
+        const isolated = ensureLocalSessionDir(workingDir, options.historyThreadId);
+        if (isolated) {
+          projectDir = workingDir;
+          runDir = isolated;
+        }
+      }
       const imgInfo = options.images?.length
-        ? materializeAttachedImages(options.images, { taskId, workingDir })
+        ? materializeAttachedImages(options.images, { taskId, workingDir: runDir })
         : { paths: [], mediaParts: [], suffix: '', uploadDir: '' };
       const fileInfo = options.files?.length
         ? materializeAttachedFiles(options.files, {
           taskId,
-          workingDir,
+          workingDir: runDir,
           uploadDir: imgInfo.uploadDir || '',
         })
         : { paths: [], suffix: '', uploadDir: '' };
 
-      const { agentId: effectiveAgentId, assistant } = this._resolveAssistant(agentId);
       const claudeMultimodal = imgInfo.mediaParts.length > 0 && (
         effectiveAgentId === 'claude-code'
         || !!(assistant?.launch?.claudeExtraArgs)
@@ -1438,7 +1454,7 @@ class AgentExecutor extends EventEmitter {
         const orch = mcpManager.buildOrchestratorLaunch({
           agentId: effectiveAgentId,
           taskId,
-          workingDir,
+          workingDir: runDir,
           mainAgentId: options.mainAgentId,
           profileId: mcpProfile || mcpManager.DEVELOPMENT_PROFILE_ID || mcpManager.DEFAULT_PROFILE_ID,
           sessionKey: options.sessionKey || null,
@@ -1467,7 +1483,7 @@ class AgentExecutor extends EventEmitter {
         } else if (effectiveAgentId === 'cursor') {
           // 与直调同一套参数（含 --approve-mcps），编排说明已在 execPrompt 前缀里
           args = [...launch.argPrefix, ...cfg.buildArgs(execPrompt, {
-            workingDir,
+            workingDir: runDir,
             continueSession,
             cliSessionId,
             model: String(options.model || '').trim(),
@@ -1493,7 +1509,7 @@ class AgentExecutor extends EventEmitter {
           // Codex / Cursor：soul 作前缀；续聊与模型经 buildArgs
           execPrompt = (asstLaunch.promptPrefix || '') + userPrompt;
           args = [...launch.argPrefix, ...cfg.buildArgs(execPrompt, {
-            workingDir,
+            workingDir: runDir,
             continueSession,
             cliSessionId,
             // 游乐场当场选的模型优先于智能体正文里保存的
@@ -1502,12 +1518,12 @@ class AgentExecutor extends EventEmitter {
         }
       } else if (effectiveAgentId === 'claude-code' && claudeMultimodal) {
         args = [...launch.argPrefix, ...cfg.buildArgs(userPrompt, {
-          workingDir, continueSession, cliSessionId, multimodalInput: true,
+          workingDir: runDir, continueSession, cliSessionId, multimodalInput: true,
         })];
         stdinPayload = buildClaudeMultimodalStdin(userPrompt, imgInfo.mediaParts);
       } else {
         args = [...launch.argPrefix, ...cfg.buildArgs(userPrompt, {
-          workingDir,
+          workingDir: runDir,
           continueSession,
           cliSessionId,
           // 仅 Cursor / Kimi 的 buildArgs 会消费 model；Claude 走网关路由，不把路由 id 当 --model
@@ -1523,16 +1539,19 @@ class AgentExecutor extends EventEmitter {
       if (claudeLike && (claudeMultimodal || fileInfo.paths.length) && attachDir && !args.includes(attachDir)) {
         args.push('--add-dir', attachDir);
       }
+      // 会话目录和用户选的项目不是同一个时，项目仍可读可写
+      if (claudeLike && projectDir && !args.includes(projectDir)) {
+        args.push('--add-dir', projectDir);
+      }
 
       // 出租接单：系统定义里说明自己是在给雇佣方干活，不能报本机路径
-      const { isContributeSessionKey } = require('./contribute-session');
-      if (options.clientId === 'contribute' || isContributeSessionKey(options.sessionKey)) {
+      if (confined) {
         args = applyRentalDefinition(args);
       }
 
       const result = await this._runAgentProcess(taskId, effectiveAgentId, launch.executable, args, {
         ...options,
-        workingDir,
+        workingDir: runDir,
         onCleanup: orchestratorCleanup,
         stdinPayload,
         virtualAgentId: agentId,
@@ -1732,6 +1751,12 @@ class AgentExecutor extends EventEmitter {
         const { isContributeSessionKey } = require('./contribute-session');
         const confine = options.clientId === 'contribute' || isContributeSessionKey(options.sessionKey);
         if (confine) {
+          // 临时文件写进会话目录，避免再去共用的 /tmp 里碰到别的会话
+          const scratch = path.join(resolvedCwd, '.tmp');
+          try { fs.mkdirSync(scratch, { recursive: true }); } catch { /* 沙箱里再试 */ }
+          spawnEnv.TMPDIR = scratch;
+          spawnEnv.TMP = scratch;
+          spawnEnv.TEMP = scratch;
           const wrapped = require('./workspace-sandbox').wrapConfinedSpawn({
             executable,
             args,
@@ -2035,6 +2060,7 @@ class AgentExecutor extends EventEmitter {
         is_delta: !!step.is_delta,
         is_snapshot: !!step.is_snapshot,
         is_error: !!step.is_error,
+        images: Array.isArray(step.images) && step.images.length ? step.images : undefined,
         attempt: step.attempt,
         max_retries: step.max_retries,
         retry_delay_ms: step.retry_delay_ms,

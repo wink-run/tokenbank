@@ -28,6 +28,7 @@ const {
 const {
   resolveConsumerKey,
   contributeSessionKey,
+  resolveSessionDirKey,
   ensureContributeWorkspace,
   collectWorkspaceArtifacts,
   snapshotWorkspace,
@@ -962,10 +963,11 @@ async function handleAgentTask(msg, cfg) {
     send({ type: 'agent_task_result', task_id: taskId, status: 'rejected', error: e.message });
     return;
   }
-  // 按调用方隔离：不同用户不共用 CLI sessionKey / 工作目录，也不污染本机游乐场标签
+  // 按调用方，再按会话隔离。同一用户的两段对话不共用目录，成品和看图缓存都不会串。
   const consumerKey = resolveConsumerKey(msg);
-  const sessionKey = contributeSessionKey(assistantId, consumerKey);
-  const workingDir = ensureContributeWorkspace(assistantId, consumerKey);
+  const sessionDirKey = resolveSessionDirKey(msg);
+  const sessionKey = contributeSessionKey(assistantId, consumerKey, sessionDirKey);
+  const workingDir = ensureContributeWorkspace(assistantId, consumerKey, sessionDirKey);
   // 开工前的文件清单。这轮新增或改过的文件都交付，不依赖正文是否写对了文件名
   const beforeWorkspace = snapshotWorkspace(workingDir);
   log(`[agent] agent_task → ${taskId} assistant=${assistantId} consumer=${consumerKey} cwd=${workingDir}`);

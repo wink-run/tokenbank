@@ -69,7 +69,13 @@ function cloneBody(body) {
 /** content 是否含 OpenAI image_url / Anthropic image / Responses input_image */
 function contentHasImage(content) {
   if (!Array.isArray(content)) return false;
-  return content.some((p) => p && (p.type === 'image_url' || p.type === 'image' || p.type === 'input_image'));
+  return content.some((p) => {
+    if (!p || typeof p !== 'object') return false;
+    if (p.type === 'image_url' || p.type === 'image' || p.type === 'input_image') return true;
+    // Read 等工具把图放在 tool_result 里面，不在消息顶层
+    if (p.type === 'tool_result') return contentHasImage(p.content);
+    return false;
+  });
 }
 
 /** 请求体是否含图片（messages / input） */
@@ -106,6 +112,8 @@ function collectImagesFromContent(content) {
       if (url) out.push({ kind: 'oai', url });
     } else if (p.type === 'image' && p.source) {
       out.push({ kind: 'anth', source: p.source });
+    } else if (p.type === 'tool_result') {
+      out.push(...collectImagesFromContent(p.content));
     }
   }
   return out;
@@ -285,6 +293,10 @@ function replaceImagesInContent(content, descriptions, state) {
   if (!Array.isArray(content)) return content;
   const next = [];
   for (const p of content) {
+    if (p && p.type === 'tool_result' && Array.isArray(p.content)) {
+      next.push({ ...p, content: replaceImagesInContent(p.content, descriptions, state) });
+      continue;
+    }
     if (p && (p.type === 'image_url' || p.type === 'image' || p.type === 'input_image')) {
       const n = state.i + 1;
       const desc = descriptions[state.i];

@@ -515,6 +515,7 @@ async def _prepare_agent_task(
     images: Optional[list] = None,
     files: Optional[list] = None,
     share_id: Optional[str] = None,
+    session_key: Optional[str] = None,
     idempotency_key: Optional[str] = None,
     idempotency_digest: Optional[str] = None,
 ) -> tuple[Optional[dict], Optional[dict]]:
@@ -560,6 +561,8 @@ async def _prepare_agent_task(
     continue_session = False
     cli_session_id = ""
     bound_share = (share_id or "").strip()[:40]
+    # 没有分享号时，用调用方自己的对话线程把工作目录隔开
+    bound_session = (session_key or "").strip()[:120]
     if bound_share:
         share = await db.get_agent_chat_share(bound_share)
         if not share or str(share.get("assistant_id") or "") != aid:
@@ -621,9 +624,10 @@ async def _prepare_agent_task(
         "timeout_ms": int(timeout_sec * 1000),
         "continue_session": bool(continue_session),
         "cli_session_id": cli_session_id or "",
+        "share_id": bound_share,
+        "session_key": bound_session,
         "images": img_list or None,
         "files": file_list or None,
-        "share_id": bound_share,
         "partial_output": "",
         "worker_box": worker_box,
         "clock": clock,
@@ -670,6 +674,8 @@ async def _prepare_agent_task(
             "consumer_user_id": consumer_user_id,
             "continue_session": continue_session or None,
             "cli_session_id": cli_session_id or None,
+            "share_id": bound_share or None,
+            "session_key": bound_session or None,
             "images": img_list or None,
             "files": file_list or None,
             # 客户端不认识的字段会忽略，登录环境保持原样
@@ -841,6 +847,7 @@ async def handle_agent_task(
     images: Optional[list] = None,
     files: Optional[list] = None,
     share_id: Optional[str] = None,
+    session_key: Optional[str] = None,
     idempotency_key: Optional[str] = None,
     idempotency_digest: Optional[str] = None,
 ) -> dict:
@@ -856,6 +863,7 @@ async def handle_agent_task(
         images=images,
         files=files,
         share_id=share_id,
+        session_key=session_key,
         idempotency_key=idempotency_key,
         idempotency_digest=idempotency_digest,
     )
@@ -1100,6 +1108,7 @@ async def iter_agent_task_sse(
     images: Optional[list] = None,
     files: Optional[list] = None,
     share_id: Optional[str] = None,
+    session_key: Optional[str] = None,
     idempotency_key: Optional[str] = None,
     idempotency_digest: Optional[str] = None,
 ) -> AsyncIterator[str]:
@@ -1115,6 +1124,7 @@ async def iter_agent_task_sse(
         images=images,
         files=files,
         share_id=share_id,
+        session_key=session_key,
         idempotency_key=idempotency_key,
         idempotency_digest=idempotency_digest,
     )

@@ -2497,11 +2497,13 @@ export default function Debug() {
     }
     const instanceId = beginSessionInstance(execKey);
 
-    // 粘住历史线程：有轮次时务必带上 historyThreadId，防止后续归档按新 taskId 拆条
+    // 粘住历史线程：有轮次时务必带上 historyThreadId，防止后续归档按新 taskId 拆条。
+    // 第一条消息也要有稳定 id，本机看图目录和远程工作目录才不会落到「没有会话」的共用层。
     const stickyThread = sess.historyThreadId
       || (sess.conversationTurns?.[0]?.taskId
         ? `task:${sess.conversationTurns[0].taskId}`
-        : null);
+        : null)
+      || instanceId;
 
     patchSession(execKey, {
       currentUserPrompt: displayPrompt,
@@ -2537,6 +2539,8 @@ export default function Debug() {
           sessionInstanceId: instanceId,
           continueSession,
           cliSessionId: resumeCliSessionId,
+          // 远程雇佣和本机 Claude 都按这条对话分目录，不跟同一项目里的其他会话混用
+          historyThreadId: stickyThread || undefined,
           images: attachPayload.length ? attachPayload : undefined,
           files: filePayload.length ? filePayload : undefined,
           // Cursor 把选中的模型传给 CLI；网关 Agent 的模型在路由里，不从这里传。

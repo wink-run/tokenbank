@@ -23,6 +23,40 @@ test('bodyHasImages：无图为 false，有 image_url / image 为 true', () => {
   }), true);
 });
 
+test('bodyHasImages：Read 的 tool_result 里的图也算', () => {
+  assert.equal(bodyHasImages({
+    messages: [{
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'tu',
+        content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aaa' } }],
+      }],
+    }],
+  }), true);
+});
+
+test('replaceImagesInBody：tool_result 里的图换成描述', () => {
+  const body = {
+    messages: [{
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'tu',
+        content: [
+          { type: 'text', text: '{"file_path":"a.png"}' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aaa' } },
+        ],
+      }],
+    }],
+  };
+  const out = replaceImagesInBody(cloneBody(body), ['两个人的合影']);
+  const inner = out.messages[0].content[0].content;
+  assert.equal(inner[0].text, '{"file_path":"a.png"}');
+  assert.match(inner[1].text, /两个人的合影/);
+  assert.equal(bodyHasImages(out), false);
+});
+
 test('collectImagesFromBody：按出现顺序收集多图', () => {
   const body = {
     messages: [{

@@ -83,6 +83,25 @@ function toolResultDisplay(content, isError = false) {
   return text || (isError ? '(失败)' : '(无输出)');
 }
 
+/** 工具结果里的图片，转成可直接给 <img> 的地址。日志正文仍是占位，避免整段 base64 铺开。 */
+function toolResultImages(content) {
+  if (!Array.isArray(content)) return [];
+  const out = [];
+  for (const b of content) {
+    if (!b || typeof b !== 'object') continue;
+    const mime = b.mime_type || b.source?.media_type || '';
+    const isImage = b.type === 'image'
+      || (b.source && (b.source.type === 'base64' || String(b.source.media_type || '').startsWith('image/')))
+      || (typeof mime === 'string' && mime.startsWith('image/'));
+    if (!isImage) continue;
+    const mt = String(mime).startsWith('image/') ? mime : 'image/png';
+    if (b.source?.type === 'base64' && b.source.data) out.push(`data:${mt};base64,${b.source.data}`);
+    else if (typeof b.data === 'string' && b.data) out.push(`data:${mt};base64,${b.data}`);
+    else if (b.source?.url) out.push(String(b.source.url));
+  }
+  return out;
+}
+
 /** 解析 hook_response.output 内嵌 JSON，提取可读文本 */
 function parseHookResponseOutput(obj) {
   const hookName = obj.hook_name || obj.hook_event || 'Hook';
@@ -575,12 +594,14 @@ function parseClaudeJsonLine(obj, streamState) {
           // 空/纯图片结果也必须发出，否则 UI 会一直挂起直到 closePending →「未收到结果」
           const toolName = (b.tool_use_id && state?.toolNamesById?.get(b.tool_use_id))
             || null;
+          const images = toolResultImages(b.content);
           steps.push({
             stepType: 'tool_result',
             tool_name: toolName,
             content: toolResultDisplay(b.content, !!b.is_error),
             is_error: !!b.is_error,
             tool_use_id: b.tool_use_id || null,
+            ...(images.length ? { images } : {}),
           });
         }
       }

@@ -19,4 +19,9 @@ test('沙箱只允许写工作目录和工具自己的状态目录', () => {
   assert.match(profile, /file-write\* \(subpath "\/Users\/demo\/\.claude"\)/);
   assert.doesNotMatch(profile, /file-write\* \(subpath "\/Users\/demo"\)/);
   assert.doesNotMatch(profile, /\.ssh/);
+  // 整个 /tmp、/private 不能读也不能写，否则能翻到别的会话的看图缓存
+  assert.doesNotMatch(profile, /file-write\* \(subpath "\/tmp"\)/);
+  assert.doesNotMatch(profile, /file-write\* \(subpath "\/private\/tmp"\)/);
+  assert.doesNotMatch(profile, /file-read\* \(subpath "\/private"\)/);
+  assert.match(profile, /claude-/);
 });

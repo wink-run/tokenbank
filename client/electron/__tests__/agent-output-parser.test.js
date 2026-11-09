@@ -536,6 +536,7 @@ assert.strictEqual(imgResult[0].stepType, 'tool_result');
 assert.strictEqual(imgResult[0].tool_name, 'Read');
 assert.strictEqual(imgResult[0].tool_use_id, 'tu_read_img');
 assert.ok(/图片|image\/png/i.test(imgResult[0].content), `expected image placeholder, got: ${imgResult[0].content}`);
+assert.ok(String(imgResult[0].images?.[0] || '').startsWith('data:image/png;base64,'));
 assert.strictEqual(imgResult[0].is_error, false);
 
 // 完全空的 tool_result 也应发出占位，保证配对

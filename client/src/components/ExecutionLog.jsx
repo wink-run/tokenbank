@@ -363,6 +363,7 @@ function mergeToolCallResultPairs(items = []) {
           tool_name: it.tool_name || next.tool_name,
           callContent: it.content,
           resultContent: next.content,
+          resultImages: next.images,
           is_error: !!next.is_error,
           timestamp: next.timestamp || it.timestamp,
           tool_use_id: it.tool_use_id || next.tool_use_id || null,
@@ -391,6 +392,7 @@ function mergeToolCallResultPairs(items = []) {
           ...out[idx],
           tool_name: out[idx].tool_name || it.tool_name,
           resultContent: it.content,
+          resultImages: it.images,
           is_error: !!it.is_error,
           pending: false,
           timestamp: it.timestamp || out[idx].timestamp,
@@ -405,6 +407,7 @@ function mergeToolCallResultPairs(items = []) {
           ...prev,
           tool_name: prev.tool_name || it.tool_name,
           resultContent: it.content,
+          resultImages: it.images,
           is_error: !!it.is_error,
           pending: false,
           timestamp: it.timestamp || prev.timestamp,
@@ -417,6 +420,7 @@ function mergeToolCallResultPairs(items = []) {
         tool_name: it.tool_name,
         callContent: null,
         resultContent: it.content,
+        resultImages: it.images,
         is_error: !!it.is_error,
         timestamp: it.timestamp,
         tool_use_id: id,
@@ -1012,6 +1016,7 @@ function ToolGroupCard({ step, live = false }) {
   const { t } = useLang();
   const callContent = step.callContent ?? (step.kind === 'tool_call' ? step.content : null);
   const resultContent = step.resultContent ?? (step.kind === 'tool_result' ? step.content : null);
+  const resultImages = (step.resultImages || step.images || []).filter((src) => typeof src === 'string' && src);
   const { display, server, rawName } = parseToolName(step.tool_name, callContent, t);
   const payload = formatToolPayload(callContent || '');
   const summary = toolCompactSummary(callContent, t);
@@ -1087,14 +1092,21 @@ function ToolGroupCard({ step, live = false }) {
                 {payload.formatted}
               </pre>
             )}
-            {resultContent != null && String(resultContent).trim() && (
+            {resultContent != null && String(resultContent).replace(/\n?\[图片 [^\]]+\]/g, '').trim() && (
               <pre className={`text-[10px] leading-relaxed font-mono whitespace-pre-wrap break-words max-h-48 overflow-y-auto rounded px-2 py-1.5 ${
                 err
                   ? 'text-red-700 dark:text-red-300 bg-red-50/80 dark:bg-red-950/25'
                   : 'text-zinc-500 dark:text-zinc-400 tb-soft-field'
               }`}>
-                {String(resultContent)}
+                {String(resultContent).replace(/\n?\[图片 [^\]]+\]/g, '').trim()}
               </pre>
+            )}
+            {resultImages.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {resultImages.map((src, i) => (
+                  <img key={i} src={src} alt="" className="max-h-48 max-w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white" />
+                ))}
+              </div>
             )}
           </div>
         )}

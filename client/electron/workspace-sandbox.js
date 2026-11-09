@@ -10,11 +10,24 @@ const path = require('path');
 
 const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 
-// 进程要读到解释器、库和网络配置，否则 CLI 起不来
+// 进程要读到解释器、库和网络配置，否则 CLI 起不来。
+// 不放行整个 /private：/private/tmp/claude-<uid> 里是所有会话的看图缓存，放开就能读到别的对话的图。
 const SYSTEM_READ = [
   '/usr', '/bin', '/sbin', '/opt', '/Library', '/System', '/Applications',
-  '/private', '/dev', '/etc', '/var',
+  '/private/var', '/private/etc', '/dev', '/etc', '/var',
 ];
+
+/** Claude 把附图写到 /tmp/claude-<uid>/<工作目录 slug>。只放行这一层。 */
+function claudeScratchDirs(workingDir) {
+  if (!workingDir) return [];
+  const slug = path.resolve(workingDir).replace(/[^a-zA-Z0-9]/g, '-');
+  let uid = '';
+  try { uid = String(process.getuid()); } catch { uid = String(process.env.UID || ''); }
+  const base = `claude-${uid}`;
+  const dirs = [path.join('/tmp', base, slug)];
+  if (process.platform === 'darwin') dirs.push(path.join('/private/tmp', base, slug));
+  return dirs;
+}
 
 // 登录态和会话记在这些目录。不放行的话续聊和鉴权会失败
 const TOOL_STATE = [
@@ -39,7 +52,12 @@ function buildSeatbeltProfile({ workspace, home, pathEnv, executable, tmpDir } =
   const root = realpathOrSelf(logical);
   const homeDir = path.resolve(home || os.homedir());
   const reads = new Set(SYSTEM_READ);
-  const writes = new Set([logical, root, '/private/tmp', '/tmp', '/private/var/folders']);
+  // 只写本会话的工作目录和它自己的看图缓存。不再开放整个 /tmp。
+  const writes = new Set([logical, root, '/private/var/folders']);
+  for (const dir of claudeScratchDirs(logical)) {
+    reads.add(dir);
+    writes.add(dir);
+  }
   reads.add(logical);
   reads.add(root);
   for (const dir of String(pathEnv || '').split(path.delimiter)) {
@@ -102,6 +120,10 @@ function wrapConfinedSpawn({ executable, args, workingDir, env } = {}) {
   if (!fs.existsSync(SANDBOX_EXEC)) {
     throw new Error('无法把智能体限制在工作目录内');
   }
+  // 目录先建好。沙箱不允许写 /tmp 的上一层，Claude 不能自己 mkdir 这层缓存。
+  for (const dir of claudeScratchDirs(workingDir)) {
+    try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch { /* 建不了就靠工作目录 */ }
+  }
   const profile = buildSeatbeltProfile({
     workspace: workingDir,
     home: env && env.HOME,
@@ -124,4 +146,5 @@ function wrapConfinedSpawn({ executable, args, workingDir, env } = {}) {
 module.exports = {
   buildSeatbeltProfile,
   wrapConfinedSpawn,
+  claudeScratchDirs,
 };

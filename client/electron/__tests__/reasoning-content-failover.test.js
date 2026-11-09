@@ -5,10 +5,63 @@ const assert = require('node:assert/strict');
 
 const {
   anthropicToOpenai,
+  modelSupportsVision,
   openaiToAnthropic,
   isMissingReasoningContentError,
   ensureReasoningContentOnAssistants,
 } = require('../local-gateway');
+
+test('anthropicToOpenai：识图模型的 tool_result 保留图片', () => {
+  const oai = anthropicToOpenai({
+    model: 'vision-model',
+    messages: [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'toolu_img', name: 'Read', input: { file_path: 'cover.png' } }],
+      },
+      {
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: 'toolu_img',
+          content: [
+            { type: 'text', text: '{"file_path":"cover.png"}' },
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } },
+          ],
+        }],
+      },
+    ],
+  }, { includeImages: true });
+  const tool = oai.messages.find((m) => m.role === 'tool');
+  assert.equal(typeof tool.content, 'string');
+  assert.match(tool.content, /cover\.png/);
+  const user = [...oai.messages].reverse().find((m) => m.role === 'user');
+  assert.equal(Array.isArray(user.content), true);
+  assert.equal(user.content.some((p) => p.type === 'image_url' && String(p.image_url.url).startsWith('data:image/png;base64,')), true);
+});
+
+test('deepseek-v4.1-flash 登记为 chat 时仍然识图', () => {
+  const flash = { models: [{ name: 'deepseek-v4.1-flash', type: 'chat' }] };
+  assert.equal(modelSupportsVision('deepseek-v4.1-flash', flash), true);
+  assert.equal(modelSupportsVision('deepseek-v4-flash', { models: [{ name: 'deepseek-v4-flash', type: 'chat' }] }), true);
+  assert.equal(modelSupportsVision('deepseek-v4-pro', { models: [{ name: 'deepseek-v4-pro', type: 'chat' }] }), false);
+});
+
+test('anthropicToOpenai：纯文本模型的 tool_result 图片收成占位', () => {
+  const oai = anthropicToOpenai({
+    model: 'text-model',
+    messages: [{
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'toolu_img',
+        content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } }],
+      }],
+    }],
+  }, { includeImages: false });
+  const tool = oai.messages.find((m) => m.role === 'tool');
+  assert.equal(tool.content, '[image]');
+});
 
 test('anthropicToOpenai：thinking 块 → reasoning_content', () => {
   const oai = anthropicToOpenai({

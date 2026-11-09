@@ -162,8 +162,9 @@ let _getLocalConfig = null;
 // ── Format conversion (Anthropic ↔ OpenAI) ───────────────────────────────────
 
 // 纯文本 Code 模型（火山 Coding Plan 等不支持 image_url 输入）
+// deepseek-v4-flash / v4.1-flash 已支持识图，不放这里
 const _TEXT_ONLY_MODELS = new Set([
-  'deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner',
+  'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner',
   'glm-4.7', 'glm-4.6', 'glm-5', 'glm-5.1', 'glm-4-flash', 'glm-4-air',
   'doubao-seed-2.0-code', 'doubao-seed-code', 'doubao-seed-2.0-code-preview',
   'ark-code-latest', 'minimax-m2', 'minimax-m2.1', 'minimax-m2.5',
@@ -179,7 +180,17 @@ function providerModelType(model, provider) {
   return null;
 }
 
+/** DeepSeek Flash（v4 / v4.1，含 v4.1 与 v4-1 写法）官方接受 image_url。目录里常标成 type:chat。 */
+function deepseekFlashSupportsVision(model) {
+  const id = String(model || '').toLowerCase().split('/').pop();
+  if (!id) return false;
+  if (id === 'deepseek-flash' || id.includes('flash-vision')) return true;
+  return /^deepseek-v4(?:[.-]1)?-flash(?:-|$)/.test(id);
+}
+
 function modelSupportsVision(model, provider) {
+  // 名字已经说明能看图时，不跟目录里的 type:chat 走
+  if (deepseekFlashSupportsVision(model)) return true;
   // 优先用供给源模型条目的显式模态：type='vision'(图文)→支持；'chat'(文本)/'embedding'→不支持
   const list = provider?.models;
   if (Array.isArray(list)) {
@@ -244,6 +255,31 @@ function toolResultContentToString(content) {
     }).filter(Boolean).join('\n');
   }
   return content != null ? String(content) : '';
+}
+
+/** 工具结果里的图片：识图模型保留 image_url，纯文本模型仍收成 [image] */
+function toolResultToOaiContent(content, opts = {}) {
+  const includeImages = opts.includeImages !== false;
+  if (!includeImages || !Array.isArray(content)) return toolResultContentToString(content);
+  const parts = [];
+  for (const block of content) {
+    if (block == null) continue;
+    if (typeof block === 'string') {
+      if (block) parts.push({ type: 'text', text: block });
+      continue;
+    }
+    if (block.type === 'text') {
+      if (block.text) parts.push({ type: 'text', text: String(block.text) });
+      continue;
+    }
+    if (block.type === 'image') {
+      const url = anthropicImageSourceToUrl(block.source);
+      if (url) parts.push({ type: 'image_url', image_url: { url } });
+      else parts.push({ type: 'text', text: '[image]' });
+    }
+  }
+  if (!parts.some((p) => p.type === 'image_url')) return toolResultContentToString(content);
+  return parts;
 }
 
 function anthropicSystemToOai(system) {
@@ -341,11 +377,26 @@ function anthropicMessagesToOai(messages, opts = {}) {
       const parts = [];
       for (const block of content) {
         if (block?.type === 'tool_result') {
-          toolResults.push({
-            role: 'tool',
-            tool_call_id: block.tool_use_id,
-            content: toolResultContentToString(block.content),
-          });
+          // DeepSeek 只接受 user 消息里的图。工具结果保持文本，图片挪到紧随其后的 user。
+          const converted = toolResultToOaiContent(block.content, opts);
+          if (Array.isArray(converted)) {
+            const texts = [];
+            for (const p of converted) {
+              if (p?.type === 'image_url') parts.push(p);
+              else if (p?.type === 'text' && p.text) texts.push(p.text);
+            }
+            toolResults.push({
+              role: 'tool',
+              tool_call_id: block.tool_use_id,
+              content: texts.join('\n') || '（图片见下一条消息）',
+            });
+          } else {
+            toolResults.push({
+              role: 'tool',
+              tool_call_id: block.tool_use_id,
+              content: converted,
+            });
+          }
         } else {
           const p = anthropicBlockToOaiPart(block, opts);
           if (p) parts.push(p);
@@ -3264,6 +3315,24 @@ async function applyVisionAssistIfNeeded(step, body, { callerKey, reqPath, skipP
   };
 }
 
+/** 当前已启用、且真能收 image 的模型。生图模型和 Coding Plan 端点不算。 */
+function findVisionAssistTarget(skipP2P = false) {
+  const providers = enabledProviders().filter((p) =>
+    (!skipP2P || p.type !== 'p2p') && !providerIsCodingPlanEndpoint(p));
+  const hits = [];
+  for (const p of providers) {
+    for (const m of p.models || []) {
+      const id = typeof m === 'string' ? m : (m && (m.name || m.id));
+      if (!id) continue;
+      if (typeof m === 'object' && (m.type === 'image' || m.type === 'embedding')) continue;
+      if (!modelSupportsVision(id, p)) continue;
+      hits.push({ provider: p, model: String(id) });
+    }
+  }
+  // 直连源排在社区源前面，少绕一跳
+  hits.sort((a, b) => (a.provider.type === 'p2p') - (b.provider.type === 'p2p'));
+  return hits[0] || null;
+}
 
 // 统一步骤：每步可选带 when 条件。老 rules 摊平成"带 rule.when 的步"，再接默认步(无 when)。
 function unifySteps(scene) {
@@ -3491,6 +3560,31 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
   // 每条明细都带上是谁、哪个应用、这句话开头。后面的 pushLog 实际走 logRoute。
   const logCtx = routeLogContext(callerKey, reqPath, body, userAgent);
   const logRoute = (entry) => pushLog({ ...logCtx, ...entry });
+  // 同一次请求里，不能看图的模型共用一份识图结果，避免降级时反复看同一张图
+  const blindSeen = { ready: false, body: null, meta: null };
+  async function bodyForBlindModel(provider, modelName, srcBody) {
+    if (!srcBody || modelSupportsVision(modelName, provider) || !visionAssist.bodyHasImages(srcBody)) {
+      return { body: srcBody, meta: null };
+    }
+    if (!blindSeen.ready) {
+      blindSeen.ready = true;
+      const hit = findVisionAssistTarget(skipP2P);
+      if (!hit) {
+        console.log(`[gateway] ${modelName} 不能看图，也没有可用的识图模型`);
+        blindSeen.body = srcBody;
+      } else {
+        console.log(`[gateway] ${modelName} 不能看图，改由 ${hit.model} 看`);
+        const va = await applyVisionAssistIfNeeded(
+          { vision_assist: { model: hit.model } },
+          srcBody,
+          { callerKey, reqPath, skipP2P },
+        );
+        blindSeen.body = va.body;
+        blindSeen.meta = va.meta;
+      }
+    }
+    return { body: blindSeen.body, meta: blindSeen.meta };
+  }
   const t0          = Date.now();
   let lastErr       = null;
   const isAnthropic = reqPath === '/v1/messages';
@@ -3697,7 +3791,8 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
       try {
         // 策略路由：把场景策略（auto/cost…）+ 钉分享者传给 p2p 服务端，令其对该源 worker 也按策略排序/过滤
         const stratMeta = { strategy: _stratStep.strategy || null, sharer: _stratStep.sharer || requestSharer };
-        const result = await callProvider(c.provider, isAnthropic, streaming, reqPath, body, c.model, res,
+        const prepared = await bodyForBlindModel(c.provider, c.model, body);
+        const result = await callProvider(c.provider, isAnthropic, streaming, reqPath, prepared.body, c.model, res,
           (stratMeta.strategy || stratMeta.sharer) ? stratMeta : null);
         if (result.latency) reqRouter.recordLatency(c.provider.id, result.latency);
         recordProviderSpeed(c.model, c.provider, result, streaming);
@@ -3799,7 +3894,8 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
             if (p2pReject) { lastErr = p2pAbortError(p2pReject); recordError(c.model, callerKey, lastErr, reqPath); return; }
           }
           try {
-            const result = await callProvider(c.provider, isAnthropic, streaming, reqPath, body, c.model, res, sMeta);
+            const prepared = await bodyForBlindModel(c.provider, c.model, body);
+            const result = await callProvider(c.provider, isAnthropic, streaming, reqPath, prepared.body, c.model, res, sMeta);
             logRoute({ ts: t0, requested_model: origModel, model: c.model, scene_name: scene.scene_name, claude_from: stepClaudeFrom,
               tried: failedModels.length ? [...failedModels] : undefined,
               tier: c.provider.type, via: c.provider.id, via_label: c.provider.label,
@@ -3888,7 +3984,8 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
           return;
         }
         try {
-          const result = await callProvider(provider, isAnthropic, streaming, reqPath, stepBody, stepModel, res, stepMeta);
+          const prepared = await bodyForBlindModel(provider, stepModel, stepBody);
+          const result = await callProvider(provider, isAnthropic, streaming, reqPath, prepared.body, stepModel, res, stepMeta);
           logRoute({
             ts: t0, requested_model: origModel, model: stepModel,
             scene_name: scene.scene_name, claude_from: stepClaudeFrom,
@@ -3896,7 +3993,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
             tier: provider.type, via: provider.id, via_label: provider.label,
             latency_ms: result.latency, first_token_ms: result.first_token_ms, status: 'ok',
             worker: result.worker_id || undefined,
-            vision_assist: visionMeta || undefined,
+            vision_assist: visionMeta || prepared.meta || undefined,
           });
           const stepTok  = (result.input_tokens || 0) + (result.output_tokens || 0);
           const stepTier = _providerTier(provider);
@@ -4034,7 +4131,8 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
       return;
     }
     try {
-      const result = await callProvider(provider, isAnthropic, streaming, reqPath, body, model, res, routeMeta);
+      const prepared = await bodyForBlindModel(provider, model, body);
+      const result = await callProvider(provider, isAnthropic, streaming, reqPath, prepared.body, model, res, routeMeta);
       // 记录延迟（供 latency 策略下次参考）
       if (result.latency) reqRouter.recordLatency(provider.id, result.latency);
       recordProviderSpeed(model, provider, result, streaming);
@@ -4743,7 +4841,7 @@ module.exports = {
   // Responses 透传判定 / URL 拼装（供单测）
   providerSupportsResponses, resolveUpstreamUrl, providerApiFormat,
   // 格式转换（供单测/复用）：Anthropic ⇄ OpenAI（含 tool-calling）
-  anthropicToOpenai, openaiToAnthropic, oaiRequestToAnthropic, anthropicRespToOai,
+  anthropicToOpenai, openaiToAnthropic, oaiRequestToAnthropic, anthropicRespToOai, modelSupportsVision,
   // thinking / reasoning_content 多轮回传（DeepSeek 等）
   isMissingReasoningContentError, ensureReasoningContentOnAssistants,
   // Gemini 转换（供单测/复用，含 tool-calling）

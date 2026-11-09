@@ -36,9 +36,27 @@ function resolveConsumerKey(msg = {}) {
   return safeSegment(taskId ? `task-${taskId}` : 'anon', 'anon');
 }
 
-/** 游乐场 sessionKey：contribute:<assistant>:<consumer> */
-function contributeSessionKey(assistantId, consumerKey) {
-  return `${CONTRIBUTE_SESSION_PREFIX}${safeSegment(assistantId)}:${safeSegment(consumerKey)}`;
+/**
+ * 游乐场 sessionKey：contribute:<assistant>:<consumer>[:<session>]
+ * 带上会话段之后，续聊（-c）不会接到同一用户的另一段对话。
+ */
+function contributeSessionKey(assistantId, consumerKey, sessionKey) {
+  const head = `${CONTRIBUTE_SESSION_PREFIX}${safeSegment(assistantId)}:${safeSegment(consumerKey)}`;
+  const session = safeSegment(sessionKey, '');
+  return session ? `${head}:${session}` : head;
+}
+
+/**
+ * 这一轮该用哪一层目录。
+ * 分享接着聊用 share_id；游乐场同一条线程用 session_key；都没有就落到本轮 task，避免串到别人的成品。
+ */
+function resolveSessionDirKey(msg = {}) {
+  const share = String(msg.share_id || '').trim();
+  if (share) return share;
+  const session = String(msg.session_key || '').trim();
+  if (session) return session;
+  const taskId = String(msg.task_id || msg.req_id || '').trim();
+  return taskId ? `task-${taskId}` : '';
 }
 
 /** 是否社区接单 session（本机游乐场应忽略） */
@@ -47,14 +65,34 @@ function isContributeSessionKey(sessionKey) {
 }
 
 /**
- * 为该调用方准备独立工作目录（同用户可复用，跨用户不共用）。
+ * 为该调用方准备独立工作目录。
+ * 同一用户的不同会话再分一层，否则看图和成品都会落到同一个目录，远程雇佣会把别的会话的文件一并返回。
+ * 不传 sessionKey 时仍是「每人一个目录」，只给还没带上会话号的旧调用。
  */
-function ensureContributeWorkspace(assistantId, consumerKey) {
-  const dir = path.join(
+function ensureContributeWorkspace(assistantId, consumerKey, sessionKey) {
+  const parts = [
     WORKSPACE_ROOT,
     safeSegment(assistantId, 'assistant'),
     safeSegment(consumerKey, 'anon'),
-  );
+  ];
+  const session = safeSegment(sessionKey, '');
+  if (session) parts.push(session);
+  const dir = path.join(...parts);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/**
+ * 本机游乐场：每个对话线程一个目录，放在项目外面。
+ * Claude 的看图缓存按工作目录分，线程分开后就不会读到别的对话留下的图。
+ */
+function ensureLocalSessionDir(projectDir, threadId) {
+  const thread = safeSegment(threadId, '');
+  if (!thread) return '';
+  const root = projectDir && fs.existsSync(projectDir) ? path.resolve(projectDir) : '';
+  if (!root) return '';
+  const slug = root.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(-60) || 'work';
+  const dir = path.join(os.homedir(), '.tokenbank', 'agent-sessions', slug, thread);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -268,7 +306,9 @@ module.exports = {
   resolveConsumerKey,
   contributeSessionKey,
   isContributeSessionKey,
+  resolveSessionDirKey,
   ensureContributeWorkspace,
+  ensureLocalSessionDir,
   collectWorkspaceArtifacts,
   snapshotWorkspace,
 };

@@ -11,6 +11,8 @@ const {
   contributeSessionKey,
   isContributeSessionKey,
   ensureContributeWorkspace,
+  ensureLocalSessionDir,
+  resolveSessionDirKey,
   collectWorkspaceArtifacts,
   snapshotWorkspace,
   safeSegment,
@@ -43,6 +45,29 @@ test('ensureContributeWorkspace creates per-user dirs', () => {
   assert.notEqual(d1, d2);
   assert.equal(path.basename(d1), 'u1');
   assert.equal(path.basename(d2), 'u2');
+});
+
+test('同一用户的两个会话目录互不包含', () => {
+  const a = ensureContributeWorkspace('asst-demo', 'u1', 'share-aaa');
+  const b = ensureContributeWorkspace('asst-demo', 'u1', 'share-bbb');
+  assert.notEqual(a, b);
+  assert.equal(path.basename(a), 'share-aaa');
+  assert.equal(path.basename(b), 'share-bbb');
+  assert.equal(contributeSessionKey('poetry', 'u1', 'share-aaa'), 'contribute:poetry:u1:share-aaa');
+  assert.equal(resolveSessionDirKey({ share_id: 's1', session_key: 'thread', task_id: 'at-1' }), 's1');
+  assert.equal(resolveSessionDirKey({ session_key: 'thread', task_id: 'at-1' }), 'thread');
+  assert.equal(resolveSessionDirKey({ task_id: 'at-1' }), 'task-at-1');
+});
+
+test('本机对话线程有自己的目录，不落在项目里', () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-proj-'));
+  const dir = ensureLocalSessionDir(project, 'thread-1');
+  assert.ok(dir);
+  assert.ok(fs.existsSync(dir));
+  assert.equal(dir.includes(project), false);
+  assert.equal(ensureLocalSessionDir(project, 'thread-1'), dir);
+  assert.notEqual(ensureLocalSessionDir(project, 'thread-2'), dir);
+  fs.rmSync(project, { recursive: true, force: true });
 });
 
 test('safeSegment strips unsafe path chars', () => {

@@ -1165,6 +1165,8 @@ class AgentTaskBody(BaseModel):
     files: Optional[list] = None
     # 分享里接着聊。服务端据此回到发起人的会话，而不是按当前发言人新开
     share_id: Optional[str] = None
+    # 调用方自己的对话线程。没有分享号时，出租方用它把工作目录和看图缓存隔开
+    session_key: Optional[str] = None
     # 相同键再提交接上同一单，不另扣。请求体变了就拒绝
     idempotency_key: Optional[str] = None
 
@@ -1201,7 +1203,7 @@ async def create_agent_task(
     guest_ip = _client_ip(request) if guest else None
     idem = (request.headers.get("idempotency-key") or body.idempotency_key or "").strip()[:80]
     digest = hashlib.sha256(
-        f"{body.assistant_id}\n{body.prompt}\n{body.share_id or ''}\n{len(task_images)}\n{len(task_files)}".encode("utf-8")
+        f"{body.assistant_id}\n{body.prompt}\n{body.share_id or ''}\n{body.session_key or ''}\n{len(task_images)}\n{len(task_files)}".encode("utf-8")
     ).hexdigest()
     if body.stream:
         from dispatch_agent import iter_agent_task_sse
@@ -1217,6 +1219,7 @@ async def create_agent_task(
             images=task_images or None,
             files=task_files or None,
             share_id=body.share_id,
+            session_key=body.session_key,
             idempotency_key=idem or None,
             idempotency_digest=digest,
         )
@@ -1241,6 +1244,7 @@ async def create_agent_task(
         images=task_images or None,
         files=task_files or None,
         share_id=body.share_id,
+        session_key=body.session_key,
         idempotency_key=idem or None,
         idempotency_digest=digest,
     )
