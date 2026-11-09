@@ -16,12 +16,13 @@
 <script src="/static/purifier.min.js"></script>
 <link rel="stylesheet" href="/static/chat.css">
 <script src="/static/chat-ui.js"></script>
+<script src="/static/brand-icons.js"></script>
 </head>
 <body>
-<div id="app" class="chat-app" v-cloak>
+<div id="app" class="chat-app ag-chat" v-cloak>
   <nav class="cnav">
     <div class="cnav-in">
-      <a class="brand" href="/"><img src="/static/logo.svg" alt="Token Bank"><span>Token Bank</span></a>
+      <a class="brand" href="/"><img src="/static/logo.svg" alt="Token Bank"><span class="nav-title">Token Bank</span></a>
       <a class="nav-back" href="/market#models">{{ T.backNetwork }}</a>
       <div class="nav-right">
         <span v-if="loggedIn && profile" class="credit">💎 {{ Number(profile.credits_balance || 0).toFixed(1) }}</span>
@@ -44,7 +45,7 @@
     <!-- 模型身份 + 切换 -->
     <header class="chead">
       <div class="cinner">
-        <div class="av" :style="{ background: avatarColor(model) }">{{ (model || '?').slice(0, 1).toUpperCase() }}</div>
+        <div v-if="modelIcon" class="av brand"><img :src="modelIcon" alt=""></div><div v-else class="av" :style="{ background: avatarColor(model) }">{{ (model || '?').slice(0, 1).toUpperCase() }}</div>
         <div class="id">
           <div class="id-t">
             <label class="picker" :title="T.pickModel">
@@ -90,14 +91,14 @@
       <div class="cinner">
         <!-- 模型不可用：已离线 / 仅圈子成员 -->
         <div v-if="modelStatus !== 'ok'" class="empty">
-          <div class="av lg" style="background:#e7e4e1;color:#7b7b7b">{{ modelStatus === 'offline' ? '⏸' : '🔒' }}</div>
+          <div class="av lg off-av"><svg v-if="modelStatus === 'offline'" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M10 9v6M14 9v6"/></svg><svg v-else width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg></div>
           <h2>{{ modelStatus === 'offline' ? T.offlineTitle : T.circleTitle }}</h2>
           <p><span class="mono" style="font-family:var(--mono);color:var(--text)">{{ model }}</span>
             {{ modelStatus === 'offline' ? T.offlineDesc : (loggedIn ? T.circleDescAuthed : T.circleDescGuest) }}</p>
           <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap;justify-content:center">
             <button v-if="modelStatus === 'circle' && !loggedIn" type="button" class="btn" @click="openAuth('login')">{{ T.login }}</button>
             <a v-if="modelStatus === 'circle' && loggedIn" class="btn" href="/circles">{{ T.browseCircles }}</a>
-            <a class="btn" :class="{ ghost: modelStatus === 'circle' }" href="/market#models" :style="modelStatus === 'circle' ? 'background:#fff;color:#0a0a0a;border:1px solid #e7e4e1' : ''">{{ T.allModels }}</a>
+            <a class="btn" :class="{ ghost: modelStatus === 'circle' }" href="/market#models">{{ T.allModels }} →</a>
           </div>
           <template v-if="alternatives.length">
             <p style="margin-top:26px;font-size:12px;color:var(--text-faint)">{{ T.tryThese }}</p>
@@ -111,7 +112,7 @@
 
         <!-- 嵌入：网页不支持 -->
         <div v-else-if="isEmbed" class="empty">
-          <div class="av lg" :style="{ background: avatarColor(model) }">{{ (model || '?').slice(0, 1).toUpperCase() }}</div>
+          <div v-if="modelIcon" class="av lg brand"><img :src="modelIcon" alt=""></div><div v-else class="av lg" :style="{ background: avatarColor(model) }">{{ (model || '?').slice(0, 1).toUpperCase() }}</div>
           <h2 class="mono">{{ model }}</h2>
           <p>{{ T.embedEmpty }}</p>
         </div>
@@ -119,7 +120,7 @@
         <!-- 生图 -->
         <template v-else-if="isImage">
           <div v-if="!images.length" class="empty">
-            <div class="av lg" :style="{ background: avatarColor(model) }">{{ (model || '?').slice(0, 1).toUpperCase() }}</div>
+            <div v-if="modelIcon" class="av lg brand"><img :src="modelIcon" alt=""></div><div v-else class="av lg" :style="{ background: avatarColor(model) }">{{ (model || '?').slice(0, 1).toUpperCase() }}</div>
             <h2 class="mono">{{ model }}</h2>
             <p>{{ T.metaImage }}</p>
             <div class="sugs">
@@ -134,16 +135,17 @@
         <!-- 文本 / 图文对话 -->
         <template v-else>
           <div v-if="!messages.length" class="empty">
-            <div class="av lg" :style="{ background: avatarColor(model) }">{{ (model || '?').slice(0, 1).toUpperCase() }}</div>
+            <div v-if="modelIcon" class="av lg brand"><img :src="modelIcon" alt=""></div><div v-else class="av lg" :style="{ background: avatarColor(model) }">{{ (model || '?').slice(0, 1).toUpperCase() }}</div>
             <h2 class="mono">{{ model }}</h2>
             <p>{{ isVision ? T.visionEmpty : T.chatEmpty }}</p>
+            <div class="empty-chips"><span>{{ T.servedBy }}</span><span v-if="consumeRate != null">{{ T.creditsRate.replace('{n}', formatRate(consumeRate)) }}</span><span>{{ T.nativeName }}</span></div>
             <div class="sugs">
               <button v-for="sg in suggestions" :key="sg.t" type="button" class="sug" @click="useSuggestion(sg)"><b>{{ sg.t }}</b><span>{{ sg.d }}</span></button>
             </div>
           </div>
           <div v-for="(m, i) in messages" :key="i" class="msg" :class="[m.role, { pending: m.pending }]">
             <template v-if="m.role === 'assistant'">
-              <div class="av sm" :style="{ background: avatarColor(model) }">{{ (model || '?').slice(0, 1).toUpperCase() }}</div>
+              <div v-if="modelIcon" class="av sm brand"><img :src="modelIcon" alt=""></div><div v-else class="av sm" :style="{ background: avatarColor(model) }">{{ (model || '?').slice(0, 1).toUpperCase() }}</div>
               <div class="abody">
                 <span v-if="m.pending && !m.content" class="typing"><i></i><i></i><i></i></span>
                 <div v-else class="md-body" v-html="renderRich(m.content)"></div>
@@ -166,7 +168,7 @@
       <div class="cinner">
         <p v-if="err" class="err">{{ err }}</p>
         <div v-if="!loggedIn && (guestLocked || isImage)" class="gate">
-          <span class="g-ic">🔒</span>
+          <span class="g-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg></span>
           <div class="g-t"><b>{{ guestLocked ? T.trialDone : T.needLoginShort }}</b>{{ guestLocked ? T.gateSub : T.needLogin }}</div>
           <button type="button" class="btn sm" @click="openAuth('login')">{{ T.login }}</button>
         </div>
@@ -281,7 +283,7 @@ createApp({
         attachSize: '单张图片过大',
         attachVisionOnly: '当前模型为文本模型，不支持识图；请切换到「图文」模型后再粘贴',
         chatHint: '未登录可试一轮', imageHint: '文生图需登录', embedHint: '嵌入模型不支持网页试用',
-        chatEmpty: '发送一条消息试用；登录后可多轮追问。',
+        chatEmpty: '发送一条消息试用；登录后可多轮追问。', servedBy: '由社区节点提供', nativeName: '接进客户端后模型名不变',
         visionEmpty: '发送消息或粘贴图片试用；登录后可多轮追问。',
         imageEmpty: '输入画面描述后点击生成。',
         embedEmpty: '嵌入模型请在客户端 / API 中使用，网页暂不支持试用。',
@@ -339,7 +341,7 @@ createApp({
         attachSize: 'Image too large',
         attachVisionOnly: 'This is a text model — switch to a Vision model to paste images',
         chatHint: 'One free guest turn', imageHint: 'Sign in for images', embedHint: 'Embedding: use client/API',
-        chatEmpty: 'Try one message; sign in for multi-turn chat.',
+        chatEmpty: 'Try one message; sign in for multi-turn chat.', servedBy: 'Served by community nodes', nativeName: 'Same model name in your client',
         visionEmpty: 'Try a message or paste images; sign in for multi-turn chat.',
         imageEmpty: 'Describe a scene, then generate.',
         embedEmpty: 'Embedding models are not available in the web trial.',
@@ -1330,6 +1332,7 @@ createApp({
     }
     const autoGrow = (el) => ChatUI.autoGrow(el)
     const avatarColor = (n) => ChatUI.avatarColor(n)
+    const modelIcon = computed(() => (window.BrandIcons && model.value) ? (window.BrandIcons.resolveBrandIcon(model.value) || '') : '')
     const renderRich = (raw) => ChatUI.wrapCode(renderMarkdown(raw), T.value.copy)
     const onChatClick = (e) => ChatUI.onCopyClick(e, T.value.copied, T.value.copy)
     function copyMsg(m, e) {
@@ -1344,7 +1347,7 @@ createApp({
       modelStatus, alternatives, switchModel, modelsLoaded, typeLabelOf,
       authOpen, openAuth, composerEl, fileEl, suggestions, useSuggestion, onPickFiles, autoGrow, avatarColor,
       renderRich, onChatClick, copyMsg,
-      lang, T, toggleLang, model, modelOptions, chatModels, visionModels, imageModels, embedModels,
+      modelIcon, lang, T, toggleLang, model, modelOptions, chatModels, visionModels, imageModels, embedModels,
       isImage, isEmbed, isVision, typeBadge, typeBadgeClass, sharer, consumeRate, formatRate,
       loggedIn, profile, currentUserLabel, prompt, messages, images, pendingImages, chatEl,
       running, err, guestUsed, guestLocked, authTab, authLoading, authErr, form,

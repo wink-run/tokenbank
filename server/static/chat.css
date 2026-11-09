@@ -367,3 +367,12 @@ button{font-family:inherit}
   .empty-chips{margin-top:10px}
   .ag-chat .sugs{margin-top:16px}
 }
+/* 模型对话页 */
+.ag-chat .off-av{background:#f1ede4;color:#8a8478;border:1px solid #e7e0d2}
+.ag-chat .btn{background:#FFC94A;color:#1c1a17;border-color:#FFC94A;font-weight:650}
+.ag-chat .btn.ghost{background:#fff;color:#1c1a17;border:1px solid #e7e0d2}
+.ag-chat .gate{border-color:#f3dfa6;background:#fffaeb}
+.ag-chat .gate .g-ic{display:inline-flex;color:#b7791f}
+.ag-chat .gate .btn{background:#FFC94A;color:#1c1a17}
+.ag-chat .tag.txt{color:#6f6a62;border-color:#e7e0d2;background:#fff}
+.ag-chat .picker{border-radius:10px}
