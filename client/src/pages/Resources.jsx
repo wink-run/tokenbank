@@ -10,6 +10,8 @@ import {
 import PersonalizedRecommend from '../components/PersonalizedRecommend';
 import McpProvidersTab from '../components/McpProvidersTab';
 import SkillInstallDialog from '../components/SkillInstallDialog';
+import AiNeedNotice from '../components/AiNeedNotice';
+import { useAiReadiness } from '../lib/ai-readiness';
 import {
   ASSET_BTN_GHOST,
   ASSET_BTN_MANAGED,
@@ -549,6 +551,13 @@ export default function Resources() {
   /** 用途筛选（空 = 全部；值为 purpose slug） */
   const [tagFilter, setTagFilter] = useState('');
   /** Hit-or-Exit 分层：'' | active | pending | dormant | cold | shelf */
+  // 智能功能前置条件：模型（网关 model:auto）+ 应用（内置智能体投射目标）
+  const ai = useAiReadiness();
+  const [aiNoticeHidden, setAiNoticeHidden] = useState(() => (readJson('tokenbank.resources.aiNoticeHide', 0) || 0) > Date.now());
+  const hideAiNotice = () => {
+    writeJson('tokenbank.resources.aiNoticeHide', Date.now() + 7 * 24 * 60 * 60 * 1000);
+    setAiNoticeHidden(true);
+  };
   // 技能系列展开状态（默认收起）
   const [openSeries, setOpenSeries] = useState(() => new Set(readJson(SERIES_OPEN_KEY, [])));
   const toggleSeries = useCallback((key) => {
@@ -3895,6 +3904,9 @@ export default function Resources() {
           )}
         </div>
 
+        {!isMcp && !aiNoticeHidden && (
+          <AiNeedNotice model={ai.model} agent={ai.agent} onRetry={() => ai.refresh()} onDismiss={hideAiNotice} />
+        )}
         {!isMcp && viewTab === 'managed' && !layerFilter && (
           <>
         {lifecycleNudges.length > 0 && (() => {
@@ -3998,6 +4010,7 @@ export default function Resources() {
                   : (scanning ? t('resources.scanning') : t('resources.scanStart'))}
               </button>
             </div>
+            <AiNeedNotice model={ai.model} agent={null} feature={t('resources.aiNeed.feat.tagging')} compact onRetry={() => ai.refresh()} />
             {lastScan && (
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400 flex flex-wrap gap-x-3">
                 <span>{t('resources.scanLast.total', { n: lastScan.total })}</span>
@@ -4201,9 +4214,13 @@ export default function Resources() {
               <p className="text-[10px] text-zinc-400">
                 {t('resources.cleanupHint', { days: idleDays })}
               </p>
+              {ai.model === false ? (
+                <AiNeedNotice model={false} agent={null} feature={t('resources.aiNeed.feat.cleanup')} compact onRetry={() => ai.refresh()} />
+              ) : (
               <p className="text-[10px] text-violet-600/90 dark:text-violet-400/90">
                 {t('resources.cleanupAiHint')}
               </p>
+              )}
               {!hasStoredPortrait() && (
                 <div className="flex items-start gap-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 px-2.5 py-2">
                   <p className="min-w-0 flex-1 text-[10px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
@@ -4695,11 +4712,12 @@ export default function Resources() {
                 <>
                   {asstBrief() ? (
                   <div className="space-y-2">
+                    <AiNeedNotice model={ai.model} agent={null} feature={t('resources.aiNeed.feat.assistant')} compact onRetry={() => ai.refresh()} />
                     <textarea
                       autoFocus
                       value={editorForm.nlBrief || ''}
                       onChange={e => setEditorForm(prev => ({ ...prev, nlBrief: e.target.value }))}
-                      onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) generateAssistantNl(); }}
+                      onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && ai.model !== false) generateAssistantNl(); }}
                       rows={4}
                       placeholder={t('resources.assistantNlPh')}
                       className="w-full text-sm px-3 py-2.5 rounded-xl border border-violet-200 dark:border-violet-800/60 bg-white dark:bg-zinc-950 leading-relaxed focus:outline-none focus:ring-2 focus:ring-violet-400/40"
@@ -4722,7 +4740,8 @@ export default function Resources() {
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
-                        disabled={!!busy}
+                        disabled={!!busy || ai.model === false}
+                        title={ai.model === false ? t('resources.aiNeed.title.model', { feature: t('resources.aiNeed.feat.assistant') }) : undefined}
                         onClick={generateAssistantNl}
                         className="tb-press text-xs px-3.5 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-50"
                       >
