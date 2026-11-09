@@ -2136,6 +2136,8 @@ export default function Resources() {
   /** 新建智能体的第一步：只填一句话描述 */
   const asstIsNew = () => editorForm.type === 'assistant' && !editorForm.id;
   const asstBrief = () => asstIsNew() && editorForm.asStep === 'brief';
+  /** 新建提示词默认只露出内容；其余字段收进「更多设置」 */
+  const quickPrompt = () => editorForm.type === 'prompt' && !editorForm.id && !editorForm.moreOpen;
   /** 新建智能体本次要付费纳管的技能数 / 总积分（价格未知时为 null） */
   const asstPaidCount = () => (editorForm.suggestSkills || []).filter((c) => c.checked && c.paid).length;
   const asstCost = () => {
@@ -2284,6 +2286,25 @@ export default function Resources() {
     if (!name && editorForm.type === 'assistant' && !editorForm.id) {
       name = slugifyAssistantId(editorForm.display_name || editorForm.description || '', 'assistant-' + Date.now().toString(36));
     }
+    // 新建提示词：只写内容也能保存，名称 / 标识 / 简介从内容推出
+    let derived = {};
+    if (editorForm.type === 'prompt' && !editorForm.id) {
+      const body = String(editorForm.content || '').trim();
+      if (!body) {
+        setError(t('resources.promptContentRequired'));
+        return;
+      }
+      const firstLine = body.split(/\r?\n/).map(l => l.replace(/^[#>*\-\s]+/, '').trim()).find(Boolean) || '';
+      const display = String(editorForm.display_name || '').trim() || (firstLine.length > 24 ? firstLine.slice(0, 24) + '…' : firstLine);
+      if (!name) {
+        const ascii = display.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+        name = ascii.length >= 3 ? ascii : `prompt-${Date.now().toString(36)}`;
+      }
+      derived = {
+        display_name: display,
+        description: String(editorForm.description || '').trim() || (body.replace(/\s+/g, ' ').slice(0, 60)),
+      };
+    }
     if (!name) {
       setError(t('resources.editorNameRequired'));
       return;
@@ -2357,8 +2378,8 @@ export default function Resources() {
         id: editorForm.id || undefined,
         type: editorForm.type,
         name,
-        display_name: editorForm.display_name || name,
-        description: editorForm.description || '',
+        display_name: derived.display_name || editorForm.display_name || name,
+        description: derived.description ?? (editorForm.description || ''),
         content,
         metadata,
       });
@@ -4558,7 +4579,48 @@ export default function Resources() {
                   </button>
                 </div>
               )}
-              {editorForm.type === 'prompt' && (
+              {editorForm.type === 'prompt' && !editorForm.id && !editorForm.moreOpen && (
+                <div className="space-y-2">
+                  <textarea
+                    autoFocus
+                    value={editorForm.content}
+                    onChange={e => setEditorForm(prev => ({ ...prev, content: e.target.value }))}
+                    rows={10}
+                    placeholder={editorForm.promptKind === 'image' ? t('resources.promptQuickPhImage') : t('resources.promptQuickPh')}
+                    className="w-full text-[13px] px-3 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 leading-relaxed"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="inline-flex p-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-800/70" role="radiogroup" aria-label={t('resources.editorPromptKind')}>
+                      {['text', 'image'].map(k => (
+                        <button
+                          key={k}
+                          type="button"
+                          role="radio"
+                          aria-checked={(editorForm.promptKind === 'image' ? 'image' : 'text') === k}
+                          onClick={() => setEditorForm(prev => ({ ...prev, promptKind: k }))}
+                          className={`text-[11px] px-2.5 py-1 rounded-md ${(editorForm.promptKind === 'image' ? 'image' : 'text') === k ? 'bg-white dark:bg-zinc-900 shadow-sm text-zinc-900 dark:text-zinc-100 font-medium' : 'text-zinc-500'}`}
+                        >
+                          {t(`resources.promptKind.${k}`)}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      value={editorForm.display_name}
+                      onChange={e => setEditorForm(prev => ({ ...prev, display_name: e.target.value }))}
+                      placeholder={t('resources.promptQuickNamePh')}
+                      className="flex-1 min-w-[10rem] text-xs px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditorForm(prev => ({ ...prev, moreOpen: true }))}
+                    className="text-[11px] text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                  >
+                    {t('resources.promptQuickMore')}
+                  </button>
+                </div>
+              )}
+              {editorForm.type === 'prompt' && (editorForm.id || editorForm.moreOpen) && (
                 <label className="block text-xs text-zinc-500">
                   {t('resources.editorPromptKind')}
                   <select
@@ -4572,7 +4634,7 @@ export default function Resources() {
                   <span className="block mt-1 text-[10px] text-zinc-400">{t('resources.editorPromptKindHint')}</span>
                 </label>
               )}
-              {editorForm.type !== 'assistant' && (
+              {editorForm.type !== 'assistant' && !quickPrompt() && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorName')}
                 <input
@@ -4584,7 +4646,7 @@ export default function Resources() {
                 />
               </label>
               )}
-              {!asstBrief() && !(asstIsNew() && editorForm.display_name && !editorForm.metaEdit) && (
+              {!asstBrief() && !quickPrompt() && !(asstIsNew() && editorForm.display_name && !editorForm.metaEdit) && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorDisplayName')}
                 <input
@@ -4594,7 +4656,7 @@ export default function Resources() {
                 />
               </label>
               )}
-              {!asstBrief() && !(asstIsNew() && editorForm.display_name && !editorForm.metaEdit) && (
+              {!asstBrief() && !quickPrompt() && !(asstIsNew() && editorForm.display_name && !editorForm.metaEdit) && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorDescription')}
                 <input
@@ -4604,7 +4666,7 @@ export default function Resources() {
                 />
               </label>
               )}
-              {editorForm.type !== 'assistant' && (
+              {editorForm.type !== 'assistant' && !quickPrompt() && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorDetail')}
                 <textarea
@@ -4617,7 +4679,7 @@ export default function Resources() {
                 <span className="block mt-1 text-[10px] text-zinc-400">{t('resources.editorDetailHint')}</span>
               </label>
               )}
-              {editorForm.type !== 'assistant' && (
+              {editorForm.type !== 'assistant' && !quickPrompt() && (
               <label className="block text-xs text-zinc-500">
                 {t('resources.editorTags')}
                 <input
@@ -4965,7 +5027,7 @@ export default function Resources() {
                   </>
                   )}
                 </>
-              ) : (
+              ) : quickPrompt() ? null : (
                 <label className="block text-xs text-zinc-500">
                   {t('resources.editorContent')}
                   <textarea
