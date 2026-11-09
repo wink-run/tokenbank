@@ -48,7 +48,7 @@ function applyP2pRouteHeader(headers, provider) {
   return headers;
 }
 const oauth = require('./oauth');
-const { withClaudeOAuthModels } = require('./claude-models');
+const { withClaudeOAuthModels, isClaudeOAuthProvider } = require('./claude-models');
 const { estimateCost } = require('./pricing');
 const { compressBody, compressionRatio } = require('./compressor');
 const { handleTts }             = require('./handlers/ttsHandler');
@@ -3390,21 +3390,63 @@ function orderStepsByFlow(steps, flow, reqPath, skipP2P, reqCtx) {
   return out;
 }
 
+function sceneStepModel(scene) {
+  return scene?.steps?.[0]?.model || '';
+}
+
+function claudeModelNameKeys(name) {
+  const raw = String(name || '');
+  if (!raw) return [];
+  return [...new Set([raw, normalizeClaudeModelId(raw), stripModelDate(raw)].filter(Boolean))];
+}
+
+/** 启用中的 Claude 订阅源是否真正提供这个模型。
+ * OAuth 且 models 为空时按官方目录补全（与 enabledProviders 一致）；显式列表以列表为准。 */
+function claudeSubscriptionServesModel(model, providers) {
+  if (!/^claude-/i.test(String(model || ''))) return false;
+  const want = new Set(claudeModelNameKeys(model));
+  for (const raw of providers || []) {
+    if (!raw || raw.enabled === false || raw.type === 'p2p') continue;
+    if (!isClaudeOAuthProvider(raw)) continue;
+    const effective = withClaudeOAuthModels(raw);
+    for (const entry of effective.models || []) {
+      const name = typeof entry === 'string' ? entry : (entry && (entry.name || entry.id));
+      if (claudeModelNameKeys(name).some(key => want.has(key))) return true;
+    }
+  }
+  return false;
+}
+
 /** 解析绑定场景：精确 keyScene > Claude 名/通配 > Codex gpt-* 兜底。
- * 已绑定的多选模型必须精确命中，不能被 gpt 兜底盖成 route_ids[0]。 */
+ * 已绑定的多选模型必须精确命中，不能被 gpt 兜底盖成 route_ids[0]。
+ * servedByClaudeSubscription：这个名字是启用中的 Claude 订阅源自己的模型。
+ * 此时不用 Claude Code 的整表改写（shim、'*'，以及和 '*' 同一目标的批量别名）；
+ * 只保留目标不同的显式单名规则。 */
 function resolveBoundScene({
   origModel, callerKey, isApiKeyCaller, isClaudeClientName, claudeKey,
   shimClaudeScene = null, keyScene = {}, codexGptFallback = {},
+  servedByClaudeSubscription = false,
 }) {
   const keyBucket = (isApiKeyCaller && callerKey) ? keyScene[callerKey] : null;
-  const exactKeyScene = (keyBucket && keyBucket[origModel]) || null;
-  const claudeKeyScene = keyBucket
-    ? ((claudeKey && keyBucket[claudeKey]) || (isClaudeClientName && keyBucket['*']) || null)
-    : null;
+  let exactKeyScene = (keyBucket && keyBucket[origModel]) || null;
+  const wildcard = (keyBucket && isClaudeClientName) ? (keyBucket['*'] || null) : null;
+  let named = (keyBucket && claudeKey && keyBucket[claudeKey]) || null;
+  let star = wildcard;
+  let shim = shimClaudeScene || null;
+  if (servedByClaudeSubscription) {
+    const catchAllTarget = sceneStepModel(wildcard) || sceneStepModel(shim);
+    shim = null;
+    star = null;
+    if (catchAllTarget) {
+      if (sceneStepModel(exactKeyScene) === catchAllTarget) exactKeyScene = null;
+      if (sceneStepModel(named) === catchAllTarget) named = null;
+    }
+  }
+  const claudeKeyScene = named || star || null;
   const codexGptScene = (!exactKeyScene && callerKey && /^gpt/i.test(origModel))
     ? codexGptFallback[callerKey]
     : null;
-  return shimClaudeScene || exactKeyScene || claudeKeyScene || codexGptScene || null;
+  return shim || exactKeyScene || claudeKeyScene || codexGptScene || null;
 }
 
 /** 纯模型绑定保持单步。降级链在写入 keyScene 时已经带上步骤和 flow。 */
@@ -3471,11 +3513,16 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
     })();
   // Claude 客户端路由区分（避免 Claude Code 与 Claude Desktop 互相顶掉）：
   //  - Claude Code CLI（anthropic shim）用自己的 claude.ai OAuth 调用、发标准 claude-* 名，
-  //    callerKey 不在 appControls 的 key 集合里 → 它的所有 claude-* 请求走 _claudeShimScene；
+  //    callerKey 不在 appControls 的 key 集合里 → 它的 claude-* 请求走 _claudeShimScene；
   //  - Claude Desktop 等 api-key 应用（callerKey 命中 _appKeys）→ 按各自 keyScene[模型名] 绑定。
+  // 启用中的 Claude 订阅源自己提供的模型（如 claude-fable-5）不走这层整表改写，
+  // 否则社区转发和无钥匙请求会被收成 Claude Code 的兜底路由（例如 minimax）。
   const isClaudeClientName = /^claude-/i.test(origModel);
   const isApiKeyCaller = !!(callerKey && _appKeys.has(callerKey));
-  const shimClaudeScene = (!isApiKeyCaller && isClaudeClientName) ? _claudeShimScene : null;
+  const servedByClaudeSubscription = claudeSubscriptionServesModel(origModel, enabledProviders());
+  const shimClaudeScene = (!servedByClaudeSubscription && !isApiKeyCaller && isClaudeClientName)
+    ? _claudeShimScene
+    : null;
   // 先解析绑定，再决定是否标记 Claude 透明改写（见下 claudeFrom）
   const boundScene = expandBoundListRoute(resolveBoundScene({
     origModel,
@@ -3486,19 +3533,15 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
     shimClaudeScene,
     keyScene: _keyScene,
     codexGptFallback: _codexGptFallback,
+    servedByClaudeSubscription,
   }));
   // claudeFrom 仅表示「Claude 客户端名被透明改写到其它模型」。
   // Codex 等多选若把 claude-opus-4-8 当真实模型绑进 keyScene，会自指命中；
   // 若仍标 claudeFrom，路由详情会误显示「Claude 透明映射」且请求名=实际名。
   const claudeFrom = (() => {
-    if (shimClaudeScene) return origModel;
-    const keyBucket = (isApiKeyCaller && callerKey) ? _keyScene[callerKey] : null;
-    const slot = keyBucket
-      ? ((claudeKey && keyBucket[claudeKey]) || (isClaudeClientName && keyBucket['*']) || null)
-      : null;
-    if (!slot) return null;
-    const target = slot.steps?.[0]?.model || slot.scene_name || '';
-    if (target && (target === origModel || (claudeKey && target === claudeKey))) return null;
+    if (!boundScene || !isClaudeClientName) return null;
+    const target = sceneStepModel(boundScene);
+    if (!target || target === origModel || (claudeKey && target === claudeKey)) return null;
     return claudeKey || origModel;
   })();
   // 请求模型名可带分层 codec 前缀（strategy:tier:sharer:provider:model）；上游只认裸模型名。
@@ -4666,7 +4709,7 @@ module.exports = {
   setKeySceneMap, setClaudeShimScene, setCodexGptFallback, setRouterModelMap, setPeerModels, setBackendConfig, setUserAuth,
   setStatsRecorder, setLocalStats, setLocalConfigReader, setAppControls, setAgentApiKey,
   setClaudeModels,
-  resolveBoundScene, expandBoundListRoute,
+  resolveBoundScene, expandBoundListRoute, claudeSubscriptionServesModel,
   // 条件路由规则引擎（供单测/复用）
   pickSteps, evalWhen, modalityOf, estimateInputTokens, extractText, _providerTier,
   stratStepOf, encodeRouteHeader, orderStepsByFlow, buildStrategyCandidates, parsePureCodec, unifySteps,
