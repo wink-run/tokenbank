@@ -83,6 +83,7 @@ async function handleFailure(type, info = {}) {
     meta: { providerId: info.providerId, model: info.model, kind: base.kind, event: type, until: info.until || null, source: expl.source },
   });
   guardian.learnRule(signature, { countDelta: 1, kind: base.kind });
+  if (!rec) return; // 用户忽略过这类提醒，7 天内不再提
 
   // 规则认不出、也没学过：有额度时请模型解释一次，结论存进规则库，下次直接用
   if (base.kind === 'unknown' && !(learned && learned.title) && !modelBusy && takeModelBudget()) {

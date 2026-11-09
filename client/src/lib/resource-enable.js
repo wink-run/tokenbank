@@ -1,4 +1,5 @@
 /**
+import { projectWithGuard } from './project-guard';
  * 启用包：纳管后默认投射 + 生成点将口令（反笔记「藏而不用」）
  */
 
@@ -122,10 +123,10 @@ export async function completeEnablePackage(resource, { lang = 'zh' } = {}) {
 
   if (need.length) {
     try {
-      const proj = await window.electronAPI.resource.project({
-        resourceId: resource.id,
-        agentIds: need,
-      });
+      const proj = await projectWithGuard(
+        { resourceId: resource.id, agentIds: need },
+        { name: resource.display_name || resource.name, lang },
+      );
       if (proj && proj.success) {
         projected = true;
         usedIds = [...new Set([...existing, ...need])];

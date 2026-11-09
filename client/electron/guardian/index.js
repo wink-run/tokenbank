@@ -14,10 +14,12 @@ const CATEGORIES = {
   projection: { default: 'auto' },  // 投射自愈
   gateway: { default: 'auto' },     // 供给源失败解读、额度预警
   install: { default: 'auto' },     // 智能体应用安装失败修复
+  assets: { default: 'auto' },      // 资产体检：质量、安全、重复、新版本（只给建议，改内容要用户点）
+  setup: { default: 'auto' },       // 配置提醒：装了没纳管的应用、还没接模型
 };
 const MODES = new Set(['auto', 'suggest', 'off']);
 const RECORDS_MAX = 300;
-const DEDUPE_MS = 30 * 60 * 1000;
+const DISMISS_QUIET_MS = 7 * 24 * 60 * 60 * 1000;
 
 const DEFAULT_SETTINGS = {
   enabled: true,
@@ -76,28 +78,50 @@ function newId() {
 }
 
 /**
- * 写一条记录。entry: { category, kind, title, detail?, status, signature?, undo?, apply?, meta? }
+ * 写一条记录。entry: { category, kind, title, detail?, advice?, status, signature?, undo?, apply?, link?, meta? }
  * status: done（已自动处理，可撤销）| suggested（建议，等用户点）| info（提醒）| failed（尝试未成功）
- * 同签名在 30 分钟内重复出现 → 合并到原记录（count + 1），不刷屏
+ * 同签名还没处理的记录 → 合并（count + 1）并移到最前，不刷屏；用户忽略过的，7 天内不再提（返回 null）
  */
 function record(entry) {
   const now = Date.now();
   const list = listRecords({ limit: RECORDS_MAX });
   if (entry.signature) {
-    const hit = list.find(r => r.signature === entry.signature
-      && ['info', 'suggested', 'failed'].includes(r.status)
-      && now - (r.lastAt || r.at) < DEDUPE_MS);
-    if (hit) {
-      hit.count = (hit.count || 1) + 1;
-      hit.lastAt = now;
-      if (entry.detail) hit.detail = entry.detail;
-      saveRecords(list);
-      return hit;
+    const idx = list.findIndex(r => r.signature === entry.signature && ['info', 'suggested', 'failed'].includes(r.status));
+    if (idx >= 0) {
+      const hit = list[idx];
+      const merged = {
+        ...hit, ...entry, id: hit.id, at: hit.at, lastAt: now,
+        count: (hit.count || 1) + (entry.countAsRepeat === false ? 0 : 1),
+      };
+      delete merged.countAsRepeat;
+      list.splice(idx, 1);
+      saveRecords([merged, ...list]);
+      return merged;
     }
+    const quiet = list.find(r => r.signature === entry.signature && r.status === 'dismissed'
+      && now - (r.dismissedAt || r.lastAt || r.at) < DISMISS_QUIET_MS);
+    if (quiet) return null;
   }
   const rec = { id: newId(), at: now, lastAt: now, count: 1, ...entry };
+  delete rec.countAsRepeat;
   saveRecords([rec, ...list]);
   return rec;
+}
+
+/** 某签名的问题已经不存在了：把还开着的记录收起（不删除，留痕） */
+function resolveSignature(signature, note) {
+  const list = listRecords({ limit: RECORDS_MAX });
+  let changed = false;
+  for (const r of list) {
+    if (r.signature === signature && ['info', 'suggested', 'failed'].includes(r.status)) {
+      r.status = 'resolved';
+      r.resolvedAt = Date.now();
+      if (note) r.resolvedNote = note;
+      changed = true;
+    }
+  }
+  if (changed) saveRecords(list);
+  return changed;
 }
 
 function updateRecord(id, patch) {
@@ -236,6 +260,7 @@ module.exports = {
   modeOf,
   listRecords,
   record,
+  resolveSignature,
   updateRecord,
   registerAction,
   undo,

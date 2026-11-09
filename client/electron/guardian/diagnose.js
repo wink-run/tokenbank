@@ -91,20 +91,15 @@ function diagnoseResource(resourceId) {
   if (resource.type === 'skill') {
     let dir = null;
     try { dir = require('../resource-canonical').resolveAuthorityDir(resource); } catch { /* ignore */ }
-    const header = dir ? readSkillHeader(dir) : null;
-    if (!header) {
-      findings.push({ level: 'error', code: 'no-skill-md', text: '找不到 SKILL.md，应用无法识别这个技能。' });
-    } else if (!header.hasHeader) {
-      findings.push({ level: 'warn', code: 'no-header', text: 'SKILL.md 缺少开头的 name / description，应用可能不会加载它。' });
-    } else {
-      if (!header.description) {
-        findings.push({ level: 'warn', code: 'no-description', text: 'SKILL.md 没有 description，应用不知道什么时候该用它。' });
-      } else if (header.description.length < 15) {
-        findings.push({ level: 'warn', code: 'short-description', text: `description 太短（「${header.description}」），应用可能很少主动调用；写清它做什么、什么时候用。` });
-      }
-      if (header.name && header.name !== resource.name) {
-        findings.push({ level: 'warn', code: 'name-mismatch', text: `SKILL.md 里的 name（${header.name}）和目录名（${resource.name}）不一致，部分应用会按目录名识别。` });
-      }
+    const checks = require('./skill-checks');
+    const files = checks.readSkillFiles(dir);
+    // 质量（与定期资产体检同一套规则）
+    for (const q of checks.qualityCheck(resource, files)) {
+      findings.push(q.code === 'q-no-skill-md' ? { ...q, level: 'error', code: 'no-skill-md' } : q);
+    }
+    // 安全：高风险操作要让用户知道（投射前也会再确认）
+    for (const f of checks.securityScan(files).findings) {
+      findings.push({ level: 'warn', code: `${f.code}|${f.file}`, text: `安全：${f.text}（${f.file} 第 ${f.line} 行）。` });
     }
   }
 
@@ -120,8 +115,12 @@ function diagnoseResource(resourceId) {
 }
 
 /** 诊断结果里的一键修复 */
-function fixResource(resourceId, type) {
+async function fixResource(resourceId, type) {
   const m = rm();
+  if (type === 'completeDescription') {
+    const r = await require('./asset-checks').completeDescription({ resourceId });
+    return r.ok ? { success: true, description: r.description } : { success: false, error: r.error };
+  }
   if (type === 'repair') {
     const v = m.verifyProjections(resourceId, { repair: true });
     const still = (v.projections || []).filter(p => p.health && !p.health.healthy && p.health.repairable);

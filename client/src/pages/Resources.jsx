@@ -12,6 +12,7 @@ import McpProvidersTab from '../components/McpProvidersTab';
 import SkillInstallDialog from '../components/SkillInstallDialog';
 import AiNeedNotice from '../components/AiNeedNotice';
 import DiagnosePanel from '../components/DiagnosePanel';
+import { projectWithGuard } from '../lib/project-guard';
 import { useAiReadiness } from '../lib/ai-readiness';
 import { isWebBridge } from '../api/webBridge';
 import {
@@ -925,11 +926,21 @@ export default function Resources() {
     }
   }, [scanFilters, refreshDefaultScanRoots, silentAiTagAfterScan, t]);
 
+  // 看护资产体检的小标签（质量 / 安全 / 重复 / 新版本），按资产 id 索引
+  const [assetFlags, setAssetFlags] = useState({});
+  const loadAssetFlags = useCallback(async () => {
+    try {
+      const r = await window.electronAPI?.guardian?.assetFlags?.();
+      if (r?.flags) setAssetFlags(r.flags);
+    } catch { /* 没有看护时不显示 */ }
+  }, []);
+
   const loadAll = useCallback(async ({ silent = false } = {}) => {
     // 先扫描即纳管（入库），再读取 resources；打标不跟首屏走，避免整页空白
     await runScan({ silent, autoTag: false, announce: false });
     await loadBase({ silent });
-  }, [loadBase, runScan]);
+    loadAssetFlags();
+  }, [loadBase, runScan, loadAssetFlags]);
 
   /** 推荐页纳管后的静默刷新:不切 loading,避免卸载 PersonalizedRecommend 丢按钮状态 */
   const refreshAfterAdopt = useCallback(async () => {
@@ -1261,6 +1272,8 @@ export default function Resources() {
       }
       setPayConfirmId(catalogId);
       setTimeout(() => setPayConfirmId((cur) => (cur === catalogId ? '' : cur)), 6000);
+      // 付费把关：社区里有免费的类似技能时，打开详情让用户先看看
+      if (freeAlternatives(catalogItem).length) setSelectedKey(`cat:${catalogId}`);
       return;
     }
     setPayConfirmId('');
@@ -1984,10 +1997,8 @@ export default function Resources() {
     setBusy(resourceId);
     setError('');
     try {
-      const res = await window.electronAPI.resource.project({
-        resourceId,
-        agentIds: projectSelected,
-      });
+      const res = await projectWithGuard({ resourceId, agentIds: projectSelected }, { t, name: target?.display_name || target?.name });
+      if (res.canceled) return;
       if (!res.success) {
         setError(res.error || t('resources.projectFailed'));
         return;
@@ -2000,6 +2011,7 @@ export default function Resources() {
           resourceId,
           agentIds: projectSelected,
           force: true,
+          allowRisky: true, // 走到这里说明不是高风险，或用户已确认过
         });
         if (finalRes.success) setMsg(finalRes.hint || t('resources.projectOk'));
         else setError(finalRes.error || t('resources.projectFailed'));
@@ -3302,6 +3314,23 @@ export default function Resources() {
     );
   }
 
+  /** 看护体检标签：有风险 > 需完善 > 有重复 > 有新版本 */
+  function renderAssetFlags(resourceId) {
+    const f = resourceId && assetFlags[resourceId];
+    if (!f) return null;
+    const chip = (key, cls, label, title) => (
+      <span key={key} title={title} className={`shrink-0 text-[10px] px-1.5 py-px rounded ${cls}`}>{label}</span>
+    );
+    return (
+      <>
+        {f.security === 'high' && chip('risk', 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300', t('resources.flag.risk'), t('resources.flag.riskHint'))}
+        {f.quality === 'warn' && chip('q', 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300', t('resources.flag.quality'), t('resources.flag.qualityHint'))}
+        {f.duplicateOf?.length > 0 && chip('dup', 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300', t('resources.flag.dup'), t('resources.flag.dupHint'))}
+        {f.updateAvailable && chip('up', 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300', t('resources.flag.update'), t('resources.flag.updateHint', { from: f.updateAvailable.from, to: f.updateAvailable.to }))}
+      </>
+    );
+  }
+
   function renderLibraryRow(li, sel, nested = '') {
     const visual = typeVisual(li.type);
     const it = li.item;
@@ -3327,6 +3356,7 @@ export default function Resources() {
               {li.type === 'assistant' && it.depsBroken && (
                 <span className="shrink-0 text-[10px] px-1.5 py-px rounded bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300">{t('resources.depsBroken')}</span>
               )}
+              {renderAssetFlags(li.resourceId)}
             </>
           )}
         />
@@ -3531,6 +3561,34 @@ export default function Resources() {
     );
   }
 
+  /** 付费条目的免费替代：同类型、免费、名称与描述相近（规则打分，取前 3） */
+  function freeAlternatives(item) {
+    if (!item || !isPaidCatalog(item)) return [];
+    const grams = (s) => {
+      const t0 = String(s || '').toLowerCase();
+      const set = new Set();
+      for (let i = 0; i < t0.length - 1; i++) {
+        const g = t0.slice(i, i + 2);
+        if (/\S\S/.test(g)) set.add(g);
+      }
+      t0.split(/[^a-z0-9]+/).filter(w => w.length > 2).forEach(w => set.add(w));
+      return set;
+    };
+    const mine = grams(`${item.name} ${item.display_name || ''} ${item.description || ''}`);
+    return (catalog || [])
+      .filter(c => c.catalogId !== item.catalogId && c.type === item.type && !isPaidCatalog(c))
+      .map(c => {
+        const g = grams(`${c.name} ${c.display_name || ''} ${c.description || ''}`);
+        let n = 0;
+        g.forEach(x => { if (mine.has(x)) n++; });
+        return { c, score: n / Math.max(4, Math.min(mine.size, g.size)) };
+      })
+      .filter(x => x.score >= 0.35)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+      .map(x => x.c);
+  }
+
   function renderCatalogInspector(item) {
     const visual = typeVisual(item.type);
     const name = resourceDisplayName(item.type, item);
@@ -3571,6 +3629,21 @@ export default function Resources() {
                   <li key={`${d.type}:${d.name}`}>{typeBadge(d.type, t)} · {d.name}</li>
                 ))}
               </ul>
+            </div>
+          </InspectorSection>
+        )}
+        {!item.installed && freeAlternatives(item).length > 0 && (
+          <InspectorSection title={t('resources.freeAltTitle')}>
+            <div className="rounded-lg border border-emerald-200/80 dark:border-emerald-900/50 bg-emerald-50/60 dark:bg-emerald-950/20 px-2.5 py-2 space-y-1.5">
+              <p className="text-[11px] text-emerald-800 dark:text-emerald-300">{t('resources.freeAltHint')}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {freeAlternatives(item).map(alt => (
+                  <button key={alt.catalogId} type="button" onClick={() => setSelectedKey(`cat:${alt.catalogId}`)}
+                    className="text-[11px] px-2 py-0.5 rounded-md bg-white dark:bg-zinc-900 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/40">
+                    {alt.display_name || alt.name}
+                  </button>
+                ))}
+              </div>
             </div>
           </InspectorSection>
         )}
