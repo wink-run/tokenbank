@@ -193,6 +193,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     introspectNow: () => ipcRenderer.invoke('guardian:introspectNow'),
     listReports: () => ipcRenderer.invoke('guardian:listReports'),
     preferredTargets: (opts) => ipcRenderer.invoke('guardian:preferredTargets', opts || {}),
+    shareCheck: (input) => ipcRenderer.invoke('guardian:shareCheck', input || {}),
+    assetSnapshot: () => ipcRenderer.invoke('guardian:assetSnapshot'),
   },
   config: {
     read:  () => ipcRenderer.invoke('config:read'),

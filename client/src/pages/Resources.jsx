@@ -1459,9 +1459,28 @@ export default function Resources() {
     }
     const busyKey = `rec-${managed?.id || resourceLike?.resourceId || name}`;
     const alreadyPushed = isPushedToCommunity(managed || resourceLike, catalog);
-    if (!window.confirm(alreadyPushed
+    // 分享前整理：私人路径、密钥、邮箱、公司内网地址换成占位符；发布的是清理后的版本，本机原文不动
+    const localDescription = description;
+    let displayName = managed?.display_name || resourceLike?.display_name || name;
+    let cleaned = null;
+    try {
+      const sc = await window.electronAPI?.guardian?.shareCheck?.({ content, description, displayName });
+      if (sc?.changed) cleaned = sc;
+    } catch { /* 看护不可用时照旧 */ }
+    const baseConfirm = alreadyPushed
       ? t('resources.recommendAgainConfirm', { name })
-      : t('resources.recommendConfirm', { name }))) return;
+      : t('resources.recommendConfirm', { name });
+    const cleanNote = cleaned
+      ? `\n\n${t('resources.shareCleanNote', {
+        list: cleaned.findings.map((f) => `${f.label} ${f.count} 处（${f.samples.join('、')}）`).join('\n'),
+      })}`
+      : '';
+    if (!window.confirm(baseConfirm + cleanNote)) return;
+    if (cleaned) {
+      content = cleaned.content;
+      description = cleaned.description;
+      displayName = cleaned.displayName || displayName;
+    }
     setBusy(busyKey);
     setError('');
     setMsg('');
@@ -1469,7 +1488,7 @@ export default function Resources() {
       // 本机缺说明时先落库，卡片也能立刻显示
       const storedDesc = String(managed?.description || '').trim();
       const storedBlank = !storedDesc || /^[|>][+-]?$/.test(storedDesc);
-      if (description && managed?.id && storedBlank
+      if (localDescription && managed?.id && storedBlank
         && window.electronAPI?.resource?.saveResource) {
         try {
           const saved = await window.electronAPI.resource.saveResource({
@@ -1477,7 +1496,7 @@ export default function Resources() {
             type: rtype,
             name: managed.name || name,
             display_name: managed.display_name || name,
-            description,
+            description: localDescription,
             content: managed.content || content,
             metadata: managed.metadata || {},
           });
@@ -1491,7 +1510,7 @@ export default function Resources() {
         name,
         content,
         type: rtype,
-        display_name: managed?.display_name || resourceLike?.display_name || name,
+        display_name: displayName,
         description,
         metadata: {
           ...(managed?.metadata || resourceLike?.metadata || {}),
@@ -1512,8 +1531,8 @@ export default function Resources() {
             type: rtype,
             name: managed.name || name,
             display_name: managed.display_name || name,
-            description: managed.description || description,
-            content: managed.content || content,
+            description: managed.description || localDescription,
+            content: managed.content || storedContent || content,
             metadata: {
               ...(managed.metadata || {}),
               community_recommended: true,
@@ -3133,6 +3152,12 @@ export default function Resources() {
     const isOpen = (g) => searching || openSeries.has(g.key) || g.rows.some(r => r.key === selectedKey);
     const visibleRows = blocks.flatMap(b => (b.group ? (isOpen(b.group) ? b.group.rows : []) : [b.row]));
     visibleKeysRef.current = visibleRows.map(r => r.key);
+    // 外部按资产 id 跳来（r-<id>），而技能列表按本机路径做 key（d-…）：换成对应的那一行
+    if (selectedKey && selectedKey.startsWith('r-') && !rows.some(r => r.key === selectedKey)) {
+      const rid = selectedKey.slice(2);
+      const alias = rows.find(r => r.resourceId === rid || r.item?.resourceId === rid || r.item?.id === rid);
+      if (alias && alias.key !== selectedKey) setTimeout(() => setSelectedKey(alias.key), 0);
+    }
     const selected = rows.find(r => r.key === selectedKey) || null;
 
     return (
