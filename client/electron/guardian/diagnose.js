@@ -103,6 +103,10 @@ function diagnoseResource(resourceId) {
     }
   }
 
+  if (require('./asset-checks').isSimplePrompt(resource)) {
+    findings.push({ level: 'info', code: 'p-simple', text: '提示词只有一句话，模型容易理解偏；可以让它帮你补全成完整版本，原版会保留。', fix: { type: 'enhancePrompt', label: '增强提示词' } });
+  }
+
   if (!findings.some(f => f.level === 'error')) {
     findings.push({
       level: 'ok', code: 'looks-fine',
@@ -120,6 +124,10 @@ async function fixResource(resourceId, type) {
   if (type === 'completeDescription') {
     const r = await require('./asset-checks').completeDescription({ resourceId });
     return r.ok ? { success: true, description: r.description } : { success: false, error: r.error };
+  }
+  if (type === 'enhancePrompt') {
+    const r = await require('./asset-checks').enhancePrompt({ resourceId });
+    return r.ok ? { success: true, content: r.content } : { success: false, error: r.error };
   }
   if (type === 'repair') {
     const v = m.verifyProjections(resourceId, { repair: true });

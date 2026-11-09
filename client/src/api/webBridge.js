@@ -99,6 +99,9 @@ const guardian = {
   dismiss: (id) => invoke('guardian:dismiss', id),
   runChecks: call0('guardian:runChecks'),
   assetFlags: call0('guardian:assetFlags'),
+  introspectNow: call0('guardian:introspectNow'),
+  listReports: call0('guardian:listReports'),
+  preferredTargets: call('guardian:preferredTargets', {}),
 };
 
 // preload 的 agent 段里「智能体聚合」部分；设备代理的 start/stop/getStatus/日志在 CLI 已有 /api/agent/*，不放这里

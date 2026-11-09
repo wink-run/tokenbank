@@ -99,18 +99,28 @@ export async function completeEnablePackage(resource, { lang = 'zh' } = {}) {
   }
 
   let candidates = [...DEFAULT_LORD_IDS];
+  let installedIds = [];
   try {
     const res = await window.electronAPI.resource.listAgentTargets();
     const targets = (res && (res.agents || res.targets || res.items)) || [];
     const ids = targets
       .map((a) => a.id || a.agentId || a.agent_id)
       .filter(Boolean);
+    installedIds = ids;
     if (ids.length) {
       const preferred = DEFAULT_LORD_IDS.filter((id) => ids.includes(id));
       candidates = preferred.length ? preferred : ids.slice(0, 4);
     }
   } catch {
     /* 用默认优先序 */
+  }
+
+  // 按场景投射：最近真正在用技能的应用优先，不再一股脑投到所有默认应用（没有使用记录时照旧）
+  try {
+    const pref = await window.electronAPI.guardian?.preferredTargets?.({ resourceType: resource.type, candidates: installedIds.length ? installedIds : candidates });
+    if (pref?.agentIds?.length) candidates = pref.agentIds;
+  } catch {
+    /* 看护不可用时照旧 */
   }
 
   // 已有投射则不再强行改

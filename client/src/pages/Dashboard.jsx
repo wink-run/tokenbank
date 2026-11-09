@@ -7,6 +7,7 @@ import { useCurrency } from '../store/currency';
 import { RANGE_KEYS, RANGE_DAYS } from '../utils/ranges';
 import { isAppIcon, appIconSvg } from '../lib/appIcons';
 import { brandIconFor } from '../lib/brandIcons';
+import WeeklyReportCard from '../components/WeeklyReportCard';
 
 const PAID_PROVIDERS = ['openai', 'anthropic-paid', 'openrouter', 'anthropic'];
 const P2P_PROVIDERS  = ['tokenbank-p2p'];
@@ -748,6 +749,8 @@ export default function Dashboard() {
         </div>
         <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">{t('dashboard.subtitle')}</p>
       </div>
+
+      <WeeklyReportCard />
 
       {/* Summary cards — 5列 */}
       <div className="grid grid-cols-5 gap-2.5">
