@@ -306,6 +306,10 @@ export default {
 
   // ── App list ──
   'gateway.apps.new': '+ New app',
+  'gateway.docker.agentsTitle': 'Docker: CLI agents run inside the container',
+  'gateway.docker.agentsInstall': 'Install Claude Code, pi and others from the App toolbox. They live under /data and survive image upgrades; then click Manage in the list below.',
+  'gateway.docker.agentsLogin': 'Log in once inside the container (saved under /data), for example:',
+  'gateway.docker.agentsWorkspace': 'Agents work in /workspace by default; mount your project directory there.',
   'gateway.apps.newHint': 'Apps not in the toolbox can be connected via API using「New App」',
   'gateway.supported.title': 'Supported apps',
   'gateway.supported.installed': 'Installed',
@@ -1520,6 +1524,7 @@ export default {
   'debug.agent.sessionDirTitle': 'This session’s folder: {dir}',
   'debug.agent.mainShort': 'Main: {name}',
   'debug.agent.noWorkingDir': 'This session has no working folder — choose one before running',
+  'debug.agent.webPickDir': 'Working directory inside the container (/workspace is your mounted project folder; a subfolder works too):',
   'debug.agent.needAgent': 'Manage an agent first',
   'debug.agent.hubPlaceholder': 'Describe a collaborative task for main agent {name}. Paste images or upload files… (Cmd/Ctrl+Enter)',
   'debug.agent.directPlaceholder': 'Direct task to {name}. Paste images or upload files… (Cmd/Ctrl+Enter)',

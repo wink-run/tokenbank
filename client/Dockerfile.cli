@@ -14,8 +14,9 @@ COPY src ./src
 RUN npx vite build
 
 # ── Stage 2: native deps（better-sqlite3：优先预编译，否则 node-gyp 编译）────────
-# 固定 Node 20.18 LTS：20.20.x 尚无预编译包；slim 需补 python3/g++ 作编译回退
-FROM node:20.18-bookworm-slim AS native-deps
+# 固定 Node 22.21 LTS：pi 等命令行智能体要求 Node ≥ 22.19；better-sqlite3 按 Node ABI 提供预编译包（22.x 同一 ABI）；
+# slim 需补 python3/g++ 作编译回退
+FROM node:22.21-bookworm-slim AS native-deps
 WORKDIR /deps
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ libsqlite3-dev \
@@ -25,7 +26,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 # ── Stage 3: runtime（与 native-deps 同 Node 版本）────────────────────────────
-FROM node:20.18-bookworm-slim
+FROM node:22.21-bookworm-slim
 WORKDIR /app
 
 # CLI entry + shared helpers + 构建脚本（剪枝后删除 scripts）
@@ -54,5 +55,16 @@ ENV LLM_AGENT_CONFIG_DIR=/data/.llm-agent
 # 默认 Token Bank 服务地址（未在 local-config.json 配置 cloud_config.url 时使用）
 # ENV TOKEN_SERVER_URL=https://your-token-server.example.com
 
-ENTRYPOINT ["node", "cli/gateway.js"]
+# 命令行智能体（Claude Code、pi、Codex…）装在 /data 下：普通用户可写，升级镜像后仍在
+ENV NPM_CONFIG_PREFIX=/data/.npm-global
+ENV PATH=/data/.npm-global/bin:$PATH
+# 智能体默认工作目录：把项目目录挂到 /workspace
+ENV TOKENBANK_WORKDIR=/workspace
+# 运行用户（镜像自带的 node 用户）；绑定宿主机目录时可设为宿主机用户的 uid/gid
+ENV TOKENBANK_UID=1000
+ENV TOKENBANK_GID=1000
+RUN mkdir -p /workspace
+
+# 以 root 启动只做准备（修正 /data 属主），随后降为 TOKENBANK_UID 运行，见 cli/docker-entry.js
+ENTRYPOINT ["node", "cli/docker-entry.js"]
 CMD ["start"]

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { isWebBridge } from '../api/webBridge';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { loadGatewayAvailableModels, resolveLocalGatewayBase, inferModelTypeFromName } from '../api/gatewayModels';
@@ -3558,6 +3559,19 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                 syncError={toolboxSyncError}
               />
             </div>
+
+            {/* Docker：命令行智能体装在容器里，首次使用要在容器里登录 */}
+            {isWebBridge() && (
+              <div className="mb-3 rounded-xl border border-sky-200/80 dark:border-sky-900/50 bg-sky-50/70 dark:bg-sky-950/20 px-3 py-2 text-[11px] text-sky-800 dark:text-sky-200 space-y-1">
+                <p className="font-medium">{t('gateway.docker.agentsTitle')}</p>
+                <p className="text-sky-700/90 dark:text-sky-300/80">{t('gateway.docker.agentsInstall')}</p>
+                <p className="text-sky-700/90 dark:text-sky-300/80">
+                  {t('gateway.docker.agentsLogin')}{' '}
+                  <code className="font-mono px-1 py-px rounded bg-white/80 dark:bg-zinc-900/60 select-all">docker exec -it -u node {'<容器名>'} claude</code>
+                </p>
+                <p className="text-sky-700/90 dark:text-sky-300/80">{t('gateway.docker.agentsWorkspace')}</p>
+              </div>
+            )}
 
             {/* 手工添加 → 弹层（ManualAddPanel，portal 到 body，避免被应用列表卡片裁切）*/}
             {manualDraft && (

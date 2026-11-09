@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { isWebBridge } from '../api/webBridge';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getConfig, getLocalConfig, getGateway, getApps } from '../api/adapter';
@@ -2606,9 +2607,15 @@ export default function Debug() {
     if (!window.electronAPI?.agent?.pickWorkingDir) return;
     if (executing || taskCanStop) return;
     try {
-      const result = await window.electronAPI.agent.pickWorkingDir(
-        agentWorkingDir.trim() ? { defaultPath: agentWorkingDir.trim() } : {},
-      );
+      // Docker / Web 版没有系统文件对话框：直接填容器内路径（默认 /workspace，即挂载的项目目录）
+      let pickOpts = agentWorkingDir.trim() ? { defaultPath: agentWorkingDir.trim() } : {};
+      if (isWebBridge()) {
+        const typed = window.prompt(t('debug.agent.webPickDir'), agentWorkingDir.trim() || '/workspace');
+        if (typed == null) return;
+        pickOpts = { defaultPath: typed.trim() || '/workspace' };
+      }
+      const result = await window.electronAPI.agent.pickWorkingDir(pickOpts);
+      if (!result.success && result.error && isWebBridge()) setDirError(result.error);
       if (result.success && result.path) {
         const execKey = agentSessionKey(selectedAgent);
         const path = normalizeWorkingDir(result.path);

@@ -85,6 +85,17 @@ function init() {
     require('../electron/ipc-handlers-resource').registerResourceHandlers();
     require('../electron/ipc-handlers-agent').registerAgentHandlers();
     stub.__handlers.set('llm:fetch', llmFetch);
+    // 没有系统文件对话框：选工作目录 = 校验 Web 界面填写的路径，默认 /workspace（挂载的项目目录）
+    stub.__handlers.set('agent:pickWorkingDir', async (_event, opts = {}) => {
+      const fs = require('fs');
+      const fallback = process.env.TOKENBANK_WORKDIR || process.cwd();
+      const wanted = String((opts && opts.defaultPath) || '').trim() || fallback;
+      const abs = path.resolve(fallback, wanted);
+      try {
+        if (fs.statSync(abs).isDirectory()) return { success: true, path: abs };
+      } catch { /* 不存在 */ }
+      return { success: false, error: `目录不存在：${abs}` };
+    });
     // 已纳管应用与 Web 界面「网关」页同源：admin-api 注入（含检测到的命令行智能体），否则读 local-config
     try {
       const { readLocalConfig } = require('../shared/config-loader');

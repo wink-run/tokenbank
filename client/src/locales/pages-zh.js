@@ -306,6 +306,10 @@ export default {
 
   // ── AppManager 列表 ──
   'gateway.apps.new': '+ 新建应用',
+  'gateway.docker.agentsTitle': 'Docker 版：命令行智能体装在容器里运行',
+  'gateway.docker.agentsInstall': '在「应用百宝箱」里一键安装 Claude Code、pi 等，装在 /data 下，升级镜像后仍在；装好后在下面列表里点「纳管」。',
+  'gateway.docker.agentsLogin': '首次使用要在容器里登录一次（登录状态保存在 /data），例如：',
+  'gateway.docker.agentsWorkspace': '智能体默认在 /workspace 里干活，把项目目录挂载到这里即可。',
   'gateway.apps.newHint': '不在应用百宝箱中的应用，可通过「新建应用」以 API 方式接入',
   'gateway.supported.title': '支持的应用',
   'gateway.supported.installed': '已安装',
@@ -1525,6 +1529,7 @@ export default {
   'debug.agent.sessionDirTitle': '本会话工作目录：{dir}',
   'debug.agent.mainShort': '主：{name}',
   'debug.agent.noWorkingDir': '本会话未绑定工作目录 — 执行前请选择',
+  'debug.agent.webPickDir': '智能体在容器里的工作目录（/workspace 是挂载进来的项目目录，可填其下的子目录）：',
   'debug.agent.needAgent': '请先纳管 Agent',
   'debug.agent.hubPlaceholder': '向主 Agent {name} 描述协同任务，可粘贴图片或上传文件…（Cmd/Ctrl+Enter 发送）',
   'debug.agent.directPlaceholder': '向 {name} 描述任务，可粘贴图片或上传文件…（Cmd/Ctrl+Enter 发送）',

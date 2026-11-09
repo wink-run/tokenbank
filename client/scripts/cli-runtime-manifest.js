@@ -12,6 +12,7 @@ const CLI_ENTRY_POINTS = [
   path.join(CLIENT_ROOT, 'cli', 'gateway.js'),
   path.join(CLIENT_ROOT, 'cli', 'admin-api.js'),
   path.join(CLIENT_ROOT, 'cli', 'agent-control.js'),
+  path.join(CLIENT_ROOT, 'cli', 'docker-entry.js'),
   path.join(CLIENT_ROOT, 'cli', 'ipc-bridge.js'),
   path.join(CLIENT_ROOT, 'cli', 'electron-stub.js'),
   // 资产管理与命令行智能体纳管：ipc-bridge 运行时才 require，静态扫描需显式列出

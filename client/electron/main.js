@@ -280,11 +280,8 @@ function revertAppConfigFile(app_id, config_file) {
   // Pi 家族：合并写入，还原只删 tokenbank 并交回原来的默认模型
   if (isPiApp(app_id)) {
     try {
-      const piCfg = require('./pi-config');
       const app = (readLocalConfig()?.apps || []).find(a => a.id === app_id);
-      const profile = piCfg.profileForEntity(app_id)
-        || piCfg.profileForEntity(app?.preset_id || app?.agent_id);
-      piCfg.revertFamily(profile);
+      require('./app-config-write').revertPiFamilyConfig(app_id, app);
     } catch {}
     return;
   }
@@ -2392,15 +2389,9 @@ function allowCreateMissingProxyConfig(handlerId, { isClaudeDesktop } = {}) {
 }
 
 /** 确保代理配置可写：缺文件时按策略建父目录（整份覆盖路径随后 writeFileSync，勿预写空文件以免误备份） */
-function ensureProxyConfigWritable(file, { allowCreate } = {}) {
-  if (fs.existsSync(file)) return { ok: true };
-  if (!allowCreate) return { ok: false, error: 'config-missing', file };
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    return { ok: true, created: true };
-  } catch (e) {
-    return { ok: false, error: e.message || 'mkdir-failed', file };
-  }
+// 实现在 app-config-write.js（桌面版与 Docker 共用）
+function ensureProxyConfigWritable(file, opts = {}) {
+  return require('./app-config-write').ensureProxyConfigWritable(file, opts);
 }
 
 // api_key 应用是否检测到（跨平台）：
@@ -2486,23 +2477,7 @@ function apiKeyDetect(d) {
 
 // 递归解析 patch/env 中的 {BASE}/{KEY}/{REVERSE}（WorkBuddy models.json 等嵌套结构）
 function resolvePatchDeep(obj, ctx = {}) {
-  const cl = require('./config-loader');
-  if (typeof obj === 'string') {
-    return cl.resolvePlaceholders(obj, {
-      reverse: ctx.reverse,
-      mitm: ctx.mitm,
-      caPath: ctx.caPath,
-    })
-      .replace(/\{BASE\}/g, ctx.base || '')
-      .replace(/\{KEY\}/g, ctx.key || '');
-  }
-  if (Array.isArray(obj)) return obj.map(v => resolvePatchDeep(v, ctx));
-  if (obj && typeof obj === 'object') {
-    const out = {};
-    for (const [k, v] of Object.entries(obj)) out[k] = resolvePatchDeep(v, ctx);
-    return out;
-  }
-  return obj;
+  return require('./app-config-write').resolvePatchDeep(obj, ctx);
 }
 
 // dot-path patch（a.b.c）→ 嵌套对象（用于整份写出 JSON / YAML 配置）
@@ -5474,34 +5449,16 @@ function registerIPC() {
         setAppHosted(app_id, true);
         return { ok: true, file, envCount: 0 };
       }
-      // Pi 家族：只合并 tokenbank 提供商。默认模型写 settings.json，omp 写 modelRoles.default。
+      // Pi 家族：只合并 tokenbank 提供商（实现在 app-config-write.js，与 Docker 共用）
       {
-        const piCfg = require('./pi-config');
-        const profile = piCfg.profileForHandler(handlerId);
-        if (profile) {
-          file = piCfg.modelsFile(profile);
-          const ensured = ensureProxyConfigWritable(file, {
-            allowCreate: allowCreateMissingProxyConfig(handlerId),
-          });
-          if (!ensured.ok) return { ok: false, error: ensured.error || 'config-missing', file };
-          let modelIds = piCfg.modelIdsFromPatch(resolvedPatch);
-          if (!modelIds.length) {
-            try {
-              const res = await fetch(`${patchCtx.base}/v1/models`, {
-                headers: patchCtx.key ? { Authorization: `Bearer ${patchCtx.key}` } : {},
-              });
-              if (res.ok) {
-                const json = await res.json();
-                modelIds = [...new Set(
-                  (Array.isArray(json?.data) ? json.data : [])
-                    .map(m => m?.id).filter(x => typeof x === 'string' && x.trim()),
-                )];
-              }
-            } catch (e) { console.warn('[pi] fetch /v1/models failed:', e.message); }
-          }
-          piCfg.applyFamily(profile, { patch: resolvedPatch, modelIds });
-          setAppHosted(app_id, true);
-          return { ok: true, file, envCount: 0 };
+        const piResult = await require('./app-config-write').writePiFamilyConfig(handlerId, resolvedPatch, {
+          base: patchCtx.base,
+          key: patchCtx.key,
+          allowCreate: allowCreateMissingProxyConfig(handlerId),
+        });
+        if (piResult) {
+          if (piResult.ok) setAppHosted(app_id, true);
+          return piResult;
         }
       }
       // Trae：模型配置由用户在 IDE 内手工填写，此处不写入 state.vscdb

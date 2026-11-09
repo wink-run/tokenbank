@@ -107,3 +107,12 @@ test('llm.fetch only reaches loopback hosts', async () => {
   assert.equal(body.result.status, 0);
   assert.match(body.result.error, /local gateway/);
 });
+
+test('picking a working directory validates the typed path (no file dialog in web mode)', async () => {
+  const ok = await (await post('/api/bridge/invoke', { channel: 'agent:pickWorkingDir', args: [{ defaultPath: HOME }] })).json();
+  assert.equal(ok.result.success, true);
+  assert.equal(ok.result.path, HOME);
+  const missing = await (await post('/api/bridge/invoke', { channel: 'agent:pickWorkingDir', args: [{ defaultPath: path.join(HOME, 'nope') }] })).json();
+  assert.equal(missing.result.success, false);
+  assert.match(missing.result.error, /nope/);
+});

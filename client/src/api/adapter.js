@@ -119,7 +119,10 @@ const httpAdapter = {
   },
   apps: {
     list:           ()        => adminFetch('/api/apps'),
-    supported:      ()        => Promise.resolve([]),   // 支持应用图标行：安装检测仅桌面端，Web/Docker 不展示
+    // Docker：列出可用 npm 一键安装的命令行智能体（Claude Code、pi 等），装在容器内
+    supported:      ()        => adminFetch('/api/apps/supported'),
+    npmGlobalInstall:   (id)  => adminFetch('/api/apps/npm-install', { method: 'POST', body: JSON.stringify({ id }) }),
+    npmGlobalUninstall: (id)  => adminFetch('/api/apps/npm-uninstall', { method: 'POST', body: JSON.stringify({ id }) }),
     create:         (d)       => adminFetch('/api/apps', { method: 'POST', body: JSON.stringify(d) }),
     update:         ({ id, ...d }) => adminFetch(`/api/apps/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(d) }),
     delete:         (id)      => adminFetch(`/api/apps/${encodeURIComponent(id)}`, { method: 'DELETE' }),
@@ -130,8 +133,9 @@ const httpAdapter = {
     claudeModels:   ()        => adminFetch('/api/apps/claude-models'),
     claudeDevModeStatus: ()   => Promise.resolve({ installed: false, dev_mode_ready: false }),
     writeEnv:       ()        => Promise.resolve({ ok: false, error: 'desktop-only' }),
-    writeConfigFile:()        => Promise.resolve({ ok: false, error: 'desktop-only' }),
-    revertConfigFile: ()      => Promise.resolve({ ok: true }),
+    // Docker：Pi 家族（pi / omo / prime / omp）写 models.json；其它写配置文件类应用仍仅桌面版
+    writeConfigFile:  (d)     => adminFetch('/api/apps/write-config-file', { method: 'POST', body: JSON.stringify(d || {}) }),
+    revertConfigFile: (d)     => adminFetch('/api/apps/revert-config-file', { method: 'POST', body: JSON.stringify(d || {}) }),
     detail:         (app, days) => adminFetch('/api/apps/detail', { method: 'POST', body: JSON.stringify({ app, days }) }),
     sessionTrace:     (agent_id, session_id) => adminFetch('/api/apps/session-trace', { method: 'POST', body: JSON.stringify({ agent_id, session_id }) }),
     handoffTargets: ()        => adminFetch('/api/apps/handoff-targets'),

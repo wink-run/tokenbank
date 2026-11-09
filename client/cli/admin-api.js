@@ -187,10 +187,133 @@ function listAppsWithDetected() {
   } catch (e) {
     console.warn('[admin-api] detect CLI agents failed:', e.message);
   }
+  // 写配置文件类的命令行智能体（Pi 家族：pi / omo / prime / omp）：命令已装、尚未添加 → 虚拟行「纳管」
+  try {
+    const piCfg = require('../electron/pi-config');
+    const { canonicalAppEntityId } = require('../electron/app-handlers');
+    const linked = new Set(saved.filter(a => a.preset_id).map(a => canonicalAppEntityId(a.preset_id)));
+    for (const d of (configLoader.apiKeyApps() || [])) {
+      if (d.enable_3p === false) continue;
+      const profile = piCfg.profileForEntity(d.id);
+      if (!profile || !commandInstalled(profile.command)) continue;
+      const cid = canonicalAppEntityId(d.id);
+      if (linked.has(cid)) continue;
+      let ent = null;
+      try { ent = configLoader.appEntityById(cid); } catch { /* ignore */ }
+      detected.push({
+        id: 'app-apikey-' + cid,
+        name: ent?.name || d.name || cid,
+        icon: ent?.icon || d.icon || '🤖',
+        link_method: 'api-key',
+        host_method: 'config-file',
+        _virtual_apikey: true,
+        preset_id: cid,
+        capabilities: ent?.capabilities || null,
+        route_bindable: ent ? ent.route_bindable !== false : (d.route_bindable !== false),
+        route_multi_select: !!ent?.route_multi_select,
+        config_file: piCfg.modelsFile(profile),
+        patch: d.patch || null,
+        env: d.env || null,
+        configured: false,
+        installed: true,
+        linked: false,
+        api_key: null,
+        route_id: null,
+      });
+      linked.add(cid);
+    }
+  } catch (e) {
+    console.warn('[admin-api] detect config-file agents failed:', e.message);
+  }
   return [...saved, ...detected];
 }
 
 ipcBridge.setAppsGetter(listAppsWithDetected);
+
+// ── 命令行智能体一键安装（Docker 内 npm i -g，装到 NPM_CONFIG_PREFIX，与桌面版 apps:npmGlobalInstall 一致）──
+
+/** 命令行智能体的可执行命令名（检测是否已装） */
+const CLI_COMMANDS = {
+  'claude-code': 'claude', codex: 'codex', opencode: 'opencode', openclaw: 'openclaw',
+  'deepseek-harness': 'dsh', pi: 'pi', omo: 'omo', 'kimi-code': 'kimi', hermes: 'hermes',
+};
+
+function cliCommandFor(id) {
+  try {
+    const profile = require('../electron/pi-config').profileForEntity(id);
+    if (profile?.command) return profile.command;
+  } catch { /* ignore */ }
+  try {
+    const tool = (configLoader.tools() || []).find(t => t.id === id);
+    if (tool?.detect?.command) return tool.detect.command;
+  } catch { /* ignore */ }
+  return CLI_COMMANDS[id] || null;
+}
+
+function commandInstalled(cmd) {
+  if (!cmd) return false;
+  try { return !!require('../electron/shim-installer').resolveRealCommand(cmd); } catch { return false; }
+}
+
+/** 应用百宝箱：Docker 里只列能用 npm 装的命令行智能体，安装状态按命令是否在 PATH */
+function listSupportedCliApps() {
+  const pkgs = configLoader.appNpmPackages() || {};
+  const urls = configLoader.appInstallUrls() || {};
+  const uninstallUrls = configLoader.appUninstallUrls() || {};
+  const out = [];
+  for (const [id, pkg] of Object.entries(pkgs)) {
+    let ent = null;
+    try { ent = configLoader.appEntityById(id); } catch { /* ignore */ }
+    out.push({
+      id,
+      name: ent?.name || id,
+      icon: ent?.icon || '🤖',
+      capabilities: ent?.capabilities || null,
+      install_url: urls[id] || null,
+      uninstall_url: uninstallUrls[id] || null,
+      install_guide: null,
+      uninstall_guide: null,
+      npm_package: pkg,
+      kind: 'cli',
+      installed: commandInstalled(cliCommandFor(id)),
+    });
+  }
+  out.sort((a, b) => (Number(b.installed) - Number(a.installed)) || a.name.localeCompare(b.name));
+  return out;
+}
+
+/** 装 / 卸后刷新各处的检测缓存，网关页和资产页立即看到变化 */
+function invalidateAgentCaches() {
+  try { require('../electron/shim-installer').clearCommandCache(); } catch { /* ignore */ }
+  try { require('../electron/resource-agent-targets').invalidateAgentInstalledCache(); } catch { /* ignore */ }
+  try { require('../electron/agent-executor').listAvailableAgents({ force: true }).catch(() => {}); } catch { /* ignore */ }
+}
+
+function runNpm(args, timeout = 300000) {
+  return new Promise((resolve) => {
+    require('child_process').execFile('npm', args, { timeout, env: process.env },
+      (err, _stdout, stderr) => resolve(err
+        ? { ok: false, error: (String(stderr || '') || err.message).slice(0, 400) }
+        : { ok: true }));
+  });
+}
+
+async function npmGlobalInstall(id) {
+  const pkg = (configLoader.appNpmPackages() || {})[id];
+  if (!pkg) return { ok: false, error: 'no-npm-package' };
+  const extra = String((configLoader.appNpmInstallArgs() || {})[id] || '').split(/\s+/).filter(Boolean);
+  const r = await runNpm(['i', '-g', `${pkg}@latest`, ...extra]);
+  invalidateAgentCaches();
+  return r.ok ? { ok: true, pkg } : r;
+}
+
+async function npmGlobalUninstall(id) {
+  const pkg = (configLoader.appNpmPackages() || {})[id];
+  if (!pkg) return { ok: false, error: 'no-npm-package' };
+  const r = await runNpm(['uninstall', '-g', pkg], 120000);
+  invalidateAgentCaches();
+  return r.ok ? { ok: true, pkg } : r;
+}
 
 function persistAppsCfg(cfg) {
   writeLocalConfig(cfg);
@@ -784,6 +907,71 @@ async function handleRequest(req, res) {
 
   if (method === 'GET' && url === '/api/apps') {
     return json(res, 200, listAppsWithDetected());
+  }
+
+  if (method === 'GET' && url === '/api/apps/supported') {
+    return json(res, 200, listSupportedCliApps());
+  }
+
+  if (method === 'POST' && (url === '/api/apps/npm-install' || url === '/api/apps/npm-uninstall')) {
+    const body = await readBody(req);
+    const id = String(body.id || '').trim();
+    if (!id) return json(res, 400, { ok: false, error: 'id required' });
+    const r = url.endsWith('npm-install') ? await npmGlobalInstall(id) : await npmGlobalUninstall(id);
+    return json(res, 200, r);
+  }
+
+  // 写配置文件类应用的纳管（Docker 目前支持 Pi 家族；实现与桌面版共用 electron/app-config-write.js）
+  if (method === 'POST' && url === '/api/apps/write-config-file') {
+    const body = await readBody(req);
+    const cfg = readAppsCfg();
+    const appRec = cfg.apps.find(a => a.id === body.app_id);
+    if (!appRec) return json(res, 404, { ok: false, error: 'app-not-found' });
+    try {
+      const shared = require('../electron/app-config-write');
+      const { applyRouteToProxyPatch, resolveHandlerId } = require('../electron/app-handlers');
+      const gctx = configLoader.gatewayCtx();
+      const ctx = { ...gctx, base: `http://${gctx.reverse}`, key: appRec.api_key || '' };
+      let resolvedPatch = shared.resolvePatchDeep(body.patch || appRec.patch || {}, ctx);
+      const handlerId = resolveHandlerId(appRec);
+      const routeIds = Array.isArray(body.route_ids) && body.route_ids.length ? body.route_ids
+        : (body.route_id ? [body.route_id]
+          : (Array.isArray(appRec.route_ids) && appRec.route_ids.length ? appRec.route_ids
+            : (appRec.route_id ? [appRec.route_id] : [])));
+      if (handlerId && routeIds.length) {
+        let claudeModels = [];
+        try { claudeModels = configLoader.claudeModels() || []; } catch { /* ignore */ }
+        resolvedPatch = applyRouteToProxyPatch(handlerId, resolvedPatch, {
+          routeIds,
+          routes: (readLocalConfig() || {}).scene_routes || [],
+          providers: (readAgentConfig() || {}).providers || [],
+          marker: appRec.marker,
+          claudeName: claudeModels[0] || 'claude-sonnet-4-5',
+          claudeModels,
+        });
+      }
+      const r = await shared.writePiFamilyConfig(handlerId, resolvedPatch, { base: ctx.base, key: ctx.key });
+      if (!r) return json(res, 200, { ok: false, error: 'docker-unsupported-app' });
+      if (r.ok) {
+        const next = readAppsCfg();
+        const idx = next.apps.findIndex(a => a.id === appRec.id);
+        if (idx >= 0) { next.apps[idx] = { ...next.apps[idx], hosted: true }; persistAppsCfg(next); }
+      }
+      return json(res, 200, r);
+    } catch (e) {
+      return json(res, 200, { ok: false, error: String(e.message || e).slice(0, 300) });
+    }
+  }
+
+  if (method === 'POST' && url === '/api/apps/revert-config-file') {
+    const body = await readBody(req);
+    const appRec = readAppsCfg().apps.find(a => a.id === body.app_id);
+    try {
+      require('../electron/app-config-write').revertPiFamilyConfig(body.app_id, appRec);
+      return json(res, 200, { ok: true });
+    } catch (e) {
+      return json(res, 200, { ok: false, error: e.message });
+    }
   }
 
   // 检测到的命令行智能体落成正式记录（与桌面版 apps:ensureShimApp 一致）
