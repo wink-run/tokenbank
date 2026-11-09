@@ -2,8 +2,9 @@
 // 冷启动、凭证晚到、瞬时资料失败都只在 auto_start 且未被本进程明确关掉时拉起一次。
 // 登出、手动停止、服务端拒绝 worker_key 会抑制到进程结束，避免重连风暴和撤销用户意图。
 //
-// 这是 ESM，供 Vite 生产构建做具名导入。Electron / 测试通过旁边的
-// contribute-autostart.js 用 require() 加载同一份实现。
+// 这是 ESM，供 Vite 生产构建做具名导入。
+// Electron / CLI gateway / 测试走旁边的 contribute-autostart.js（纯 CommonJS）。
+// Node 20 不能 require() 本文件，所以两份实现要一起改。
 
 const DEFINITIVE_AUTH_STATUSES = new Set([401, 403]);
 const DEFINITIVE_WORKER_CLOSE = 4001;
