@@ -31,18 +31,32 @@
 <link rel="stylesheet" href="/static/plaza.css?v=38">
 <script src="/static/plaza-nav.js?v=20"></script>
 <script src="/static/vue.global.prod.js"></script>
+<script src="/static/marked.min.js"></script>
+<script src="/static/purifier.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 [v-cloak] { display: none !important; }
 body { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; background: #fafafb; color: #0a0a0a; min-height: 100vh; -webkit-font-smoothing: antialiased; }
 a { color: inherit; text-decoration: none; }
 .loading { text-align: center; padding: 3rem 1.5rem; color: #a1a1aa; }
-.ag-name-btn { cursor: pointer; }
-.ag-intro { margin-top: 10px; font-size: 13px; line-height: 1.7; color: #3f3f46; white-space: pre-wrap; max-height: 280px; overflow: auto; }
+.ag-card-go { cursor: pointer; }
+.ag-intro { margin-top: 14px; font-size: 15px; line-height: 1.7; color: #3f3f46; overflow-x: auto; }
+.ag-intro h1,.ag-intro h2,.ag-intro h3 { color: #18181b; letter-spacing: -.02em; line-height: 1.3; margin: 1.15em 0 .4em; }
+.ag-intro h1 { font-size: 1.35rem; } .ag-intro h2 { font-size: 1.12rem; } .ag-intro h3 { font-size: 1rem; }
+.ag-intro p { margin: .55em 0; }
+.ag-intro ul,.ag-intro ol { margin: .35em 0 .8em 1.25em; }
+.ag-intro li { margin: .2em 0; }
+.ag-intro a { color: #2563eb; }
+.ag-intro code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .88em; background: #f4f4f5; padding: .1em .35em; border-radius: 4px; }
+.ag-intro pre { background: #18181b; color: #fafafa; padding: 12px 14px; border-radius: 10px; overflow: auto; margin: .8em 0; }
+.ag-intro pre code { background: none; color: inherit; padding: 0; }
+.ag-intro blockquote { border-left: 3px solid #e4e4e7; margin: .8em 0; padding-left: 12px; color: #52525b; }
+.ag-intro table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 13px; margin: .8em 0; }
+.ag-intro th,.ag-intro td { border: 1px solid #e4e4e7; padding: 6px 8px; text-align: left; vertical-align: top; }
+.ag-intro th { background: #fafafa; font-weight: 600; }
 .pz-back { border: 0; background: none; color: #71717a; font-size: 13px; cursor: pointer; margin: 4px 0 12px; padding: 0; }
 .res-page { background: #fff; border: 1px solid #ececef; border-radius: 18px; padding: 22px; }
 .res-page .ag-desc { display: block; -webkit-line-clamp: unset; overflow: visible; min-height: 0; }
-.res-page .ag-intro { max-height: none; font-size: 15px; }
 </style>
 </head>
 <body>
@@ -190,32 +204,31 @@ a { color: inherit; text-decoration: none; }
             <span class="pz-tag-s" :class="detailItem.badge">{{ detailItem.typeLabel }}</span>
           </div>
           <p class="ag-desc">{{ detailItem.desc || T.noDesc }}</p>
-          <div v-if="detailItem.detail" class="ag-intro">{{ detailItem.detail }}</div>
+          <div v-if="detailItem.detail" class="ag-intro" v-html="renderMd(detailItem.detail)"></div>
           <div class="ag-foot">
             <span v-if="detailItem.listedAt" class="pz-side" style="margin-left:0">{{ T.listed.replace('{d}', fmtListed(detailItem.listedAt)) }}</span>
-            <a v-if="detailItem.href" class="ag-go" style="margin-left:auto" :href="detailItem.href">{{ T.useIt }}</a>
-            <a v-else class="ag-go sub" style="margin-left:auto" href="/#download">{{ T.adopt }}</a>
+            <a v-if="chatOf(detailItem)" class="ag-go" style="margin-left:auto" :href="chatOf(detailItem)">{{ T.chat }} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m9 18 6-6-6-6"/></svg></a>
+            <a v-if="detailItem.href" class="ag-go" :style="{ marginLeft: chatOf(detailItem) ? '8px' : 'auto' }" :href="detailItem.href">{{ T.useIt }}</a>
+            <a v-else class="ag-go sub" :style="{ marginLeft: chatOf(detailItem) ? '8px' : 'auto' }" href="/#download">{{ T.adopt }}</a>
           </div>
         </article>
         <div v-else-if="!shownRes.length" class="pz-empty"><b>{{ q ? T.noMatch : T.emptyRes }}</b></div>
         <template v-else>
         <div class="ag-grid">
-          <component :is="r.href ? 'a' : 'div'" v-for="r in shownRes.slice(0, limit)" :key="r.key" class="ag-card res" :href="r.href || undefined">
+          <component :is="r.href ? 'a' : 'div'" v-for="r in shownRes.slice(0, limit)" :key="r.key" class="ag-card res" :class="{ 'ag-card-go': !r.href }" :href="r.href || undefined" @click="onCard(r, $event)">
             <div class="ag-h">
               <span class="ag-av" :style="{ background: color(r.name) }">{{ r.icon || r.name.slice(0, 1) }}</span>
               <div style="min-width:0;flex:1">
-                <div class="ag-name" :class="{ 'ag-name-btn': r.detail }" @click="onName(r, $event)">{{ r.name }}</div>
+                <div class="ag-name">{{ r.name }}</div>
                 <div class="ag-meta">{{ r.meta }}</div>
               </div>
               <span class="pz-tag-s" :class="r.badge">{{ r.typeLabel }}</span>
             </div>
             <p class="ag-desc">{{ r.desc || T.noDesc }}</p>
-            <div v-if="expandedKey === r.key && r.detail" class="ag-intro">{{ r.detail }}</div>
             <div class="ag-foot">
               <span v-if="r.listedAt" class="pz-side" style="margin-left:0">{{ T.listed.replace('{d}', fmtListed(r.listedAt)) }}</span>
-              <button v-if="r.detail" type="button" class="ag-go sub" @click.stop="toggleExpand(r)">{{ expandedKey === r.key ? T.collapse : T.intro }}</button>
               <span v-if="r.href" class="ag-go" style="margin-left:auto">{{ T.useIt }} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m9 18 6-6-6-6"/></svg></span>
-              <template v-else><span class="pz-side" :style="{ marginLeft: r.listedAt || r.detail ? 'auto' : '0' }">{{ r.side }}</span><a class="ag-go sub" href="/#download" @click.stop>{{ T.adopt }}</a></template>
+              <template v-else><span class="pz-side" :style="{ marginLeft: r.listedAt ? 'auto' : '0' }">{{ r.side }}</span><a class="ag-go sub" href="/#download" @click.stop>{{ T.adopt }}</a></template>
             </div>
           </component>
         </div>
@@ -259,7 +272,7 @@ createApp({
         typeChat: '文本', typeVision: '图文', typeImage: '生图', typeEmbedding: '嵌入',
         rtSkill: 'Skill', rtPrompt: '提示词', rtAssistant: '智能体模板', rtScene: '场景', rtPlugin: '插件',
         official: '官方', userShare: '用户推荐', sharedBy: '@{h} 分享', inApp: '客户端纳管', adopt: '纳管', useIt: '使用', noDesc: '暂无简介', listed: '上架 {d}',
-        intro: '介绍', collapse: '收起', back: '返回列表',
+        back: '返回列表', chat: '对话',
         all: '全部', loading: '加载中…', noMatch: '没有匹配的结果', emptyModels: '暂时没有在线模型', emptyRes: '暂时没有资源', showMore: '显示全部 {n} 个',
         tabBoard: '供给排行', rankTitle: '供给排行', rankSub: '本周期 Token', rankFoot: '被调用越多，排名越高。', rankJoin: '怎么分享', emptyRank: '暂时还没有供给数据', supplyTitle: '在线模型', supplySub: '节点数', boardFoot: '本周期网络供给 {n} tok · {u} 位活跃分享者',
         scopeLabel: '可见范围', scopePublic: '公开', scopeCircle: '我的圈子', manageCircles: '管理圈子', circleTitle: '圈子里共享的',
@@ -292,7 +305,7 @@ createApp({
         typeChat: 'Text', typeVision: 'Vision', typeImage: 'Image', typeEmbedding: 'Embedding',
         rtSkill: 'Skill', rtPrompt: 'Prompt', rtAssistant: 'Agent template', rtScene: 'Scene', rtPlugin: 'Plugin',
         official: 'Official', userShare: 'User pick', sharedBy: 'by @{h}', inApp: 'Adopt in the app', adopt: 'Adopt', useIt: 'Use', noDesc: 'No description', listed: 'Listed {d}',
-        intro: 'Guide', collapse: 'Collapse', back: 'Back',
+        back: 'Back', chat: 'Chat',
         all: 'All', loading: 'Loading…', noMatch: 'No matches', emptyModels: 'No models online right now', emptyRes: 'Nothing here yet', showMore: 'Show all {n}',
         tabBoard: 'Supply board', rankTitle: 'Supply board', rankSub: 'Tokens this period', rankFoot: 'More calls, higher rank.', rankJoin: 'How to share', emptyRank: 'No supply data yet', supplyTitle: 'Online models', supplySub: 'Nodes', boardFoot: '{n} tokens supplied this period · {u} active sharers',
         scopeLabel: 'Visibility', scopePublic: 'Public', scopeCircle: 'My circles', manageCircles: 'Manage circles', circleTitle: 'Shared in your circles',
@@ -319,13 +332,43 @@ createApp({
 
     const VALID = ['models', 'skills', 'prompts', 'templates', 'scenes', 'board']
     const tab = ref(VALID.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'models')
-    const expandedKey = ref('')
     const detailItem = ref(null)
-    function setTab(id) { tab.value = id; limit.value = 24; detailItem.value = null; expandedKey.value = ''; try { history.replaceState(null, '', '#' + id) } catch {} }
-    function toggleExpand(r) { expandedKey.value = expandedKey.value === r.key ? '' : r.key }
-    function openDetail(r) { if (!r || !r.detail) return; detailItem.value = r; expandedKey.value = '' }
+    const liveAgents = ref([])
+    function setTab(id) { tab.value = id; limit.value = 24; detailItem.value = null; try { history.replaceState(null, '', '#' + id) } catch {} }
+    function openDetail(r) { if (!r || r.href) return; detailItem.value = r }
     function closeDetail() { detailItem.value = null }
-    function onName(r, e) { if (!r || !r.detail) return; e.preventDefault(); e.stopPropagation(); openDetail(r) }
+    // 详细介绍按 Markdown 渲染；先消毒，避免正文里的 HTML 直接进页面
+    function renderMd(raw) {
+      const text = String(raw || '')
+      if (!text) return ''
+      try {
+        if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+          const html = marked.parse(text, { gfm: true, breaks: true })
+          if (typeof DOMPurify !== 'undefined' && typeof DOMPurify.sanitize === 'function') {
+            return DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, ADD_ATTR: ['target', 'rel'] })
+          }
+          return html
+        }
+      } catch { /* 解析失败就当纯文本 */ }
+      return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+    }
+    function onCard(r, e) { if (!r || r.href || (e.target && e.target.closest && e.target.closest('a'))) return; openDetail(r) }
+    // 目录条目和当前在线智能体对上号才给对话入口，不写死某个名字
+    function chatOf(r) {
+      if (!r) return ''
+      const slug = String(r.slug || '').trim().toLowerCase()
+      const title = String(r.name || '').trim().toLowerCase()
+      const hit = liveAgents.value.find((a) => {
+        if (!a || a.online === false || !a.id) return false
+        const id = String(a.id).trim().toLowerCase()
+        const name = String(a.name || '').trim().toLowerCase()
+        const shown = String(a.display_name || '').trim().toLowerCase()
+        if (slug && (name === slug || id === slug || id.endsWith('-' + slug) || id.endsWith('_' + slug))) return true
+        if (title && (name === title || shown === title || shown.endsWith(title))) return true
+        return false
+      })
+      return hit ? '/a/' + encodeURIComponent(hit.id) : ''
+    }
     const q = ref('')
     const mtype = ref('all')
     const limit = ref(24)
@@ -371,7 +414,7 @@ createApp({
       const lbl = { skills: t.rtSkill, prompts: t.rtPrompt, templates: t.rtAssistant }
       const cls = { skills: 'blue', prompts: 'amber', templates: 'purple' }
       return [
-        ...catalog.value.map(r => { const k = kindOf(r); return { key: 'c' + r.catalog_id, kind: k, name: r.display_name || r.name || '—', desc: r.description, detail: r.detail || '', typeLabel: lbl[k], badge: cls[k], listedAt: r.listed_at || 0, meta: r.sharer ? t.sharedBy.replace('{h}', r.sharer) : (r.user_recommended ? t.userShare : t.official), side: t.inApp } }),
+        ...catalog.value.map(r => { const k = kindOf(r); return { key: 'c' + r.catalog_id, kind: k, name: r.display_name || r.name || '—', slug: r.name || '', desc: r.description, detail: r.detail || '', typeLabel: lbl[k], badge: cls[k], listedAt: r.listed_at || 0, meta: r.sharer ? t.sharedBy.replace('{h}', r.sharer) : (r.user_recommended ? t.userShare : t.official), side: t.inApp } }),
         ...scenes.value.map(s => ({ key: 's' + s.id, kind: 'scenes', name: s.name || '—', icon: s.icon, desc: s.intro, typeLabel: t.rtScene, badge: 'green', meta: s.default_model || t.official, href: '/studio/chat?id=' + s.id })),
         ...mods.value.map(m => ({ key: 'm' + m.id, kind: 'scenes', name: m.name || '—', desc: m.intro, typeLabel: t.rtPlugin, badge: '', meta: (m.price ?? 0) + ' ⚡', side: t.official })),
       ]
@@ -430,7 +473,7 @@ createApp({
     async function load() {
       try {
         const [n, c, s] = await Promise.all([fetch('/public/network').catch(() => null), fetch('/api/community-catalog').catch(() => null), fetch('/public/studio').catch(() => null)])
-        if (n && n.ok) { const d = await n.json(); workers.value = d.workers || []; availableModels.value = d.available_models || []; modelTypes.value = d.available_model_types || {}; summary.value = d.summary || {}; publicCircles.value = d.available_circles || [] }
+        if (n && n.ok) { const d = await n.json(); workers.value = d.workers || []; availableModels.value = d.available_models || []; modelTypes.value = d.available_model_types || {}; summary.value = d.summary || {}; publicCircles.value = d.available_circles || []; liveAgents.value = (d.available_agents || []).filter(a => a && a.online !== false && a.id) }
         if (c && c.ok) { const cd = await c.json(); catalog.value = Array.isArray(cd?.resources) ? cd.resources : (Array.isArray(cd?.data?.resources) ? cd.data.resources : []) }
         if (s && s.ok) { const sd = await s.json(); scenes.value = sd.scenes || []; mods.value = sd.mods || [] }
       } catch {} finally { loaded.value = true }
@@ -487,7 +530,7 @@ createApp({
       load()
       if (scope.value === 'circle') loadCircles()
     })
-    return { lang, T, N, toggleLang, loggedIn, summary, topSharers, offerText, supplyRows, maxNodes, fmtTok, scope, setScope, circles, circleLoaded, circleId, circleItems, shownCircleItems, publicCircles, tab, setTab, q, mtype, limit, loaded, tabs, statRow, modelFilters, shownModels, shownRes, curCount, typeLabel, typeBadge, fmtMs, fmtListed, speedCls, color, jump, expandedKey, detailItem, toggleExpand, openDetail, closeDetail, onName }
+    return { lang, T, N, toggleLang, loggedIn, summary, topSharers, offerText, supplyRows, maxNodes, fmtTok, scope, setScope, circles, circleLoaded, circleId, circleItems, shownCircleItems, publicCircles, tab, setTab, q, mtype, limit, loaded, tabs, statRow, modelFilters, shownModels, shownRes, curCount, typeLabel, typeBadge, fmtMs, fmtListed, speedCls, color, jump, detailItem, openDetail, closeDetail, onCard, chatOf, renderMd }
   },
 }).mount('#app')
 </script>
