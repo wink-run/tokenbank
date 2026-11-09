@@ -32,7 +32,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=37">
+<link rel="stylesheet" href="/static/plaza.css?v=38">
 <script src="/static/plaza-nav.js?v=20"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -661,6 +661,7 @@ createApp({
       try { localStorage.setItem('tb_lang', lang.value) } catch {}
       document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
       document.title = (location.pathname === '/' ? T.value.homeTitle : T.value.title + ' · Token Bank')
+      nextTick(clampChips)
     }
     // 与 app-handlers.yaml 对齐的应用清单（接入方式分三类）
     const APPS = {
@@ -800,7 +801,29 @@ createApp({
     let archReduced = false
     try { archReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches } catch {}
     if (!archReduced) setInterval(() => { if (!archHover.value) archIdx.value = (archIdx.value + 1) % 6 }, 2200)
+    // 六层清单右侧标签最多三行，放不下的收进「…」
+    function clampChips() {
+      document.querySelectorAll('.dv-al-chips').forEach(box => {
+        box.querySelectorAll('.dv-more').forEach(m => m.remove())
+        const items = [...box.children]
+        items.forEach(c => { c.style.display = '' })
+        const top = (c) => Math.round(c.getBoundingClientRect().top)
+        const rows = [...new Set(items.map(top))].sort((a, b) => a - b)
+        if (rows.length <= 3) return
+        const limit = rows[2]
+        items.forEach(c => { if (top(c) > limit) c.style.display = 'none' })
+        const more = document.createElement('i')
+        more.className = 'dv-more'; more.textContent = '…'; more.title = items.map(c => c.textContent.trim()).join(' · ')
+        box.appendChild(more)
+        let vis = items.filter(c => c.style.display !== 'none')
+        while (top(more) > limit && vis.length) { vis.pop().style.display = 'none'; vis = items.filter(c => c.style.display !== 'none') }
+      })
+    }
+    let clampTimer = 0
+    const reclamp = () => { clearTimeout(clampTimer); clampTimer = setTimeout(clampChips, 120) }
     onMounted(() => {
+      nextTick(clampChips); addEventListener('resize', reclamp)
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(reclamp)
       document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
       document.title = (location.pathname === '/' ? T.value.homeTitle : T.value.title + ' · Token Bank')
       nextTick(setupReveal)

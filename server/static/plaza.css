@@ -1293,3 +1293,4 @@ body { background: #faf8f3 !important; color: var(--pz-ink); }
 .ad-tip a { color: #FFE8A3; text-decoration: underline; text-underline-offset: 3px; }
 @media (max-width: 640px) { .pz-promo { gap: 8px; font-size: 12.5px; } .pz-promo i { display: none; } }
 @media (prefers-reduced-motion: reduce) { .pz-promo::after { animation: none; display: none; } }
+.dv-al-chips i.dv-more { font-weight: 700; letter-spacing: .1em; color: rgba(255,255,255,.6); cursor: default; }
