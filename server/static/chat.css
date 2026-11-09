@@ -313,3 +313,68 @@ button{font-family:inherit}
   .hist:not(.open) .hist-panel{display:none}
   .hist.open{max-height:min(46vh,280px)}
 }
+
+/* ── 智能体对话页 /a/{id}：和公开页同一套暖墨 + 黄色 ── */
+.ag-chat{--bg-subtle:#faf8f3;--y:#FFC94A;--ink:#1c1a17;background:#faf8f3}
+.ag-chat .cnav{background:rgba(23,21,15,.92);border-bottom-color:rgba(255,255,255,.06);color:#fff}
+.ag-chat .brand{color:#fff}
+.ag-chat .nav-back{color:rgba(255,255,255,.6)}
+.ag-chat .nav-back:hover{color:#fff;background:rgba(255,255,255,.08)}
+.ag-chat .nbtn.plain{color:rgba(255,255,255,.6)}
+.ag-chat .nbtn.plain:hover{color:#fff;background:rgba(255,255,255,.08)}
+.ag-chat .cnav .nbtn:not(.plain):not(.dark){background:transparent;border-color:rgba(255,255,255,.2);color:#fff}
+.ag-chat .nbtn.dark{background:var(--y);border-color:var(--y);color:var(--ink);font-weight:650}
+.ag-chat .who{color:rgba(255,255,255,.7)}
+.ag-chat .credit{background:rgba(255,201,74,.12);border-color:rgba(255,201,74,.35);color:#FFE8A3}
+.ag-chat .chead{background:#fffdf9;border-bottom-color:#eee7da}
+.ag-chat .id-name{color:var(--ink)}
+.ag-chat a.id-name:hover{text-decoration:underline;text-decoration-color:var(--y);text-underline-offset:3px}
+.ag-chat .id-sub a{color:var(--ink);font-weight:600}
+.ag-chat .empty h2{font-size:26px;letter-spacing:-.03em}
+.ag-chat .empty p{font-size:15px}
+.empty-chips{margin-top:14px;display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
+.empty-chips span{padding:4px 11px;border-radius:999px;font-size:12px;color:#6f6a62;background:#fff;border:1px solid #ece6da}
+.ag-chat .av.lg{width:72px;height:72px;border-radius:22px;box-shadow:0 18px 36px -18px rgba(28,26,23,.45)}
+.ag-chat .sug{background:#fffdf9;border-color:#ece6da}
+.ag-chat .sug:hover{border-color:var(--y);box-shadow:0 10px 24px -14px rgba(255,201,74,.7)}
+.ag-chat .box{border-color:#e7e0d2;background:#fff}
+.ag-chat .box:focus-within{border-color:var(--y);box-shadow:0 0 0 4px rgba(255,201,74,.18),0 6px 24px rgba(0,0,0,.05)}
+.ag-chat .send:not(:disabled):not(.stop){background:var(--y);color:var(--ink)}
+.ag-chat .hist{background:rgba(255,253,249,.97);border-color:#ece6da}
+.ag-chat .hist-item.on{border-color:var(--y);background:#fffaeb}
+.ag-chat .foot-hint button{color:var(--ink);text-decoration:underline;text-decoration-color:var(--y);text-underline-offset:3px}
+/* 离线：一张说明卡，不把提示叠在禁用的输入框上 */
+.off-card{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:18px;border:1px solid #ece6da;background:#fff;box-shadow:0 6px 24px rgba(0,0,0,.05)}
+.off-dot{flex-shrink:0;width:10px;height:10px;border-radius:50%;background:#c9c3b8;box-shadow:0 0 0 4px rgba(201,195,184,.25)}
+.off-t{display:flex;flex-direction:column;gap:2px;min-width:0}
+.off-t b{font-size:14px;color:var(--ink,#1c1a17)}
+.off-t span{font-size:12.5px;color:#8a8478}
+.off-go{margin-left:auto;flex-shrink:0;padding:8px 14px;border-radius:999px;background:#FFC94A;color:#1c1a17;font-size:13px;font-weight:650;white-space:nowrap}
+@media (max-width:640px){
+  .ag-chat .hist-fold{padding:8px 12px}
+  .ag-chat .hist-fold .hist-sub{display:none}
+  .ag-chat .hist{margin:8px 14px 0;border-radius:12px}
+  .ag-chat .empty{padding-top:3vh}
+  .ag-chat .sugs{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .ag-chat .sug{padding:10px 12px}
+  .ag-chat .sug span{display:none}
+  .off-card{flex-wrap:wrap}
+  .off-go{margin-left:24px}
+}
+.ag-chat .hist.guest{bottom:auto}
+@media (max-width:640px){
+  .ag-chat .empty .av.lg{width:56px;height:56px;border-radius:17px;font-size:22px}
+  .ag-chat .empty h2{font-size:21px;margin-top:10px}
+  .ag-chat .empty p{font-size:14px}
+  .empty-chips{margin-top:10px}
+  .ag-chat .sugs{margin-top:16px}
+}
+/* 模型对话页 */
+.ag-chat .off-av{background:#f1ede4;color:#8a8478;border:1px solid #e7e0d2}
+.ag-chat .btn{background:#FFC94A;color:#1c1a17;border-color:#FFC94A;font-weight:650}
+.ag-chat .btn.ghost{background:#fff;color:#1c1a17;border:1px solid #e7e0d2}
+.ag-chat .gate{border-color:#f3dfa6;background:#fffaeb}
+.ag-chat .gate .g-ic{display:inline-flex;color:#b7791f}
+.ag-chat .gate .btn{background:#FFC94A;color:#1c1a17}
+.ag-chat .tag.txt{color:#6f6a62;border-color:#e7e0d2;background:#fff}
+.ag-chat .picker{border-radius:10px}
