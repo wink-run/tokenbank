@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { isElectron } from '../api/adapter';
 import { enrichDashboardBilling, enrichTrendWithSubscriptionCost, enrichAppsUsageBilling, enrichModelCostBilling, resolveBillableSubscriptions } from '../utils/billing-cost';
 import { loadUserAccounts } from '../api/userAccounts';
 import { useLang } from '../store/lang';
@@ -730,7 +731,7 @@ export default function Dashboard() {
             <h1 className="text-[17px] font-bold text-zinc-900 dark:text-zinc-100 tracking-tight shrink-0">{t('dashboard.title')}</h1>
             <span className="tb-tag tb-tag-muted !border-solid inline-flex items-center gap-1 text-xs rounded-full px-2 py-0.5 shrink-0">
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${gwStatus?.running !== false ? 'bg-green-500' : 'bg-zinc-400'}`}/>
-              {window.electronAPI ? t('common.desktop') : t('common.cli')}
+              {isElectron() ? t('common.desktop') : t('common.cli')}
               {gwStatus?.port ? ` · :${gwStatus.port}` : ''}
             </span>
           </div>

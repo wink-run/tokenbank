@@ -26,6 +26,7 @@ const appsUsage = require('../shared/apps-usage-handlers');
 const compressionReport = require('../electron/compression-report');
 const agentControl = require('./agent-control');
 const reporter = require('../shared/device-reporter');
+const ipcBridge = require('./ipc-bridge');
 
 // ── Module state ──────────────────────────────────────────────────────────────
 
@@ -465,6 +466,12 @@ async function handleRequest(req, res) {
 
   const url    = req.url.split('?')[0];
   const method = req.method.toUpperCase();
+
+  // ── 资产管理 / 命令行智能体（复用桌面版 IPC handler，见 ipc-bridge.js）────────
+  if (url.startsWith('/api/bridge/')) {
+    await ipcBridge.handle(req, res, url, method);
+    return;
+  }
 
   // ── Gateway routes ──────────────────────────────────────────────────────────
 

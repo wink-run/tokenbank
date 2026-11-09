@@ -1,8 +1,9 @@
 // client/src/api/adapter.js
 // Abstracts window.electronAPI (Electron mode) vs HTTP admin API (CLI mode).
 
+/** 桌面版（Electron preload）。Docker / CLI Web 版的 bridge 带 __web 标记，不算桌面 */
 export function isElectron() {
-  return typeof window !== 'undefined' && !!window.electronAPI;
+  return typeof window !== 'undefined' && !!window.electronAPI && !window.electronAPI.__web;
 }
 
 // In CLI/browser mode the frontend is served by the same admin-api server,

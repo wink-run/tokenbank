@@ -12,6 +12,7 @@ import McpProvidersTab from '../components/McpProvidersTab';
 import SkillInstallDialog from '../components/SkillInstallDialog';
 import AiNeedNotice from '../components/AiNeedNotice';
 import { useAiReadiness } from '../lib/ai-readiness';
+import { isWebBridge } from '../api/webBridge';
 import {
   ASSET_BTN_GHOST,
   ASSET_BTN_MANAGED,
@@ -3211,7 +3212,7 @@ export default function Resources() {
         disabled: !!busy && busy !== recKey && busy !== li.resourceId,
         onClick: () => handleRecommendToCommunity(item),
       },
-      li.path && {
+      li.path && !isWebBridge() && {
         key: 'open',
         label: t('resources.openFolder'),
         onClick: () => handleOpenPath(li.path),
@@ -3759,9 +3760,12 @@ export default function Resources() {
                       {idleLoading ? t('resources.cleanupScanning') : t('resources.cleanup')}
                     </button>
                   )}
+                  {/* Docker / Web 版没有本机文件对话框，不提供从文件导入 */}
+                  {!isWebBridge() && (
                   <button type="button" className={ghostCls} disabled={busy === 'import' || busyEdit} onClick={handleImportFile} title={t('resources.menu.importHint')}>
                     {busy === 'import' ? t('resources.busy') : t('resources.importShort')}
                   </button>
+                  )}
                   {showSkillTabs && (
                     <button type="button" className={ghostCls} onClick={() => setSkillInstallOpen(true)} title={t('resources.menu.installHint')}>{t('resources.skillInstallShort')}</button>
                   )}
