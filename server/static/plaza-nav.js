@@ -5,7 +5,7 @@
     zh: {
       modeUse: '用智能体', modeDev: '开发者', navPlaza: '智能体广场', navWhy: '为什么用', openPlaza: '打开智能体广场', openBoard: '看供给排行',
       dOverview: '概览', dManage: '统一管理', dMarket: '资源市场', dShare: '分享与收益', dCircles: '圈子协作',
-      signIn: '登录', account: '我的账户', download: '下载客户端', home: '首页', menu: '菜单',
+      signIn: '登录', account: '我的账户', download: '下载客户端', home: '首页', menu: '菜单', promoA: '限时免费中', promoB: '注册就送 50 积分', promoGo: '立即注册',
       whoKicker: 'WHO ARE YOU', whoTitle: '你是哪一类用户？',
       who: [
         { href: '/why', k: '普通用户', t: '让智能体帮我把事办成', d: '像打车一样：挑一个高手调好的智能体，说清要做什么，网页里就能用。', cta: '去智能体广场' },
@@ -21,7 +21,7 @@
     en: {
       modeUse: 'Use agents', modeDev: 'Developers', navPlaza: 'Agent Plaza', navWhy: 'Why us', openPlaza: 'Open the Agent Plaza', openBoard: 'See the supply board',
       dOverview: 'Overview', dManage: 'Manage', dMarket: 'Market', dShare: 'Share & earn', dCircles: 'Circles',
-      signIn: 'Sign in', account: 'My account', download: 'Download', home: 'Home', menu: 'Menu',
+      signIn: 'Sign in', account: 'My account', download: 'Download', home: 'Home', menu: 'Menu', promoA: 'Free for a limited time', promoB: 'Sign up and get 50 credits', promoGo: 'Sign up',
       whoKicker: 'WHO ARE YOU', whoTitle: 'Which kind of user are you?',
       who: [
         { href: '/why', k: 'Everyday user', t: 'Get an agent to do the job', d: 'Like hailing a ride: pick an agent an expert tuned, say what you need, use it in the browser.', cta: 'Go to the Agent Plaza' },

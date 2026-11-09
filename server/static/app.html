@@ -1413,6 +1413,7 @@ createApp({
 
     onMounted(async () => {
       const params = new URLSearchParams(location.search)
+      if (params.get('signup')) authTab.value = 'register'
       const ref = params.get('ref')
       if (ref) form.value.referral_code = ref
       const c = params.get('c')

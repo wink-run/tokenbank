@@ -138,7 +138,7 @@
             <div v-if="modelIcon" class="av lg brand"><img :src="modelIcon" alt=""></div><div v-else class="av lg" :style="{ background: avatarColor(model) }">{{ (model || '?').slice(0, 1).toUpperCase() }}</div>
             <h2 class="mono">{{ model }}</h2>
             <p>{{ isVision ? T.visionEmpty : T.chatEmpty }}</p>
-            <div class="empty-chips"><span>{{ T.servedBy }}</span><span v-if="consumeRate != null">{{ T.creditsRate.replace('{n}', formatRate(consumeRate)) }}</span><span>{{ T.nativeName }}</span></div>
+            <div class="empty-chips"><span v-if="!loggedIn" class="hot">{{ T.promoFree }}</span><span>{{ T.servedBy }}</span><span v-if="consumeRate != null">{{ T.creditsRate.replace('{n}', formatRate(consumeRate)) }}</span><span>{{ T.nativeName }}</span></div>
             <div class="sugs">
               <button v-for="sg in suggestions" :key="sg.t" type="button" class="sug" @click="useSuggestion(sg)"><b>{{ sg.t }}</b><span>{{ sg.d }}</span></button>
             </div>
@@ -282,7 +282,7 @@ createApp({
         attachLimit: '最多附 3 张图',
         attachSize: '单张图片过大',
         attachVisionOnly: '当前模型为文本模型，不支持识图；请切换到「图文」模型后再粘贴',
-        chatHint: '未登录可试一轮', imageHint: '文生图需登录', embedHint: '嵌入模型不支持网页试用',
+        chatHint: '未登录可试一轮', registerGift: '注册送 50 积分', promoFree: '限时免费中', imageHint: '文生图需登录', embedHint: '嵌入模型不支持网页试用',
         chatEmpty: '发送一条消息试用；登录后可多轮追问。', servedBy: '由社区节点提供', nativeName: '接进客户端后模型名不变',
         visionEmpty: '发送消息或粘贴图片试用；登录后可多轮追问。',
         imageEmpty: '输入画面描述后点击生成。',
@@ -293,10 +293,10 @@ createApp({
         circleDescAuthed: '只在圈子内共享，加入对应圈子后即可使用。', circleTag: '仅圈子',
         browseCircles: '浏览圈子', allModels: '全部可用模型', tryThese: '或试试这些在线模型', unavailableTag: '不可用',
         online: '在线', newChat: '新对话', copy: '复制', copied: '已复制', attach: '添加图片',
-        enterHint: 'Enter 换行 · Shift+Enter 发送', trialDone: '免费试用已用完', gateSub: '登录后继续对话，按正常积分扣费。',
+        enterHint: 'Enter 换行 · Shift+Enter 发送', trialDone: '免费试用已用完', gateSub: '注册就送 50 积分，登录后接着聊。',
         needLoginShort: '需要登录', aiDisclaimer: '内容由 AI 生成，请注意甄别',
         authTitleLogin: '登录 Token Bank', authTitleRegister: '注册 Token Bank',
-        authSub: '登录后可多轮对话、切换模型，按积分计费。',
+        authSub: '限时免费中，注册就送 50 积分。登录后可多轮对话、切换模型。',
         sugChat: [
           { t: '解释一个概念', d: '用通俗的话讲讲什么是向量数据库' },
           { t: '写一段代码', d: '用 Python 写一个带重试的 HTTP 请求函数' },
@@ -340,7 +340,7 @@ createApp({
         attachLimit: 'At most 3 images',
         attachSize: 'Image too large',
         attachVisionOnly: 'This is a text model — switch to a Vision model to paste images',
-        chatHint: 'One free guest turn', imageHint: 'Sign in for images', embedHint: 'Embedding: use client/API',
+        chatHint: 'One free guest turn', registerGift: 'Sign up for 50 free credits', promoFree: 'Free for a limited time', imageHint: 'Sign in for images', embedHint: 'Embedding: use client/API',
         chatEmpty: 'Try one message; sign in for multi-turn chat.', servedBy: 'Served by community nodes', nativeName: 'Same model name in your client',
         visionEmpty: 'Try a message or paste images; sign in for multi-turn chat.',
         imageEmpty: 'Describe a scene, then generate.',
@@ -351,10 +351,10 @@ createApp({
         circleDescAuthed: 'is shared inside a circle — join it to use.', circleTag: 'Circle only',
         browseCircles: 'Browse circles', allModels: 'All available models', tryThese: 'Or try one of these online models', unavailableTag: 'unavailable',
         online: 'Online', newChat: 'New chat', copy: 'Copy', copied: 'Copied', attach: 'Add image',
-        enterHint: 'Enter for newline · Shift+Enter to send', trialDone: 'Free trial used', gateSub: 'Sign in to keep chatting, billed in credits.',
+        enterHint: 'Enter for newline · Shift+Enter to send', trialDone: 'Free trial used', gateSub: 'Sign up for 50 free credits and keep chatting.',
         needLoginShort: 'Sign-in required', aiDisclaimer: 'AI-generated content may be inaccurate',
         authTitleLogin: 'Sign in to Token Bank', authTitleRegister: 'Create your account',
-        authSub: 'Sign in for multi-turn chat and model switching, billed in credits.',
+        authSub: 'Free for a limited time — sign up and get 50 credits. Sign in for multi-turn chat and model switching.',
         sugChat: [
           { t: 'Explain a concept', d: 'What is a vector database, in plain words?' },
           { t: 'Write some code', d: 'A Python HTTP request helper with retries' },

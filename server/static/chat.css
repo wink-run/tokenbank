@@ -378,3 +378,5 @@ button{font-family:inherit}
 .ag-chat .gate .btn{background:#FFC94A;color:#1c1a17}
 .ag-chat .tag.txt{color:#6f6a62;border-color:#e7e0d2;background:#fff}
 .ag-chat .picker{border-radius:10px}
+.empty-chips .hot{background:#FFC94A;border-color:#FFC94A;color:#1c1a17;font-weight:650}
+.ag-chat .foot-hint button{font-weight:650}

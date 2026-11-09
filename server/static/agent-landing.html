@@ -146,7 +146,7 @@
           <div v-else class="av lg" :style="{ background: avatarColor(displayName) }">{{ displayName.slice(0, 1).toUpperCase() }}</div>
           <h2>{{ displayName }}</h2>
           <p>{{ friendlyDesc }}</p>
-          <div class="empty-chips"><span v-if="ownerName">{{ T.runsOn.replace('{owner}', '@' + ownerName) }}</span><span>{{ T.creditsPerTask.replace('{n}', String(creditsPerTask)) }}</span></div>
+          <div class="empty-chips"><span v-if="!loggedIn" class="hot">{{ T.promoFree }}</span><span v-if="ownerName">{{ T.runsOn.replace('{owner}', '@' + ownerName) }}</span><span>{{ T.creditsPerTask.replace('{n}', String(creditsPerTask)) }}</span></div>
           <div v-if="!shareReadOnly" class="sugs">
             <button v-for="sg in suggestions" :key="sg.t" type="button" class="sug" @click="useSuggestion(sg)"><b>{{ sg.t }}</b><span>{{ sg.d }}</span></button>
           </div>
@@ -293,7 +293,7 @@
         </div>
         <div v-if="!guestLocked" class="foot-hint">
           <template v-if="loggedIn && profile">{{ T.balance.replace('{n}', Number(profile.credits_balance || 0).toFixed(1)) }} · {{ T.runsRemote }}</template>
-          <template v-else>{{ T.chatHint }} · <button type="button" @click="openAuth('register')">{{ T.register }}</button></template>
+          <template v-else>{{ T.chatHint }} · <button type="button" @click="openAuth('register')">{{ T.registerGift }}</button></template>
         </div>
       </div>
     </footer>
@@ -361,7 +361,7 @@ createApp({
         attachHint: '图片最多 3 张，其他文件最多 4 个',
         attachLimit: '附件数量已达上限',
         attachSize: '附件过大',
-        chatHint: '未登录可试一轮', chatEmpty: '发送一条消息试用；可粘贴图片；登录后可多轮追问。',
+        chatHint: '未登录可试一轮', registerGift: '注册送 50 积分', promoFree: '限时免费中', chatEmpty: '发送一条消息试用；可粘贴图片；登录后可多轮追问。',
         clear: '清空对话', thinking: '…', thinkingLabel: '思考', toolLabel: '工具', streaming: '生成中…', toolRunning: '调用工具：{name}',
         toolDone: '已完成', toolBusy: '执行中', toolFailed: '失败', toolsCount: '{n} 个工具',
         toolNames: {
@@ -391,9 +391,9 @@ createApp({
         offTitle: '这个智能体暂时离线', offSub: '分享者的设备没开着，历史对话仍可查看。', offGo: '看看在线的智能体', runsOn: '在 {owner} 的设备上运行', appDesc: '基于 {app} 的通用编程智能体：写代码、改 bug、跑脚本，任务在分享者的电脑上完成。',
         copy: '复制', copied: '已复制', attach: '添加附件', hires: '{n} 次雇佣',
         imageOnly: '请根据附图完成任务', fileOnly: '请根据附件完成任务',
-        enterHint: 'Enter 换行 · Shift+Enter 发送', trialDone: '本次已用完', gateSub: '登录后可以继续。',
+        enterHint: 'Enter 换行 · Shift+Enter 发送', trialDone: '本次已用完', gateSub: '注册就送 50 积分，登录后接着聊。',
         runsRemote: '任务在分享者设备上执行', authTitleLogin: '登录 Token Bank', authTitleRegister: '注册 Token Bank',
-        authSub: '登录后可多轮对话，按次扣积分。',
+        authSub: '限时免费中，注册就送 50 积分。登录后可多轮对话。',
         sugs: [
           { t: '你能做什么？', d: '介绍一下你的能力和适合的任务' },
           { t: '给个示例', d: '演示一次你最擅长的任务' },
@@ -417,7 +417,7 @@ createApp({
         attachHint: 'Up to 3 images and 4 other files',
         attachLimit: 'Too many attachments',
         attachSize: 'Attachment too large',
-        chatHint: 'One free guest turn', chatEmpty: 'Try one message (paste images OK); sign in for multi-turn chat.',
+        chatHint: 'One free guest turn', registerGift: 'Sign up for 50 free credits', promoFree: 'Free for a limited time', chatEmpty: 'Try one message (paste images OK); sign in for multi-turn chat.',
         clear: 'Clear', thinking: '…', thinkingLabel: 'Thinking', toolLabel: 'Tool', streaming: 'Generating…', toolRunning: 'Tool: {name}',
         toolDone: 'Done', toolBusy: 'Running', toolFailed: 'Failed', toolsCount: '{n} tools',
         toolNames: {
@@ -447,9 +447,9 @@ createApp({
         offTitle: 'This agent is offline', offSub: 'The sharer\'s device is off. Past chats are still readable.', offGo: 'See agents online', runsOn: 'Runs on {owner}\'s device', appDesc: 'A general coding agent on {app}: writes code, fixes bugs, runs scripts — on the sharer\'s machine.',
         copy: 'Copy', copied: 'Copied', attach: 'Add attachment', hires: '{n} hires',
         imageOnly: 'Please use the attached images.', fileOnly: 'Please use the attached files.',
-        enterHint: 'Enter for newline · Shift+Enter to send', trialDone: 'Turn used up', gateSub: 'Sign in to continue.',
+        enterHint: 'Enter for newline · Shift+Enter to send', trialDone: 'Turn used up', gateSub: 'Sign up for 50 free credits and keep chatting.',
         runsRemote: "Runs on the sharer's device", authTitleLogin: 'Sign in to Token Bank', authTitleRegister: 'Create your account',
-        authSub: 'Sign in for multi-turn chat, billed per turn.',
+        authSub: 'Free for a limited time — sign up and get 50 credits. Sign in for multi-turn chat.',
         sugs: [
           { t: 'What can you do?', d: 'Describe your skills and best-fit tasks' },
           { t: 'Show an example', d: 'Demo the task you are best at' },
