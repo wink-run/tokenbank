@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/plaza.css?v=32">
+<link rel="stylesheet" href="/static/plaza.css?v=33">
 <script src="/static/plaza-nav.js?v=19"></script>
 <script src="/static/vue.global.prod.js"></script>
 <style>
@@ -25,11 +25,11 @@ a { color: inherit; text-decoration: none; }
   <nav class="ag-top">
     <div class="ag-top-in">
       <a class="ag-brand" href="/"><img src="/static/logo.svg" alt=""><span>Token Bank</span></a>
-      <div class="ag-modes"><a class="ag-mode on" href="/agents">{{ N.modeUse }}</a><a class="ag-mode" href="/">{{ N.modeDev }}</a></div>
+      <div class="ag-modes ag-main"><a class="ag-mode on" aria-current="page" href="/agents">{{ N.navPlaza }}</a><a class="ag-mode" href="/share">{{ N.dShare }}</a><a class="ag-mode" href="/market">{{ N.dMarket }}</a></div>
       <div class="ag-top-r">
         <button class="ag-lang" type="button" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中文' }}</button>
         <a class="ag-nav hide-sm" href="/app">{{ loggedIn ? N.account : N.signIn }}</a>
-        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><em>{{ N.modeUse }}</em><a href="/agents">{{ N.navPlaza }}</a><a class="on" aria-current="page" href="/why">{{ N.navWhy }}</a></div><div class="ag-menu-g"><em>{{ N.modeDev }}</em><a href="/">{{ N.dOverview }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a href="/app">{{ loggedIn ? N.account : N.signIn }}</a><a class="dl" href="/#download">{{ N.download }}</a></div></div></details>
+        <details class="ag-menu"><summary :aria-label="N.menu"><i></i><i></i><i></i></summary><div class="ag-menu-p"><div class="ag-menu-g"><a href="/">{{ N.home }}</a><a class="on" aria-current="page" href="/agents">{{ N.navPlaza }}</a><a href="/share">{{ N.dShare }}</a><a href="/market">{{ N.dMarket }}</a></div><div class="ag-menu-f"><a href="/app">{{ loggedIn ? N.account : N.signIn }}</a><a class="dl" href="/#download">{{ N.download }}</a></div></div></details>
       </div>
     </div>
   </nav>

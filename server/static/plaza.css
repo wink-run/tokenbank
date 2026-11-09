@@ -1183,3 +1183,7 @@ body { background: #faf8f3 !important; color: var(--pz-ink); }
 .pz-ride-band:hover em { transform: translateX(4px); }
 .pz-ride-band + .nw-foot { padding-top: 28px; }
 @media (max-width: 640px) { .pz-ride-in { padding: 20px 16px; flex-wrap: wrap; } .pz-ride-band b { font-size: 17px; } .pz-ride-band em { margin-left: 62px; } }
+
+/* ── 一级导航：智能体广场 · 分享与收益 · 资源市场（首页即开发者概览，点 Logo 回首页） ── */
+.ag-main { margin-left: 8px; }
+@media (max-width: 1024px) { .ag-main { display: none; } }
