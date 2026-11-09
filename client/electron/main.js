@@ -680,13 +680,12 @@ function createWindow() {
       applyDockIconVisibility(false);
     }
     if (isDev) mainWindow.webContents.openDevTools({ mode: 'detach' });
-    // 窗口可见后再自动启动贡献 Agent，避免拖慢应用启动
+    // 窗口可见后再按已保存的「自动上线」拉起贡献。凭证若尚未写入，等登录同步后再试一次。
     try {
-      const cfg = readAgentConfig();
-      if (cfg?.auto_start && cfg?.worker_key) {
-        setImmediate(() => startAgent());
-      }
-    } catch {}
+      setImmediate(() => contributionSession.maybeAutoStart());
+    } catch (e) {
+      console.warn('[contribute] autostart:', e && e.message);
+    }
   });
 
   // 关闭 / 最小化 → 隐藏到托盘（全平台；仅「退出」才真正结束进程）
@@ -1778,8 +1777,10 @@ function safeSend(channel, ...args) {
   } catch { /* 退出时窗口已拆除，忽略 */ }
 }
 
-function startAgent() {
-  console.log('[main] startAgent called, isRunning=', agent.isRunning());
+const contributeAutoStart = require('../shared/contribute-autostart');
+
+function launchContributionAgent() {
+  console.log('[main] launchContributionAgent, isRunning=', agent.isRunning());
   agent.start({
     onLog: (line) => {
       console.log('[agent-log]', line);
@@ -1793,12 +1794,33 @@ function startAgent() {
       updateTrayMenu();
     },
     onTasks: (tasks) => safeSend('agent:contributeTasks', tasks),
+    onAuthRejected: () => {
+      try { contributionSession.noteAuthRejected(); } catch (e) {
+        console.warn('[contribute] auth reject:', e && e.message);
+      }
+      updateTrayMenu();
+    },
   });
   updateTrayMenu();
 }
 
+const contributionSession = contributeAutoStart.createContributeAutoStart({
+  readConfig: () => readAgentConfig(),
+  writeConfig: (cfg) => writeAgentConfig(cfg),
+  isRunning: () => agent.isRunning(),
+  start: () => launchContributionAgent(),
+  stop: () => { agent.stop(); updateTrayMenu(); },
+});
+
+/** 用户或托盘明确开启。清掉本进程的「不要自动上线」标记。 */
+function startAgent() {
+  contributionSession.noteExplicitStart();
+  launchContributionAgent();
+}
+
+/** 用户或托盘明确停止。本进程内迟到的登录同步不再自动拉起。 */
 function stopAgent() {
-  agent.stop();
+  contributionSession.noteManualStop();
   updateTrayMenu();
 }
 
@@ -2844,6 +2866,20 @@ function registerIPC() {
   });
   ipcMain.handle('agent:start',   () => { startAgent(); return { running: agent.isRunning() }; });
   ipcMain.handle('agent:stop',    () => { stopAgent();  return { running: false }; });
+  // 登录资料就绪：只补 worker_key / server_url，再按 auto_start 决定是否拉起。已在跑且密钥未变则不动。
+  ipcMain.handle('contribute:credentialsReady', (_e, payload = {}) => {
+    const action = contributionSession.noteCredentialsReady(payload.workerKey, payload.serverUrl);
+    return { ok: true, action, running: agent.isRunning() };
+  });
+  // 资料 401/403，或贡献连接被服务端以 4001 拒绝。停进程并丢掉失效凭证。
+  ipcMain.handle('contribute:authRejected', () => {
+    const action = contributionSession.noteAuthRejected();
+    return { ok: true, action, running: agent.isRunning() };
+  });
+  ipcMain.handle('contribute:logout', () => {
+    contributionSession.noteLogout();
+    return { ok: true, running: false };
+  });
   ipcMain.handle('agent:status',  () => ({ running: agent.isRunning() }));
   ipcMain.handle('agent:listContributeTasks', () => ({ tasks: agent.listContributeTasks() }));
   ipcMain.handle('agent:resolveContributeTrace', (_e, taskId) => {

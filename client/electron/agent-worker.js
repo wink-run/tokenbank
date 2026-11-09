@@ -11,6 +11,7 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { ensureDeviceId } = require('../shared/device-id');
+const { isDefinitiveWorkerClose } = require('../shared/contribute-autostart');
 
 const CONFIG_PATH = path.join(os.homedir(), '.llm-agent', 'config.json');
 const { normalizeAgentForwardCfg } = require('../shared/agent-forward-url');
@@ -56,6 +57,8 @@ let running = false;
 let _onLog = null;
 let _onStatus = null;
 let _onTasks = null;
+let _onAuthRejected = null;
+let _authCloseHandled = false;
 
 /** 出租任务在贡献页上显示的名字：本机应用用 CLI 名，智能体用资源名。 */
 function contributeTaskName(assistantId) {
@@ -1310,6 +1313,7 @@ function connect(cfg) {
 
     if (msg.type === 'registered') {
       reconnectAttempt = 0;
+      _authCloseHandled = false;
       log(`[agent] connected worker_id=${msg.worker_id}`);
       const allModels = modelsForRegister(liveCfg);
       const modelsSummary = allModels
@@ -1394,6 +1398,19 @@ function connect(cfg) {
     log(`[agent] disconnected code=${code}`);
     // 仅清理当前这条连接，避免重连竞态把新 ws 引用置空
     if (ws === thisSocket) ws = null;
+    // 4001：worker_key 缺失、未知或已被吊销。停止重连，避免拿失效凭证打循环。
+    if (isDefinitiveWorkerClose(code)) {
+      running = false;
+      clearReconnectTimer();
+      reconnectAttempt = 0;
+      log('[agent] credentials rejected — stop reconnect');
+      _onStatus?.({ running: false, error: 'credentials_rejected' });
+      if (!_authCloseHandled) {
+        _authCloseHandled = true;
+        try { _onAuthRejected?.(); } catch { /* 回调失败也不再重连 */ }
+      }
+      return;
+    }
     if (_skipAutoReconnect) return;
     if (running) scheduleReconnect(liveCfg);
     else _onStatus?.({ running: false });
@@ -1422,11 +1439,12 @@ function reconnectWithLatestConfig() {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-function start({ onLog, onStatus, onTasks } = {}) {
+function start({ onLog, onStatus, onTasks, onAuthRejected } = {}) {
   console.log('[agent-worker] start called, running=', running);
   if (onLog) _onLog = onLog;
   if (onStatus) _onStatus = onStatus;
   if (onTasks) _onTasks = onTasks;
+  if (onAuthRejected) _onAuthRejected = onAuthRejected;
 
   // 已在跑：热重载配置（否则新勾选的武将不会出现在社区列表）
   if (running) {

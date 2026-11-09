@@ -107,6 +107,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('agent:listUpdated', handler);
     },
   },
+  contribute: {
+    credentialsReady: (payload) => ipcRenderer.invoke('contribute:credentialsReady', payload || {}),
+    authRejected: () => ipcRenderer.invoke('contribute:authRejected'),
+    logout: () => ipcRenderer.invoke('contribute:logout'),
+  },
   mcp: {
     listServers: () => ipcRenderer.invoke('mcp:listServers'),
     listCatalog: () => ipcRenderer.invoke('mcp:listCatalog'),
