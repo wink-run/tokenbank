@@ -638,6 +638,104 @@ function catalogModelNames(pricingPid) {
   return names;
 }
 
+function codexModelPolicy() {
+  return require('../shared/codex-subscription-models');
+}
+
+function codexAccountModels() {
+  return require('./codex-account-models');
+}
+
+function isCodexOauthProvider(provider) {
+  return !!(provider && provider.auth_type === 'oauth' && provider.oauth_provider === 'codex');
+}
+
+function codexChatModelEntries() {
+  return codexAccountModels().listedModelNames().map(name => ({ name, type: 'chat' }));
+}
+
+function modelNamesOf(list) {
+  const out = [];
+  for (const m of list || []) {
+    const n = modelEntryId(m);
+    if (n) out.push(n);
+  }
+  return out;
+}
+
+/** ChatGPT 订阅（source_id codex）不继承 OpenAI 按量目录。API Key 的 openai 账户不是这条。 */
+function isCodexChatGptSubscription(sub, catalogBySource) {
+  if (codexModelPolicy().isCodexChatGptSubscription(sub)) return true;
+  const cat = catalogBySource && sub && catalogBySource[sub.source_id];
+  return !!(cat && (cat.source_id === 'codex' || cat.agent_id === 'codex'));
+}
+
+/**
+ * 贡献名单里拿掉 Codex 订阅并不支持的名字（含从按量目录抄来的 gpt-5.4 / 图像 / embedding）。
+ * 别的供给源仍在提供的名字留下。不把不支持的名字改写成另一个模型。
+ */
+function codexContributionDrop(agentCfg, localCfg = {}) {
+  const providers = agentCfg?.providers || [];
+  const codexProviders = providers.filter(isCodexOauthProvider);
+  if (!codexProviders.length) return new Set();
+  const supported = codexAccountModels().listedModelNames();
+  const other = [];
+  for (const p of providers) {
+    if (isCodexOauthProvider(p)) continue;
+    other.push(...modelNamesOf(p.models));
+  }
+  for (const p of localCfg.user_payg_providers || []) {
+    const gid = paygGatewayId(p);
+    const prov = providers.find(x => x && x.id === gid);
+    if (prov && isCodexOauthProvider(prov)) continue;
+    other.push(...modelNamesOf(p.models));
+    for (const n of catalogModelNames(p.provider_id)) other.push(n);
+  }
+  const catalogBySource = Object.fromEntries(
+    subscriptionAppCatalog(localCfg).map(c => [c.source_id, c]),
+  );
+  for (const s of localCfg.user_subscriptions || []) {
+    if (isCodexChatGptSubscription(s, catalogBySource)) continue;
+    other.push(...modelNamesOf(s.models));
+  }
+  const inherited = [];
+  for (const n of catalogModelNames('openai')) inherited.push(n);
+  const ovr = localCfg.provider_pricing_overrides?.openai;
+  if (ovr && typeof ovr === 'object') {
+    for (const k of Object.keys(ovr)) if (isValidModelName(k)) inherited.push(k);
+  }
+  return codexModelPolicy().contributionNamesToDrop({
+    supported,
+    codexProviderNames: codexProviders.flatMap(p => modelNamesOf(p.models)),
+    otherNames: other,
+    inheritedCatalogNames: inherited,
+  });
+}
+
+function applyContributionDrop(cfg, drop) {
+  if (!drop || !drop.size) return { cfg, changed: false };
+  const { stripModelList } = codexModelPolicy();
+  let changed = false;
+  const next = { ...cfg };
+  if (Array.isArray(next.model_groups)) {
+    next.model_groups = next.model_groups.map(g => {
+      if (!g || !Array.isArray(g.models)) return g;
+      const stripped = stripModelList(g.models, drop);
+      if (!stripped.changed) return g;
+      changed = true;
+      return { ...g, models: stripped.list };
+    });
+  }
+  if (Array.isArray(next.models)) {
+    const stripped = stripModelList(next.models, drop);
+    if (stripped.changed) {
+      next.models = stripped.list;
+      changed = true;
+    }
+  }
+  return { cfg: changed ? next : cfg, changed };
+}
+
 /** 某网关 provider 在账户/刊例价中登记的全部模型名（与供给源页按模型视图一致） */
 function collectModelsForGatewayProvider(gatewayId, localCfg = {}) {
   const names = new Set();
@@ -664,6 +762,11 @@ function collectModelsForGatewayProvider(gatewayId, localCfg = {}) {
     if (subscriptionGatewayId(s, catalogBySource) !== gatewayId) continue;
     const isApi = s.subscription_kind === 'api' || resolveSubUseApi(s, catalogBySource);
     if (!isApi) continue;
+    // Codex ChatGPT OAuth 的上游不接受 OpenAI 按量目录（gpt-5.4、图像、embedding 会 400）。
+    if (isCodexChatGptSubscription(s, catalogBySource)) {
+      for (const n of codexAccountModels().listedModelNames()) names.add(n);
+      continue;
+    }
     for (const m of s.models || []) addName(m);
     const pid = s.plan_provider_id || subscriptionGatewayProviderId(s, catalogBySource) || s.source_id;
     for (const k of Object.keys(pricingOvr[pid] || {})) addName(k);
@@ -692,12 +795,19 @@ function enrichProvidersFromAccounts(providers, localCfg) {
   // 模型基底用服务端 registry，再并上用户账户里登记的模型（不再灌入 OpenRouter 全量免费目录）
   return providers.map(p => {
     let next = p;
-    const extra = collectModelsForGatewayProvider(p.id, localCfg);
-    if (extra.size) {
-      const merged = mergeProviderModelEntries(p.models, extra);
+    if (isCodexOauthProvider(p)) {
+      const models = codexChatModelEntries();
       const before = (p.models || []).map(modelEntryId).filter(Boolean).sort().join('\0');
-      const after = merged.map(modelEntryId).filter(Boolean).sort().join('\0');
-      if (before !== after) next = { ...next, models: merged };
+      const after = models.map(modelEntryId).join('\0');
+      if (before !== after) next = { ...next, models };
+    } else {
+      const extra = collectModelsForGatewayProvider(p.id, localCfg);
+      if (extra.size) {
+        const merged = mergeProviderModelEntries(p.models, extra);
+        const before = (p.models || []).map(modelEntryId).filter(Boolean).sort().join('\0');
+        const after = merged.map(modelEntryId).filter(Boolean).sort().join('\0');
+        if (before !== after) next = { ...next, models: merged };
+      }
     }
     const src = srcMap[p.id];
     if (src && next.source !== src) next = { ...next, source: src };
@@ -709,9 +819,21 @@ function enrichProvidersFromAccounts(providers, localCfg) {
 function syncGatewayProvidersFromAccounts(agentCfg, localCfg) {
   if (!agentCfg || !Array.isArray(agentCfg.providers)) return { cfg: agentCfg, changed: false };
   const gatewayIds = new Set(resolveUserGatewayProviderIds(localCfg));
+  // 先按替换前的名单算贡献里要删的名字，再改 provider.models。
+  const drop = codexContributionDrop(agentCfg, localCfg);
   let changed = false;
   const providers = agentCfg.providers.map(p => {
     let next = { ...p };
+    if (isCodexOauthProvider(p)) {
+      const models = codexChatModelEntries();
+      const before = (next.models || []).map(modelEntryId).filter(Boolean).sort().join('\0');
+      const after = models.map(modelEntryId).join('\0');
+      if (before !== after) {
+        next = { ...next, models };
+        changed = true;
+      }
+      return next;
+    }
     if (gatewayIds.has(p.id)) {
       const extra = collectModelsForGatewayProvider(p.id, localCfg);
       if (extra.size) {
@@ -726,8 +848,10 @@ function syncGatewayProvidersFromAccounts(agentCfg, localCfg) {
     }
     return next;
   });
-  if (!changed) return { cfg: agentCfg, changed: false };
-  return { cfg: { ...agentCfg, providers }, changed: true };
+  const pruned = applyContributionDrop({ ...agentCfg, providers }, drop);
+  if (pruned.changed) return { cfg: pruned.cfg, changed: true };
+  if (changed) return { cfg: { ...agentCfg, providers }, changed: true };
+  return { cfg: agentCfg, changed: false };
 }
 
 /** @deprecated 使用 syncGatewayProvidersFromAccounts */
@@ -1406,6 +1530,8 @@ function getUserAccounts(cfg = {}, opts = {}) {
     custom_source_templates: cfg.custom_source_templates || {},
     direct_source_instances: directInstances,
     direct_source_billing: cfg.direct_source_billing || {},
+    // ChatGPT Codex 订阅当前可用的对话模型（实时列表或固定回退），供贡献页避开按量目录
+    codex_subscription_models: codexAccountModels().listedModelNames(),
     // 跨端同步用的删除墓碑（阻止已删账户被残留快照复活）
     removed_account_ids: cfg.removed_account_ids || {},
     removed_direct_ids: cfg.removed_direct_ids || {},

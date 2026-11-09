@@ -498,6 +498,6 @@ async function prepare(provider, getConfig, saveConfig, opts = {}) {
 
 module.exports = {
   PROVIDERS, getModule, isOauthProvider, prepare,
-  startLogin, completeLogin, poll, refresh, needsRefresh, applyAuth,
+  startLogin, completeLogin, poll, refresh, needsRefresh, applyAuth, oauthHttp,
   setNetworkProxyGetter,
 };

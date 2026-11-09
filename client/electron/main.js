@@ -2143,6 +2143,32 @@ function syncAgentProviderModelsFromAccounts() {
   } catch (e) {
     console.warn('[main] sync provider models skipped:', e.message);
   }
+  scheduleCodexModelRefresh();
+}
+
+let codexModelRefresh = null;
+function scheduleCodexModelRefresh() {
+  if (codexModelRefresh) return;
+  codexModelRefresh = (async () => {
+    try {
+      const agentCfg = readAgentConfig() || {};
+      const provider = (agentCfg.providers || []).find(p =>
+        p && p.auth_type === 'oauth' && p.oauth_provider === 'codex' && p.credentials && p.credentials.access_token);
+      if (!provider) return;
+      let credentials = provider.credentials;
+      try {
+        const ready = await require('./oauth').prepare(provider, readAgentConfig, writeAgentConfig);
+        if (ready && ready.credentials && ready.credentials.access_token) credentials = ready.credentials;
+      } catch { /* 刷新失败时用现有凭证拉列表；再失败就用固定名单 */ }
+      const result = await require('./codex-account-models').refreshCodexAccountModels(credentials);
+      if (result && result.source === 'live') syncAgentProviderModelsFromAccounts();
+    } catch (e) {
+      const msg = String((e && e.message) || 'failed').replace(/Bearer\s+\S+/gi, 'Bearer [redacted]').slice(0, 200);
+      console.warn('[main] codex model list refresh failed:', msg);
+    } finally {
+      codexModelRefresh = null;
+    }
+  })();
 }
 
 // ── Local Config helpers (stored in userData) ────────────────────────────────
