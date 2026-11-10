@@ -40,6 +40,61 @@ test('apply turns a suggestion into done', async () => {
   assert.equal(guardian.listRecords().find(x => x.id === r.id).status, 'done');
 });
 
+test('in-place actions: pick a button on the record, failure keeps it open, undo from the action result', async () => {
+  let ran = null;
+  let undone = null;
+  guardian.registerAction('test-pick', (d) => { ran = d; return { ok: true, message: 'done it', undo: { type: 'test-pick-undo', data: { back: d.which } } }; });
+  guardian.registerAction('test-pick-undo', (d) => { undone = d; return { ok: true }; });
+  guardian.registerAction('test-fail', () => ({ ok: false, error: 'nope' }));
+  const r = guardian.record({
+    category: 'assets', kind: 'k', status: 'info', title: 'pick one',
+    actions: [{ label: 'A', run: { type: 'test-fail' } }, { label: 'B', done: 'B done', run: { type: 'test-pick', data: { which: 'b' } } }],
+  });
+  assert.equal((await guardian.act(r.id, 0)).ok, false);
+  let cur = guardian.listRecords().find(x => x.id === r.id);
+  assert.equal(cur.status, 'info');
+  assert.equal(cur.lastError, 'nope');
+  assert.equal((await guardian.act(r.id, 1)).ok, true);
+  cur = guardian.listRecords().find(x => x.id === r.id);
+  assert.equal(cur.status, 'done');
+  assert.equal(cur.actedLabel, 'B done');
+  assert.equal(cur.resultNote, 'done it');
+  assert.deepEqual(ran, { which: 'b' });
+  assert.equal((await guardian.act(r.id, 1)).ok, false, 'already handled');
+  assert.equal((await guardian.undo(r.id)).ok, true);
+  assert.deepEqual(undone, { back: 'b' });
+});
+
+test('handle: auto mode does safe undoable fixes right away; suggest mode waits; an undo is respected', async () => {
+  let n = 0;
+  guardian.registerAction('test-auto', () => { n++; return { ok: true, message: 'fixed', undo: { type: 'test-auto-undo' } }; });
+  guardian.registerAction('test-auto-undo', () => ({ ok: true }));
+  const entry = () => ({
+    category: 'assets', kind: 'k', status: 'info', title: 'safe fix', signature: 'auto-sig',
+    actions: [{ label: 'Fix', done: 'Fixed', auto: true, run: { type: 'test-auto' } }, { label: 'Other', run: { type: 'test-auto' } }],
+  });
+  guardian.setSettings({ modes: { assets: 'suggest' } });
+  let r = await guardian.handle(entry());
+  assert.equal(r.status, 'info');
+  assert.equal(n, 0);
+  guardian.setSettings({ modes: { assets: 'auto' } });
+  r = await guardian.handle(entry());
+  assert.equal(r.status, 'done');
+  assert.equal(r.actedLabel, 'Fixed');
+  assert.equal(r.resultNote, 'fixed');
+  assert.equal(r.auto, true);
+  assert.equal(n, 1);
+  assert.equal(guardian.listRecords().filter(x => x.signature === 'auto-sig' && x.status === 'info').length, 0, 'the open suggestion is closed');
+  assert.equal((await guardian.undo(r.id)).ok, true);
+  r = await guardian.handle(entry());
+  assert.equal(r.status, 'info', 'user undid it once → only suggest from now on');
+  assert.equal(n, 1);
+  // 没有 auto 按钮的（比如要用户做判断的）照常等用户点
+  r = await guardian.handle({ category: 'assets', kind: 'k', status: 'info', title: 'judgement', signature: 'judge', actions: [{ label: 'A', run: { type: 'test-auto' } }] });
+  assert.equal(r.status, 'info');
+  assert.equal(n, 1);
+});
+
 test('modes: per category and global switch', () => {
   guardian.setSettings({ modes: { projection: 'suggest' } });
   assert.equal(guardian.modeOf('projection'), 'suggest');

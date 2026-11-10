@@ -42,6 +42,8 @@ function rentedAppRuntime(agent) {
 
 /** 内置 Agent 和出租的默认应用用品牌 logo；自定义智能体保持文字回退 */
 function AgentBrandIcon({ agent, isCustom }) {
+  // 内置看护：和侧边栏 logo 旁的看护小绿点一致
+  if (agent?.guardian) return <span className="w-2 h-2 rounded-full bg-emerald-500" aria-hidden />;
   const appRt = rentedAppRuntime(agent);
   if (isCustom && !appRt) {
     return <span className="text-[9px] font-mono leading-none text-zinc-500">{FALLBACK_ICON.assistant}</span>;
@@ -266,7 +268,7 @@ export default function AgentTabBar({
                 </span>
                 <span className="min-w-0 flex-1 text-left">
                   <span className="flex items-center gap-1 min-w-0 leading-tight">
-                    <span className="truncate">{agent.name}</span>
+                    <span className="truncate">{agent.guardian ? t('debug.tabs.guardian') : agent.name}</span>
                     {isCommunity && (
                       <span className="shrink-0 text-[10px] px-1 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
                         {t('debug.tabs.communityBadge')}

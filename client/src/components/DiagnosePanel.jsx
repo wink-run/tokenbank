@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useLang } from '../store/lang';
+import { askGuardian } from '../lib/askGuardian';
 
 const DOT = {
   ok: 'bg-emerald-500',
@@ -10,8 +12,9 @@ const DOT = {
 /**
  * 一键诊断：为什么应用里看不到这个资产。结果逐条列出，能修的给「修复」按钮（看护的 resource:diagnose）。
  */
-export default function DiagnosePanel({ resourceId, onChanged }) {
+export default function DiagnosePanel({ resourceId, resourceName, onChanged }) {
   const { t } = useLang();
+  const navigate = useNavigate();
   const [state, setState] = useState({ loading: false, findings: null, error: '' });
   const [fixing, setFixing] = useState('');
   const api = typeof window !== 'undefined' ? window.electronAPI?.resource : null;
@@ -67,6 +70,19 @@ export default function DiagnosePanel({ resourceId, onChanged }) {
             </li>
           ))}
         </ul>
+      )}
+      {state.findings && state.findings.some(f => f.level !== 'ok') && (
+        <div className="flex items-center gap-2 pt-0.5">
+          <span className="text-[11px] text-zinc-400 flex-1 min-w-0">{t('resources.diagnose.stillUnsure')}</span>
+          <button type="button"
+            onClick={() => askGuardian(navigate, t('resources.diagnose.askPrompt', {
+              name: resourceName || resourceId, id: resourceId,
+              findings: state.findings.filter(f => f.level !== 'ok').map(f => `- ${f.text}`).join('\n'),
+            }))}
+            className="shrink-0 text-[11px] px-2 py-0.5 rounded-md border border-blue-200 dark:border-blue-900/60 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40">
+            {t('resources.diagnose.ask')} →
+          </button>
+        </div>
       )}
     </div>
   );

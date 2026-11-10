@@ -30,6 +30,10 @@ function registerGuardianHandlers() {
     const r = await guardian.apply(id);
     return { success: !!r.ok, error: r.error };
   }));
+  ipcMain.handle('guardian:act', safe(async (id, index) => {
+    const r = await guardian.act(id, index);
+    return { success: !!r.ok, error: r.error, message: r.message };
+  }));
   ipcMain.handle('guardian:dismiss', safe((id) => ({ success: guardian.dismiss(id) })));
   ipcMain.handle('guardian:runChecks', safe(async () => ({ success: true, results: await guardian.runChecks() })));
   // 资产列表的小标签：质量 / 安全 / 重复 / 新版本
@@ -111,6 +115,7 @@ function startGuardian({ gateway, initialDelayMs } = {}) {
   try { require('./dispatch-learn').register(); } catch (e) { console.warn('[guardian] dispatch-learn:', e.message); }
   try { require('./command').register(); } catch (e) { console.warn('[guardian] command:', e.message); }
   try { require('./capability-gaps').register(); } catch (e) { console.warn('[guardian] capability-gaps:', e.message); }
+  try { require('./review-usage').register(); } catch (e) { console.warn('[guardian] review-usage:', e.message); }
   try { require('./introspect').register(); } catch (e) { console.warn('[guardian] introspect:', e.message); }
   try { require('./task-watch').attach(); } catch (e) { console.warn('[guardian] task-watch:', e.message); }
   try { if (gateway) require('./gateway-watch').attach(gateway); } catch (e) { console.warn('[guardian] gateway-watch:', e.message); }

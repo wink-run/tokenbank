@@ -105,7 +105,9 @@ function newId() {
 }
 
 /**
- * 写一条记录。entry: { category, kind, title, detail?, advice?, status, signature?, undo?, apply?, link?, meta? }
+ * 写一条记录。entry: { category, kind, title, detail?, advice?, status, signature?, undo?, apply?, actions?, link?, meta? }
+ * actions: [{ label, run: { type, data }, undo?: { type, data }, done? }] —— 在记录上就地处理的按钮（不用跳转）；
+ *   点了跑 run，成功后记录变「已处理」，可撤销的带上 undo（动作返回的 undo 优先，适合执行时才知道怎么撤）。
  * status: done（已自动处理，可撤销）| suggested（建议，等用户点）| info（提醒）| failed（尝试未成功）
  * 同签名还没处理的记录 → 合并（count + 1）并移到最前，不刷屏；用户忽略过的，7 天内不再提（返回 null）
  */
@@ -189,12 +191,59 @@ async function undo(id) {
 async function apply(id) {
   const rec = listRecords({ limit: RECORDS_MAX }).find(r => r.id === id);
   if (!rec) return { ok: false, error: 'not-found' };
+  if (!rec.apply && Array.isArray(rec.actions) && rec.actions.length) return act(id, 0);
   if (rec.status !== 'suggested' || !rec.apply) return { ok: false, error: 'not-applicable' };
   const r = await runAction(rec.apply);
   updateRecord(id, r.ok
     ? { status: 'done', appliedAt: Date.now(), ...(rec.applyUndo ? { undo: rec.applyUndo } : {}) }
     : { lastError: r.error });
   return r;
+}
+
+/** 就地处理：点记录上的第 index 个按钮 */
+async function act(id, index) {
+  const rec = listRecords({ limit: RECORDS_MAX }).find(r => r.id === id);
+  if (!rec) return { ok: false, error: 'not-found' };
+  const a = Array.isArray(rec.actions) ? rec.actions[Number(index) || 0] : null;
+  if (!a || !a.run || !['info', 'suggested', 'failed'].includes(rec.status)) return { ok: false, error: 'not-applicable' };
+  const r = await runAction(a.run);
+  if (!r.ok) { updateRecord(id, { lastError: r.error }); return r; }
+  const undoSpec = r.undo || a.undo || null;
+  updateRecord(id, {
+    status: 'done', appliedAt: Date.now(), actedLabel: a.done || a.label, lastError: null,
+    ...(r.message ? { resultNote: String(r.message).slice(0, 300) } : {}),
+    ...(undoSpec ? { undo: undoSpec } : { undo: null }),
+  });
+  return r;
+}
+
+/** 同签名的自动处理被用户撤销过：尊重用户，之后只提建议、不再自动做 */
+function wasUndone(signature) {
+  return !!signature && listRecords({ limit: RECORDS_MAX }).some(r => r.signature === signature && r.status === 'undone');
+}
+
+/**
+ * 记一条带就地按钮的记录；该类是「自动处理」且有标了 auto 的按钮（没风险、可撤销）时直接做，
+ * 记成「已处理」并带撤销；做不成或用户撤销过，就照常留一条待处理。
+ */
+async function handle(entry) {
+  const idx = Array.isArray(entry.actions) ? entry.actions.findIndex(a => a && a.auto) : -1;
+  if (idx >= 0 && modeOf(entry.category) === 'auto' && !wasUndone(entry.signature)) {
+    const a = entry.actions[idx];
+    const r = await runAction(a.run);
+    if (r.ok) {
+      if (entry.signature) resolveSignature(entry.signature, '已自动处理');
+      const { actions, countAsRepeat, ...rest } = entry;
+      const undoSpec = r.undo || a.undo || null;
+      return record({
+        ...rest, status: 'done', auto: true, appliedAt: Date.now(), actedLabel: a.done || a.label,
+        ...(r.message ? { resultNote: String(r.message).slice(0, 300) } : {}),
+        ...(undoSpec ? { undo: undoSpec } : {}),
+      });
+    }
+    entry = { ...entry, lastError: r.error };
+  }
+  return record(entry);
 }
 
 function dismiss(id) {
@@ -321,6 +370,9 @@ module.exports = {
   registerAction,
   undo,
   apply,
+  act,
+  handle,
+  wasUndone,
   dismiss,
   getRule,
   learnRule,

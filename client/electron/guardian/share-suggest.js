@@ -75,7 +75,7 @@ async function check() {
   picked.sort((a, b) => b.n - a.n);
   for (const { r, n } of picked.slice(0, MAX_PER_RUN)) {
     guardian.record({
-      category: 'community', kind: 'share-suggest', status: 'suggested', countAsRepeat: false,
+      category: 'community', kind: 'share-suggest', status: 'suggested', countAsRepeat: false, quietDays: 60,
       title: `「${r.display_name || r.name}」最近 ${WINDOW_DAYS} 天用了 ${n} 次，社区里还没有类似的`,
       advice: '分享到社区后，别人纳管时你能拿积分；发布前会先帮你去掉路径、密钥这类私人信息。',
       signature: `share-suggest|${r.id}`,

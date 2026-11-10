@@ -3500,7 +3500,7 @@ export default function Resources() {
                 {busy === li.resourceId ? t('resources.busy') : t('resources.project')}
               </button>
             )}
-            {li.resourceId && <DiagnosePanel resourceId={li.resourceId} onChanged={() => loadAll({ silent: true })} />}
+            {li.resourceId && <DiagnosePanel resourceId={li.resourceId} resourceName={li.name} onChanged={() => loadAll({ silent: true })} />}
           </div>
         </InspectorSection>
         {li.type === 'assistant' && (() => {
@@ -4273,7 +4273,8 @@ export default function Resources() {
                 searchQuery={debouncedQuery}
                 LogoComp={AssetLogo}
                 onNeedProject={() => changeViewTab('managed')}
-                onNeedAgent={() => navigate('/gateway')}
+                onNeedAgent={() => navigate('/guardian')}
+                onOpenGuardian={() => navigate('/guardian')}
                 onRefresh={refreshAfterAdopt}
                 onAdopted={handleRecoAdopted}
                 onItemsChange={() => setRecoPurposeRev((n) => n + 1)}
@@ -4620,9 +4621,9 @@ export default function Resources() {
         open={skillInstallOpen}
         onClose={() => setSkillInstallOpen(false)}
         onNeedAgent={() => {
-          // 无可投射 Agent：跳转网关页纳管 Agent 应用
+          // 没有执行应用：到「智能看护」页设置（那里再引导去纳管）
           setSkillInstallOpen(false);
-          navigate('/gateway');
+          navigate('/guardian');
         }}
         onInstalled={async ({ resource } = {}) => {
           // 安装完成：扫描即纳管，找出新入库的技能，直接启用并选中

@@ -34,6 +34,7 @@ async function check() {
   let repaired = 0;
   let suggested = 0;
   let broken = 0;
+  const gone = [];   // 原文件已被删除：修不了，合并成一条，一键撤下
   for (const r of m.listResources({ type: 'skill' })) {
     if (!(r.projections || []).length) continue;
     let v;
@@ -81,9 +82,10 @@ async function check() {
           category: 'projection',
           kind: 'projection-broken',
           status: 'suggested',
+          countAsRepeat: false,
           title: `「${skillName(r)}」在 ${agentName(p.agentId)} 里的投射失效了`,
           detail: `原因：${REASON_TEXT[p.health.reason] || p.health.reason}`,
-          apply: { type: 'repairProjection', data: { resourceId: r.id } },
+          actions: [{ label: '修复', done: '已修复', run: { type: 'repairProjection', data: { resourceId: r.id } } }],
           signature: `proj|${r.id}|${p.agentId}`,
           meta: { resourceId: r.id, agentId: p.agentId, reason: p.health.reason },
         });
@@ -91,17 +93,49 @@ async function check() {
     }
 
     for (const p of notRepairable) {
+      const sig = `proj-x|${r.id}|${p.agentId}|${p.health.reason}`;
+      if (p.health.reason === 'authority-missing') {
+        gone.push({ resourceId: r.id, agentId: p.agentId, name: skillName(r) });
+        guardian.resolveSignature(sig, '合并到「原文件已被删除」');   // 旧版本一条一条记的，收起
+        continue;
+      }
       guardian.record({
         category: 'projection',
         kind: 'projection-unrepairable',
         status: 'info',
+        countAsRepeat: false,
         title: `「${skillName(r)}」在 ${agentName(p.agentId)} 里用不了`,
         detail: `原因：${REASON_TEXT[p.health.reason] || p.health.reason}`,
-        advice: p.health.reason === 'authority-missing' ? '原文件已被删除，重新安装这个技能即可。' : '到资产页打开这个技能，点「诊断」查看原因。',
-        signature: `proj-x|${r.id}|${p.agentId}|${p.health.reason}`,
+        advice: '撤下后应用里就不会再出现这个坏掉的技能；资产还在，修好后可再启用。',
+        signature: sig,
+        actions: [{ label: '从这个应用撤下', done: '已撤下', run: { type: 'unprojectMany', data: { items: [{ resourceId: r.id, agentId: p.agentId }] } } }],
+        link: { to: '/resources', label: '诊断', state: { resourceType: 'skill', selectKey: `r-${r.id}` } },
         meta: { resourceId: r.id, agentId: p.agentId, reason: p.health.reason },
       });
     }
+  }
+
+  if (gone.length) {
+    const names = [...new Set(gone.map(g => g.name))];
+    const internal = require('./diagnose').INTERNAL_TARGETS;
+    const apps = [...new Set(gone.filter(g => !internal.has(g.agentId)).map(g => agentName(g.agentId)))];
+    const where = apps.length ? `在 ${apps.join('、')} 里用不了` : '用不了';
+    await guardian.handle({
+      category: 'projection',
+      kind: 'projection-gone',
+      status: 'suggested',
+      countAsRepeat: false,
+      title: names.length === 1
+        ? `「${names[0]}」的原文件已被删除，${where}`
+        : `${names.length} 个技能的原文件已被删除，${where}`,
+      detail: names.slice(0, 12).join('、') + (names.length > 12 ? ' 等' : ''),
+      advice: '撤下这些坏掉的链接，应用里就不会再看到它们；以后需要可以重新安装。',
+      signature: 'proj-gone',
+      actions: [{ label: '全部撤下', done: '已撤下坏掉的链接', auto: true, run: { type: 'unprojectMany', data: { items: gone.map(({ resourceId, agentId }) => ({ resourceId, agentId })) } } }],
+      meta: { items: gone },
+    });
+  } else {
+    guardian.resolveSignature('proj-gone');
   }
   return { ok: true, broken, repaired, suggested };
 }
@@ -110,6 +144,15 @@ function register() {
   guardian.registerAction('unproject', ({ resourceId, agentId, projectionId }) => {
     const r = rm().unproject({ resourceId, agentId, projectionId });
     return r && r.success === false ? { ok: false, error: r.error } : { ok: true };
+  });
+  // 撤下修不好的投射（原文件没了，没法再投回去，所以不带撤销）
+  guardian.registerAction('unprojectMany', ({ items = [] }) => {
+    const m = rm();
+    let n = 0;
+    for (const it of items) {
+      try { const r = m.unproject(it); if (!(r && r.success === false)) n++; } catch { /* 已撤下 */ }
+    }
+    return { ok: true, message: n ? '已撤下，应用里不会再看到这些坏掉的技能；需要的话可以重新安装' : '已经没有要撤下的了' };
   });
   guardian.registerAction('repairProjection', ({ resourceId }) => {
     const v = rm().verifyProjections(resourceId, { repair: true });

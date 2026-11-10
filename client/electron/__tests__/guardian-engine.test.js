@@ -177,3 +177,32 @@ test('health.busy lists what is running right now, and clears when it ends', asy
     modelCall.modelStatus = origM;
   }
 });
+
+test('playground guardian agent: listed on the runner app, fresh context each time, resolves to the runner', async () => {
+  const guardian = require('../guardian');
+  const chat = require('../guardian/chat');
+  const orig = targets.listManagedResourceAgentIds;
+  targets.listManagedResourceAgentIds = () => ['codex'];
+  try {
+    assert.equal(chat.listEntry(new Set()), null, 'runner not launchable → not listed');
+    const e = chat.listEntry(new Set(['codex']), { codex: { name: 'Codex', capabilities: ['code'] } });
+    assert.equal(e.id, 'assistant:tb-guardian');
+    assert.equal(e.guardian, true);
+    assert.equal(e.runtimeAgentId, 'codex');
+    guardian.record({ category: 'assets', kind: 'k', status: 'info', title: '「x」包含高风险操作', advice: '信任或撤下' });
+    assert.match(chat.systemText(), /待处理：\n- \[info\] 「x」包含高风险操作（信任或撤下）/);
+    assert.match(chat.systemText(), /改文件、执行会改变状态的命令、删除任何东西之前/);
+    assert.equal(await executor.resolveAgentId('assistant:tb-guardian'), 'assistant:tb-guardian');
+    const r = executor._resolveAssistant('assistant:tb-guardian');
+    assert.equal(r.agentId, 'codex');
+    assert.match(r.assistant.launch.promptPrefix || JSON.stringify(r.assistant.launch), /内置看护/);
+    // 看护对话失败时，记录里写「看护（Codex）」而不是内部 id
+    const tw = require('../guardian/task-watch');
+    assert.match(tw._internal.agentName('assistant:tb-guardian'), /^看护（/);
+    guardian.setSettings({ enabled: false });
+    assert.equal(chat.listEntry(new Set(['codex'])), null, 'guardian off → not listed');
+    guardian.setSettings({ enabled: true });
+  } finally {
+    targets.listManagedResourceAgentIds = orig;
+  }
+});

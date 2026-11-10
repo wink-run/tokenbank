@@ -332,15 +332,15 @@ export default function SkillInstallDialog({
 
           {!preparing && ready.step === 'needAgent' && (
             <div className="rounded-lg border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 p-3 text-xs space-y-2">
-              <p className="text-amber-800 dark:text-amber-200">{t('resources.skillInstall.needAgent')}</p>
-              <p className="text-amber-700/80 dark:text-amber-300/70">{t('resources.skillInstall.needAgentHint')}</p>
+              <p className="text-amber-800 dark:text-amber-200">{t('resources.skillInstall.needRunner')}</p>
+              <p className="text-amber-700/80 dark:text-amber-300/70">{t('resources.skillInstall.needRunnerHint')}</p>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => { if (onNeedAgent) onNeedAgent(); }}
                   className="px-3 py-1.5 rounded-md bg-amber-600 text-white hover:bg-amber-700"
                 >
-                  {t('resources.skillInstall.goManageAgent')}
+                  {t('resources.reco.setRunner')} →
                 </button>
                 <button
                   type="button"

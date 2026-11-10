@@ -188,6 +188,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listRecords: (opts) => ipcRenderer.invoke('guardian:listRecords', opts || {}),
     undo: (id) => ipcRenderer.invoke('guardian:undo', id),
     apply: (id) => ipcRenderer.invoke('guardian:apply', id),
+    act: (id, index) => ipcRenderer.invoke('guardian:act', id, index),
     dismiss: (id) => ipcRenderer.invoke('guardian:dismiss', id),
     runChecks: () => ipcRenderer.invoke('guardian:runChecks'),
     assetFlags: () => ipcRenderer.invoke('guardian:assetFlags'),
