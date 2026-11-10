@@ -162,6 +162,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     removeFromAgent: (params) => ipcRenderer.invoke('resource:removeFromAgent', params || {}),
     openPath: (params) => ipcRenderer.invoke('resource:openPath', params || {}),
     previewFile: (params) => ipcRenderer.invoke('resource:previewFile', params || {}),
+    packSkillFiles: (params) => ipcRenderer.invoke('resource:packSkillFiles', params || {}),
     listIdleSkills: (options) => ipcRenderer.invoke('resource:listIdleSkills', options || {}),
     cleanupSkills: (params) => ipcRenderer.invoke('resource:cleanupSkills', params || {}),
     mineDemand: (options) => ipcRenderer.invoke('resource:mineDemand', options || {}),

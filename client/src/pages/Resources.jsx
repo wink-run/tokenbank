@@ -1422,14 +1422,15 @@ export default function Resources() {
       } catch { /* ignore */ }
     }
     // Skill：重复推送时以磁盘上的 SKILL.md 为准，社区副本才能更新到最新正文
+    let skillDir = '';
     if (rtype === 'skill') {
-      const authPath = resourceLike?.authorityPath
+      skillDir = resourceLike?.authorityPath
         || managed?.authorityPath
         || managed?.metadata?.authorityPath
         || managed?.metadata?.scannedFrom
         || resourceLike?.skillDir
         || '';
-      const fresh = await readSkillBodyFromPath(authPath);
+      const fresh = await readSkillBodyFromPath(skillDir);
       if (fresh) content = fresh;
     }
     if (!content) {
@@ -1512,6 +1513,14 @@ export default function Resources() {
           }
         } catch { /* 补说明失败不阻断推荐 */ }
       }
+      // 只打包含 SKILL.md 的技能目录，不上传整个仓库。读失败则不带 files，避免用空数组冲掉已发布的配套。
+      let packedFiles = null;
+      if (rtype === 'skill' && skillDir && window.electronAPI?.resource?.packSkillFiles) {
+        try {
+          const packed = await window.electronAPI.resource.packSkillFiles({ skillDir });
+          if (packed?.success && Array.isArray(packed.files)) packedFiles = packed.files;
+        } catch { /* 配套文件读失败不阻断推荐正文 */ }
+      }
       const { data } = await recommendCommunitySkill({
         name,
         content,
@@ -1521,6 +1530,8 @@ export default function Resources() {
         metadata: {
           ...(managed?.metadata || resourceLike?.metadata || {}),
           tags: managed?.metadata?.tags || resourceLike?.metadata?.tags,
+          // 空数组也要带上，这样删掉配套文件后再次推荐能清掉旧列表
+          ...(packedFiles ? { files: packedFiles } : {}),
         },
       });
       if (data?.item) {

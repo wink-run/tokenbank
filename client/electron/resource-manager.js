@@ -26,6 +26,7 @@ const {
   normalizeSkillDirPath,
   copyDirRecursive,
   materializeSkillDir,
+  fillMissingSkillFiles,
 } = require('./resource-canonical');
 
 /** Token Bank 落盘 skill 的默认权威根（agents-hub，已被 Skill 扫描器覆盖） */
@@ -240,8 +241,9 @@ class ResourceManager {
   }
 
   /**
-   * 保证 skill 已落盘：已有真实权威目录则同步 SKILL.md，否则物化到 agents-hub。
-   * catalog 安装 / 手动新建的 DB-only skill 经此获得磁盘存在。
+   * 保证 skill 已落盘：已有真实权威目录则只登记路径（不回写 SKILL.md，避免改原始 skill），
+   * 否则物化到 agents-hub，并带上 metadata.files 里的配套文件。
+   * 目录技能再次纳管时补缺文件走 _fillCatalogSkillCompanionFiles。
    */
   _ensureSkillOnDisk(resourceId) {
     const resource = this.getResource(resourceId);
@@ -251,6 +253,36 @@ class ResourceManager {
       return this._persistSkillAuthority(resourceId, resource, { syncContent: false });
     }
     return this._materializeSkillToHub(resourceId, resource);
+  }
+
+  /**
+   * 来自社区目录的技能。扫描同步可能把 source 改成 agent:*，source_url 仍是 catalog:。
+   * 本机自建 / 扫描入库的技能不是目录来源，再次纳管时不能往里写文件。
+   */
+  _isCatalogSourcedResource(resource) {
+    if (!resource) return false;
+    if (resource.source === 'catalog') return true;
+    return String(resource.source_url || '').startsWith('catalog:');
+  }
+
+  /**
+   * 再次纳管同一目录技能时，把目录条目里新增的配套文件补进权威目录。
+   * 只写缺失文件，不覆盖已有 SKILL.md 或用户改过的文件。
+   */
+  _fillCatalogSkillCompanionFiles(resourceId, catalogItem) {
+    const resource = this.getResource(resourceId);
+    if (!resource || resource.type !== 'skill') return null;
+    if (!this._isCatalogSourcedResource(resource)) return null;
+    const files = catalogItem?.metadata?.files;
+    if (!Array.isArray(files) || files.length === 0) return null;
+
+    const meta = { ...(resource.metadata || {}), files };
+    this._getDb().prepare('UPDATE resources SET metadata = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(meta), Date.now(), resourceId);
+
+    const authorityDir = resolveAuthorityDir({ ...resource, metadata: meta });
+    if (!authorityDir) return { written: [], skipped: [], rejected: [] };
+    return fillMissingSkillFiles(authorityDir, files);
   }
 
   _mergeAuthorityMetadata(resource, patch = {}) {
@@ -878,6 +910,10 @@ class ResourceManager {
           console.warn('[resource-manager] sync after assistant deps:', e.message);
         }
       } else if (item.type === 'skill') {
+        // 先把目录上的配套文件记进元数据；已有权威目录只补缺失文件，没有则随后物化整包
+        try { this._fillCatalogSkillCompanionFiles(existing.id, item); } catch (e) {
+          console.warn('[resource-manager] fill catalog skill files:', e.message);
+        }
         try { this._ensureSkillOnDisk(existing.id); } catch (e) {
           console.warn('[resource-manager] ensure skill on disk:', e.message);
         }
@@ -981,8 +1017,15 @@ class ResourceManager {
     for (const dep of deps) {
       const existingDep = this._findByTypeName(dep.type, dep.name);
       if (existingDep) {
-        // 已在库:技能必须落盘,否则「技能」列表(磁盘扫描)看不到
+        // 已在库:技能必须落盘,否则「技能」列表(磁盘扫描)看不到。
+        // 目录来源的技能再补上后来才发布的配套文件，本机自建技能不动。
         if (dep.type === 'skill') {
+          const catItem = catalogItems.find(c => c.type === dep.type && c.name === dep.name);
+          if (catItem) {
+            try { this._fillCatalogSkillCompanionFiles(existingDep.id, catItem); } catch (e) {
+              console.warn('[resource-manager] fill catalog skill files:', dep.name, e.message);
+            }
+          }
           try { this._ensureSkillOnDisk(existingDep.id); } catch (e) {
             console.warn('[resource-manager] 补落盘技能失败:', dep.name, e.message);
           }

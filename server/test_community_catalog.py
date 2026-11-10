@@ -42,6 +42,26 @@ class TestDefaultDoc(unittest.TestCase):
         payload = cc.catalog_payload_from_doc(cc.load_default_doc())
         self.assertIn("code-review", {p["name"] for p in payload["prompts"]})
 
+    def test_public_payload_keeps_skill_files(self):
+        # 公开目录下发整条 metadata，配套文件不能在过滤下架项时被剥掉
+        files = [
+            {"path": "references/core/style.md", "content": "# style\n"},
+            {"path": "assets/icon.bin", "content": "aGVsbG8=", "encoding": "base64"},
+        ]
+        doc = {
+            "version": 1,
+            "skills": [{
+                "catalog_id": "pkg-skill",
+                "name": "pkg-skill",
+                "content": "# skill\n",
+                "metadata": {"enabled": True, "files": files, "tags": ["draw"]},
+            }],
+        }
+        pub = cc.catalog_payload_from_doc(doc, public=True)
+        self.assertEqual(pub["skills"][0]["content"], "# skill\n")
+        self.assertEqual(pub["skills"][0]["metadata"]["files"], files)
+        self.assertEqual(pub["skills"][0]["metadata"]["tags"], ["draw"])
+
     def test_public_payload_hides_disabled(self):
         doc = {
             "version": 1,
