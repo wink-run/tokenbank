@@ -10,6 +10,101 @@ const SEG = 'inline-flex p-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-800/70';
 const segBtn = (on) => `text-[11px] px-2.5 py-1 rounded-md ${on ? 'bg-white dark:bg-zinc-900 shadow-sm font-medium text-zinc-900 dark:text-zinc-100' : 'text-zinc-500'}`;
 const INPUT = 'px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-800 dark:text-zinc-100';
 
+const HEALTH_CLS = {
+  ok: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900/60',
+  warn: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900/60',
+  off: 'bg-zinc-100 text-zinc-500 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700',
+};
+const DOT_CLS = { ok: 'bg-emerald-500', warn: 'bg-amber-500', off: 'bg-zinc-400' };
+
+/** 运行状态徽标：运行正常 / 需要注意 / 已关闭 */
+function HealthBadge({ health, t }) {
+  if (!health) return null;
+  const lv = health.level || 'off';
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full border ${HEALTH_CLS[lv]}`} role="status">
+      <span className={`w-1.5 h-1.5 rounded-full ${DOT_CLS[lv]}`} aria-hidden />
+      {lv === 'warn' ? t('guardian.health.warn', { n: health.issues.length }) : t(`guardian.health.${lv}`)}
+    </span>
+  );
+}
+
+/** 运行环境：执行应用（可选）、模型、后台检查，以及需要处理的问题 */
+function RuntimeSection({ health, api, t, lang, navigate, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  if (!health) return null;
+  const eng = health.engine || {};
+  const last = eng.last;
+  const pick = async (id) => {
+    setBusy(true);
+    try { await api.engineSetRuntime(id); await onChanged(); } finally { setBusy(false); }
+  };
+  const kindLabel = (k) => t(`guardian.engine.kind.${k}`);
+  const lastText = last
+    ? t(`guardian.engine.last.${last.status}`, { kind: kindLabel(last.kind), time: fmtTime(last.at, lang), error: last.error || '' })
+    : t('guardian.engine.never');
+  const model = health.model;
+  const checks = health.checks || {};
+  const row = 'grid grid-cols-[5.5rem_1fr] items-start gap-x-3 gap-y-0.5';
+  return (
+    <div className="px-5 py-3 space-y-2.5 border-b border-white/40 dark:border-white/[0.06]">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="text-xs font-medium text-zinc-800 dark:text-zinc-100">{t('guardian.runtime.title')}</div>
+        <HealthBadge health={health} t={t} />
+      </div>
+      {health.issues?.length > 0 && (
+        <ul className="space-y-1">
+          {health.issues.map((it) => (
+            <li key={it.code} className="flex flex-wrap items-center gap-2 text-[11px] text-amber-800 dark:text-amber-300">
+              <span className="min-w-0">{it.text}</span>
+              {it.link && (
+                <button type="button" onClick={() => navigate(it.link.to)}
+                  className="text-[11px] px-2 py-0.5 rounded-md border border-amber-300 dark:border-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/40">
+                  {it.link.label} →
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="space-y-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+        <div className={row}>
+          <span>{t('guardian.runtime.app')}</span>
+          <div className="space-y-0.5">
+            {eng.runtimes?.length ? (
+              <select value={eng.runtime || ''} disabled={busy} onChange={(e) => pick(e.target.value)} aria-label={t('guardian.runtime.app')}
+                className="px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-800 dark:text-zinc-100">
+                {eng.runtimes.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+              </select>
+            ) : (
+              <span className="text-amber-700 dark:text-amber-300">{t('guardian.runtime.noApp')}</span>
+            )}
+            <div className="text-zinc-400">{t('guardian.runtime.appHint')}</div>
+            <div className={last?.status === 'failed' ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-500 dark:text-zinc-400'}>{lastText}</div>
+          </div>
+        </div>
+        <div className={row}>
+          <span>{t('guardian.runtime.model')}</span>
+          <div className="space-y-0.5">
+            <span className={model?.ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}>
+              {model == null ? t('guardian.runtime.gatewayDown') : model.ok ? t('guardian.runtime.modelOk', { n: model.count }) : t('guardian.runtime.noModel')}
+            </span>
+            <div className="text-zinc-400">{t('guardian.runtime.modelHint')}</div>
+          </div>
+        </div>
+        <div className={row}>
+          <span>{t('guardian.runtime.checks')}</span>
+          <span className={checks.failing?.length ? 'text-rose-600 dark:text-rose-400' : ''}>
+            {!checks.lastAt ? t('guardian.runtime.checksNever')
+              : checks.failing?.length ? t('guardian.runtime.checksFailing', { n: checks.failing.length, time: fmtTime(checks.lastAt, lang) })
+                : t('guardian.runtime.checksOk', { time: fmtTime(checks.lastAt, lang) })}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** 定期自省：频率、时段、token 上限、范围、结果处理、立即运行 */
 function IntrospectSection({ settings, save, api, t, lang, onRan }) {
   const c = settings.introspect || {};
@@ -154,12 +249,16 @@ export default function GuardianPanel() {
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
   const [openId, setOpenId] = useState(null);
+  const [health, setHealth] = useState(null);
 
   const load = useCallback(async () => {
     if (!api) return;
-    const [s, r] = await Promise.all([api.getSettings(), api.listRecords({ limit: 50 })]);
+    const [s, r, h] = await Promise.all([
+      api.getSettings(), api.listRecords({ limit: 50 }), api.health ? api.health().catch(() => null) : null,
+    ]);
     if (s?.settings) setSettings(s.settings);
     setRecords(r?.records || []);
+    if (h && h.success !== false) setHealth(h);
   }, [api]);
 
   useEffect(() => { load().catch(() => {}); }, [load]);
@@ -169,6 +268,7 @@ export default function GuardianPanel() {
   const save = async (patch) => {
     const r = await api.setSettings(patch);
     if (r?.settings) setSettings(r.settings);
+    if (typeof patch.enabled === 'boolean') load().catch(() => {});
   };
 
   const act = async (kind, id) => {
@@ -204,7 +304,10 @@ export default function GuardianPanel() {
     <div className="tb-soft-card rounded-2xl overflow-hidden">
       <div className="px-5 py-4 border-b border-white/40 dark:border-white/[0.06] flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{t('guardian.title')}</h2>
+          <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 flex flex-wrap items-center gap-2">
+            {t('guardian.title')}
+            <HealthBadge health={health} t={t} />
+          </h2>
           <p className="text-xs text-gray-500 mt-0.5">{t('guardian.hint')}</p>
         </div>
         {settings && (
@@ -214,6 +317,8 @@ export default function GuardianPanel() {
           </label>
         )}
       </div>
+
+      {settings?.enabled && <RuntimeSection health={health} api={api} t={t} lang={lang} navigate={navigate} onChanged={load} />}
 
       {settings && (
         <div className="px-5 py-3 space-y-2.5 border-b border-white/40 dark:border-white/[0.06]">

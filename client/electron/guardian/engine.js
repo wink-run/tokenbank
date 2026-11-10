@@ -73,10 +73,46 @@ async function run({ kind, prompt, sessionKey } = {}) {
   const st = status();
   if (!st.ready) return { ok: false, error: 'no-runtime' };
   const executor = require('../agent-executor');
-  const res = await executor.execute(st.runtime, `${ROLES[kind]}\n\n---\n\n${prompt}`, {
-    mode: 'direct', sessionKey: sessionKey || `tokenbank-guardian-${kind}`,
-  });
+  watch(executor);
+  let res;
+  try {
+    res = await executor.execute(st.runtime, `${ROLES[kind]}\n\n---\n\n${prompt}`, {
+      mode: 'direct', sessionKey: sessionKey || `tokenbank-guardian-${kind}`,
+    });
+  } catch (e) {
+    noteLast({ kind, runtime: st.runtime, status: 'failed', error: e.message });
+    throw e;
+  }
+  if (res?.taskId) pending.set(res.taskId, { kind, runtime: st.runtime });
+  noteLast({ kind, runtime: st.runtime, status: 'running' });
   return { ok: true, taskId: res?.taskId, runtime: st.runtime };
+}
+
+// ── 最近一次任务的结果：设置页据此显示执行应用是否正常 ──────────────────────
+const pending = new Map();
+let watching = false;
+
+function noteLast(last) {
+  store.writeJson('engine.json', { ...store.readJson('engine.json', {}), last: { ...last, at: Date.now() } });
+}
+
+function watch(executor) {
+  if (watching || !executor || typeof executor.on !== 'function') return;
+  watching = true;
+  const done = (status) => (evt = {}) => {
+    const job = pending.get(evt.taskId);
+    if (!job) return;
+    pending.delete(evt.taskId);
+    const error = status === 'failed' ? String(evt.error || evt.result?.error || 'failed').slice(0, 200) : null;
+    noteLast({ ...job, status, error });
+  };
+  executor.on('task:completed', done('completed'));
+  executor.on('task:failed', done('failed'));
+  executor.on('task:cancelled', done('cancelled'));
+}
+
+function lastTask() {
+  return store.readJson('engine.json', {}).last || null;
 }
 
 /** 清理旧版本的三个系统智能体（撤投射 + 删除）；幂等 */
@@ -95,4 +131,4 @@ function retireLegacyAssistants() {
   return removed;
 }
 
-module.exports = { status, setRuntime, run, runtimes, retireLegacyAssistants, ROLES, LEGACY_ASSISTANTS };
+module.exports = { status, setRuntime, run, runtimes, lastTask, retireLegacyAssistants, ROLES, LEGACY_ASSISTANTS, _internal: { watch, pending } };

@@ -25,22 +25,6 @@ const MAX_RECS = 20;
 const LAST_KEY = 'tokenbank.resources.recommend.last';
 /** 跨技能/提示词/智能体共享的稳定画像(不必每种资产重头分析) */
 const PORTRAIT_KEY = 'tokenbank.resources.recommend.portrait';
-/** 画像挖掘可跑的 CLI runtime（缺一不可：至少一个已纳管） */
-const MINE_RUNTIME_IDS = new Set(['codex', 'claude-code', 'cursor', 'kimi-code', 'workbuddy']);
-const RUNTIME_PREF_KEY = 'tokenbank.resources.recommend.runtime';
-
-function readRuntimePref() {
-  try {
-    const v = localStorage.getItem(RUNTIME_PREF_KEY);
-    return MINE_RUNTIME_IDS.has(v) ? v : '';
-  } catch { return ''; }
-}
-function saveRuntimePref(id) {
-  try {
-    if (MINE_RUNTIME_IDS.has(id)) localStorage.setItem(RUNTIME_PREF_KEY, id);
-  } catch { /* ignore */ }
-}
-
 const normType = (tf) => (tf === 'prompt' || tf === 'assistant' ? tf : 'skill');
 const instKey = (rt) => (rt === 'prompt' ? 'prompts' : rt === 'assistant' ? 'assistants' : 'skills');
 
@@ -750,7 +734,7 @@ export default function PersonalizedRecommend({
   const [ready, setReady] = useState({ loading: true });
   /** 本机已纳管的可挖掘 runtime 列表 [{id,label}] */
   const [runtimes, setRuntimes] = useState([]);
-  const [selectedRuntime, setSelectedRuntime] = useState(readRuntimePref);
+  const [selectedRuntime, setSelectedRuntime] = useState('');
   const [runtimeBusy, setRuntimeBusy] = useState(false);
   const isRecommendPanelRef = useRef(true);
   const [phase, setPhase] = useState(saved0.phase || 'idle'); // idle | mining | analyzing | review | discovering | done
@@ -1033,14 +1017,8 @@ export default function PersonalizedRecommend({
         setSelectedRuntime('');
         return setReady({ loading: false, step: 'needAgent' });
       }
-      const pref = readRuntimePref();
-      let pick = st.runtime;
-      if (pref && pref !== pick && list.some((r) => r.id === pref)) {
-        const r = await window.electronAPI.guardian.engineSetRuntime(pref);
-        if (r && r.success) pick = pref;
-      }
-      setSelectedRuntime(pick);
-      saveRuntimePref(pick);
+      // 运行应用以看护设置为准（设置 → 智能看护 → 执行应用；这里改也会同步过去）
+      setSelectedRuntime(st.runtime);
       return setReady({ loading: false, step: 'ready' });
     } catch (e) { setReady({ loading: false, step: 'error' }); setErr(e.message || String(e)); }
   }, []);
@@ -1055,7 +1033,6 @@ export default function PersonalizedRecommend({
       const r = await window.electronAPI.guardian.engineSetRuntime(agentId);
       if (!r || !r.success) throw new Error((r && r.error) || t('resources.reco.runtimeSwitchFailed'));
       setSelectedRuntime(agentId);
-      saveRuntimePref(agentId);
       setMsg(t('resources.reco.runtimeSwitched', { agent: nextLabel(agentId) }));
     } catch (e) {
       setErr(e.message || String(e));

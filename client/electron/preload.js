@@ -196,6 +196,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     shareCheck: (input) => ipcRenderer.invoke('guardian:shareCheck', input || {}),
     assetSnapshot: () => ipcRenderer.invoke('guardian:assetSnapshot'),
     capabilityGaps: () => ipcRenderer.invoke('guardian:capabilityGaps'),
+    health: () => ipcRenderer.invoke('guardian:health'),
     engineStatus: () => ipcRenderer.invoke('guardian:engineStatus'),
     engineSetRuntime: (id) => ipcRenderer.invoke('guardian:engineSetRuntime', id),
     engineRun: (input) => ipcRenderer.invoke('guardian:engineRun', input || {}),

@@ -105,6 +105,7 @@ const guardian = {
   shareCheck: call('guardian:shareCheck', {}),
   assetSnapshot: call0('guardian:assetSnapshot'),
   capabilityGaps: call0('guardian:capabilityGaps'),
+  health: call0('guardian:health'),
   engineStatus: call0('guardian:engineStatus'),
   engineSetRuntime: (id) => invoke('guardian:engineSetRuntime', id),
   engineRun: call('guardian:engineRun', {}),

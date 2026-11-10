@@ -79,3 +79,56 @@ test('run hands the role + prompt to the chosen app', async () => {
     executor.execute = origE;
   }
 });
+
+test('health: off / needs attention with reasons / ok, and last task outcome', async () => {
+  const guardian = require('../guardian');
+  const health = require('../guardian/health');
+  const modelCall = require('../guardian/model-call');
+  const origT = targets.listManagedResourceAgentIds;
+  const origE = executor.execute;
+  const origM = modelCall.modelStatus;
+  try {
+    guardian.setSettings({ enabled: false });
+    assert.equal((await health.health()).level, 'off');
+    guardian.setSettings({ enabled: true });
+
+    targets.listManagedResourceAgentIds = () => [];
+    modelCall.modelStatus = async () => ({ ok: false, count: 0 });
+    let h = await health.health();
+    assert.equal(h.level, 'warn');
+    assert.deepEqual(h.issues.map(i => i.code).sort(), ['no-model', 'no-runtime']);
+    assert.equal(h.issues.find(i => i.code === 'no-runtime').link.to, '/gateway');
+
+    targets.listManagedResourceAgentIds = () => ['codex'];
+    modelCall.modelStatus = async () => ({ ok: true, count: 3 });
+    guardian.record({ category: 'setup', kind: 'setup-no-model', status: 'suggested', title: 'x', signature: 'setup-no-model' });
+    h = await health.health();
+    assert.equal(guardian.listRecords({ limit: 300 }).find(r => r.signature === 'setup-no-model').status, 'resolved', 'stale reminder closes once a model is available');
+    assert.equal(h.level, 'ok', JSON.stringify(h.issues));
+    assert.equal(h.engine.runtime, 'codex');
+
+    // 执行应用跑失败：标志变成需要注意，并说明原因
+    executor.execute = async () => ({ taskId: 't-fail' });
+    await engine.run({ kind: 'discover', prompt: 'x' });
+    assert.equal(engine.lastTask().status, 'running');
+    executor.emit('task:failed', { taskId: 't-fail', error: 'Agent 无法连接服务 (401 Unauthorized)' });
+    assert.equal(engine.lastTask().status, 'failed');
+    h = await health.health();
+    assert.equal(h.level, 'warn');
+    assert.match(h.issues.find(i => i.code === 'runtime-failed').text, /401/);
+    executor.execute = async () => ({ taskId: 't-ok' });
+    await engine.run({ kind: 'install', prompt: 'y' });
+    executor.emit('task:completed', { taskId: 't-ok' });
+    assert.equal((await health.health()).level, 'ok');
+
+    // 后台检查出错也会显示
+    guardian.registerCheck('boom', async () => { throw new Error('disk full'); });
+    await guardian.runCheck('boom');
+    h = await health.health();
+    assert.ok(h.issues.some(i => i.code === 'check-boom' && /disk full/.test(i.text)));
+  } finally {
+    targets.listManagedResourceAgentIds = origT;
+    executor.execute = origE;
+    modelCall.modelStatus = origM;
+  }
+});

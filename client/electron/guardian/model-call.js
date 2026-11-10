@@ -54,4 +54,25 @@ function estimateTokens(text) {
   return cjk + Math.ceil((s.length - cjk) / 4);
 }
 
-module.exports = { chat, estimateTokens, gatewayAddr };
+/** 本机网关有没有可用的对话模型（看护的「模型」是否就绪）；网关没起来返回 null */
+function modelStatus({ timeoutMs = 5000 } = {}) {
+  const { host, port } = gatewayAddr();
+  return new Promise((resolve) => {
+    const req = http.request({ host, port, path: '/v1/models', method: 'GET', timeout: timeoutMs,
+      headers: { 'X-TokenBank-Guardian': '1', Authorization: 'Bearer tb-guardian' } }, (res) => {
+      let buf = '';
+      res.on('data', (c) => { buf += c; });
+      res.on('end', () => {
+        try {
+          const list = (JSON.parse(buf).data || []).filter(m => (m.id || m.name) && String(m.model_type || m.type || 'chat') !== 'image');
+          resolve({ ok: list.length > 0, count: list.length });
+        } catch { resolve({ ok: false, count: 0 }); }
+      });
+    });
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', () => resolve(null));
+    req.end();
+  });
+}
+
+module.exports = { chat, estimateTokens, gatewayAddr, modelStatus };
