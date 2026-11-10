@@ -49,11 +49,15 @@ test('status and runtime choice follow managed apps', () => {
     targets.listManagedResourceAgentIds = () => ['pi', 'claude-code', 'codex'];
     const st = engine.status();
     assert.equal(st.ready, true);
-    assert.deepEqual(st.runtimes.map(r => r.id), ['codex', 'claude-code'], 'only apps that can run tools, in preferred order');
+    assert.deepEqual(st.runtimes.map(r => r.id), ['codex', 'claude-code', 'pi'], 'tool-capable apps, preferred order; Pi last');
     assert.equal(st.runtime, 'codex');
-    assert.equal(engine.setRuntime('pi').ok, false);
+    assert.equal(engine.setRuntime('pi').ok, true);
+    assert.equal(engine.status().runtime, 'pi');
     assert.equal(engine.setRuntime('claude-code').ok, true);
     assert.equal(engine.status().runtime, 'claude-code');
+    targets.listManagedResourceAgentIds = () => ['pi'];
+    assert.equal(engine.status().ready, true);
+    assert.equal(engine.status().runtime, 'pi');
   } finally {
     targets.listManagedResourceAgentIds = orig;
   }
@@ -185,6 +189,10 @@ test('playground guardian agent: listed on the runner app, fresh context each ti
   targets.listManagedResourceAgentIds = () => ['codex'];
   try {
     assert.equal(chat.listEntry(new Set()), null, 'runner not launchable → not listed');
+    targets.listManagedResourceAgentIds = () => ['pi'];
+    const piOnly = chat.listEntry(new Set(['pi']), { pi: { name: 'Pi', capabilities: ['chat'] } });
+    assert.equal(piOnly.runtimeAgentId, 'pi');
+    targets.listManagedResourceAgentIds = () => ['codex'];
     const e = chat.listEntry(new Set(['codex']), { codex: { name: 'Codex', capabilities: ['code'] } });
     assert.equal(e.id, 'assistant:tb-guardian');
     assert.equal(e.guardian, true);

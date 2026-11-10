@@ -121,3 +121,30 @@ test('orchestrator prefers specialized assistants before CLI fallback', () => {
   assert.ok(ORCHESTRATOR_SYSTEM.includes('降级') || ORCHESTRATOR_SYSTEM.includes('自行'));
   assert.ok(ORCHESTRATOR_SYSTEM.includes('重试'));
 });
+
+test('pi can be the hub orchestrator and keeps json mode', () => {
+  assert.equal(mcpManager.supportsOrchestrator('pi'), true);
+  const origInit = mcpManager.init;
+  const origBridge = mcpManager._ensureBuiltinBridge;
+  mcpManager.init = () => {};
+  mcpManager._ensureBuiltinBridge = () => {};
+  try {
+    const launch = mcpManager.buildOrchestratorLaunch({
+      agentId: 'pi', taskId: 't-pi', workingDir: '/tmp/proj', mainAgentId: 'pi',
+    });
+    assert.deepEqual(launch.extraArgs, []);
+    assert.match(launch.promptPrefix, /编排层/);
+  } finally {
+    mcpManager.init = origInit;
+    mcpManager._ensureBuiltinBridge = origBridge;
+  }
+  const cfg = agentExecutor.AGENT_CLI?.pi;
+  const prompt = '编排说明\n\n用户任务';
+  const args = cfg
+    ? cfg.buildArgs(prompt, { model: 'gateway-model' })
+    : null;
+  assert.ok(args, 'pi cli spec');
+  assert.ok(args.includes('--mode') && args.includes('json'));
+  assert.ok(args.includes('--model') && args.includes('gateway-model'));
+  assert.equal(args.at(-1), prompt);
+});

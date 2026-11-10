@@ -1500,6 +1500,13 @@ class AgentExecutor extends EventEmitter {
             cliSessionId,
             model: String(options.model || '').trim(),
           })];
+        } else if (effectiveAgentId === 'pi') {
+          // 与直调同一套 --mode json，编排说明已在 execPrompt 前缀里
+          args = [...launch.argPrefix, ...cfg.buildArgs(execPrompt, {
+            continueSession,
+            cliSessionId,
+            model: String(options.model || '').trim(),
+          })];
         } else {
           args = [...launch.argPrefix, ...orch.extraArgs, execPrompt];
         }
@@ -2382,6 +2389,7 @@ class AgentExecutor extends EventEmitter {
 }
 
 module.exports = new AgentExecutor();
+module.exports.AGENT_CLI = AGENT_CLI;
 module.exports.canonicalBuiltinAgentId = canonicalBuiltinAgentId;
 module.exports.invalidateAgentListCache = invalidateAgentListCache;
 module.exports.buildClaudeCodeArgs = buildClaudeCodeArgs;

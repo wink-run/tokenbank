@@ -70,6 +70,25 @@ test('cursor projection uses real Cursor runtime (not Claude fallback)', () => {
   assert.ok(launch.promptPrefix.includes('你是写作教练'));
 });
 
+test('pi projection enables playground runtime', () => {
+  const {
+    hasAssistantEnableProjection,
+    resolveAssistantRuntimeAgent,
+    resolveAssistantDisplayRuntime,
+    buildAssistantLaunch,
+    ASSISTANT_RUNTIME_IDS,
+  } = require('../resource-assistant');
+  const projs = [{ agentId: 'pi' }];
+  assert.ok(ASSISTANT_RUNTIME_IDS.has('pi'));
+  assert.equal(hasAssistantEnableProjection(projs), true);
+  const config = parseAssistantConfig(JSON.stringify({ soul: 'x', runtime_agent: 'claude-code' }));
+  assert.equal(resolveAssistantRuntimeAgent(config, projs, new Set(['pi'])), 'pi');
+  assert.equal(resolveAssistantDisplayRuntime(projs, 'pi'), 'Pi');
+  const launch = buildAssistantLaunch('pi', '你是看护', 'gateway-model');
+  assert.ok(launch.promptPrefix.includes('你是看护'));
+  assert.equal(launch.model, 'gateway-model');
+});
+
 test('kimi-code projection enables playground runtime', () => {
   const {
     hasAssistantEnableProjection,

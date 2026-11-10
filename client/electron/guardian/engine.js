@@ -7,7 +7,8 @@
 const store = require('./store');
 
 // 能跑这类任务的应用（需要能执行命令、检索）：按优先序
-const RUNTIMES = ['codex', 'claude-code', 'cursor', 'kimi-code', 'workbuddy'];
+// Pi 放在最后：桌面已有 Codex / Claude 时仍优先它们；Docker 往往只纳管了 Pi
+const RUNTIMES = ['codex', 'claude-code', 'cursor', 'kimi-code', 'workbuddy', 'pi'];
 
 // 旧版本留下的三个系统智能体：启动时清理掉
 const LEGACY_ASSISTANTS = ['resource-portrait', 'resource-finder', 'resource-installer'];

@@ -3399,7 +3399,7 @@ export default function Debug() {
       </div>
 
       {/* ── 主体：Agent 模式下左侧智能体列表 + 右侧对话 ── */}
-      <div className="tb-debug-body flex flex-1 min-h-0 min-w-0">
+      <div className="tb-debug-body flex flex-nowrap flex-1 min-h-0 min-w-0">
         {mode === 'agent' && (
           <AgentTabBar
             agents={agents}
@@ -3417,7 +3417,7 @@ export default function Debug() {
         )}
 
         {/* 对话与预览并排；预览宽度相对这一列计算，打开时约占一半 */}
-        <div className="flex flex-1 min-w-0 min-h-0 rounded-br-[var(--tb-radius-shell)] overflow-hidden">
+        <div className="flex flex-nowrap flex-1 min-w-0 min-h-0 rounded-br-[var(--tb-radius-shell)] overflow-hidden">
         <div className="flex flex-col flex-1 min-w-0 min-h-0 tb-chat-well overflow-hidden">
       {/* ── Message list / Agent UI（井底略深，衬出气泡对比）── */}
       <div className="flex-1 overflow-y-auto px-4 pt-3 pb-4 space-y-4 min-h-0 tb-scroll-layer">
@@ -3525,8 +3525,8 @@ export default function Debug() {
         <div ref={messagesEndRef} />
           </>
         ) : (
-          /* Agent Mode：右侧对话流 */
-          <div className="h-full flex flex-col">
+          /* Agent Mode：右侧对话流。min-h-full 让长对话高出滚动区，手机上才能滚 */
+          <div className="min-h-full flex flex-col">
             {isHubMode ? (
               /* 聚合入口：由主 Agent 编排 */
               !mainAgent ? (

@@ -1476,9 +1476,24 @@ html.tb-electron .tb-scroll-layer {
     overflow: visible;
     max-width: 100%;
   }
-  /* 调试页：智能体列表改到对话上方，避免 176px 竖栏吃掉半屏 */
+  /* 调试页：智能体列表改到对话上方，避免 176px 竖栏吃掉半屏。
+     nowrap：否则通用换行规则会把纵栏拆到下一列，对话高度随内容长高，被外层裁掉后无法滚动。 */
   html.tb-web .tb-debug-body {
     flex-direction: column;
+    flex-wrap: nowrap;
+    min-height: 0;
+    overflow: hidden;
+  }
+  html.tb-web .tb-chat-well {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+  }
+  html.tb-web .tb-scroll-layer {
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
   html.tb-web .tb-agent-tabs {
     width: 100% !important;

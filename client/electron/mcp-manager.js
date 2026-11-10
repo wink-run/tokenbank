@@ -54,8 +54,8 @@ function orchestratorSystem() {
   return extra.length ? `${ORCHESTRATOR_SYSTEM}\n\n${extra.join('\n')}` : ORCHESTRATOR_SYSTEM;
 }
 
-/** 支持 MCP 编排的主 Agent */
-const ORCHESTRATOR_AGENTS = new Set(['claude-code', 'codex', 'cursor']);
+/** 支持 MCP 编排的主 Agent（Pi 用已写入的 mcp.json，说明放进 prompt） */
+const ORCHESTRATOR_AGENTS = new Set(['claude-code', 'codex', 'cursor', 'pi']);
 
 const BUILTIN_BRIDGE_ID = 'tokenbank-agent-bridge';
 const BUILTIN_PROMPTS_ID = 'tokenbank-prompts';
@@ -1669,6 +1669,15 @@ class MCPManager {
 
     // Cursor 没有 --append-system-prompt，编排说明放进 prompt；MCP 用已写入的 ~/.cursor/mcp.json
     if (agentId === 'cursor') {
+      return {
+        extraArgs: [],
+        promptPrefix: `${orchestratorSystem()}\n\n`,
+        cleanup: () => {},
+      };
+    }
+
+    // Pi 同样没有系统提示参数；派发桥在 ~/.pi/agent/mcp.json，说明放进 prompt
+    if (agentId === 'pi') {
       return {
         extraArgs: [],
         promptPrefix: `${orchestratorSystem()}\n\n`,
