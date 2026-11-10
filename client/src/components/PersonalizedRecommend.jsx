@@ -791,14 +791,48 @@ export default function PersonalizedRecommend({
   const [taskId, setTaskId] = useState(saved0.taskId || null);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
+  // 画像被手动修改后触发重渲染（共享画像存在 localStorage）
+  const [, setPortraitRev] = useState(0);
+  const [boardOpen, setBoardOpen] = useState(false);
+
+  // 看护的推荐反馈：不感兴趣的 30 天内藏起来，同类被忽略多次的往后排
+  const [recoFb, setRecoFb] = useState({ hidden: [], downCategories: [], avoid: [] });
+  const loadRecoFb = useCallback(async () => {
+    try {
+      const r = await window.electronAPI?.guardian?.recoState?.({ type: rtype });
+      if (r && r.success !== false) setRecoFb({ hidden: r.hidden || [], downCategories: r.downCategories || [], avoid: r.avoid || [] });
+    } catch { /* 看护不可用时照旧 */ }
+  }, [rtype]);
+  useEffect(() => { loadRecoFb(); }, [loadRecoFb]);
+  const sendRecoFb = async (action, rec) => {
+    try {
+      await window.electronAPI?.guardian?.recoFeedback?.({
+        action, key: recKey(rec), name: rec.display_name || rec.name || recKey(rec), type: rtype, category: rec.category || '',
+      });
+    } catch { /* ignore */ }
+  };
+  const dismissRec = async (rec) => {
+    const key = recKey(rec);
+    setRecoFb((f) => ({ ...f, hidden: [...f.hidden, key] }));
+    setMsg(t('resources.reco.dismissedMsg', { name: rec.display_name || rec.name || key }));
+    // 先写完再读回（拿到「同类往后排」），读回的结果里也保留刚忽略的这条
+    await sendRecoFb('dismiss', rec);
+    await loadRecoFb();
+    setRecoFb((f) => (f.hidden.includes(key) ? f : { ...f, hidden: [...f.hidden, key] }));
+  };
 
   // 用途 + 顶部搜索：共同过滤推荐卡
   const visibleItems = useMemo(() => {
     if (!items || !items.length) return items;
-    return items.filter(
-      (rec) => recMatchesPurpose(rec, purposeFilter) && recMatchesQuery(rec, searchQuery),
-    );
-  }, [items, purposeFilter, searchQuery]);
+    const hidden = new Set(recoFb.hidden);
+    const down = new Set(recoFb.downCategories);
+    return items
+      .filter((rec) => !hidden.has(recKey(rec)) || rec.adopted)
+      .filter((rec) => recMatchesPurpose(rec, purposeFilter) && recMatchesQuery(rec, searchQuery))
+      .map((rec, i) => ({ rec, i, down: down.has(rec.category) ? 1 : 0 }))
+      .sort((a, b) => a.down - b.down || a.i - b.i)
+      .map((x) => x.rec);
+  }, [items, purposeFilter, searchQuery, recoFb]);
 
   const hasListFilter = !!(purposeFilter || String(searchQuery || '').trim());
 
@@ -1249,7 +1283,11 @@ export default function PersonalizedRecommend({
       if (!res.sessions) { setPhase('done'); clearRun(rtype); return; }
       setStatus(''); setSteps(0); setPhase('analyzing');
       setRun(rtype, { digest: res.digest, installed: res.installed, persona: '', traits: [], goals: [], extensions: [], needs: [] });
-      await runAgent(digestToAnalyzePrompt(res.digest, res.installed, rtype, typeLabel, langLine), { type: 'analyze' }, 'analyzing');
+      let constraints = [];
+      try { constraints = (await window.electronAPI?.guardian?.portraitConstraints?.())?.lines || []; } catch { /* ignore */ }
+      const analyzePrompt = digestToAnalyzePrompt(res.digest, res.installed, rtype, typeLabel, langLine)
+        + (constraints.length ? `\n\n## 我对画像的修改(必守)\n${constraints.join('\n')}` : '');
+      await runAgent(analyzePrompt, { type: 'analyze' }, 'analyzing');
     } catch (e) { setErr(e.message || String(e)); setPhase('done'); clearRun(rtype); }
   };
 
@@ -1263,7 +1301,9 @@ export default function PersonalizedRecommend({
   // 第二步:据身份+风格+能力域+延伸发现资源
   const discover = async () => {
     setErr(''); setMsg('');
-    const exclude = (items || []).map(recKey).filter(Boolean);
+    const exclude = [...new Set([...(items || []).map(recKey), ...recoFb.hidden].filter(Boolean))];
+    const avoidLine = recoFb.avoid.length ? `我对这些不感兴趣,不要推荐它们或同类:${recoFb.avoid.join('、')}` : '';
+    const discoverSupplement = [supplement, avoidLine].filter(Boolean).join('\n');
     setStatus(''); setSteps(0); setPhase('discovering');
     // 把本类型 needs 写回共享画像,换资产时仍可复用人格层
     savePortrait({
@@ -1299,7 +1339,7 @@ export default function PersonalizedRecommend({
         setCatalogPool(pool);
       }
       await runAgent(
-        discoverPrompt(persona, traits, goals, extensions, needs, supplement, exclude, rtype, typeLabel, langLine, pool),
+        discoverPrompt(persona, traits, goals, extensions, needs, discoverSupplement, exclude, rtype, typeLabel, langLine, pool),
         { type: 'search', exclude, catalogPool: pool },
         'discovering',
       );
@@ -1312,6 +1352,7 @@ export default function PersonalizedRecommend({
     /** 纳管成功:本地标记已纳管,并用落库资源对齐名称/说明/正文 */
     const markDone = async (okMsg, resource) => {
       setInstalling((s) => ({ ...s, [key]: 'done' }));
+      sendRecoFb('adopt', rec);
       setItems((prev) => {
         const next = (prev || []).map((r) => {
           if (recKey(r) !== key) return r;
@@ -1540,6 +1581,35 @@ export default function PersonalizedRecommend({
   };
 
   /** 画像页审阅完成：只落盘画像，不进入资源发现 */
+  // 画像修改：删条目 / 改一句话画像。本机画像立刻更新，看护记下来，下次生成时不再写回去
+  const removePortraitEntry = (field, index, fromShared = false) => {
+    const src = fromShared ? (loadPortrait() || {}) : { traits, goals, extensions, needs };
+    const list = field === 'needs'
+      ? (fromShared ? ((src.needsByType && src.needsByType[rtype]) || src.needs || []) : needs)
+      : (src[field] || []);
+    const item = list[index];
+    if (item == null) return;
+    const text = typeof item === 'string' ? item : item.text;
+    const next = list.filter((_, j) => j !== index);
+    if (field === 'traits') setTraits(next);
+    if (field === 'goals') setGoals(next);
+    if (field === 'extensions') setExtensions(next);
+    if (field === 'needs') setNeeds(next);
+    savePortrait(field === 'needs' ? { needsByType: { [rtype]: next } } : { [field]: next });
+    try { window.electronAPI?.guardian?.portraitFeedback?.({ action: 'remove', field, text }); } catch { /* ignore */ }
+    setPortraitRev((n) => n + 1);
+  };
+  const editPersona = (fromShared = false) => {
+    const cur = fromShared ? ((loadPortrait() || {}).persona || '') : persona;
+    const next = window.prompt(t('resources.reco.editPersonaPrompt'), cur);
+    if (next == null || !String(next).trim() || String(next).trim() === cur) return;
+    const v = String(next).trim();
+    setPersona(v);
+    savePortrait({ persona: v });
+    try { window.electronAPI?.guardian?.portraitFeedback?.({ action: 'edit', field: 'persona', from: cur, to: v }); } catch { /* ignore */ }
+    setPortraitRev((n) => n + 1);
+  };
+
   const finishPortrait = () => {
     savePortrait({
       persona, traits, goals, extensions,
@@ -1616,6 +1686,9 @@ export default function PersonalizedRecommend({
                       ? t('resources.reco.remine')
                       : (onGoPortrait ? t('resources.reco.goPortraitRemine') : t('resources.reco.remine'))}
                   </button>
+                  <button type="button" onClick={() => setBoardOpen((v) => !v)} aria-expanded={boardOpen} className={ASSET_BTN_GHOST}>
+                    {boardOpen ? t('resources.reco.hidePortrait') : t('resources.reco.viewPortrait')}
+                  </button>
                   {canShare && (
                     <button type="button" onClick={() => setShareOpen(true)} disabled={busy} className={ASSET_BTN_GHOST}>
                       {t('resources.reco.share')}
@@ -1638,6 +1711,23 @@ export default function PersonalizedRecommend({
                 </button>
               )}
             </div>
+            {showPortrait && boardOpen && (
+              <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800">
+                <PortraitVisualBoard
+                  persona={sharedPortrait.persona}
+                  traits={sharedPortrait.traits || []}
+                  goals={sharedPortrait.goals || []}
+                  extensions={sharedPortrait.extensions || []}
+                  needs={(sharedPortrait.needsByType && sharedPortrait.needsByType[rtype]) || sharedPortrait.needs || []}
+                  digest={sharedPortrait.digest}
+                  t={t}
+                  typeLabel={typeLabel}
+                  onRemove={(field, i) => removePortraitEntry(field, i, true)}
+                  onEditPersona={() => editPersona(true)}
+                />
+                <p className="mt-2 text-[10px] text-zinc-400">{t('resources.reco.portraitEditHint')}</p>
+              </div>
+            )}
           </div>
         );
       })()}
@@ -1714,6 +1804,8 @@ export default function PersonalizedRecommend({
               typeLabel={typeLabel}
               canShare={canShare}
               onShare={() => setShareOpen(true)}
+              onRemove={(field, i) => removePortraitEntry(field, i)}
+              onEditPersona={() => editPersona()}
             />
           </div>
 
@@ -1769,6 +1861,8 @@ export default function PersonalizedRecommend({
             typeLabel={typeLabel}
             canShare={canShare}
             onShare={() => setShareOpen(true)}
+            onRemove={(field, i) => removePortraitEntry(field, i, true)}
+            onEditPersona={() => editPersona(true)}
           />
         </div>
       )}
@@ -1830,7 +1924,17 @@ export default function PersonalizedRecommend({
             )}
             desc={resourceDescription(sel.cardItem)}
             stats={sel.rec.downloads ? [[t('resources.reco.downloadsLabel'), sel.rec.downloads]] : null}
-            footer={actionBtn(sel, true)}
+            footer={(
+              <div className="space-y-1.5">
+                {actionBtn(sel, true)}
+                {sel.st !== 'done' && sel.st !== 'busy' && (
+                  <button type="button" onClick={() => { dismissRec(sel.rec); onSelect?.(null); }}
+                    className="w-full text-[11px] py-1 rounded-lg text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                    {t('resources.reco.dismiss')}
+                  </button>
+                )}
+              </div>
+            )}
           >
             {sel.rec.reason && (
               <InspectorSection title={t('resources.reco.reason')}>
@@ -1920,7 +2024,15 @@ export default function PersonalizedRecommend({
                           </>
                         )}
                       />
-                      <div onClick={e => e.stopPropagation()}>{actionBtn(r)}</div>
+                      <div onClick={e => e.stopPropagation()} className="flex items-center gap-1.5">
+                        {r.st !== 'done' && r.st !== 'busy' && (
+                          <button type="button" onClick={() => dismissRec(r.rec)} title={t('resources.reco.dismissHint')}
+                            className="text-[11px] px-2 py-1 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                            {t('resources.reco.dismiss')}
+                          </button>
+                        )}
+                        {actionBtn(r)}
+                      </div>
                     </li>
                   );
                 })}

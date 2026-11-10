@@ -17,6 +17,7 @@ const CATEGORIES = {
   assets: { default: 'auto' },      // 资产体检：质量、安全、重复、新版本（只给建议，改内容要用户点）
   setup: { default: 'auto' },       // 配置提醒：装了没纳管的应用、还没接模型
   community: { default: 'auto' },   // 分享与多设备：分享推荐、分享前整理、设备间资产差异（对外发布永远要用户点）
+  discover: { default: 'auto' },    // 发现页：能力缺口、记住不感兴趣的推荐和对画像的修改（关掉后不提醒、不学习）
 };
 const MODES = new Set(['auto', 'suggest', 'off']);
 const RECORDS_MAX = 300;
@@ -125,7 +126,7 @@ function record(entry) {
       return merged;
     }
     const quiet = list.find(r => r.signature === entry.signature && r.status === 'dismissed'
-      && now - (r.dismissedAt || r.lastAt || r.at) < DISMISS_QUIET_MS);
+      && now - (r.dismissedAt || r.lastAt || r.at) < (r.quietDays ? r.quietDays * 24 * 60 * 60 * 1000 : DISMISS_QUIET_MS));
     if (quiet) return null;
   }
   const rec = { id: newId(), at: now, lastAt: now, count: 1, ...entry };

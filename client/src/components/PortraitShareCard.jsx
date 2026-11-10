@@ -1415,6 +1415,8 @@ export function PortraitVisualBoard({
   typeLabel,
   onShare,
   canShare,
+  onRemove,       // (field, index) => void：删掉一条画像（看护会记住，下次不再生成）
+  onEditPersona,  // () => void：改一句话画像
 }) {
   const traitHeads = traits.map((x) => headline(x, 10));
   const goalHeads = goals.map((x) => headline(x, 12));
@@ -1462,6 +1464,12 @@ export function PortraitVisualBoard({
             <p className="text-sm leading-relaxed text-stone-50 font-medium">
               <span className="text-amber-300/80 text-lg leading-none mr-1">“</span>
               {persona}
+              {onEditPersona && (
+                <button type="button" onClick={onEditPersona} title={t('resources.reco.editPersona')}
+                  className="ml-2 align-middle text-[10px] px-1.5 py-0.5 rounded border border-amber-400/40 text-amber-200/90 hover:bg-white/10">
+                  {t('resources.reco.editPersona')}
+                </button>
+              )}
             </p>
           ) : (
             <p className="text-[11px] text-stone-400">{t('resources.reco.noPersona')}</p>
@@ -1472,6 +1480,7 @@ export function PortraitVisualBoard({
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         {[
           {
+            field: 'traits',
             title: t('resources.reco.traitsTitle'),
             items: traitHeads,
             icon: '◎',
@@ -1479,6 +1488,7 @@ export function PortraitVisualBoard({
             chip: 'bg-sky-100/80 dark:bg-sky-900/40 text-sky-700 dark:text-sky-200',
           },
           {
+            field: 'goals',
             title: t('resources.reco.goalsTitle'),
             items: goalHeads,
             icon: '⬡',
@@ -1486,6 +1496,7 @@ export function PortraitVisualBoard({
             chip: 'bg-amber-100/80 dark:bg-amber-900/40 text-amber-800 dark:text-amber-100',
           },
           {
+            field: needHeads.length ? 'needs' : 'extensions',
             title: t('resources.reco.needsTitle', { type: typeLabel }),
             items: needHeads.length ? needHeads : extHeads,
             icon: '⚡',
@@ -1506,8 +1517,13 @@ export function PortraitVisualBoard({
             {col.items.length > 0 ? (
               <div className="flex flex-wrap gap-1">
                 {col.items.slice(0, 4).map((item, i) => (
-                  <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded-md ${col.chip}`}>
+                  <span key={i} className={`group inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-md ${col.chip}`}>
                     {item}
+                    {onRemove && (
+                      <button type="button" onClick={() => onRemove(col.field, i)} aria-label={t('resources.reco.removeEntry', { name: item })}
+                        title={t('resources.reco.removeEntry', { name: item })}
+                        className="ml-0.5 leading-none opacity-50 hover:opacity-100">×</button>
+                    )}
                   </span>
                 ))}
               </div>

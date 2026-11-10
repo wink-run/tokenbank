@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLang } from '../store/lang';
 
-const CATS = ['projection', 'gateway', 'install', 'assets', 'setup', 'community'];
+const CATS = ['projection', 'gateway', 'install', 'assets', 'discover', 'setup', 'community'];
 const MODES = ['auto', 'suggest', 'off'];
 const FREQS = ['off', 'daily', 'weekly', 'monthly'];
 const SCOPES = ['assets', 'routes', 'models', 'savings', 'rules'];

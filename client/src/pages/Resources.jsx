@@ -12,6 +12,7 @@ import McpProvidersTab from '../components/McpProvidersTab';
 import SkillInstallDialog from '../components/SkillInstallDialog';
 import AiNeedNotice from '../components/AiNeedNotice';
 import DiagnosePanel from '../components/DiagnosePanel';
+import CapabilityGapCard from '../components/CapabilityGapCard';
 import { projectWithGuard } from '../lib/project-guard';
 import { useAiReadiness } from '../lib/ai-readiness';
 import { isWebBridge } from '../api/webBridge';
@@ -1112,7 +1113,12 @@ export default function Resources() {
   useEffect(() => {
     const want = location.state?.resourceType;
     const selectKey = location.state?.selectKey;
-    if (!want && !selectKey) return;
+    const wantTab = location.state?.viewTab;
+    const wantQuery = location.state?.query;
+    if (!want && !selectKey && !wantTab && wantQuery == null) return;
+    // 看护「能力缺口」跳来：打开发现页，并按推荐条目名搜索
+    if (wantTab === 'recommend' || wantTab === 'managed') changeViewTab(wantTab);
+    if (typeof wantQuery === 'string') setQuery(wantQuery);
     if (want && TYPE_OPTIONS.some(o => o.id === want)) changeTypeFilter(want);
     // 从供给源「谁在用它」跳来：打开资产库并选中该条
     if (selectKey) { changeViewTab('managed'); setSelectedKey(selectKey); }
@@ -4236,6 +4242,8 @@ export default function Resources() {
         ) : viewTab === 'recommend' ? (
           <div className="flex gap-4 items-start">
             <div className="flex-1 min-w-0 space-y-6">
+              {/* 能力缺口：常做却没有对应技能，置顶 */}
+              <CapabilityGapCard onChanged={() => loadAll({ silent: true })} onSearch={(q) => setQuery(q)} />
               {/* 画像 + 基于画像的推荐（列表 / 详情与资产库一致） */}
               <PersonalizedRecommend
                 typeFilter={typeFilter}
