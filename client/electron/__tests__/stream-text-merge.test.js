@@ -32,6 +32,26 @@ const assert = require('assert');
     'snapshot should replace delta, not append',
   );
 
+  // 历史步骤没有 is_snapshot：粘成一行的增量 + 带换行的全文，应留下能排版的那份
+  const glued = '##仓库结构|目录 |内容 |\n|---|---|';
+  const formatted = '## 仓库结构\n\n| 目录 | 内容 |\n|---|---|';
+  assert.strictEqual(
+    foldStreamSteps([
+      { content: glued },
+      { content: formatted },
+    ]),
+    formatted,
+  );
+  assert.strictEqual(
+    mergeStreamText('看完了。这是正文', '呀'),
+    '看完了。这是正文呀',
+    '短增量仍应拼接',
+  );
+
+  const damaged = '看完了。这是 **Token Bank（仓库名 local-m-proxy）**\n\n##结构|目录 |内容 |';
+  const full = '看完了。这是 **Token Bank（仓库名 local-llm-proxy）** —— 一个本地 LLM 网关。\n\n## 仓库结构\n\n| 目录 | 内容 |\n|---|---|';
+  assert.strictEqual(mergeStreamText(damaged, full), full);
+
   console.log('stream-text-merge.test.js OK');
 })().catch((e) => {
   console.error(e);

@@ -384,12 +384,12 @@ const AGENT_CLI = {
     buildArgs: (prompt, opts = {}) => buildKimiCodeArgs(prompt, opts),
     capabilities: ['code', 'chat', 'edit', 'terminal'],
   },
-  // Pi：--print 跑完即退出。模型仍走纳管后的 tokenbank 提供商。
+  // Pi：--mode json 边生成边写 JSONL。text 模式要等整轮结束才吐正文，管道里界面会一直停在执行中。
   pi: {
     name: 'Pi',
     detectCommand: 'pi',
     buildArgs: (prompt, { continueSession, cliSessionId, model } = {}) => {
-      const args = ['--print', '--mode', 'text'];
+      const args = ['--mode', 'json'];
       const mdl = String(model || '').trim();
       if (mdl) args.push('--model', mdl);
       if (continueSession) {
@@ -1835,14 +1835,14 @@ class AgentExecutor extends EventEmitter {
 
       const syncOutput = !!(AGENT_CLI[gatewayAgentId]?.syncOutput);
 
-      const flushLines = (buf, chunk) => {
+      const flushLines = (buf, chunk, stream = 'stdout') => {
         const combined = buf + chunk;
         const lines = combined.split('\n');
         const rest = lines.pop() ?? '';
         if (!syncOutput) {
           for (const line of lines) {
             if (!line.trim()) continue;
-            this._parseAndEmitSteps(taskId, line, stepCounter++, gatewayAgentId);
+            this._parseAndEmitSteps(taskId, line, stepCounter++, gatewayAgentId, stream);
             const running = this.runningTasks.get(taskId);
             if (running && !running.cli_session_id) {
               const sid = normalizeCliSessionId(extractCliSessionId(`${line}\n`, gatewayAgentId));
@@ -1864,23 +1864,23 @@ class AgentExecutor extends EventEmitter {
       proc.stdout.on('data', (data) => {
         const chunk = data.toString();
         stdout += chunk;
-        outLineBuf = flushLines(outLineBuf, chunk);
+        outLineBuf = flushLines(outLineBuf, chunk, 'stdout');
       });
 
       proc.stderr.on('data', (data) => {
         const chunk = data.toString();
         stderr += chunk;
-        errLineBuf = flushLines(errLineBuf, chunk);
+        errLineBuf = flushLines(errLineBuf, chunk, 'stderr');
       });
 
       proc.on('close', (code, signal) => {
         try {
           if (!syncOutput) {
             if (outLineBuf.trim()) {
-              this._parseAndEmitSteps(taskId, outLineBuf, stepCounter++, gatewayAgentId);
+              this._parseAndEmitSteps(taskId, outLineBuf, stepCounter++, gatewayAgentId, 'stdout');
             }
             if (errLineBuf.trim()) {
-              this._parseAndEmitSteps(taskId, errLineBuf, stepCounter++, gatewayAgentId);
+              this._parseAndEmitSteps(taskId, errLineBuf, stepCounter++, gatewayAgentId, 'stderr');
             }
           } else {
             const parsed = parseClaudeSyncStdout(stdout);
@@ -1970,7 +1970,7 @@ class AgentExecutor extends EventEmitter {
   /**
    * 解析并发送实时步骤
    */
-  _parseAndEmitSteps(taskId, line, stepNumber, agentIdForParse) {
+  _parseAndEmitSteps(taskId, line, stepNumber, agentIdForParse, stream = 'stdout') {
     const running = this.runningTasks.get(taskId);
     const parseAgent = agentIdForParse || running?.gateway_agent_id || running?.agent_id;
     if (!this._streamState.has(taskId)) {
@@ -1982,7 +1982,7 @@ class AgentExecutor extends EventEmitter {
         lastThinking: '',
       });
     }
-    const steps = parseAgentOutputLine(line, parseAgent, this._streamState.get(taskId));
+    const steps = parseAgentOutputLine(line, parseAgent, this._streamState.get(taskId), { stream });
     return this._emitParsedSteps(taskId, stepNumber, steps, parseAgent);
   }
 
@@ -1992,10 +1992,13 @@ class AgentExecutor extends EventEmitter {
       const stepType = step.stepType || 'output';
       let content = step.content || '';
       // tool_call / tool_result 即使内容为空也要发出（图片 Read 等），否则 UI 无法配对
+      // output / thinking 的纯换行不能丢，否则 Markdown 标题、表格、列表会粘成一行
       if (!content.trim()) {
         if (stepType === 'tool_result') content = step.is_error ? '(失败)' : '(无输出)';
         else if (stepType === 'tool_call') content = '(无参数)';
-        else if (stepType !== 'system_event') return;
+        else if (stepType === 'output' || stepType === 'thinking') {
+          if (!content) return;
+        } else if (stepType !== 'system_event') return;
       }
 
       if (stepType === 'system_event' && step.system_subtype === 'api_retry') {

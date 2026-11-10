@@ -1900,7 +1900,7 @@ export default {
   'portrait.useLocal': '本机使用',
 
   'resources.title': '资产',
-  'resources.subtitle': '提示词、技能、智能体和 MCP 工具「纳管」进来统一管理，再一键「投射」装进 Claude Code、Codex 等应用使用',
+  'resources.subtitle': '一套提示词、技能、智能体和 MCP，Claude Code、Codex 等应用都能用',
   'resources.invokeHint': '召唤 Token Bank 中的「{name}」智能体来完成当前任务',
   'resources.enabledWithInvoke': '✅ 已启用「{name}」并投射。口令已复制：{invoke}',
   'resources.enabledNeedProject': '✅ 「{name}」已入库。请再投射到应用后即可取用。口令：{invoke}',

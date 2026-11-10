@@ -3830,41 +3830,6 @@ export default function Resources() {
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">{t('resources.subtitle')}</p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="relative w-64 max-w-[45vw]">
-              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" aria-hidden>
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3.5 h-3.5"><circle cx="9" cy="9" r="5.5" /><path d="M13.5 13.5 17 17" strokeLinecap="round" /></svg>
-              </span>
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Escape') { setQuery(''); searchCmd.close(); e.currentTarget.blur(); }
-                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) searchCmd.tryCommand(query);
-                }}
-                placeholder={t('resources.searchPlaceholder')}
-                title={t('resources.cmd.hint')}
-                className="tb-soft-field w-full text-xs pl-8 pr-8 py-1.5 rounded-lg text-zinc-900 dark:text-zinc-100"
-              />
-              {searching ? (
-                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-zinc-400 pointer-events-none">
-                  {t('resources.searching')}
-                </span>
-              ) : query ? (
-                <button
-                  type="button"
-                  aria-label={t('resources.clearSearch')}
-                  onClick={() => setQuery('')}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
-                >
-                  <span className="text-sm leading-none" aria-hidden>×</span>
-                </button>
-              ) : (
-                <kbd className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] px-1.5 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-400 font-sans pointer-events-none">/</kbd>
-              )}
-              <SearchCommandPanel cmd={searchCmd} onSearchOnly={() => searchInputRef.current?.focus()} />
-            </div>
             {(() => {
               const busyEdit = busy === 'editor' || busy === 'cleanup';
               const primaryCls = 'tb-press text-xs font-medium px-3.5 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 shadow-sm shadow-blue-600/20 disabled:opacity-50 whitespace-nowrap';
@@ -3946,6 +3911,41 @@ export default function Resources() {
           >
             <span className="text-violet-500 mr-1" aria-hidden>✦</span>{t('resources.tab.discover')}
           </button>
+          <div className="relative ml-auto mb-1.5 w-64 max-w-[40vw] self-center">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" aria-hidden>
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3.5 h-3.5"><circle cx="9" cy="9" r="5.5" /><path d="M13.5 13.5 17 17" strokeLinecap="round" /></svg>
+            </span>
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Escape') { setQuery(''); searchCmd.close(); e.currentTarget.blur(); }
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) searchCmd.tryCommand(query);
+              }}
+              placeholder={t('resources.searchPlaceholder')}
+              title={t('resources.cmd.hint')}
+              className="tb-soft-field w-full text-xs pl-8 pr-8 py-1.5 rounded-lg text-zinc-900 dark:text-zinc-100"
+            />
+            {searching ? (
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-zinc-400 pointer-events-none">
+                {t('resources.searching')}
+              </span>
+            ) : query ? (
+              <button
+                type="button"
+                aria-label={t('resources.clearSearch')}
+                onClick={() => setQuery('')}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+              >
+                <span className="text-sm leading-none" aria-hidden>×</span>
+              </button>
+            ) : (
+              <kbd className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] px-1.5 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-400 font-sans pointer-events-none">/</kbd>
+            )}
+            <SearchCommandPanel cmd={searchCmd} onSearchOnly={() => searchInputRef.current?.focus()} />
+          </div>
         </div>
       </header>
 
