@@ -44,6 +44,16 @@ const ORCHESTRATOR_SYSTEM = [
   formatOrchestratorCapabilityHint(),
 ].join('\n');
 
+/**
+ * 本次启动用的编排说明：固定部分 + 看护根据用户纠正学到的派发偏好 / 汇总要求（只影响下一次任务）。
+ * 看护不可用或没有学到东西时与 ORCHESTRATOR_SYSTEM 相同。
+ */
+function orchestratorSystem() {
+  let extra = [];
+  try { extra = require('./guardian/dispatch-learn').orchestratorHints() || []; } catch { /* 看护不可用 */ }
+  return extra.length ? `${ORCHESTRATOR_SYSTEM}\n\n${extra.join('\n')}` : ORCHESTRATOR_SYSTEM;
+}
+
 /** 支持 MCP 编排的主 Agent */
 const ORCHESTRATOR_AGENTS = new Set(['claude-code', 'codex', 'cursor']);
 
@@ -1637,7 +1647,7 @@ class MCPManager {
           '--dangerously-skip-permissions',
           '--output-format', 'stream-json',
           '--verbose',
-          '--append-system-prompt', ORCHESTRATOR_SYSTEM,
+          '--append-system-prompt', orchestratorSystem(),
         ],
         cleanup: () => {},
       };
@@ -1652,7 +1662,7 @@ class MCPManager {
       );
       return {
         extraArgs,
-        promptPrefix: `${ORCHESTRATOR_SYSTEM}\n\n`,
+        promptPrefix: `${orchestratorSystem()}\n\n`,
         cleanup: () => {},
       };
     }
@@ -1661,7 +1671,7 @@ class MCPManager {
     if (agentId === 'cursor') {
       return {
         extraArgs: [],
-        promptPrefix: `${ORCHESTRATOR_SYSTEM}\n\n`,
+        promptPrefix: `${orchestratorSystem()}\n\n`,
         cleanup: () => {},
       };
     }
@@ -1875,6 +1885,7 @@ class MCPManager {
 
 module.exports = new MCPManager();
 module.exports.ORCHESTRATOR_SYSTEM = ORCHESTRATOR_SYSTEM;
+module.exports.orchestratorSystem = orchestratorSystem;
 module.exports.DEFAULT_PROFILE_ID = DEFAULT_PROFILE_ID;
 module.exports.DEVELOPMENT_PROFILE_ID = DEVELOPMENT_PROFILE_ID;
 module.exports.BUILTIN_BRIDGE_ID = BUILTIN_BRIDGE_ID;
