@@ -27,7 +27,7 @@ async function health() {
   if (model && model.ok) guardian.resolveSignature('setup-no-model', '模型已可用');
   const checks = guardian.checkHealth();
   // 正在执行的事：后台检查、定期自省、执行应用里的画像 / 发现 / 安装
-  const KIND_LABEL = { portrait: '兴趣画像', discover: '资产发现', install: '技能安装' };
+  const KIND_LABEL = { install: '技能安装' };
   const busy = [
     ...guardian.runningCheckNames().map(n => `检查「${CHECK_LABEL[n] || n}」`),
     ...runningKinds.map(k => `${KIND_LABEL[k] || k}（${label(st.runtime)}）`),

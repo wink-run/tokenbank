@@ -73,7 +73,7 @@ test('run hands the role + prompt to the chosen app', async () => {
     assert.equal(calls[0].options.sessionKey, 'resource-install');
     assert.equal((await engine.run({ kind: 'bogus', prompt: 'x' })).error, 'unknown-kind');
     targets.listManagedResourceAgentIds = () => [];
-    assert.equal((await engine.run({ kind: 'portrait', prompt: 'x' })).error, 'no-runtime');
+    assert.equal((await engine.run({ kind: 'install', prompt: 'x' })).error, 'no-runtime');
   } finally {
     targets.listManagedResourceAgentIds = origT;
     executor.execute = origE;
@@ -109,7 +109,7 @@ test('health: off / needs attention with reasons / ok, and last task outcome', a
 
     // 执行应用跑失败：标志变成需要注意，并说明原因
     executor.execute = async () => ({ taskId: 't-fail' });
-    await engine.run({ kind: 'discover', prompt: 'x' });
+    await engine.run({ kind: 'install', prompt: 'x' });
     assert.equal(engine.lastTask().status, 'running');
     executor.emit('task:failed', { taskId: 't-fail', error: 'Agent 无法连接服务 (401 Unauthorized)' });
     assert.equal(engine.lastTask().status, 'failed');
@@ -145,12 +145,12 @@ test('health.busy lists what is running right now, and clears when it ends', asy
     modelCall.modelStatus = async () => ({ ok: true, count: 1 });
     assert.deepEqual((await health.health()).busy, []);
 
-    // 执行应用里正在跑一个资产发现（执行器查得到、状态是运行中）
+    // 执行应用里正在跑一个技能安装（执行器查得到、状态是运行中）
     const origS = executor.getTaskStatus;
     executor.getTaskStatus = async (id) => (id === 't-busy' ? { status: 'running' } : origS.call(executor, id));
     executor.execute = async () => ({ taskId: 't-busy' });
-    await engine.run({ kind: 'discover', prompt: 'x' });
-    assert.ok((await health.health()).busy.some(b => /资产发现/.test(b)));
+    await engine.run({ kind: 'install', prompt: 'x' });
+    assert.ok((await health.health()).busy.some(b => /技能安装/.test(b)));
     executor.emit('task:completed', { taskId: 't-busy' });
     assert.deepEqual((await health.health()).busy, []);
     executor.getTaskStatus = origS;
@@ -158,7 +158,7 @@ test('health.busy lists what is running right now, and clears when it ends', asy
     // 结束事件漏了：执行器里已经是完成，也会按完成收尾
     executor.getTaskStatus = async (id) => (id === 't-missed' ? { status: 'completed' } : origS.call(executor, id));
     executor.execute = async () => ({ taskId: 't-missed' });
-    await engine.run({ kind: 'portrait', prompt: 'x' });
+    await engine.run({ kind: 'install', prompt: 'x' });
     assert.deepEqual((await health.health()).busy, []);
     assert.equal(engine.lastTask().status, 'completed');
     executor.getTaskStatus = origS;

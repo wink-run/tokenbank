@@ -104,6 +104,7 @@ async function check() {
   const open = new Set();
   for (const g of gaps) {
     const sig = `capability-gap|${g.topic.id}`;
+    if (!g.offer) continue;   // 社区里没有现成的：没有可做的事，不提
     open.add(sig);
     const name = g.offer ? (g.offer.display_name || g.offer.name) : '';
     guardian.record({

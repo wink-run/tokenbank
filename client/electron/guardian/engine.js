@@ -1,7 +1,7 @@
 // client/electron/guardian/engine.js
-// 看护的执行引擎：兴趣画像、资产发现、资产安装这几件需要「会用工具的应用」才能做的事，统一由看护在后台交给
-// 一个已纳管的命令行应用（Codex / Claude Code / Cursor / Kimi Code …）去跑。
-// 不再有「画像分析 / 资产发现 / 资产安装」三个系统智能体资产：角色说明写在这里，按任务类型拼进提示，不纳管、不投射。
+// 看护的执行引擎：技能安装这类需要「会用工具的应用」才能做的事，由看护在后台交给
+// 一个已纳管的命令行应用（Codex / Claude Code / Cursor / Kimi Code …）去跑；内置看护智能体也跑在它上面。
+// 没有单独的系统智能体资产：角色说明写在这里，不纳管、不投射。
 'use strict';
 
 const store = require('./store');
@@ -13,22 +13,6 @@ const RUNTIMES = ['codex', 'claude-code', 'cursor', 'kimi-code', 'workbuddy'];
 const LEGACY_ASSISTANTS = ['resource-portrait', 'resource-finder', 'resource-installer'];
 
 const ROLES = {
-  portrait: [
-    '【Token Bank 看护任务：兴趣画像】',
-    '根据用户与各应用的对话摘录，推断稳定身份画像。',
-    '1. 只输出 persona / traits / goals / extensions / needs，刻画「我是谁、长期该配备什么能力」；',
-    '2. 不检索、不推荐、不编造任何具体 Skill / Prompt / Assistant 条目或安装命令；',
-    '3. 严格按要求的 JSON 结构输出，不做与画像无关的长篇解释；',
-    '4. 不执行落盘、安装或其它工具型交付。',
-  ].join('\n'),
-  discover: [
-    '【Token Bank 看护任务：资产发现】',
-    '用户已有画像（或补充诉求），只负责检索并推荐真实存在的 Skill / Prompt / Assistant。',
-    '1. 技能：用 skillhub search --json / find-skill 检索，并参考 https://github.com/affaan-m/ECC/tree/main/skills；只推荐真实存在的 slug / 目录名，禁止编造；',
-    '2. 智能体：优先 Token Bank 社区目录真实条目，可参考 https://github.com/affaan-m/ECC/tree/main/agents；没有合适的可自建完整 soul，并搭配真实存在的技能；',
-    '3. 提示词：可参考公开合集，内容须完整可用；',
-    '4. 不重做画像分析；严格按要求的 JSON 结构输出。',
-  ].join('\n'),
   install: [
     '【Token Bank 看护任务：资产安装】',
     '用户给出 Skill 安装命令或说明（skillhub install <slug>、npx skills add …、GitHub 地址、技能 slug）。',

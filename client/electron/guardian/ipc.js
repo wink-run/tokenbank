@@ -76,16 +76,6 @@ function registerGuardianHandlers() {
 
   // 发现页：能力缺口、推荐反馈、画像修改
   ipcMain.handle('guardian:capabilityGaps', safe(async () => ({ success: true, gaps: await require('./capability-gaps').listOpen() })));
-  ipcMain.handle('guardian:recoFeedback', safe((input) => {
-    const r = require('./discover-learn').recoFeedback(input || {});
-    return { success: !!r.ok, error: r.error };
-  }));
-  ipcMain.handle('guardian:recoState', safe((opts) => ({ success: true, ...require('./discover-learn').recoState(opts || {}) })));
-  ipcMain.handle('guardian:portraitFeedback', safe((input) => {
-    const r = require('./discover-learn').portraitFeedback(input || {});
-    return { success: !!r.ok, error: r.error };
-  }));
-  ipcMain.handle('guardian:portraitConstraints', safe(() => ({ success: true, lines: require('./discover-learn').portraitConstraints() })));
 
   // 资产一键诊断与修复
   ipcMain.handle('resource:diagnose', safe(({ resourceId } = {}) => require('./diagnose').diagnoseResource(resourceId)));
@@ -99,7 +89,6 @@ function startGuardian({ gateway, initialDelayMs } = {}) {
   try { require('./projection-heal').register(); } catch (e) { console.warn('[guardian] projection-heal:', e.message); }
   try { require('./asset-checks').register(); } catch (e) { console.warn('[guardian] asset-checks:', e.message); }
   try { require('./setup-check').register(); } catch (e) { console.warn('[guardian] setup-check:', e.message); }
-  try { require('./discover-learn').register(); } catch (e) { console.warn('[guardian] discover-learn:', e.message); }
   try { require('./dispatch-learn').register(); } catch (e) { console.warn('[guardian] dispatch-learn:', e.message); }
   try { require('./command').register(); } catch (e) { console.warn('[guardian] command:', e.message); }
   try { require('./capability-gaps').register(); } catch (e) { console.warn('[guardian] capability-gaps:', e.message); }

@@ -113,10 +113,6 @@ const guardian = {
   engineStatus: call0('guardian:engineStatus'),
   engineSetRuntime: (id) => invoke('guardian:engineSetRuntime', id),
   engineRun: call('guardian:engineRun', {}),
-  recoFeedback: call('guardian:recoFeedback', {}),
-  recoState: call('guardian:recoState', {}),
-  portraitFeedback: call('guardian:portraitFeedback', {}),
-  portraitConstraints: call0('guardian:portraitConstraints'),
 };
 
 // preload 的 agent 段里「智能体聚合」部分；设备代理的 start/stop/getStatus/日志在 CLI 已有 /api/agent/*，不放这里

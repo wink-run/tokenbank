@@ -204,10 +204,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     engineStatus: () => ipcRenderer.invoke('guardian:engineStatus'),
     engineSetRuntime: (id) => ipcRenderer.invoke('guardian:engineSetRuntime', id),
     engineRun: (input) => ipcRenderer.invoke('guardian:engineRun', input || {}),
-    recoFeedback: (input) => ipcRenderer.invoke('guardian:recoFeedback', input || {}),
-    recoState: (opts) => ipcRenderer.invoke('guardian:recoState', opts || {}),
-    portraitFeedback: (input) => ipcRenderer.invoke('guardian:portraitFeedback', input || {}),
-    portraitConstraints: () => ipcRenderer.invoke('guardian:portraitConstraints'),
   },
   config: {
     read:  () => ipcRenderer.invoke('config:read'),

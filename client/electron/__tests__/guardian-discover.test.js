@@ -17,7 +17,6 @@ assert.ok(localStats.init(path.join(HOME, '.tokenbank'), { force: true }));
 require('../../cli/ipc-bridge').installElectronStub();
 const guardian = require('../guardian');
 const gaps = require('../guardian/capability-gaps');
-const learn = require('../guardian/discover-learn');
 
 function addTasks(prompts) {
   const ins = localStats.getDb().prepare('INSERT INTO agent_tasks (id, agent_id, prompt, status, created_at) VALUES (?, ?, ?, ?, ?)');
@@ -53,15 +52,14 @@ test('check: records gap with catalog offer, apply installs, undo removes, cover
   const recs = guardian.listRecords().filter(x => x.kind === 'capability-gap');
   const commit = recs.find(x => x.meta.topic === 'commit');
   const report = recs.find(x => x.meta.topic === 'report');
-  assert.ok(commit && report, JSON.stringify(recs.map(x => x.title)));
+  assert.ok(commit, JSON.stringify(recs.map(x => x.title)));
   assert.match(commit.title, /3 次在「写提交信息」/);
   assert.equal(commit.apply.data.catalogId, 'git-commit-skill');
   assert.equal(commit.link.state.viewTab, 'recommend');
-  assert.equal(report.apply, undefined, 'no community item → only a hint to generate one');
-  assert.match(report.advice, /生成/);
+  assert.equal(report, undefined, 'no community item → nothing the user can do, so it is not raised');
 
   const open = await gaps.listOpen();
-  assert.equal(open.length, 2);
+  assert.equal(open.length, 1);
 
   assert.equal((await guardian.apply(commit.id)).ok, true);
   const rm = require('../resource-manager');
@@ -75,42 +73,13 @@ test('check: records gap with catalog offer, apply installs, undo removes, cover
 });
 
 test('dismissed gap stays quiet for 30 days', async () => {
-  const rec = guardian.listRecords().find(x => x.kind === 'capability-gap' && x.meta.topic === 'report' && x.status === 'suggested');
+  await gaps.check();   // 撤销后缺口又出现
+  const rec = guardian.listRecords().find(x => x.kind === 'capability-gap' && x.meta.topic === 'commit' && x.status === 'suggested');
   guardian.dismiss(rec.id);
   // 当成 10 天前忽略的：7 天的默认静默已过，缺口用 30 天
   guardian.updateRecord(rec.id, { dismissedAt: Date.now() - 10 * 864e5 });
   await gaps.check();
-  assert.ok(!guardian.listRecords().some(x => x.kind === 'capability-gap' && x.meta.topic === 'report' && x.status === 'suggested'));
-});
-
-test('reco feedback: hide dismissed for 30 days, down-rank repeated categories, stats', () => {
-  learn.recoFeedback({ action: 'dismiss', key: 'a', name: 'A 助手', type: 'skill', category: 'marketing' });
-  learn.recoFeedback({ action: 'dismiss', key: 'b', name: 'B 助手', type: 'skill', category: 'marketing' });
-  learn.recoFeedback({ action: 'dismiss', key: 'c', name: 'C', type: 'prompt', category: 'writing' });
-  learn.recoFeedback({ action: 'adopt', key: 'd', name: 'D', type: 'skill', category: 'dev' });
-  const s = learn.recoState({ type: 'skill' });
-  assert.deepEqual(s.hidden.sort(), ['a', 'b']);
-  assert.deepEqual(s.downCategories, ['marketing']);
-  assert.ok(s.avoid.includes('A 助手'));
-  assert.deepEqual(learn.recoState({ type: 'skill', now: Date.now() + 31 * 864e5 }).hidden, [], 'hidden only for 30 days');
-  learn.recoFeedback({ action: 'undismiss', key: 'a', type: 'skill' });
-  assert.deepEqual(learn.recoState({ type: 'skill' }).hidden, ['b']);
-  const st = learn.recoStats(0);
-  assert.equal(st.adopt, 1);
-  assert.equal(st.dismiss, 2);
-  assert.equal(learn.recoFeedback({ action: 'bogus', key: 'x' }).ok, false);
-});
-
-test('portrait feedback becomes constraints for the next portrait', () => {
-  assert.deepEqual(learn.portraitConstraints(), []);
-  learn.portraitFeedback({ action: 'remove', field: 'traits', text: '偏 ESTP：冒险型' });
-  learn.portraitFeedback({ action: 'remove', field: 'goals', text: '短视频运营' });
-  learn.portraitFeedback({ action: 'edit', field: 'persona', from: '旧的', to: '独立开发者，喜欢把流程做成工具' });
-  const lines = learn.portraitConstraints().join('\n');
-  assert.match(lines, /独立开发者，喜欢把流程做成工具/);
-  assert.match(lines, /性格与风格：偏 ESTP：冒险型/);
-  assert.match(lines, /能力域：短视频运营/);
-  assert.equal(learn.portraitFeedback({ action: 'remove', field: 'nope', text: 'x' }).ok, false);
+  assert.ok(!guardian.listRecords().some(x => x.kind === 'capability-gap' && x.meta.topic === 'commit' && x.status === 'suggested'));
 });
 
 test('a dispatched task that also shows up in the agent session counts once', () => {
@@ -123,30 +92,3 @@ test('a dispatched task that also shows up in the agent session counts once', ()
   assert.equal(out.length, before + 1);
 });
 
-test('discover is a guardian category: records with undo, switch turns learning off', async () => {
-  learn.register();
-  learn.recoFeedback({ action: 'dismiss', key: 'z1', name: 'Z 工具', type: 'assistant', category: 'misc' });
-  const rec = guardian.listRecords().find(r => r.kind === 'reco-dismissed' && r.meta.key === 'z1');
-  assert.equal(rec.category, 'discover');
-  assert.match(rec.title, /不再推荐「Z 工具」/);
-  assert.ok(learn.recoState({ type: 'assistant' }).hidden.includes('z1'));
-  assert.equal((await guardian.undo(rec.id)).ok, true);
-  assert.ok(!learn.recoState({ type: 'assistant' }).hidden.includes('z1'), 'undo forgets the dismissal');
-
-  learn.portraitFeedback({ action: 'remove', field: 'extensions', text: '摄影' });
-  const pr = guardian.listRecords().find(r => r.kind === 'portrait-learned' && /摄影/.test(r.title));
-  assert.match(learn.portraitConstraints().join('\n'), /摄影/);
-  assert.equal((await guardian.undo(pr.id)).ok, true);
-  assert.doesNotMatch(learn.portraitConstraints().join('\n'), /摄影/);
-
-  // 关掉「发现与画像」：不提醒缺口、不藏、不带约束、不再记
-  guardian.setSettings({ modes: { discover: 'off' } });
-  assert.deepEqual(await gaps.listOpen(), []);
-  assert.equal((await gaps.check()).skipped, true);
-  assert.deepEqual(learn.recoState({ type: 'skill' }).hidden, []);
-  assert.deepEqual(learn.portraitConstraints(), []);
-  assert.equal(learn.recoFeedback({ action: 'dismiss', key: 'z2', type: 'skill' }).skipped, true);
-  guardian.setSettings({ modes: { discover: 'auto' } });
-  assert.ok(!learn.recoState({ type: 'skill' }).hidden.includes('z2'), 'nothing was learned while off');
-  assert.ok(learn.recoState({ type: 'skill' }).hidden.includes('b'), 'earlier learning comes back when switched on');
-});
