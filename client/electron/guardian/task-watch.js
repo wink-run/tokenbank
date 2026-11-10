@@ -34,6 +34,10 @@ function classify(errorText) {
 }
 
 function agentName(id) {
+  if (require('./chat').isGuardianAgent(id)) {
+    const rt = require('./engine').status().runtime;
+    return `内置看护智能体${rt ? `（${agentName(rt)}）` : ''}`;
+  }
   try { return require('../config-loader').appEntityById(id)?.name || id; } catch { return id; }
 }
 
@@ -151,4 +155,4 @@ function attach(executor) {
   return true;
 }
 
-module.exports = { attach, classify, matchSkill, handleFailed, KINDS, _internal: { installSkillFor, unprojectSkill } };
+module.exports = { attach, classify, matchSkill, handleFailed, KINDS, _internal: { installSkillFor, unprojectSkill, agentName } };

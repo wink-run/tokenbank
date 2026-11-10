@@ -52,13 +52,31 @@ function isRealSkillDir(dir) {
   return ['SKILL.md', 'skill.md', 'meta.json'].some(f => fs.existsSync(path.join(dir, f)));
 }
 
-/** 从 metadata 解析权威目录（兼容旧 canonicalPath） */
+/**
+ * 真实技能目录：本身是真实目录就用它；是软链就顺着链接找到真身再判断。
+ * 软链本身永远不当权威（撤投射会删掉它），但它指向的真实目录可以。
+ */
+function realSkillDir(dir) {
+  if (!dir) return null;
+  if (isRealSkillDir(dir)) return resolvePath(dir);
+  try {
+    if (fs.lstatSync(dir).isSymbolicLink()) {
+      const real = fs.realpathSync(dir);
+      if (isRealSkillDir(real)) return real;
+    }
+  } catch { /* 断链 */ }
+  return null;
+}
+
+/** 从 metadata 解析权威目录（兼容旧 canonicalPath；记录里存成软链位置的，顺着链接找真身；最后看 source_url） */
 function resolveAuthorityDir(resource) {
   const meta = resource?.metadata || {};
-  const hints = [meta.authorityPath, meta.scannedFrom, meta.canonicalPath].filter(Boolean);
+  const src = String(resource?.source_url || '');
+  const hints = [meta.authorityPath, meta.scannedFrom, meta.canonicalPath,
+    (src.startsWith('/') || /^[A-Za-z]:[\\/]/.test(src)) ? src : null].filter(Boolean);
   for (const hint of hints) {
-    const dir = normalizeSkillDirPath(hint, resource?.name);
-    if (dir && isRealSkillDir(dir)) return resolvePath(dir);
+    const dir = realSkillDir(normalizeSkillDirPath(hint, resource?.name));
+    if (dir) return dir;
   }
   return null;
 }
@@ -304,6 +322,7 @@ function syncSkillContentToAuthority(authorityDir, content, files) {
 }
 
 module.exports = {
+  realSkillDir,
   normalizeSkillDirPath,
   resolveAuthorityDir,
   isRealSkillDir,

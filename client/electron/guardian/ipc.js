@@ -30,6 +30,10 @@ function registerGuardianHandlers() {
     const r = await guardian.apply(id);
     return { success: !!r.ok, error: r.error };
   }));
+  ipcMain.handle('guardian:act', safe(async (id, index) => {
+    const r = await guardian.act(id, index);
+    return { success: !!r.ok, error: r.error, message: r.message };
+  }));
   ipcMain.handle('guardian:dismiss', safe((id) => ({ success: guardian.dismiss(id) })));
   ipcMain.handle('guardian:runChecks', safe(async () => ({ success: true, results: await guardian.runChecks() })));
   // 资产列表的小标签：质量 / 安全 / 重复 / 新版本
@@ -54,6 +58,18 @@ function registerGuardianHandlers() {
     return { success: true, ...require('./share-check').sanitize(input || {}) };
   }));
   ipcMain.handle('guardian:assetSnapshot', safe(() => ({ success: true, assets: require('./device-sync').snapshot() })));
+
+  // 说一句话就办：先解析给界面确认，确认后再执行
+  ipcMain.handle('guardian:commandParse', safe(async ({ text, allowModel } = {}) => ({ success: true, plan: await require('./command').parse(text, { allowModel: allowModel !== false }) })));
+  ipcMain.handle('guardian:commandRun', safe(async (plan) => {
+    const r = await require('./command').run(plan || {});
+    return r.ok ? { success: true, message: r.message, link: r.link } : { success: false, error: r.error };
+  }));
+  // 游乐场的纠正：改派、重做、追问纠错（场景路由修正 / 汇总失败复盘）
+  ipcMain.handle('guardian:dispatchFeedback', safe((evt) => {
+    const r = require('./dispatch-learn').feedback(evt || {});
+    return { success: !!r.ok, learned: !!r.learned, error: r.error };
+  }));
 
   // 运行状态：设置页顶部的标志
   ipcMain.handle('guardian:health', safe(async () => ({ success: true, ...(await require('./health').health()) })));
@@ -96,7 +112,11 @@ function startGuardian({ gateway, initialDelayMs } = {}) {
   try { require('./share-suggest').register(); } catch (e) { console.warn('[guardian] share-suggest:', e.message); }
   try { require('./device-sync').register(); } catch (e) { console.warn('[guardian] device-sync:', e.message); }
   try { require('./discover-learn').register(); } catch (e) { console.warn('[guardian] discover-learn:', e.message); }
+  try { require('./dispatch-learn').register(); } catch (e) { console.warn('[guardian] dispatch-learn:', e.message); }
+  try { require('./command').register(); } catch (e) { console.warn('[guardian] command:', e.message); }
   try { require('./capability-gaps').register(); } catch (e) { console.warn('[guardian] capability-gaps:', e.message); }
+  try { require('./judgment').register(); } catch (e) { console.warn('[guardian] judgment:', e.message); }
+  try { require('./review-usage').register(); } catch (e) { console.warn('[guardian] review-usage:', e.message); }
   try { require('./introspect').register(); } catch (e) { console.warn('[guardian] introspect:', e.message); }
   try { require('./task-watch').attach(); } catch (e) { console.warn('[guardian] task-watch:', e.message); }
   try { if (gateway) require('./gateway-watch').attach(gateway); } catch (e) { console.warn('[guardian] gateway-watch:', e.message); }

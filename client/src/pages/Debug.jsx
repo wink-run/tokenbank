@@ -925,6 +925,26 @@ export default function Debug() {
   const [loggingInCursorCli, setLoggingInCursorCli] = useState(false);
   const [cursorInstallError, setCursorInstallError] = useState('');
   const [agentPrompt, setAgentPrompt] = useState('');
+  // 「说一句话就办」把做事的请求交过来：放进输入框，用户确认后发送
+  useEffect(() => {
+    const p = location.state?.prompt;
+    if (typeof p === 'string' && p.trim()) {
+      // 看护那边「有疑问？」点过来的：切到看护的执行应用，和它对话
+      const wantId = location.state?.agentId;
+      let target = selectedAgentRef.current;
+      if (wantId && wantId !== target?.id) {
+        const hit = (agentsRef.current || []).find(a => a.id === wantId);
+        if (hit) { switchAgent(hit); target = hit; }
+        else { setStoreSelectedAgentId(wantId); target = { id: wantId }; }   // 列表还没加载：加载后按这个选中
+      }
+      // 进页时会从会话草稿恢复输入框，所以草稿里也写一份，再在恢复之后补一次
+      try { patchStoreSession(agentSessionKey(target), { agentPrompt: p }); } catch { /* ignore */ }
+      setMode('agent');   // 做事的请求交给智能体
+      setAgentPrompt(p);
+      setTimeout(() => setAgentPrompt(p), 300);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
   const [agentWorkingDir, setAgentWorkingDir] = useState(() => loadAgentWorkingDir());
   const [dirError, setDirError] = useState('');
   const [currentUserPrompt, setCurrentUserPrompt] = useState('');
@@ -2533,6 +2553,11 @@ export default function Debug() {
     // 聚合入口 = 主 Agent 编排；Agent tab = 直调
     const execMode = isHubMode ? 'orchestrator' : 'direct';
 
+    // 看护：聚合入口里紧接着的追问如果是在纠正上一次的汇总，算一次汇总失败（异步复盘，不影响这次执行）
+    if (isHubMode && !autoContinue && lastTurn?.taskId && lastTurn.status === 'completed') {
+      try { window.electronAPI?.guardian?.dispatchFeedback?.({ type: 'followup', mode: 'orchestrator', prompt, prevTaskId: lastTurn.taskId }); } catch { /* ignore */ }
+    }
+
     try {
       const result = await window.electronAPI.agent.execute({
         agentId: activeAgent.id,
@@ -2585,6 +2610,52 @@ export default function Debug() {
     }
   }
   executeAgentRef.current = executeAgent;
+
+  /** 看护：对上一轮不满意时「重做」或「改派」（算一次纠正，用于场景路由修正和汇总复盘） */
+  const finishedTurn = !executing && !taskCanStop && conversationTurns.length
+    ? conversationTurns[conversationTurns.length - 1]
+    : null;
+  const reassignTargets = (agents || []).filter((a) => a && a.id !== activeAgent?.id
+    && !(a.type === 'cli' && a.installed === false) && a.type !== 'community');
+  function redoLastTurn() {
+    if (!finishedTurn?.user) return;
+    try {
+      window.electronAPI?.guardian?.dispatchFeedback?.({
+        type: 'redo', mode: isHubMode ? 'orchestrator' : 'direct', agentId: activeAgent?.id, prompt: finishedTurn.user, taskId: finishedTurn.taskId,
+      });
+    } catch { /* ignore */ }
+    executeAgent(t('debug.guardian.redoPrompt', { prompt: finishedTurn.user }));
+  }
+  function reassignLastTurn(targetId) {
+    const target = (agents || []).find((a) => a.id === targetId);
+    if (!target || !finishedTurn?.user) return;
+    try {
+      window.electronAPI?.guardian?.dispatchFeedback?.({
+        type: 'reassign', from: activeAgent?.id, to: target.id, prompt: finishedTurn.user, taskId: finishedTurn.taskId,
+      });
+    } catch { /* ignore */ }
+    const text = finishedTurn.user;
+    switchAgent(target);
+    // 切过去后把原需求放进输入框，用户确认后发送
+    setTimeout(() => setAgentPrompt(text), 0);
+  }
+  const turnFooter = finishedTurn?.user ? (
+    <div className="flex flex-wrap items-center gap-2 pl-1 text-[11px] text-zinc-400">
+      <span>{t('debug.guardian.unhappy')}</span>
+      <button type="button" onClick={redoLastTurn}
+        className="px-2 py-0.5 rounded-md border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800">
+        {t('debug.guardian.redo')}
+      </button>
+      {!isHubMode && reassignTargets.length > 0 && (
+        <select value="" onChange={(e) => { if (e.target.value) reassignLastTurn(e.target.value); }}
+          aria-label={t('debug.guardian.reassign')}
+          className="px-1.5 py-0.5 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300">
+          <option value="">{t('debug.guardian.reassign')}</option>
+          {reassignTargets.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      )}
+    </div>
+  ) : null;
 
   /** 超时结束后自动再开一轮，最多两次。用户取消或换了标签则不续。 */
   maybeAutoContinueRef.current = (key, errorText, status) => {
@@ -3501,6 +3572,7 @@ export default function Debug() {
                   delegations={delegations}
                   agentNames={agentNameMap}
                   onPreviewImage={setLightbox}
+                  footer={turnFooter}
                 />
               )
             ) : selectedAgent?.id === 'cursor' && selectedAgent.installed === false ? (
@@ -3574,6 +3646,7 @@ export default function Debug() {
                 task={currentTask}
                 agentName={selectedAgent?.name}
                 onPreviewImage={setLightbox}
+                footer={turnFooter}
               />
             )}
           </div>
