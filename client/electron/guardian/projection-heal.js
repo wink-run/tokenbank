@@ -27,7 +27,7 @@ function agentName(agentId) {
   try { return require('../config-loader').appEntityById(agentId)?.name || agentId; } catch { return agentId; }
 }
 
-/** 判断「原文件不见了 / 修不好」时的依据，判断规则据此排除误报 */
+/** 判断「原文件不见了 / 修不好」时的依据，学到的规则据此排除误报 */
 function projectionFacts(r, p) {
   const fs = require('fs');
   const row = (r.projections || []).find(x => x.agentId === p.agentId) || {};
@@ -39,6 +39,7 @@ function projectionFacts(r, p) {
   const authorityPath = r.metadata?.authorityPath || '';
   const src = String(r.source_url || '');
   return {
+    resourceId: r.id,
     agentId: p.agentId,
     resourceName: r.name,
     projectionType: row.projectionType || row.projection_type || '',
@@ -66,7 +67,7 @@ async function check() {
   let suggested = 0;
   let broken = 0;
   let gone = [];   // 原文件已被删除：修不了，合并成一条，一键撤下
-  const excluded = new Set();   // 在应用里的那条按判断规则排除了的技能（它在资产库内部的那条也不再单独提醒）
+  const excluded = new Set();   // 在应用里的那条按学到的规则排除了的技能（它在资产库内部的那条也不再单独提醒）
   for (const r of m.listResources({ type: 'skill' })) {
     if (!(r.projections || []).length) continue;
     let v;
@@ -128,9 +129,9 @@ async function check() {
       const sig = `proj-x|${r.id}|${p.agentId}|${p.health.reason}`;
       const facts = projectionFacts(r, p);
       const kind = p.health.reason === 'authority-missing' ? 'projection-gone' : 'projection-unrepairable';
-      // 判断规则说这种情况不算问题（之前误报过）：不提醒
-      if (judgment().judge(kind, facts)) {
-        guardian.resolveSignature(sig, '按判断规则排除');
+      // 学到的规则说这种情况不算问题（之前误报过）：不提醒
+      if (judgment().judge(kind, facts, { verdict: 'ignore' })) {
+        guardian.resolveSignature(sig, '按学到的规则不算问题');
         broken--;
         if (!require('./diagnose').INTERNAL_TARGETS.has(p.agentId)) excluded.add(r.id);
         continue;

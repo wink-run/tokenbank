@@ -3,7 +3,7 @@ import { useLang } from '../store/lang';
 import GuardianPanel from '../components/GuardianPanel';
 
 /**
- * 智能看护页：侧边栏 Logo 旁的小圆点、设置页的「看护设置」都跳到这里。
+ * 自我进化页：侧边栏 Logo 旁的小圆点、设置页的「看护设置」都跳到这里。
  * 运行环境、各类处理方式、定期自省、自动处理记录都在这一页，设置页只留一个入口。
  */
 export default function Guardian() {

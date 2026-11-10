@@ -22,7 +22,7 @@ function SparkIcon({ className }) {
 
 /**
  * 侧边栏 Logo 旁的 AI 火花：正在被看护（金）/ 需要注意（深金）/ 看护已关闭（灰）。
- * 悬停看原因，点击跳到设置页的「智能看护」。看护不可用（老版本 / 无接口）时不显示。
+ * 悬停看原因，点击跳到设置页的「自我进化」。看护不可用（老版本 / 无接口）时不显示。
  */
 export default function GuardianDot() {
   const { t } = useLang();

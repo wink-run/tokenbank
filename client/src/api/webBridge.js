@@ -98,6 +98,8 @@ const guardian = {
   undo: (id) => invoke('guardian:undo', id),
   apply: (id) => invoke('guardian:apply', id),
   act: (id, index) => invoke('guardian:act', id, index),
+  learnedRules: () => invoke('guardian:learnedRules'),
+  removeLearnedRule: (id) => invoke('guardian:removeLearnedRule', id),
   dismiss: (id) => invoke('guardian:dismiss', id),
   runChecks: call0('guardian:runChecks'),
   assetFlags: call0('guardian:assetFlags'),

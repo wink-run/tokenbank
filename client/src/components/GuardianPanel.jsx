@@ -286,8 +286,52 @@ function fmtTime(ts, lang) {
   return d.toLocaleString(lang === 'en' ? 'en-US' : 'zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+
+/** 自我进化：看护学到的规则（从误报、忽略、撤销和内置看护智能体的排查里学来的），可以看、可以删 */
+function LearnedRules({ api, t, lang, reloadKey }) {
+  const [list, setList] = useState(null);
+  const [open, setOpen] = useState(false);
+  const load = useCallback(() => {
+    api.learnedRules?.().then((r) => setList(r?.rules || [])).catch(() => setList([]));
+  }, [api]);
+  useEffect(() => { load(); }, [load, reloadKey]);
+  if (!api.learnedRules || !list) return null;
+  const SRC = { agent: t('guardian.learned.src.agent'), user: t('guardian.learned.src.user'), feedback: t('guardian.learned.src.feedback') };
+  return (
+    <div className="px-5 py-3 border-b border-white/40 dark:border-white/[0.06]">
+      <button type="button" onClick={() => setOpen(v => !v)} className="w-full flex items-start gap-2 text-left">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium text-zinc-800 dark:text-zinc-100">{open ? '▾' : '▸'} {t('guardian.learned.title', { n: list.length })}</div>
+          <div className="text-[11px] text-zinc-400">{t('guardian.learned.hint')}</div>
+        </div>
+      </button>
+      {open && (list.length === 0 ? (
+        <p className="mt-2 text-[11px] text-zinc-400">{t('guardian.learned.empty')}</p>
+      ) : (
+        <ul className="mt-2 space-y-1.5">
+          {list.map((r) => (
+            <li key={r.id} className="flex items-start gap-2 text-[11px] leading-relaxed">
+              <span className={`shrink-0 mt-px px-1.5 py-px rounded text-[10px] ${r.verdict === 'act' ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'}`}>
+                {r.verdict === 'act' ? t('guardian.learned.act') : t('guardian.learned.ignore')}
+              </span>
+              <span className="min-w-0 flex-1 text-zinc-700 dark:text-zinc-200">
+                {r.text}
+                <span className="block text-zinc-400">{r.reason} · {SRC[r.source] || r.source} · {t('guardian.learned.hits', { n: r.hits || 0 })} · {fmtTime(r.createdAt, lang)}</span>
+              </span>
+              <button type="button" onClick={async () => { await api.removeLearnedRule(r.id); load(); }}
+                className="shrink-0 px-2 py-0.5 rounded-md text-zinc-500 hover:text-rose-600 hover:bg-white dark:hover:bg-zinc-800">
+                {t('guardian.learned.remove')}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ))}
+    </div>
+  );
+}
+
 /**
- * 设置页「智能看护」：总开关、各类处理方式、自动处理记录（撤销 / 采纳 / 忽略）、立即检查。
+ * 设置页「自我进化」：总开关、各类处理方式、自动处理记录（撤销 / 采纳 / 忽略）、立即检查。
  * 桌面版走 preload，Docker 走 webBridge，接口同名（window.electronAPI.guardian）。
  */
 export default function GuardianPanel({ page = false }) {
@@ -487,7 +531,10 @@ export default function GuardianPanel({ page = false }) {
           </div>
         ))}
       {showStatus && settings && api.introspectNow && (
-        <IntrospectSection settings={settings} save={save} api={api} t={t} lang={lang} onRan={load} view="report" />
+        <>
+          <IntrospectSection settings={settings} save={save} api={api} t={t} lang={lang} onRan={load} view="report" />
+          <LearnedRules api={api} t={t} lang={lang} reloadKey={records} />
+        </>
       )}
 
       {/* 设置：总开关、执行应用、各类处理方式、定期自省 */}

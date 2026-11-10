@@ -129,7 +129,7 @@ async function parse(text, { allowModel = true } = {}) {
 function describe(p) {
   const who = p.agent ? agentLabel(p.agent) : '已纳管的应用';
   switch (p.action) {
-    case 'status': return '查看智能看护的运行情况';
+    case 'status': return '查看自我进化的运行情况';
     case 'check': return '立即跑一遍看护检查（资产体检、投射自愈、配置提醒等）';
     case 'introspect': return '立即做一次定期自省';
     case 'install': return `安装「${p.target}」`;
@@ -154,7 +154,7 @@ async function run(plan = {}) {
   switch (plan.action) {
     case 'status': {
       const h = await require('./health').health();
-      const msg = h.level === 'ok' ? '运行正常' : h.level === 'off' ? '智能看护已关闭' : `需要注意：${h.issues.map(i => i.text).join('；')}`;
+      const msg = h.level === 'ok' ? '运行正常' : h.level === 'off' ? '自我进化已关闭' : `需要注意：${h.issues.map(i => i.text).join('；')}`;
       return { ok: true, message: msg, link: { to: '/guardian', label: '看护页' } };
     }
     case 'check': {
