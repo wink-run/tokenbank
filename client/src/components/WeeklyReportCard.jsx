@@ -47,7 +47,7 @@ export default function WeeklyReportCard() {
         <span>{t('guardian.report.handled', { n: report.handled?.count || 0 })}</span>
         <span>{t('guardian.report.pending', { n: report.pending?.count || 0 })}</span>
         {report.stoppedForCap && <span className="text-amber-600 dark:text-amber-400">{t('guardian.report.capped')}</span>}
-        <button type="button" onClick={() => navigate('/config')}
+        <button type="button" onClick={() => navigate('/guardian')}
           className="ml-auto text-[11px] px-2.5 py-1 rounded-md border border-blue-200 dark:border-blue-900/60 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40">
           {t('guardian.report.open')} →
         </button>

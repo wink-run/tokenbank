@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useLang } from '../store/lang';
 
@@ -18,7 +18,7 @@ const HEALTH_CLS = {
 const DOT_CLS = { ok: 'bg-emerald-500', warn: 'bg-amber-500', off: 'bg-zinc-400' };
 
 /** 运行状态徽标：运行正常 / 需要注意 / 已关闭 */
-function HealthBadge({ health, t }) {
+export function HealthBadge({ health, t }) {
   if (!health) return null;
   const lv = health.level || 'off';
   return (
@@ -240,7 +240,7 @@ function fmtTime(ts, lang) {
  * 设置页「智能看护」：总开关、各类处理方式、自动处理记录（撤销 / 采纳 / 忽略）、立即检查。
  * 桌面版走 preload，Docker 走 webBridge，接口同名（window.electronAPI.guardian）。
  */
-export default function GuardianPanel() {
+export default function GuardianPanel({ page = false }) {
   const { t, lang } = useLang();
   const navigate = useNavigate();
   const api = typeof window !== 'undefined' ? window.electronAPI?.guardian : null;
@@ -251,14 +251,8 @@ export default function GuardianPanel() {
   const [openId, setOpenId] = useState(null);
   const [health, setHealth] = useState(null);
   const location = useLocation();
-  const rootRef = useRef(null);
-
-  // 从侧边栏的看护小圆点点进来：滚到这里
-  useEffect(() => {
-    if (location.state?.focus !== 'guardian') return;
-    const t0 = setTimeout(() => rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
-    return () => clearTimeout(t0);
-  }, [location.state, location.key]);
+  // 看护页常驻挂载：每次切回来都刷新状态和记录
+  const pageActive = page && location.pathname === '/guardian';
 
   const load = useCallback(async () => {
     if (!api) return;
@@ -272,6 +266,7 @@ export default function GuardianPanel() {
   }, [api]);
 
   useEffect(() => { load().catch(() => {}); }, [load]);
+  useEffect(() => { if (pageActive) load().catch(() => {}); }, [pageActive, load]);
 
   if (!api) return null;
 
@@ -311,12 +306,13 @@ export default function GuardianPanel() {
   };
 
   return (
-    <div ref={rootRef} className="tb-soft-card rounded-2xl overflow-hidden scroll-mt-4">
+    <div className="tb-soft-card rounded-2xl overflow-hidden">
       <div className="px-5 py-4 border-b border-white/40 dark:border-white/[0.06] flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 flex flex-wrap items-center gap-2">
-            {t('guardian.title')}
-            <HealthBadge health={health} t={t} />
+            {page ? t('guardian.masterSwitch') : t('guardian.title')}
+            {/* 看护页里「运行环境」已显示状态，总开关这一行不再重复（关闭时仍显示「已关闭」） */}
+            {(!page || !settings?.enabled) && <HealthBadge health={health} t={t} />}
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">{t('guardian.hint')}</p>
         </div>

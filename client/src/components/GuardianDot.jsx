@@ -50,7 +50,7 @@ export default function GuardianDot() {
   return (
     <button
       type="button"
-      onClick={() => navigate('/config', { state: { focus: 'guardian' } })}
+      onClick={() => navigate('/guardian')}
       title={label}
       aria-label={label}
       className="electron-no-drag relative inline-flex items-center justify-center w-4 h-4 shrink-0 rounded-full hover:bg-black/5 dark:hover:bg-white/10"
