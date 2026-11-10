@@ -2161,6 +2161,12 @@ export default {
   // Recommend cards: Enable = save + project + invoke hint
   'resources.reco.install': 'Manage',
   'resources.reco.adopt': 'Enable',
+  'resources.reco.runsOn': 'Runs on {agent}',
+  'resources.reco.changeInGuardian': 'change in Guardian',
+  'resources.reco.needRunner': 'No runner app set yet: the profile and recommendations run in the background inside an app like Codex or Claude Code. Popular community picks are below.',
+  'resources.reco.setRunner': 'Set the runner app',
+  'resources.skillInstall.needRunner': 'No runner app set yet, so only GitHub links can be installed.',
+  'resources.skillInstall.needRunnerHint': 'Other installs run in the background inside an app that can execute commands. Set it in Guardian (it will help you manage one if needed).',
   'resources.cmd.title': 'Just say it',
   'resources.cmd.byModel': 'understood with a model',
   'resources.cmd.confirm': 'Shall I {what}?',

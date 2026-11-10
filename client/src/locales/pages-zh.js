@@ -2168,6 +2168,12 @@ export default {
   // 推荐卡片：纳管=入库+投射+口令（反藏而不用）
   'resources.reco.install': '纳管',
   'resources.reco.adopt': '启用',
+  'resources.reco.runsOn': '由 {agent} 在后台运行',
+  'resources.reco.changeInGuardian': '在看护里更改',
+  'resources.reco.needRunner': '还没有设置执行应用：兴趣画像和推荐要借一个能执行命令的应用（Codex / Claude Code 等）在后台跑；下面先看社区热门。',
+  'resources.reco.setRunner': '去设置执行应用',
+  'resources.skillInstall.needRunner': '还没有设置执行应用，暂时只能装 GitHub 地址的技能。',
+  'resources.skillInstall.needRunnerHint': '其它安装方式要借一个能执行命令的应用在后台跑，到「智能看护」里设置（没有纳管的应用会引导你去纳管）。',
   'resources.cmd.title': '说一句话就办',
   'resources.cmd.byModel': '模型帮忙听的',
   'resources.cmd.confirm': '要我{what}吗？',

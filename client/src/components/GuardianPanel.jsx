@@ -85,7 +85,13 @@ function RuntimeSection({ health, api, t, lang, navigate, onChanged, editable = 
                 {eng.runtimes.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
               </select>
             ) : (
-              <span className="text-amber-700 dark:text-amber-300">{t('guardian.runtime.noApp')}</span>
+              <span className="inline-flex flex-wrap items-center gap-2">
+                <span className="text-amber-700 dark:text-amber-300">{t('guardian.runtime.noApp')}</span>
+                <button type="button" onClick={() => navigate('/gateway')}
+                  className="text-[11px] px-2 py-0.5 rounded-md border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40">
+                  {t('guardian.runtime.goManage')} →
+                </button>
+              </span>
             )}
             <div className="text-zinc-400">{t('guardian.runtime.appHint')}</div>
             <div className={last?.status === 'failed' ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-500 dark:text-zinc-400'}>{lastText}</div>
@@ -382,7 +388,7 @@ export default function GuardianPanel({ page = false }) {
 
       {/* 运行情况：状态、正在执行、最近一次自省、自动处理记录 */}
       {showStatus && (settings?.enabled
-        ? <RuntimeSection health={health} api={api} t={t} lang={lang} navigate={navigate} onChanged={load} editable={false} />
+        ? <RuntimeSection health={health} api={api} t={t} lang={lang} navigate={navigate} onChanged={load} />
         : (
           <div className="px-5 py-4 border-b border-white/40 dark:border-white/[0.06] flex flex-wrap items-center gap-2 text-xs text-zinc-500">
             <HealthBadge health={health} t={t} />

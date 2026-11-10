@@ -705,6 +705,7 @@ export default function PersonalizedRecommend({
   LogoComp,
   onNeedProject,
   onNeedAgent,
+  onOpenGuardian,   // 打开「智能看护」页（执行应用在那里设置）
   onRefresh,
   onAdopted,
   onItemsChange,
@@ -1023,24 +1024,12 @@ export default function PersonalizedRecommend({
     } catch (e) { setReady({ loading: false, step: 'error' }); setErr(e.message || String(e)); }
   }, []);
   useEffect(() => { checkReady(); }, [checkReady]);
-
-  /** 用户手动指定由哪个应用来跑 */
-  const changeRuntime = async (agentId) => {
-    if (!agentId || agentId === selectedRuntime || runtimeBusy) return;
-    setErr('');
-    setRuntimeBusy(true);
-    try {
-      const r = await window.electronAPI.guardian.engineSetRuntime(agentId);
-      if (!r || !r.success) throw new Error((r && r.error) || t('resources.reco.runtimeSwitchFailed'));
-      setSelectedRuntime(agentId);
-      setMsg(t('resources.reco.runtimeSwitched', { agent: nextLabel(agentId) }));
-    } catch (e) {
-      setErr(e.message || String(e));
-      await checkReady();
-    } finally {
-      setRuntimeBusy(false);
-    }
-  };
+  // 在「智能看护」页改了执行应用后，这里跟着更新
+  useEffect(() => {
+    const onChanged = () => { checkReady(); };
+    window.addEventListener('tb-guardian-changed', onChanged);
+    return () => window.removeEventListener('tb-guardian-changed', onChanged);
+  }, [checkReady]);
 
   function nextLabel(id) {
     return (runtimes.find((r) => r.id === id) || {}).label || id;
@@ -1401,23 +1390,18 @@ export default function PersonalizedRecommend({
   isRecommendPanelRef.current = isRecommendPanel;
 
   /** 运行时选择条：有 1+ 可选时展示 */
+  /** 由哪个应用在后台跑：只显示，改在「智能看护」页（各页面不再单独设置） */
   function renderRuntimePicker({ compact = false } = {}) {
-    if (ready.step !== 'ready' || runtimes.length === 0) return null;
+    if (ready.step !== 'ready' || !selectedRuntime) return null;
+    const label = (runtimes.find((r) => r.id === selectedRuntime) || {}).label || selectedRuntime;
     return (
-      <label className={`inline-flex items-center gap-1.5 ${compact ? 'text-[10px]' : 'text-xs'} text-zinc-500`}>
-        <span className="shrink-0">{t('resources.reco.runtimeLabel')}</span>
-        <select
-          value={selectedRuntime || ''}
-          disabled={busy || runtimeBusy || runtimes.length < 1}
-          onChange={(e) => changeRuntime(e.target.value)}
-          className="max-w-[11rem] truncate rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-zinc-700 dark:text-zinc-200 disabled:opacity-50"
-          title={t('resources.reco.runtimeHint')}
-        >
-          {runtimes.map((r) => (
-            <option key={r.id} value={r.id}>{r.label}</option>
-          ))}
-        </select>
-      </label>
+      <span className={`inline-flex items-center gap-1.5 ${compact ? 'text-[10px]' : 'text-xs'} text-zinc-500`}>
+        {t('resources.reco.runsOn', { agent: label })}
+        <button type="button" onClick={() => (onOpenGuardian ? onOpenGuardian() : null)}
+          className="text-violet-600 dark:text-violet-400 hover:underline">
+          {t('resources.reco.changeInGuardian')}
+        </button>
+      </span>
     );
   }
 
@@ -1496,13 +1480,13 @@ export default function PersonalizedRecommend({
         // 没有可用运行时不再挡住整页：一行提示，下面照常看社区热门
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-zinc-200/80 dark:border-zinc-700/70 bg-white/50 dark:bg-zinc-900/40 px-3 py-2 text-[11px]">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" aria-hidden />
-          <span className="min-w-0 flex-1 text-zinc-600 dark:text-zinc-300">{t('resources.reco.needAgentSoft')}</span>
+          <span className="min-w-0 flex-1 text-zinc-600 dark:text-zinc-300">{t('resources.reco.needRunner')}</span>
           <button
             type="button"
-            onClick={() => (onNeedAgent ? onNeedAgent() : (onNeedProject ? onNeedProject() : null))}
+            onClick={() => (onOpenGuardian ? onOpenGuardian() : (onNeedAgent ? onNeedAgent() : null))}
             className="text-violet-600 dark:text-violet-400 hover:underline"
           >
-            {t('resources.skillInstall.goManageAgent')}
+            {t('resources.reco.setRunner')} →
           </button>
           <button type="button" onClick={retryBuiltinSetup} className="text-zinc-400 hover:text-zinc-600 hover:underline">
             {t('resources.skillInstall.retrySetup')}
