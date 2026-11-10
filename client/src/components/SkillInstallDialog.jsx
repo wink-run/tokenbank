@@ -2,8 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLang } from '../store/lang';
 
-const INSTALLER_NAME = 'resource-installer';
-const PREFERRED_AGENTS = ['codex', 'claude-code', 'cursor', 'workbuddy'];
 
 /** 识别用户输入中的 GitHub Skill 来源（与主进程 parseGithubSkillRef 对齐的轻量检测） */
 function extractGithubSkillSource(input) {
@@ -41,14 +39,13 @@ function buildInstallPrompt(userInput) {
   ].join('\n');
 }
 
-async function loadInstallerResource() {
-  const res = await window.electronAPI.resource.listResources({ type: 'assistant' });
-  return ((res && res.resources) || []).find((r) => r.name === INSTALLER_NAME) || null;
+async function loadEngineStatus() {
+  try { return await window.electronAPI?.guardian?.engineStatus?.(); } catch { return null; }
 }
 
 /**
- * Skill 安装对话框：依赖内置「资产安装智能体」（后端自动纳管/投射）。
- * 无可投射 Agent 时引导用户去纳管 Agent 应用。
+ * Skill 安装对话框：GitHub 地址直接装；其它说明交给看护执行引擎（在一个已纳管的应用里后台安装）。
+ * 没有可用应用时引导用户去纳管。
  */
 export default function SkillInstallDialog({
   open,
@@ -71,7 +68,7 @@ export default function SkillInstallDialog({
   const handleTerminalRef = useRef(() => {});
   const setupGenRef = useRef(0);
 
-  /** 调用后端确保内置智能体已纳管并投射 */
+  /** 看护执行引擎是否有可用的应用 */
   const ensureInstallerReady = useCallback(async () => {
     const gen = ++setupGenRef.current;
     setReady({ loading: true, step: 'preparing' });
@@ -80,26 +77,20 @@ export default function SkillInstallDialog({
     setMsg(t('resources.skillInstall.enabling'));
 
     try {
-      const api = window.electronAPI.resource;
-      if (api.ensureBuiltinAssistants) {
-        await api.ensureBuiltinAssistants();
-      }
+      const st = await loadEngineStatus();
       if (gen !== setupGenRef.current) return;
+      if (!st) throw new Error(t('resources.skillInstall.enableFailed'));
 
-      const installer = await loadInstallerResource();
-      if (gen !== setupGenRef.current) return;
-      if (!installer) throw new Error(t('resources.skillInstall.enableFailed'));
-
-      if ((installer.projections || []).length > 0) {
-        const agentId = installer.projections[0].agentId || '';
-        setReady({ loading: false, step: 'ready', installer });
-        setMsg(t('resources.skillInstall.autoReady', { agent: agentId }));
+      if (st.ready) {
+        const label = (st.runtimes || []).find((r) => r.id === st.runtime)?.label || st.runtime;
+        setReady({ loading: false, step: 'ready', runtime: label });
+        setMsg(t('resources.skillInstall.autoReady', { agent: label }));
         setPhase('idle');
         return;
       }
 
-      // 已纳管但无投射 → 无可投射 Agent
-      setReady({ loading: false, step: 'needAgent', installer });
+      // 没有已纳管、能执行命令的应用
+      setReady({ loading: false, step: 'needAgent' });
       setMsg('');
       setPhase('idle');
     } catch (e) {
@@ -265,12 +256,13 @@ export default function SkillInstallDialog({
     if (ready.step !== 'ready') {
       await ensureInstallerReady();
     }
-    const installer = await loadInstallerResource();
-    if (!installer || !((installer.projections || []).length > 0)) {
+    const st = await loadEngineStatus();
+    if (!st || !st.ready) {
       setErr(t('resources.skillInstall.notReady'));
       return;
     }
-    setReady({ loading: false, step: 'ready', installer });
+    const runtimeLabel = (st.runtimes || []).find((r) => r.id === st.runtime)?.label || st.runtime;
+    setReady({ loading: false, step: 'ready', runtime: runtimeLabel });
 
     setErr('');
     setMsg('');
@@ -280,10 +272,10 @@ export default function SkillInstallDialog({
     setStatus(t('resources.reco.starting'));
     setPhase('running');
     try {
-      const exec = await window.electronAPI.agent.execute({
-        agentId: installer.name || INSTALLER_NAME,
+      const exec = await window.electronAPI.guardian.engineRun({
+        kind: 'install',
         prompt: buildInstallPrompt(text),
-        options: { mode: 'direct', sessionKey: 'resource-install' },
+        sessionKey: 'resource-install',
       });
       if (!exec || !exec.success || !exec.taskId) {
         throw new Error((exec && exec.error) || 'agent start failed');
@@ -312,11 +304,7 @@ export default function SkillInstallDialog({
   const githubReady = !!extractGithubSkillSource(input);
   // GitHub 直装不依赖安装智能体；其它路径仍需 ready
   const canStart = !!input.trim() && (githubReady || ready.step === 'ready');
-  const runtimeAgent = ((ready.installer && ready.installer.projections) || [])
-    .map((p) => p.agentId)
-    .find((id) => PREFERRED_AGENTS.includes(id))
-    || ((ready.installer && ready.installer.projections && ready.installer.projections[0]) || {}).agentId
-    || '';
+  const runtimeAgent = ready.runtime || '';
 
   return createPortal(
     <div
@@ -396,7 +384,7 @@ export default function SkillInstallDialog({
                 <span className="text-zinc-600 dark:text-zinc-300">
                   {githubReady
                     ? t('resources.skillInstall.githubInstalling')
-                    : t('resources.reco.runningOn', { agent: runtimeAgent || INSTALLER_NAME })}
+                    : t('resources.reco.runningOn', { agent: runtimeAgent })}
                 </span>
                 <span className="text-[10px] text-zinc-400">
                   {githubReady

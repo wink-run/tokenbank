@@ -555,7 +555,7 @@ export default function Resources() {
   /** 用途筛选（空 = 全部；值为 purpose slug） */
   const [tagFilter, setTagFilter] = useState('');
   /** Hit-or-Exit 分层：'' | active | pending | dormant | cold | shelf */
-  // 智能功能前置条件：模型（网关 model:auto）+ 应用（内置智能体投射目标）
+  // 智能功能前置条件：模型（网关 model:auto）+ 应用（看护执行引擎的运行应用）
   const ai = useAiReadiness();
   const [aiNoticeHidden, setAiNoticeHidden] = useState(() => (readJson('tokenbank.resources.aiNoticeHide', 0) || 0) > Date.now());
   const hideAiNotice = () => {
@@ -640,7 +640,7 @@ export default function Resources() {
     if (!silent) setLoading(true);
     setError('');
     try {
-      // 内置智能体默认纳管（幂等）
+      // 清理旧版本的三个系统智能体（已并入看护执行引擎，幂等）
       try { await window.electronAPI.resource.ensureBuiltinAssistants?.(); } catch { /* ignore */ }
       // 全量拉取，搜索/类型在前端筛，避免每次筛选触发 IPC
       const catalogGenAtStart = catalogFetchGen.current;
@@ -2531,22 +2531,25 @@ export default function Resources() {
   }, [debouncedQuery]);
 
   // 类型切换：目录项必须与 typeFilter 一致（空=全部）
+  // 旧版本的系统智能体（画像 / 发现 / 安装）已并入看护执行引擎；清理完成前的残留与旧目录缓存也不列出
+  const shownResources = useMemo(() => resources.filter(r => !isBuiltinResource(r)), [resources]);
   const filteredCatalog = catalog.filter(r =>
-    (!typeFilter || r.type === typeFilter)
+    !isBuiltinResource(r)
+    && (!typeFilter || r.type === typeFilter)
     && matchPromptKind(r) && matchTag(r) && matchQuery(r),
   );
   // 已纳管计数：跟随当前类型筛选，避免「智能体」Tab 显示全库数量
   const managedCount = typeFilter
-    ? resources.filter(r => r.type === typeFilter).length
-    : resources.length;
+    ? shownResources.filter(r => r.type === typeFilter).length
+    : shownResources.length;
   const discoveredCount = scanStats?.totalOnDisk ?? discovered.length;
   const showSkillTabs = !typeFilter || typeFilter === 'skill';
   const isMcp = typeFilter === 'mcp';
 
   // 当前类型下的已纳管资源（分层/轻推与列表共用，避免串类型）
   const resourcesInType = useMemo(
-    () => (typeFilter ? resources.filter(r => r.type === typeFilter) : resources),
-    [resources, typeFilter],
+    () => (typeFilter ? shownResources.filter(r => r.type === typeFilter) : shownResources),
+    [shownResources, typeFilter],
   );
 
   // Hit-or-Exit：轻推条 + 分层计数
@@ -2625,10 +2628,10 @@ export default function Resources() {
   // 类型分段计数（资产库）：技能以本机扫描为准，扫描为空时回退已纳管 skill
   const typeCounts = useMemo(() => {
     const skill = discovered.length > 0 ? discoveredCount : resources.filter(r => r.type === 'skill').length;
-    const prompt = resources.filter(r => r.type === 'prompt').length;
-    const assistant = resources.filter(r => r.type === 'assistant').length;
+    const prompt = shownResources.filter(r => r.type === 'prompt').length;
+    const assistant = shownResources.filter(r => r.type === 'assistant').length;
     return { all: skill + prompt + assistant, skill, prompt, assistant, mcp: mcpCount || 0 };
-  }, [discovered.length, discoveredCount, resources, mcpCount]);
+  }, [discovered.length, discoveredCount, resources, shownResources, mcpCount]);
 
   // 键盘：/ 聚焦搜索；资产库中 ↑↓ 切换选中行，Esc 关闭详情
   useEffect(() => {
@@ -3067,7 +3070,7 @@ export default function Resources() {
     // 提示词/智能体：按 typeFilter 收窄；全部时排除 skill（技能走扫描行）
     const managedRows = (typeFilter === 'skill'
       ? []
-      : (typeFilter ? resourcesInType : resources.filter(r => r.type !== 'skill')))
+      : (typeFilter ? resourcesInType : shownResources.filter(r => r.type !== 'skill')))
       .filter(r => {
         if (r.type === 'prompt' && !matchPromptKind(r)) return false;
         if (!matchTag(r)) return false;

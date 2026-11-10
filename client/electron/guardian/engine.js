@@ -1,0 +1,98 @@
+// client/electron/guardian/engine.js
+// 看护的执行引擎：兴趣画像、资产发现、资产安装这几件需要「会用工具的应用」才能做的事，统一由看护在后台交给
+// 一个已纳管的命令行应用（Codex / Claude Code / Cursor / Kimi Code …）去跑。
+// 不再有「画像分析 / 资产发现 / 资产安装」三个系统智能体资产：角色说明写在这里，按任务类型拼进提示，不纳管、不投射。
+'use strict';
+
+const store = require('./store');
+
+// 能跑这类任务的应用（需要能执行命令、检索）：按优先序
+const RUNTIMES = ['codex', 'claude-code', 'cursor', 'kimi-code', 'workbuddy'];
+
+// 旧版本留下的三个系统智能体：启动时清理掉
+const LEGACY_ASSISTANTS = ['resource-portrait', 'resource-finder', 'resource-installer'];
+
+const ROLES = {
+  portrait: [
+    '【Token Bank 看护任务：兴趣画像】',
+    '根据用户与各应用的对话摘录，推断稳定身份画像。',
+    '1. 只输出 persona / traits / goals / extensions / needs，刻画「我是谁、长期该配备什么能力」；',
+    '2. 不检索、不推荐、不编造任何具体 Skill / Prompt / Assistant 条目或安装命令；',
+    '3. 严格按要求的 JSON 结构输出，不做与画像无关的长篇解释；',
+    '4. 不执行落盘、安装或其它工具型交付。',
+  ].join('\n'),
+  discover: [
+    '【Token Bank 看护任务：资产发现】',
+    '用户已有画像（或补充诉求），只负责检索并推荐真实存在的 Skill / Prompt / Assistant。',
+    '1. 技能：用 skillhub search --json / find-skill 检索，并参考 https://github.com/affaan-m/ECC/tree/main/skills；只推荐真实存在的 slug / 目录名，禁止编造；',
+    '2. 智能体：优先 Token Bank 社区目录真实条目，可参考 https://github.com/affaan-m/ECC/tree/main/agents；没有合适的可自建完整 soul，并搭配真实存在的技能；',
+    '3. 提示词：可参考公开合集，内容须完整可用；',
+    '4. 不重做画像分析；严格按要求的 JSON 结构输出。',
+  ].join('\n'),
+  install: [
+    '【Token Bank 看护任务：资产安装】',
+    '用户给出 Skill 安装命令或说明（skillhub install <slug>、npx skills add …、GitHub 地址、技能 slug）。',
+    '1. 理解意图，提取要安装的 skill 名称 / slug / 来源；',
+    '2. 在本机安装，默认目录 ~/.tokenbank/skills（Windows：%USERPROFILE%\\.tokenbank\\skills）：',
+    '   - GitHub URL / owner/repo：不要当 skillhub slug；用 git clone --depth 1 <url> ~/.tokenbank/skills/<仓库名>（失败可下 zip 解压），确认有 SKILL.md；',
+    '   - SkillHub slug：skillhub install <slug> --dir <上述目录> --json；',
+    '   - 也可在安全前提下执行用户原生命令（如 npx skills add <url> -g -y）；',
+    '3. 完成后确认目录下有 SKILL.md（或 skill.md），用简短中文汇报：成功 / 失败、技能名、路径；',
+    '4. 不要编造已安装成功；失败时给出可操作的原因。',
+  ].join('\n'),
+};
+
+function label(id) {
+  try { return require('../config-loader').appEntityById(id)?.name || id; } catch { return id; }
+}
+
+/** 已纳管、能跑看护任务的应用 */
+function runtimes() {
+  let managed = [];
+  try { managed = require('../resource-agent-targets').listManagedResourceAgentIds() || []; } catch { /* ignore */ }
+  return RUNTIMES.filter(id => managed.includes(id)).map(id => ({ id, label: label(id) }));
+}
+
+function status() {
+  const list = runtimes();
+  const pref = store.readJson('engine.json', {}).runtime;
+  const runtime = list.find(r => r.id === pref)?.id || list[0]?.id || null;
+  return { ready: !!runtime, runtime, runtimes: list };
+}
+
+function setRuntime(id) {
+  if (!runtimes().some(r => r.id === id)) return { ok: false, error: '这个应用还没有纳管' };
+  store.writeJson('engine.json', { ...store.readJson('engine.json', {}), runtime: id });
+  return { ok: true, runtime: id };
+}
+
+/** 跑一个看护任务；返回执行器的 taskId，进度和结果沿用智能体任务的事件与查询 */
+async function run({ kind, prompt, sessionKey } = {}) {
+  if (!ROLES[kind]) return { ok: false, error: 'unknown-kind' };
+  if (!String(prompt || '').trim()) return { ok: false, error: 'empty-prompt' };
+  const st = status();
+  if (!st.ready) return { ok: false, error: 'no-runtime' };
+  const executor = require('../agent-executor');
+  const res = await executor.execute(st.runtime, `${ROLES[kind]}\n\n---\n\n${prompt}`, {
+    mode: 'direct', sessionKey: sessionKey || `tokenbank-guardian-${kind}`,
+  });
+  return { ok: true, taskId: res?.taskId, runtime: st.runtime };
+}
+
+/** 清理旧版本的三个系统智能体（撤投射 + 删除）；幂等 */
+function retireLegacyAssistants() {
+  const removed = [];
+  try {
+    const m = require('../resource-manager');
+    m.init();
+    for (const r of m.listResources({ type: 'assistant' })) {
+      if (!LEGACY_ASSISTANTS.includes(r.name)) continue;
+      try { m.deleteResource(r.id, { force: true, allowBuiltin: true }); removed.push(r.name); } catch (e) {
+        console.warn('[guardian] retire legacy assistant failed:', r.name, e.message);
+      }
+    }
+  } catch { /* 资产库不可用 */ }
+  return removed;
+}
+
+module.exports = { status, setRuntime, run, runtimes, retireLegacyAssistants, ROLES, LEGACY_ASSISTANTS };

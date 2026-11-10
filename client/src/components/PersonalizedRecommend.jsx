@@ -21,14 +21,12 @@ import { tagToPurpose } from '../lib/resource-purpose';
 import { completeEnablePackage, copyText } from '../lib/resource-enable';
 import { updateProfilePersona } from '../api/client';
 
-const FINDER_NAME = 'resource-finder';
-const PORTRAIT_NAME = 'resource-portrait';
 const MAX_RECS = 20;
 const LAST_KEY = 'tokenbank.resources.recommend.last';
 /** 跨技能/提示词/智能体共享的稳定画像(不必每种资产重头分析) */
 const PORTRAIT_KEY = 'tokenbank.resources.recommend.portrait';
 /** 画像挖掘可跑的 CLI runtime（缺一不可：至少一个已纳管） */
-const MINE_RUNTIME_IDS = new Set(['codex', 'claude-code', 'cursor', 'kimi-code']);
+const MINE_RUNTIME_IDS = new Set(['codex', 'claude-code', 'cursor', 'kimi-code', 'workbuddy']);
 const RUNTIME_PREF_KEY = 'tokenbank.resources.recommend.runtime';
 
 function readRuntimePref() {
@@ -41,20 +39,6 @@ function saveRuntimePref(id) {
   try {
     if (MINE_RUNTIME_IDS.has(id)) localStorage.setItem(RUNTIME_PREF_KEY, id);
   } catch { /* ignore */ }
-}
-
-/** 写入智能体 content.runtime_agent（保留其余字段） */
-function contentWithRuntime(content, runtimeId) {
-  const rt = String(runtimeId || '').trim();
-  let obj;
-  try {
-    obj = JSON.parse(String(content || '').trim() || '{}');
-    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) obj = { soul: String(content || '') };
-  } catch {
-    obj = { soul: String(content || '') };
-  }
-  obj.runtime_agent = rt;
-  return JSON.stringify(obj, null, 2);
 }
 
 const normType = (tf) => (tf === 'prompt' || tf === 'assistant' ? tf : 'skill');
@@ -1039,114 +1023,39 @@ export default function PersonalizedRecommend({
     setMsg(t('resources.reco.reusedPortrait'));
   };
 
-  /** 把内置智能体切到指定 runtime：确保投射 + 写入 runtime_agent */
-  const applyBuiltinRuntime = useCallback(async (resource, agentId) => {
-    if (!resource?.id || !MINE_RUNTIME_IDS.has(agentId)) return resource;
-    let working = resource;
-    const already = (resource.projections || []).some((p) => p?.agentId === agentId);
-    let currentRt = '';
-    try {
-      currentRt = String(JSON.parse(String(resource.content || '').trim() || '{}').runtime_agent || '');
-    } catch { /* ignore */ }
-    // 已投射且 runtime_agent 已对齐 → 无需再写
-    if (already && currentRt === agentId) return resource;
-
-    if (!already) {
-      const proj = await window.electronAPI.resource.project({
-        resourceId: resource.id,
-        agentIds: [agentId],
-        force: true,
-      });
-      if (!proj || proj.success === false) {
-        throw new Error((proj && proj.error) || t('resources.reco.runtimeSwitchFailed'));
-      }
-      if (proj.resource) working = proj.resource;
-    }
-    // 即便已投射，也要写 runtime_agent，否则多投射时仍沿用旧配置
-    const saved = await window.electronAPI.resource.saveResource({
-      id: working.id,
-      type: 'assistant',
-      name: working.name,
-      display_name: working.display_name || working.name,
-      description: working.description || '',
-      content: contentWithRuntime(working.content, agentId),
-      metadata: working.metadata || {},
-      source: working.source,
-    });
-    if (!saved || !saved.success || !saved.resource) {
-      throw new Error((saved && saved.error) || t('resources.reco.runtimeSwitchFailed'));
-    }
-    return saved.resource;
-  }, [t]);
-
-  /** 画像 + 发现两个内置智能体同步到同一 runtime */
-  const applyBothRuntimes = useCallback(async (portrait, finder, agentId) => {
-    const nextPortrait = portrait ? await applyBuiltinRuntime(portrait, agentId) : portrait;
-    const nextFinder = finder ? await applyBuiltinRuntime(finder, agentId) : finder;
-    return { portrait: nextPortrait, finder: nextFinder };
-  }, [applyBuiltinRuntime]);
-
+  // 画像 / 发现由看护执行引擎在后台交给一个已纳管的应用去跑，不再有单独的系统智能体
   const checkReady = useCallback(async () => {
     try {
-      // 内置画像分析 / 资产发现：后端自动纳管并尽量投射
-      if (window.electronAPI?.resource?.ensureBuiltinAssistants) {
-        await window.electronAPI.resource.ensureBuiltinAssistants();
-      }
-      // 本机已纳管的可挖掘 runtime
-      let mineRuntimes = [];
-      try {
-        const agentRes = await window.electronAPI.resource.listAgentTargets();
-        mineRuntimes = ((agentRes && agentRes.agents) || [])
-          .filter((a) => a?.id && MINE_RUNTIME_IDS.has(a.id))
-          .map((a) => ({ id: a.id, label: a.label || a.id }));
-      } catch { /* 列表失败时按无 runtime 处理 */ }
-      setRuntimes(mineRuntimes);
-      if (!mineRuntimes.length) {
+      const st = await window.electronAPI?.guardian?.engineStatus?.();
+      const list = (st && st.runtimes) || [];
+      setRuntimes(list);
+      if (!st || !st.ready) {
         setSelectedRuntime('');
         return setReady({ loading: false, step: 'needAgent' });
       }
       const pref = readRuntimePref();
-      const managedIds = mineRuntimes.map((r) => r.id);
-
-      const res = await window.electronAPI.resource.listResources({ type: 'assistant' });
-      const list = (res && res.resources) || [];
-      let portrait = list.find((r) => r.name === PORTRAIT_NAME);
-      let finder = list.find((r) => r.name === FINDER_NAME);
-      // 缺任一内置智能体都无法完整跑通画像→发现
-      if (!portrait || !finder) return setReady({ loading: false, step: 'needAgent' });
-
-      const projectedMine = [...(portrait.projections || []), ...(finder.projections || [])]
-        .map((p) => p?.agentId)
-        .filter((id) => id && MINE_RUNTIME_IDS.has(id) && managedIds.includes(id));
-      const pick = managedIds.includes(pref) ? pref
-        : (projectedMine[0] || managedIds[0]);
+      let pick = st.runtime;
+      if (pref && pref !== pick && list.some((r) => r.id === pref)) {
+        const r = await window.electronAPI.guardian.engineSetRuntime(pref);
+        if (r && r.success) pick = pref;
+      }
       setSelectedRuntime(pick);
       saveRuntimePref(pick);
-
-      try {
-        ({ portrait, finder } = await applyBothRuntimes(portrait, finder, pick));
-      } catch (e) {
-        if (!projectedMine.length) {
-          setErr(e.message || String(e));
-          return setReady({ loading: false, step: 'needAgent', portrait, finder });
-        }
-      }
-      return setReady({ loading: false, step: 'ready', portrait, finder });
+      return setReady({ loading: false, step: 'ready' });
     } catch (e) { setReady({ loading: false, step: 'error' }); setErr(e.message || String(e)); }
-  }, [applyBothRuntimes]);
+  }, []);
   useEffect(() => { checkReady(); }, [checkReady]);
 
-  /** 用户手动指定 runtime */
+  /** 用户手动指定由哪个应用来跑 */
   const changeRuntime = async (agentId) => {
-    if (!MINE_RUNTIME_IDS.has(agentId) || agentId === selectedRuntime || runtimeBusy) return;
+    if (!agentId || agentId === selectedRuntime || runtimeBusy) return;
     setErr('');
     setRuntimeBusy(true);
-    setSelectedRuntime(agentId);
-    saveRuntimePref(agentId);
     try {
-      if (!ready.portrait?.id || !ready.finder?.id) throw new Error(t('resources.reco.needAgent'));
-      const next = await applyBothRuntimes(ready.portrait, ready.finder, agentId);
-      setReady((r) => ({ ...r, step: 'ready', ...next }));
+      const r = await window.electronAPI.guardian.engineSetRuntime(agentId);
+      if (!r || !r.success) throw new Error((r && r.error) || t('resources.reco.runtimeSwitchFailed'));
+      setSelectedRuntime(agentId);
+      saveRuntimePref(agentId);
       setMsg(t('resources.reco.runtimeSwitched', { agent: nextLabel(agentId) }));
     } catch (e) {
       setErr(e.message || String(e));
@@ -1219,16 +1128,11 @@ export default function PersonalizedRecommend({
 
   const runAgent = async (prompt, job, nextPhase) => {
     setActivity([]); setSteps(0);
-    // 画像分析 → resource-portrait；资源发现 → resource-finder（职责分离）
-    const agentName = job?.type === 'analyze'
-      ? ((ready.portrait && ready.portrait.name) || PORTRAIT_NAME)
-      : ((ready.finder && ready.finder.name) || FINDER_NAME);
-    const sessionKey = job?.type === 'analyze'
-      ? 'personalized-portrait'
-      : 'personalized-recommend';
-    const exec = await window.electronAPI.agent.execute({
-      agentId: agentName,
-      prompt, options: { mode: 'direct', sessionKey },
+    // 看护执行引擎：画像分析 / 资源发现两种任务，同一个后台应用
+    const exec = await window.electronAPI.guardian.engineRun({
+      kind: job?.type === 'analyze' ? 'portrait' : 'discover',
+      prompt,
+      sessionKey: job?.type === 'analyze' ? 'personalized-portrait' : 'personalized-recommend',
     });
     if (!exec || !exec.success || !exec.taskId) throw new Error((exec && exec.error) || 'agent start failed');
     PENDING.set(exec.taskId, job);
@@ -1272,11 +1176,6 @@ export default function PersonalizedRecommend({
     }
     setErr(''); setMsg(''); setPersona(''); setTraits([]); setGoals([]); setExtensions([]); setNeeds([]); setPhase('mining');
     try {
-      // 挖掘前再确认画像/发现智能体都落到所选 runtime
-      if (selectedRuntime && ready.portrait && ready.finder) {
-        const synced = await applyBothRuntimes(ready.portrait, ready.finder, selectedRuntime);
-        setReady((r) => ({ ...r, ...synced }));
-      }
       const res = await window.electronAPI.resource.mineDemand({});
       if (!res || !res.success) throw new Error((res && res.error) || 'mine failed');
       setDigest(res.digest); setInstalled(res.installed);
@@ -1312,10 +1211,6 @@ export default function PersonalizedRecommend({
     });
     setRun(rtype, { supplement, persona, traits, goals, extensions, needs, digest, installed });
     try {
-      if (selectedRuntime && ready.portrait && ready.finder) {
-        const synced = await applyBothRuntimes(ready.portrait, ready.finder, selectedRuntime);
-        setReady((r) => ({ ...r, ...synced }));
-      }
       // 拉取社区目录,供智能体选题,并在结果阶段对账真实性
       let pool = { assistants: [], skills: [] };
       if (rtype === 'assistant') {
@@ -1521,11 +1416,7 @@ export default function PersonalizedRecommend({
     : phase === 'analyzing' ? t('resources.reco.analyzing')
       : phase === 'discovering' ? t('resources.reco.discovering')
         : (hasSharedPortrait || (items && items.length) ? t('resources.reco.remine') : t('resources.reco.mine', { type: typeLabel }));
-  const runtimeAgent = selectedRuntime
-    || ((ready.portrait && ready.portrait.projections) || (ready.finder && ready.finder.projections) || [])
-      .map((p) => p.agentId)
-      .find((id) => MINE_RUNTIME_IDS.has(id))
-    || '';
+  const runtimeAgent = selectedRuntime || '';
   const runtimeLabel = (runtimes.find((r) => r.id === runtimeAgent) || {}).label || runtimeAgent;
   const isPortraitPanel = panel === 'portrait';
   const isRecommendPanel = panel !== 'portrait';
@@ -1759,8 +1650,7 @@ export default function PersonalizedRecommend({
           <div className="rounded-md bg-white/70 dark:bg-zinc-900/50 border border-violet-100 dark:border-violet-900/40 p-2 space-y-1">
             <div className="flex items-center justify-between text-[10px] text-violet-500/90">
               <span>{t('resources.reco.runningOn', {
-                agent: runtimeLabel || runtimeAgent
-                  || (phase === 'analyzing' ? PORTRAIT_NAME : FINDER_NAME),
+                agent: runtimeLabel || runtimeAgent,
               })}</span>
               <span>{steps > 0 ? t('resources.reco.stepsN', { n: steps }) : t('resources.reco.starting')}</span>
             </div>

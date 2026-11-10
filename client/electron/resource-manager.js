@@ -19,7 +19,6 @@ const {
 } = require('./resource-catalog');
 
 /** 内置智能体自动投射时的优先运行时 */
-const BUILTIN_ASSISTANT_PREFERRED_AGENTS = ['codex', 'claude-code', 'cursor', 'workbuddy'];
 const { projectResource, unprojectResource, verifyProjection } = require('./resource-projector');
 const {
   resolveAuthorityDir,
@@ -156,74 +155,19 @@ class ResourceManager {
       .run(JSON.stringify(meta), resourceId);
   }
 
-  _pickBuiltinProjectAgentId(allowedIds) {
-    const ids = Array.isArray(allowedIds) ? allowedIds : [];
-    for (const pref of BUILTIN_ASSISTANT_PREFERRED_AGENTS) {
-      if (ids.includes(pref)) return pref;
-    }
-    return ids[0] || null;
-  }
-
   /**
-   * 确保内置智能体已纳管，并在有可投射 Agent 时自动投射（幂等）。
-   * 无可投射 Agent 时仅纳管，不抛错。
+   * 旧版本的「画像分析 / 资产发现 / 资产安装」系统智能体已并入看护执行引擎（guardian/engine.js）。
+   * 方法名保留给各处调用：现在只负责把旧的三个智能体清理掉（幂等）。
    */
   ensureBuiltinAssistants() {
-    // 注意：不可再调 init() 若其内部会 ensureBuiltin 形成递归；此处只保证 DB + 迁移
     if (!this._ready) {
       this._getDb();
       this._migrateAgentTypeToAssistant();
       this._ready = true;
     }
-    const results = [];
-    for (const catalogId of BUILTIN_ASSISTANT_CATALOG_IDS) {
-      try {
-        const item = getCatalogItem(catalogId);
-        if (!item) {
-          results.push({ catalogId, status: 'missingCatalog' });
-          continue;
-        }
-        const installed = this.installFromCatalog(catalogId);
-        const resourceId = installed?.resource?.id
-          || this._findByTypeName(item.type, item.name)?.id;
-        if (!resourceId) {
-          results.push({ catalogId, status: 'installFailed' });
-          continue;
-        }
-        this._markBuiltinSource(resourceId, catalogId);
-        let resource = this.getResource(resourceId);
-        if ((resource.projections || []).length > 0) {
-          results.push({ catalogId, status: 'ready', resourceId, agentId: resource.projections[0].agentId });
-          continue;
-        }
-        const { listManagedResourceAgentIds } = require('./resource-agent-targets');
-        const allowed = listManagedResourceAgentIds();
-        const agentId = this._pickBuiltinProjectAgentId(allowed);
-        if (!agentId) {
-          results.push({ catalogId, status: 'needAgent', resourceId });
-          continue;
-        }
-        let proj = this.projectToAgents(resourceId, [agentId], 'global', { force: false });
-        if (proj && proj.conflicts && proj.conflicts.length) {
-          proj = this.projectToAgents(resourceId, [agentId], 'global', { force: true });
-        }
-        if (!proj || !proj.success) {
-          results.push({
-            catalogId,
-            status: 'projectFailed',
-            resourceId,
-            error: (proj && proj.error) || 'project failed',
-          });
-          continue;
-        }
-        resource = this.getResource(resourceId);
-        results.push({ catalogId, status: 'projected', resourceId, agentId });
-      } catch (e) {
-        console.warn('[resource-manager] builtin assistant ensure failed:', catalogId, e.message);
-        results.push({ catalogId, status: 'error', error: e.message });
-      }
-    }
-    return { success: true, results };
+    let removed = [];
+    try { removed = require('./guardian/engine').retireLegacyAssistants(); } catch { /* ignore */ }
+    return { success: true, results: [], removed };
   }
 
   _parseJson(raw, fallback = {}) {
@@ -1270,12 +1214,12 @@ class ResourceManager {
    * @param {string} resourceId
    * @param {{ force?: boolean }} [options] force=true：有投射时先撤再删权威目录（强制卸载）
    */
-  deleteResource(resourceId, { force = false } = {}) {
+  deleteResource(resourceId, { force = false, allowBuiltin = false } = {}) {
     this.init();
     const db = this._getDb();
     const resource = this.getResource(resourceId);
     if (!resource) throw new Error('资产不存在');
-    if (this._isBuiltinAssistant(resource)) {
+    if (this._isBuiltinAssistant(resource) && !allowBuiltin) {
       throw new Error('内置智能体不可删除');
     }
 

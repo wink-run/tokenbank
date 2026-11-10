@@ -138,74 +138,11 @@ description: 系统化调试流程，先复现与定位根因再改代码
       parameters: { temperature: 0.3 },
     }, null, 2),
   },
-  // 内置：画像分析（挖掘 persona / traits / goals，不推荐具体资源）
-  {
-    catalogId: 'resource-portrait-assistant',
-    type: 'assistant',
-    name: 'resource-portrait',
-    display_name: '画像分析智能体',
-    description: '根据会话摘录推断稳定身份画像，不检索、不推荐具体资源条目',
-    metadata: {
-      tags: ['assistant', 'system', 'builtin', 'portrait'],
-      version: '1.0.0',
-      category: 'ai-agent',
-      builtin: true,
-    },
-    content: JSON.stringify({
-      soul: '你是 Token Bank「画像分析智能体」。根据用户与各 Agent 的对话摘录，推断稳定身份画像。\n\n职责：\n1. 只输出 persona / traits / goals / extensions / needs，刻画「我是谁、长期该配备什么能力」；\n2. 禁止检索、推荐或编造任何具体 Skill / Prompt / Assistant 条目或安装命令；\n3. 严格按用户要求的 JSON 结构输出；不做与画像无关的长篇解释；\n4. 不执行落盘、安装或工具型交付任务。',
-      skills: [],
-      prompts: [],
-      parameters: { temperature: 0.4 },
-    }, null, 2),
-  },
-  // 内置：资产发现（个性化推荐）
-  {
-    catalogId: 'resource-finder-assistant',
-    type: 'assistant',
-    name: 'resource-finder',
-    display_name: '资产发现智能体',
-    description: '根据已有画像与诉求检索并推荐真实存在的 Skill / Prompt / Assistant',
-    metadata: {
-      tags: ['assistant', 'system', 'builtin', 'discover'],
-      version: '1.0.0',
-      category: 'ai-agent',
-      builtin: true,
-    },
-    content: JSON.stringify({
-      soul: '你是 Token Bank「资产发现智能体」。用户已有画像（或补充诉求），你只负责检索并推荐真实存在的 Skill / Prompt / Assistant。\n\n职责：\n1. 技能：用 skillhub search --json / find-skill 检索，并探索 https://github.com/affaan-m/ECC/tree/main/skills；只推荐真实存在的 slug/目录名，禁止编造；\n2. 智能体：优先 Token Bank 社区目录真实条目，并可参考 https://github.com/affaan-m/ECC/tree/main/agents；目录与 ECC 没有合适项时可自建完整 soul，并搭配客观存在的技能；\n3. 提示词：可参考公开合集，内容须完整可用；\n4. 不要重做画像分析；严格按用户要求的 JSON 结构输出；不做与发现无关的长篇解释。',
-      skills: [],
-      prompts: [],
-      parameters: { temperature: 0.3 },
-    }, null, 2),
-  },
-  // 内置：资产安装（Assets「安装」入口）
-  {
-    catalogId: 'resource-installer-assistant',
-    type: 'assistant',
-    name: 'resource-installer',
-    display_name: '资产安装智能体',
-    description: '根据命令或说明在本机安装 Skill（默认 ~/.tokenbank/skills）',
-    metadata: {
-      tags: ['assistant', 'system', 'builtin', 'install'],
-      version: '1.0.0',
-      category: 'ai-agent',
-      builtin: true,
-    },
-    content: JSON.stringify({
-      soul: '你是 Token Bank「资产安装智能体」。用户会给出 Skill 安装命令或说明（如 skillhub install <slug>、npx skills add …、GitHub 地址、技能 slug）。\n\n职责：\n1. 理解意图，提取要安装的 skill 名称/slug/来源；\n2. 在本机执行安装，默认目录 `~/.tokenbank/skills`（Windows：`%USERPROFILE%\\.tokenbank\\skills`）：\n   - GitHub URL / owner/repo：禁止把 URL 当 skillhub slug；用 `git clone --depth 1 <url> ~/.tokenbank/skills/<repo名>`（失败可下 zip 解压），确认有 SKILL.md；\n   - SkillHub slug：`skillhub install <slug> --dir <上述目录> --json`；\n   - 也可在安全前提下执行用户原生命令（如 `npx skills add <url> -g -y`）；\n3. 安装完成后确认目录下存在 SKILL.md（或 skill.md），用简短中文汇报：成功/失败、技能名、路径；\n4. 禁止编造已安装成功；失败时给出可操作的错误原因；\n5. 不做与安装无关的长篇解释。',
-      skills: [],
-      prompts: [],
-      parameters: { temperature: 0.2 },
-    }, null, 2),
-  },
+  // 画像分析 / 资产发现 / 资产安装不再是目录里的系统智能体，角色说明在 guardian/engine.js（看护执行引擎）
 ];
 
 /** 内置智能体目录 ID（默认自动纳管 + 投射，不可删除） */
-const BUILTIN_ASSISTANT_CATALOG_IDS = [
-  'resource-portrait-assistant',
-  'resource-finder-assistant',
-  'resource-installer-assistant',
-];
+const BUILTIN_ASSISTANT_CATALOG_IDS = [];
 
 function isBuiltinAssistantCatalogId(catalogId) {
   return BUILTIN_ASSISTANT_CATALOG_IDS.includes(String(catalogId || ''));
