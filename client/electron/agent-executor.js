@@ -589,6 +589,7 @@ class AgentExecutor extends EventEmitter {
     // 内置 CLI（claude-code 等）不依赖列表缓存。缓存里暂时没有时也不应报未知。
     const builtin = canonicalBuiltinAgentId(raw);
     if (builtin) return builtin;
+    if (require('./guardian/chat').isGuardianAgent(raw)) return raw;
 
     const {
       isCommunityAgentId,
@@ -728,7 +729,11 @@ class AgentExecutor extends EventEmitter {
         launchableCliIds.add(a.id);
       }
     }
+    let guardianEntry = null;
+    try { guardianEntry = require('./guardian/chat').listEntry(launchableCliIds, AGENT_CLI); } catch { /* 看护不可用 */ }
     const agents = [
+      // 内置看护：有疑问就在游乐场里和它对话
+      ...(guardianEntry ? [guardianEntry] : []),
       ...cliAgents,
       ...this._listCustomAssistants(launchableCliIds),
       // 已雇佣的社区武将（远程执行，无正文）
@@ -838,6 +843,13 @@ class AgentExecutor extends EventEmitter {
     if (!isAssistantAgentId(agentId)) {
       return { agentId, assistant: null };
     }
+    const guardianChat = require('./guardian/chat');
+    if (guardianChat.isGuardianAgent(agentId)) {
+      const st = require('./guardian/engine').status();
+      if (!st.ready || !AGENT_CLI[st.runtime]) throw new Error('看护还没有执行应用：到看护页设置一个');
+      const launch = buildAssistantLaunch(st.runtime, guardianChat.systemText(), '');
+      return { agentId: st.runtime, assistant: { virtualId: agentId, resource: null, config: {}, launch } };
+    }
 
     const resourceManager = require('./resource-manager');
     resourceManager.init();
@@ -935,7 +947,7 @@ class AgentExecutor extends EventEmitter {
     }
 
     // 召唤专业智能体：记命中并弹息票（与 tb_get_resource 点将对齐）
-    if (isAssistantAgentId(canonicalId)) {
+    if (isAssistantAgentId(canonicalId) && !require('./guardian/chat').isGuardianAgent(canonicalId)) {
       try {
         const resourceManager = require('./resource-manager');
         const rid = assistantResourceId(canonicalId);

@@ -2426,6 +2426,7 @@ export default {
   "guardian.checkDone": "Done: {broken} broken, {repaired} repaired, {suggested} to confirm",
   "guardian.checkDoneSimple": "Check finished",
   "guardian.ask": "Questions? Ask",
+  "debug.tabs.guardian": "Guardian",
   "guardian.noPending": "Nothing waiting on you — the guardian has it handled.",
   "guardian.pending": "Needs you · {n}",
   "guardian.handled": "Handled · {n}",

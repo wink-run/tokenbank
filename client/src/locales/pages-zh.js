@@ -2433,6 +2433,7 @@ export default {
   "guardian.checkDone": "检查完成：发现 {broken} 处失效，已修复 {repaired}，待确认 {suggested}",
   "guardian.checkDoneSimple": "检查完成",
   "guardian.ask": "有疑问？问问",
+  "debug.tabs.guardian": "看护",
   "guardian.noPending": "没有待处理的事，看护都处理好了。",
   "guardian.pending": "待处理 {n}",
   "guardian.handled": "已处理 {n}",
