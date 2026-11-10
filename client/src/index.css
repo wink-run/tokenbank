@@ -1361,12 +1361,106 @@ html.tb-electron .tb-scroll-layer {
   html.tb-web .tb-app-shell--web > .tb-app-sidebar nav button {
     min-height: 2.75rem;
   }
-  /* 宽表内层共用最小宽度，各行对齐；外层 overflow-x 负责横滑 */
-  html.tb-web .tb-hscroll {
-    min-width: 46rem;
+  /*
+   * 各页通用：主列不许被内部最小宽度撑出屏幕。
+   * 卡片限宽后，放不下的表格在卡片里横滑，而不是右侧被裁掉。
+   * 横向 flex 允许换行，设置项、工具条上的按钮会落到下一行。
+   */
+  html.tb-web .tb-app-main,
+  html.tb-web .tb-app-main > div {
+    min-width: 0;
+    max-width: 100%;
   }
+  html.tb-web .tb-soft-panel,
+  html.tb-web .tb-soft-card,
+  html.tb-web .tb-table-shell,
+  html.tb-web .overflow-x-auto {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  html.tb-web .tb-app-main .flex:not(.flex-col):not(.flex-nowrap) {
+    flex-wrap: wrap;
+  }
+  html.tb-web .tb-app-main .flex:not(.flex-col) > *,
+  html.tb-web .tb-app-main .grid > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  html.tb-web .tb-app-main pre,
+  html.tb-web .tb-app-main code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  /* 会话等宽表：内容保持自身宽度，在上面的限宽滚动槽里横滑 */
+  html.tb-web .tb-hscroll,
   html.tb-web .tb-hscroll-sm {
-    min-width: 40rem;
+    min-width: max-content;
+    width: max-content;
+    max-width: none;
+  }
+  /*
+   * 应用列表：9 列栅格会把路由和操作裁出屏幕。
+   * 窄屏改成卡片，字段换行排开，不再依赖横向滚动。
+   */
+  html.tb-web .tb-apps-scroll,
+  html.tb-web .tb-apps-scroll > .tb-hscroll {
+    min-width: 0;
+    width: 100%;
+    overflow: visible;
+  }
+  html.tb-web .tb-apps-grid.tb-table-head {
+    display: none;
+  }
+  html.tb-web .tb-apps-grid {
+    width: 100%;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "icon name status"
+      "link calls tokens"
+      "used used used"
+      "route route route"
+      "actions actions actions";
+    column-gap: 0.5rem;
+    row-gap: 0.4rem;
+    align-items: center;
+    padding: 0.7rem 0.75rem;
+  }
+  html.tb-web .tb-apps-grid > :nth-child(1) { grid-area: icon; margin-left: 0; margin-right: 0; justify-self: start; }
+  html.tb-web .tb-apps-grid > :nth-child(2) { grid-area: name; }
+  html.tb-web .tb-apps-grid > :nth-child(3) { grid-area: status; justify-self: end; }
+  html.tb-web .tb-apps-grid > :nth-child(4) { grid-area: link; }
+  html.tb-web .tb-apps-grid > :nth-child(5) { grid-area: calls; }
+  html.tb-web .tb-apps-grid > :nth-child(6) { grid-area: tokens; justify-self: end; }
+  html.tb-web .tb-apps-grid > :nth-child(7) { grid-area: used; }
+  html.tb-web .tb-apps-grid > :nth-child(8) { grid-area: route; min-width: 0; width: 100%; }
+  html.tb-web .tb-apps-grid > :nth-child(9) { grid-area: actions; min-width: 0; }
+  html.tb-web .tb-apps-grid > :empty,
+  html.tb-web .tb-app-route:not(:has(*)) {
+    display: none;
+  }
+  html.tb-web .tb-apps-grid > [data-label] {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.1rem;
+    overflow: visible;
+    text-align: left;
+    white-space: normal;
+  }
+  html.tb-web .tb-apps-grid > [data-label]::before {
+    content: attr(data-label);
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: rgb(113 113 122);
+  }
+  html.tb-web .tb-apps-grid > :nth-child(9) > .flex {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    overflow: visible;
+    max-width: 100%;
   }
   /* 调试页：智能体列表改到对话上方，避免 176px 竖栏吃掉半屏 */
   html.tb-web .tb-debug-body {

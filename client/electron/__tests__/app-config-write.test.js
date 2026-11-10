@@ -48,3 +48,32 @@ test('Pi: writes the tokenbank provider and reverts it', async () => {
   const after = fs.existsSync(r.file) ? JSON.parse(fs.readFileSync(r.file, 'utf8')) : {};
   assert.ok(!(after.providers && after.providers.tokenbank), 'tokenbank provider removed');
 });
+
+test('Pi: ensure writes the gateway key for an already hosted app', async () => {
+  const dir = path.join(HOME, '.llm-agent');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'local-config.json'), JSON.stringify({
+    apps: [{
+      id: 'app-pi',
+      preset_id: 'pi',
+      hosted: true,
+      api_key: 'sk-hosted',
+      patch: {
+        'providers.tokenbank.baseUrl': 'http://127.0.0.1:11430/v1',
+        'providers.tokenbank.apiKey': 'sk-hosted',
+        'providers.tokenbank.api': 'openai-completions',
+        'providers.tokenbank.models': [{ id: 'deepseek-v4-flash' }],
+      },
+    }],
+  }));
+  const first = await shared.ensurePiFamilyAuth('pi');
+  assert.equal(first.ok, true, first.error);
+  const profile = piCfg.profileForHandler('pi-cli');
+  const models = JSON.parse(fs.readFileSync(piCfg.modelsFile(profile), 'utf8'));
+  const settings = JSON.parse(fs.readFileSync(path.join(piCfg.agentDir(profile), 'settings.json'), 'utf8'));
+  assert.equal(models.providers.tokenbank.apiKey, 'sk-hosted');
+  assert.equal(settings.defaultProvider, 'tokenbank');
+  assert.equal(settings.defaultModel, 'deepseek-v4-flash');
+  const second = await shared.ensurePiFamilyAuth('pi');
+  assert.equal(second.skipped, true);
+});

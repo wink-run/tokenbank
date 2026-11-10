@@ -1707,6 +1707,11 @@ class AgentExecutor extends EventEmitter {
     const cliCfg = AGENT_CLI[gatewayAgentId] || {};
     // Cursor 等直连账号：不注入网关、不告警「未找到工具配置」
     const useGateway = cliCfg.gatewayInject !== false;
+    // 已纳管的 Pi 若还没写过密钥，这里补上，避免一启动就因自带模型没有 API key 退出
+    if (useGateway && (gatewayAgentId === 'pi' || gatewayAgentId === 'omo' || gatewayAgentId === 'prime' || gatewayAgentId === 'omp')) {
+      try { await require('./app-config-write').ensurePiFamilyAuth(gatewayAgentId); }
+      catch (e) { console.warn('[AgentExecutor] Pi 网关密钥补写失败:', e.message); }
+    }
     let spawnEnv = useGateway && agentLinker
       ? agentLinker.buildSpawnEnv(gatewayAgentId, process.env)
       : { ...process.env };

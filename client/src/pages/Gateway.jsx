@@ -112,6 +112,12 @@ function isTraeWorkApp(app) {
   return id === 'trae-work' || id === 'trae' || String(id).toLowerCase() === 'trae';
 }
 
+/** Pi 家族没有官方登录态。纳管必须写入网关密钥，否则一对话就报 No API key。 */
+function isPiFamilyApp(app) {
+  const id = String(app?.preset_id || app?.agent_id || '');
+  return id === 'pi' || id === 'omo' || id === 'prime' || id === 'omp';
+}
+
 // ── PolicyManager：策略组管理 UI ──────────────────────────────────────────────
 function strategyOptions(t) {
   return [
@@ -3191,18 +3197,30 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
     }
     if (on) {
       setBusyId(appId);
-      // 纳管默认官方订阅：清空路由，确保不注入网关
-      await appsApi.update({ id: appId, hosted: true, route_id: null, route_ids: null }).catch(() => {});
-      if (app.host_method === 'config-file') {
-        await appsApi.revertConfigFile({ app_id: appId, config_file: app.config_file }).catch(() => {});
-        showNotice(appId, t('gateway.apps.restartToApply'));
-      } else if (app.link_method === 'shim' && app.agent_id) {
-        await window.electronAPI.agents?.revert(app.agent_id).catch(() => {});
-        showNotice(appId, t('gateway.apps.restartToApply'));
-      } else if (app.link_method === 'direct') {
+      // Pi 家族没有官方账号：纳管即写入网关密钥和默认模型。其余应用仍走官方订阅。
+      if (app.host_method === 'config-file' && isPiFamilyApp(app)) {
+        const kept = effectiveRouteIds(app);
+        const routeId = kept[0] || defaultRouteId() || null;
+        const routeIds = kept.length ? kept : (routeId ? [routeId] : []);
+        await appsApi.update({
+          id: appId, hosted: true, route_id: routeId, route_ids: routeIds.length ? routeIds : null,
+        }).catch(() => {});
+        await writeApiKeyConfig({ ...app, id: appId, route_id: routeId, route_ids: routeIds });
         showNotice(appId, t('gateway.apps.restartToApply'));
       } else {
-        showNotice(appId, t('gateway.apps.restartToApply'));
+        // 纳管默认官方订阅：清空路由，确保不注入网关
+        await appsApi.update({ id: appId, hosted: true, route_id: null, route_ids: null }).catch(() => {});
+        if (app.host_method === 'config-file') {
+          await appsApi.revertConfigFile({ app_id: appId, config_file: app.config_file }).catch(() => {});
+          showNotice(appId, t('gateway.apps.restartToApply'));
+        } else if (app.link_method === 'shim' && app.agent_id) {
+          await window.electronAPI.agents?.revert(app.agent_id).catch(() => {});
+          showNotice(appId, t('gateway.apps.restartToApply'));
+        } else if (app.link_method === 'direct') {
+          showNotice(appId, t('gateway.apps.restartToApply'));
+        } else {
+          showNotice(appId, t('gateway.apps.restartToApply'));
+        }
       }
     } else {
       const msg = app.link_method === 'direct'
@@ -3430,15 +3448,34 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
     await load();
   }
 
-  // API Key 应用（虚拟行）「纳管」：建条目 + 标记 hosted（默认直连，不写配置）。要走网关在路由下拉选模型。
+  // API Key 应用（虚拟行）「纳管」：建条目 + 标记 hosted。
+  // Pi 家族没有官方登录，同时写入网关密钥；其余应用默认直连，要走网关再在路由下拉选模型。
   async function addApiKeyApp(d) {
     setBusyId(d.id);
+    const piFamily = isPiFamilyApp(d);
+    const routeId = piFamily ? (defaultRouteId() || null) : null;
+    const routeIds = routeId ? [routeId] : [];
     const created = await appsApi.create({
       name: d.name, icon: d.icon, link_method: 'api-key',
-      preset_id: d.preset_id, route_id: null,
+      preset_id: d.preset_id, route_id: routeId, route_ids: routeIds.length ? routeIds : null,
       inject: 'config-file', config_file: d.config_file, patch: d.patch, env: d.env || null,
     }).catch(() => null);
-    if (created?.id) await appsApi.update({ id: created.id, hosted: true }).catch(() => {});
+    if (created?.id) {
+      await appsApi.update({
+        id: created.id, hosted: true, route_id: routeId, route_ids: routeIds.length ? routeIds : null,
+      }).catch(() => {});
+      if (piFamily) {
+        await writeApiKeyConfig({
+          ...created,
+          host_method: 'config-file',
+          config_file: d.config_file,
+          patch: d.patch,
+          env: d.env || null,
+          route_id: routeId,
+          route_ids: routeIds,
+        });
+      }
+    }
     setBusyId(null);
     if (created?.id) showNotice(created.id, t('gateway.apps.restartToApply'));
     await load();
@@ -3550,7 +3587,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
         </div>,
         document.body,
       )}
-      <div className="px-2.5 py-3">
+      <div className="px-2.5 py-3 min-w-0">
             {/* 操作栏 */}
             <div className="flex items-center gap-2 mb-3 flex-wrap">
               <button onClick={() => manualDraft ? cancelManualDraft() : addCustom()}
@@ -3570,7 +3607,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
 
             {/* Docker：命令行智能体装在容器里，首次使用要在容器里登录 */}
             {isWebBridge() && (
-              <div className="mb-3 rounded-xl border border-sky-200/80 dark:border-sky-900/50 bg-sky-50/70 dark:bg-sky-950/20 px-3 py-2 text-[11px] text-sky-800 dark:text-sky-200 space-y-1">
+              <div className="mb-3 min-w-0 rounded-xl border border-sky-200/80 dark:border-sky-900/50 bg-sky-50/70 dark:bg-sky-950/20 px-3 py-2 text-[11px] text-sky-800 dark:text-sky-200 space-y-1 break-words">
                 <p className="font-medium">{t('gateway.docker.agentsTitle')}</p>
                 <p className="text-sky-700/90 dark:text-sky-300/80">{t('gateway.docker.agentsInstall')}</p>
                 <p className="text-sky-700/90 dark:text-sky-300/80">
@@ -3602,7 +3639,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
             ) : (
               // 嵌套在 soft-card 内：由 CSS 去掉第二层铺底，避免叠成实色
               <div className={`tb-table-shell rounded-xl ${visibleApps.length > 20 ? 'max-h-[min(75vh,900px)] overflow-y-auto' : ''}`}>
-                <div className="overflow-x-auto">
+                <div className="tb-apps-scroll overflow-x-auto">
                 <div className="tb-hscroll">
                 <div className={`${APPS_TABLE_GRID} tb-table-head py-2.5 sticky top-0 z-10`}>
                   <span className="text-base text-center shrink-0 invisible">🔧</span>
@@ -3745,17 +3782,17 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                       </div>
 
                       {/* 接入方式列（居中，与表头对齐）*/}
-                      <div className="min-w-0 tb-table-cell-meta truncate text-center">
+                      <div className="min-w-0 tb-table-cell-meta truncate text-center" data-label={t('gateway.apps.colLink')}>
                         {linkMethodLabel(app.link_method, t)}
                       </div>
 
                       {/* 统计：请求数 / token / 最后使用（点击打开用量明细）*/}
-                      <div className="text-center overflow-hidden text-[11px] font-medium tabular-nums tracking-tight text-zinc-600 dark:text-zinc-300 rounded hover:bg-zinc-500/[0.06] dark:hover:bg-white/[0.06] cursor-pointer" title={t('gateway.apps.statsTitle')} onClick={() => setDetailApp(app)}>{st.calls > 0 ? st.calls.toLocaleString() : '—'}</div>
-                      <div className="text-center overflow-hidden text-[11px] font-medium tabular-nums tracking-tight text-zinc-600 dark:text-zinc-300 rounded hover:bg-zinc-500/[0.06] dark:hover:bg-white/[0.06] cursor-pointer" title={t('gateway.apps.statsTitle')} onClick={() => setDetailApp(app)}>{st.tokens > 0 ? fmtTokens(st.tokens) : '—'}</div>
-                      <div className="text-center overflow-hidden tb-table-cell-meta rounded hover:bg-zinc-500/[0.06] dark:hover:bg-white/[0.06] cursor-pointer" title={t('gateway.apps.statsTitle')} onClick={() => setDetailApp(app)}>{fmtTime(st.lastTs)}</div>
+                      <div data-label={t('gateway.apps.colCalls')} className="text-center overflow-hidden text-[11px] font-medium tabular-nums tracking-tight text-zinc-600 dark:text-zinc-300 rounded hover:bg-zinc-500/[0.06] dark:hover:bg-white/[0.06] cursor-pointer" title={t('gateway.apps.statsTitle')} onClick={() => setDetailApp(app)}>{st.calls > 0 ? st.calls.toLocaleString() : '—'}</div>
+                      <div data-label={t('gateway.apps.colTokens')} className="text-center overflow-hidden text-[11px] font-medium tabular-nums tracking-tight text-zinc-600 dark:text-zinc-300 rounded hover:bg-zinc-500/[0.06] dark:hover:bg-white/[0.06] cursor-pointer" title={t('gateway.apps.statsTitle')} onClick={() => setDetailApp(app)}>{st.tokens > 0 ? fmtTokens(st.tokens) : '—'}</div>
+                      <div data-label={t('gateway.apps.colLastUsed')} className="text-center overflow-hidden tb-table-cell-meta rounded hover:bg-zinc-500/[0.06] dark:hover:bg-white/[0.06] cursor-pointer" title={t('gateway.apps.statsTitle')} onClick={() => setDetailApp(app)}>{fmtTime(st.lastTs)}</div>
 
                       {/* 路由下拉：同一控件；不可绑路由时灰色禁用（与仅官方订阅应用一致） */}
-                      <div className="min-w-0 overflow-visible">
+                      <div className="tb-app-route min-w-0 overflow-visible">
                       {((keyApp || app.link_method === 'shim' || isSessionApp || isDirectOnly) && !app._virtual_apikey) && (
                       <RouteSelect
                         compact
@@ -5458,7 +5495,7 @@ export default function Gateway() {
       </div>
 
       {/* 应用列表 / 场景路由 Tab — 大面板用更透的 soft-panel */}
-      <div className="tb-soft-panel rounded-2xl overflow-hidden">
+      <div className="tb-soft-panel rounded-2xl overflow-hidden min-w-0">
         {/* Tab bar（macOS 分段控件）+ Endpoint 合并一行 */}
         <div className="flex items-center gap-3 px-2.5 py-2 border-b border-white/40 dark:border-white/[0.06] overflow-x-auto">
           <div className="tb-glass-chip inline-flex items-center gap-0.5 p-0.5 rounded-[10px] shrink-0">

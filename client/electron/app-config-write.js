@@ -94,6 +94,103 @@ async function writePiFamilyConfig(handlerId, resolvedPatch, { base, key, allowC
   return { ok: true, file, envCount: 0 };
 }
 
+const PI_FAMILY_IDS = new Set(['pi', 'omo', 'prime', 'omp']);
+
+function readJsonFile(file) {
+  try {
+    if (!fs.existsSync(file)) return null;
+    const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return doc && typeof doc === 'object' && !Array.isArray(doc) ? doc : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 已经指向 tokenbank 且带上密钥、默认模型，就不必每次启动重写。 */
+function piAuthReady(profile) {
+  const piCfg = require('./pi-config');
+  const dir = piCfg.agentDir(profile);
+  if (profile.kind === 'yaml') {
+    let config = null;
+    try {
+      const yaml = require('js-yaml');
+      const yml = fs.existsSync(path.join(dir, 'config.yml'))
+        ? path.join(dir, 'config.yml')
+        : path.join(dir, 'config.yaml');
+      if (fs.existsSync(yml)) config = yaml.load(fs.readFileSync(yml, 'utf8'));
+    } catch { /* 读不到就当没配 */ }
+    const role = config?.modelRoles?.default;
+    if (typeof role !== 'string' || !role.startsWith('tokenbank/')) return false;
+  } else {
+    const settings = readJsonFile(path.join(dir, 'settings.json'));
+    if (settings?.defaultProvider !== 'tokenbank' || !settings?.defaultModel) return false;
+  }
+  const models = profile.kind === 'yaml'
+    ? null
+    : readJsonFile(piCfg.modelsFile(profile));
+  if (profile.kind !== 'yaml') return !!models?.providers?.tokenbank?.apiKey;
+  // omp 的密钥在 models.yml
+  try {
+    const yaml = require('js-yaml');
+    const file = piCfg.modelsFile(profile);
+    if (!fs.existsSync(file)) return false;
+    const doc = yaml.load(fs.readFileSync(file, 'utf8'));
+    return !!doc?.providers?.tokenbank?.apiKey;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 游乐场启动 Pi 前补写网关密钥。
+ * 纳管只标记了 hosted、还没写 models.json 时，Pi 会用自带模型并因没有 API key 退出。
+ * 不是 Pi 家族、或还没有纳管出的 api_key，则什么都不做。
+ */
+async function ensurePiFamilyAuth(agentId) {
+  const raw = String(agentId || '').replace(/^app:/, '');
+  if (!PI_FAMILY_IDS.has(raw)) return { ok: true, skipped: true };
+  const piCfg = require('./pi-config');
+  const profile = piCfg.profileForEntity(raw);
+  if (!profile) return { ok: true, skipped: true };
+  if (piAuthReady(profile)) return { ok: true, skipped: true };
+  let lc = null;
+  try { lc = require('../shared/config-loader').readLocalConfig(); } catch { /* 没有本地配置 */ }
+  const app = (lc?.apps || []).find((a) => {
+    if (!a || a.hosted === false || !a.api_key) return false;
+    return String(a.preset_id || a.agent_id || '') === raw;
+  });
+  if (!app) return { ok: false, skipped: true, error: 'no-hosted-app' };
+  const g = require('./config-loader').gatewayCtx();
+  const base = g?.reverse ? `http://${g.reverse}` : '';
+  const fallbackPatch = {
+    'providers.tokenbank.name': 'Token Bank',
+    'providers.tokenbank.baseUrl': '{BASE}/v1',
+    'providers.tokenbank.api': 'openai-completions',
+    'providers.tokenbank.apiKey': '{KEY}',
+    'providers.tokenbank.authHeader': true,
+  };
+  let patch = resolvePatchDeep(app.patch || fallbackPatch, { base, key: app.api_key });
+  const routeIds = (Array.isArray(app.route_ids) && app.route_ids.length)
+    ? app.route_ids
+    : (app.route_id ? [app.route_id] : []);
+  if (routeIds.length) {
+    try {
+      const { applyRouteToProxyPatch } = require('./app-handlers');
+      patch = applyRouteToProxyPatch(profile.handlerId, patch, {
+        routeIds,
+        routes: lc.scene_routes || [],
+      });
+    } catch (e) {
+      console.warn('[pi] apply route patch failed:', e.message);
+    }
+  }
+  return writePiFamilyConfig(profile.handlerId, patch, {
+    base,
+    key: app.api_key,
+    allowCreate: true,
+  });
+}
+
 /** Pi 家族还原：只删 tokenbank 提供商并交回原默认模型。不是 Pi 家族返回 false */
 function revertPiFamilyConfig(appId, appRec) {
   const piCfg = require('./pi-config');
@@ -111,4 +208,5 @@ module.exports = {
   fetchGatewayModelIds,
   writePiFamilyConfig,
   revertPiFamilyConfig,
+  ensurePiFamilyAuth,
 };
