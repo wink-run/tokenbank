@@ -2279,6 +2279,12 @@ class ResourceManager {
         .run(hint, Date.now(), resource.id);
       resource = this.getResource(resource.id);
     }
+    // 记下来源：多设备同步时另一台可以按同一地址装，分享推荐也据此认出不是自己写的
+    if (resource.metadata?.github_source !== ref.sourceUrl) {
+      const db = this._getDb();
+      db.prepare('UPDATE resources SET metadata = ?, updated_at = ? WHERE id = ?')
+        .run(JSON.stringify({ ...(resource.metadata || {}), github_source: ref.sourceUrl }), Date.now(), resource.id);
+    }
 
     return {
       success: true,

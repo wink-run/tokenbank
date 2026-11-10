@@ -14,6 +14,7 @@ import Circles from './Circles';
 import Network from './Network';
 import { SessionTraceModal } from './Gateway';
 import TruncTip from '../components/TruncTip';
+import CommunityEarningsCard from '../components/CommunityEarningsCard';
 import { useLang } from '../store/lang';
 import { useAuth } from '../store/index';
 import { fmtContribTokens, fmtCreditCny, creditsToCny } from '../lib/credit-pricing';
@@ -2017,6 +2018,7 @@ export default function Contribute() {
         {tab === 'network' && <Network embedded />}
 
         <div className={tab === 'earnings' ? '' : 'hidden'}>
+          <CommunityEarningsCard />
           <EarningsView settlements={settlements} summary={summary} stats={stats} logs={logs} logRef={logRef} />
         </div>
       </div>

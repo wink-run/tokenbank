@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 import database as db
 from auth import get_current_user_id
+from device_assets import devices_with_assets
 
 router = APIRouter()
 
@@ -100,6 +101,13 @@ async def device_heartbeat(req: HeartbeatRequest, uid: int = Depends(get_current
 async def list_devices(uid: int = Depends(get_current_user_id)):
     devices = await db.get_user_devices(uid)
     return {"devices": devices}
+
+
+@router.get("/user/devices/assets")
+async def list_device_assets(uid: int = Depends(get_current_user_id)):
+    """各设备上报的资产清单（只有名字、来源和内容摘要），客户端据此提醒设备之间不一致。"""
+    rows = await db.get_user_devices_inventory(uid)
+    return {"devices": devices_with_assets(rows)}
 
 
 @router.delete("/device/{device_id}")

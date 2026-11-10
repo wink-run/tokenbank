@@ -48,6 +48,13 @@ function registerGuardianHandlers() {
     success: true, ...(require('./scene-targets').preferredTargets(opts || {}) || { agentIds: [] }),
   })));
 
+  // 分享与多设备：分享前整理、资产清单、立即对比设备差异
+  ipcMain.handle('guardian:shareCheck', safe((input) => {
+    if (guardian.modeOf('community') === 'off') return { success: true, findings: [], changed: false, ...(input || {}) };
+    return { success: true, ...require('./share-check').sanitize(input || {}) };
+  }));
+  ipcMain.handle('guardian:assetSnapshot', safe(() => ({ success: true, assets: require('./device-sync').snapshot() })));
+
   // 资产一键诊断与修复
   ipcMain.handle('resource:diagnose', safe(({ resourceId } = {}) => require('./diagnose').diagnoseResource(resourceId)));
   ipcMain.handle('resource:fixDiagnosis', safe(({ resourceId, type } = {}) => require('./diagnose').fixResource(resourceId, type)));
@@ -60,6 +67,8 @@ function startGuardian({ gateway, initialDelayMs } = {}) {
   try { require('./projection-heal').register(); } catch (e) { console.warn('[guardian] projection-heal:', e.message); }
   try { require('./asset-checks').register(); } catch (e) { console.warn('[guardian] asset-checks:', e.message); }
   try { require('./setup-check').register(); } catch (e) { console.warn('[guardian] setup-check:', e.message); }
+  try { require('./share-suggest').register(); } catch (e) { console.warn('[guardian] share-suggest:', e.message); }
+  try { require('./device-sync').register(); } catch (e) { console.warn('[guardian] device-sync:', e.message); }
   try { require('./introspect').register(); } catch (e) { console.warn('[guardian] introspect:', e.message); }
   try { require('./task-watch').attach(); } catch (e) { console.warn('[guardian] task-watch:', e.message); }
   try { if (gateway) require('./gateway-watch').attach(gateway); } catch (e) { console.warn('[guardian] gateway-watch:', e.message); }

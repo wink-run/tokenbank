@@ -16,6 +16,7 @@ const HEARTBEAT_INTERVAL_MS = 60 * 1000; // 60s（服务端 2 分钟无心跳会
 let _config   = null;  // { type, name, platform, version, serverUrl, userJwt, device_id }
 let _timer    = null;
 let _getStats = null;  // () => { calls, errors, providers_active }  (may be async)
+let _inventoryExtra = null;  // () => 附加到 inventory 的字段（如看护的资产清单），可为空
 
 // ── Low-level HTTP helper ─────────────────────────────────────────────────────
 
@@ -117,8 +118,12 @@ async function _sendHeartbeat(online = true) {
   }
 
   // Extract inventory from stats if provided, keep stats clean for server
-  const inventory = stats.inventory || null;
+  let inventory = stats.inventory || null;
   const { inventory: _inv, ...statsClean } = stats;
+  try {
+    const extra = typeof _inventoryExtra === 'function' ? _inventoryExtra() : null;
+    if (extra && typeof extra === 'object') inventory = { ...(inventory || {}), ...extra };
+  } catch (_) { /* 附加字段失败不影响心跳 */ }
 
   try {
       await _post(
@@ -238,4 +243,9 @@ function setUserJwt(jwt) {
 
 // ── Exports ───────────────────────────────────────────────────────────────────
 
-module.exports = { init, start, stop, setUserJwt };
+/** 心跳 inventory 里追加的字段（多设备资产清单等）；传 null 取消 */
+function setInventoryExtra(fn) {
+  _inventoryExtra = typeof fn === 'function' ? fn : null;
+}
+
+module.exports = { init, start, stop, setUserJwt, setInventoryExtra };

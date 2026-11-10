@@ -3202,6 +3202,17 @@ async def get_user_devices(user_id: int) -> list[dict]:
     return devices
 
 
+async def get_user_devices_inventory(user_id: int) -> list[dict]:
+    """设备基本信息 + inventory_json（多设备资产对比用）。"""
+    async with connect() as db:
+        async with db.execute(
+            """SELECT id, name, type, platform, online, last_seen, inventory_json
+               FROM devices WHERE user_id=? ORDER BY created_at DESC""",
+            (user_id,),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
 async def get_device_owner(device_id: str) -> Optional[int]:
     """Return the user_id that owns device_id, or None if not found."""
     async with connect() as db:
