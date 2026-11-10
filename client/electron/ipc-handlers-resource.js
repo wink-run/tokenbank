@@ -433,6 +433,18 @@ function registerResourceHandlers() {
     }
   });
 
+  // 推荐到社区前，把技能目录里 SKILL.md 以外的配套文件打成 metadata.files
+  ipcMain.handle('resource:packSkillFiles', async (_event, { skillDir, targetPath } = {}) => {
+    try {
+      const { packSkillCompanionFiles } = require('./resource-canonical');
+      const files = packSkillCompanionFiles(skillDir || targetPath || '');
+      return { success: true, files };
+    } catch (error) {
+      console.error('[IPC] resource:packSkillFiles error:', error);
+      return { success: false, error: error.message, files: [] };
+    }
+  });
+
   /**
    * 游乐场应用内预览：
    * - 目录 → 列出子项（供前端浏览）

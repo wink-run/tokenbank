@@ -77,6 +77,7 @@ const resource = {
   removeFromAgent: call('resource:removeFromAgent', {}),
   openPath: call('resource:openPath', {}),
   previewFile: call('resource:previewFile', {}),
+  packSkillFiles: call('resource:packSkillFiles', {}),
   listIdleSkills: call('resource:listIdleSkills', {}),
   cleanupSkills: call('resource:cleanupSkills', {}),
   mineDemand: call('resource:mineDemand', {}),

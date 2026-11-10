@@ -168,7 +168,7 @@ function projectSkillToAgent(resource, agentId, scope = 'global', options = {}) 
 
   // 目录市场纳管、尚无本机副本：在首个目标 Agent 写入实体目录作为权威源
   if (!authorityDir) {
-    authorityDir = materializeSkillDir(skillDir, resource.content);
+    authorityDir = materializeSkillDir(skillDir, resource.content, resource.metadata?.files || null);
     return {
       agentId,
       scope,
