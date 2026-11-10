@@ -30,7 +30,10 @@ test.before(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
 });
 
-test.after(() => { server.close(); });
+test.after(() => {
+  try { require('../session-offthread').terminate(); } catch { /* 没扫过会话就没有 worker */ }
+  server.close();
+});
 
 function post(pathname, body, headers = {}) {
   return fetch(base + pathname, {
@@ -56,6 +59,8 @@ test('ping registers resource and agent channels', async () => {
   assert.ok(body.channels.includes('llm:fetch'));
   assert.ok(body.channels.includes('mcp:listServers'));
   assert.ok(body.channels.includes('mcp:listCatalog'));
+  assert.ok(body.channels.includes('sessions:listAll'));
+  assert.ok(body.channels.includes('sessions:setMeta'));
   assert.equal(res.headers.get('access-control-allow-origin'), null);
 });
 
@@ -104,6 +109,12 @@ test('file dialogs report cancelled in web mode', async () => {
   const body = await (await post('/api/bridge/invoke', { channel: 'resource:pickImportPath', args: [{}] })).json();
   assert.equal(body.ok, true);
   assert.equal(body.result.canceled, true);
+});
+
+test('session list is reachable through the bridge', async () => {
+  const body = await (await post('/api/bridge/invoke', { channel: 'sessions:listAll', args: [{}] })).json();
+  assert.equal(body.ok, true, body.error);
+  assert.ok(Array.isArray(body.result));
 });
 
 test('mcp catalog is reachable through the bridge', async () => {
