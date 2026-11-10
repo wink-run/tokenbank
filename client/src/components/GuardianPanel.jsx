@@ -30,7 +30,7 @@ export function HealthBadge({ health, t }) {
 }
 
 /** 运行环境：执行应用（可选）、模型、后台检查，以及需要处理的问题 */
-function RuntimeSection({ health, api, t, lang, navigate, onChanged }) {
+function RuntimeSection({ health, api, t, lang, navigate, onChanged, editable = true }) {
   const [busy, setBusy] = useState(false);
   if (!health) return null;
   const eng = health.engine || {};
@@ -77,7 +77,9 @@ function RuntimeSection({ health, api, t, lang, navigate, onChanged }) {
         <div className={row}>
           <span>{t('guardian.runtime.app')}</span>
           <div className="space-y-0.5">
-            {eng.runtimes?.length ? (
+            {eng.runtimes?.length && !editable ? (
+              <span className="text-zinc-800 dark:text-zinc-100">{(eng.runtimes.find((r) => r.id === eng.runtime) || {}).label || eng.runtime}</span>
+            ) : eng.runtimes?.length ? (
               <select value={eng.runtime || ''} disabled={busy} onChange={(e) => pick(e.target.value)} aria-label={t('guardian.runtime.app')}
                 className="px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-800 dark:text-zinc-100">
                 {eng.runtimes.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
@@ -111,8 +113,37 @@ function RuntimeSection({ health, api, t, lang, navigate, onChanged }) {
   );
 }
 
+/** 设置页签：执行应用（看护在哪个应用里跑画像 / 发现 / 安装） */
+function RunnerAppSetting({ health, api, t, navigate, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const eng = health?.engine || {};
+  const pick = async (id) => {
+    setBusy(true);
+    try { await api.engineSetRuntime(id); await onChanged(); } finally { setBusy(false); }
+  };
+  return (
+    <div className="px-5 py-3 border-b border-white/40 dark:border-white/[0.06] flex flex-wrap items-center gap-x-3 gap-y-1">
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-medium text-zinc-800 dark:text-zinc-100">{t('guardian.runtime.app')}</div>
+        <div className="text-[11px] text-zinc-400">{t('guardian.runtime.appHint')}</div>
+      </div>
+      {eng.runtimes?.length ? (
+        <select value={eng.runtime || ''} disabled={busy} onChange={(e) => pick(e.target.value)} aria-label={t('guardian.runtime.app')}
+          className="text-xs px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-800 dark:text-zinc-100">
+          {eng.runtimes.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+        </select>
+      ) : (
+        <button type="button" onClick={() => navigate('/gateway')}
+          className="text-[11px] px-2 py-0.5 rounded-md border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40">
+          {t('guardian.runtime.noApp')} · {t('guardian.runtime.goManage')} →
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** 定期自省：频率、时段、token 上限、范围、结果处理、立即运行 */
-function IntrospectSection({ settings, save, api, t, lang, onRan }) {
+function IntrospectSection({ settings, save, api, t, lang, onRan, view = 'all' }) {
   const c = settings.introspect || {};
   const [busy, setBusy] = useState(false);
   const [last, setLast] = useState(null);
@@ -147,7 +178,7 @@ function IntrospectSection({ settings, save, api, t, lang, onRan }) {
     <div className="px-5 py-3 space-y-2.5 border-b border-white/40 dark:border-white/[0.06]">
       <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-zinc-800 dark:text-zinc-100">{t('guardian.introspect.title')}</div>
+          <div className="text-xs font-medium text-zinc-800 dark:text-zinc-100">{view === 'report' ? t('guardian.introspect.lastTitle') : t('guardian.introspect.title')}</div>
           <div className="text-[11px] text-zinc-400">{t('guardian.introspect.hint')}</div>
         </div>
         <button type="button" onClick={runNow} disabled={busy || !settings.enabled}
@@ -155,6 +186,7 @@ function IntrospectSection({ settings, save, api, t, lang, onRan }) {
           {busy ? t('guardian.introspect.running') : t('guardian.introspect.runNow')}
         </button>
       </div>
+      {view !== 'report' && (
       <div className={`grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 text-[11px] text-zinc-500 dark:text-zinc-400 ${settings.enabled ? '' : 'opacity-50 pointer-events-none'}`}>
         <span>{t('guardian.introspect.frequency')}</span>
         <div className={`${SEG} justify-self-start`} role="radiogroup" aria-label={t('guardian.introspect.frequency')}>
@@ -209,11 +241,12 @@ function IntrospectSection({ settings, save, api, t, lang, onRan }) {
           ))}
         </div>
       </div>
+      )}
       <div className="text-[11px] text-zinc-400">
         {last ? t('guardian.introspect.last', { time: fmtTime(last.at, lang) }) : t('guardian.introspect.never')}
         {note && <span className="ml-2 text-zinc-500 dark:text-zinc-300">{note}</span>}
       </div>
-      {last && (
+      {last && view !== 'settings' && (
         <ul className="space-y-1">
           {SCOPES.filter((k) => last.sections?.[k]?.summary).map((k) => (
             <li key={k} className="flex gap-2 text-[11px] leading-relaxed">
@@ -257,6 +290,14 @@ export default function GuardianPanel({ page = false }) {
   const [msg, setMsg] = useState('');
   const [openId, setOpenId] = useState(null);
   const [health, setHealth] = useState(null);
+  // 看护页分两个页签：运行情况 / 设置（记住上次选的）
+  const [tab, setTab] = useState(() => {
+    try { return localStorage.getItem('tokenbank.guardian.tab') === 'settings' ? 'settings' : 'status'; } catch { return 'status'; }
+  });
+  const switchTab = (v) => {
+    setTab(v);
+    try { localStorage.setItem('tokenbank.guardian.tab', v); } catch { /* ignore */ }
+  };
   const location = useLocation();
   // 看护页常驻挂载：每次切回来都刷新状态和记录
   const pageActive = page && location.pathname === '/guardian';
@@ -322,27 +363,58 @@ export default function GuardianPanel({ page = false }) {
     }
   };
 
+  const showStatus = page && tab === 'status';
+  const showSettings = !page || tab === 'settings';
+
   return (
     <div className="tb-soft-card rounded-2xl overflow-hidden">
-      <div className="px-5 py-4 border-b border-white/40 dark:border-white/[0.06] flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 flex flex-wrap items-center gap-2">
-            {page ? t('guardian.masterSwitch') : t('guardian.title')}
-            {/* 看护页里「运行环境」已显示状态，总开关这一行不再重复（关闭时仍显示「已关闭」） */}
-            {(!page || !settings?.enabled) && <HealthBadge health={health} t={t} />}
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">{t('guardian.hint')}</p>
+      {page && (
+        <div className="px-5 pt-3 border-b border-white/40 dark:border-white/[0.06] flex items-center gap-1" role="tablist" aria-label={t('guardian.title')}>
+          {['status', 'settings'].map((k) => (
+            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => switchTab(k)}
+              className={`text-xs px-3 py-2 -mb-px border-b-2 ${tab === k ? 'border-zinc-800 dark:border-zinc-100 font-semibold text-zinc-900 dark:text-zinc-50' : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'}`}>
+              {t(`guardian.tab.${k}`)}
+              {k === 'status' && health?.level === 'warn' && <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-amber-500 align-middle" aria-hidden />}
+            </button>
+          ))}
         </div>
-        {settings && (
-          <label className="shrink-0 inline-flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300 cursor-pointer">
-            <input type="checkbox" checked={!!settings.enabled} onChange={(e) => save({ enabled: e.target.checked })} />
-            {settings.enabled ? t('guardian.on') : t('guardian.off')}
-          </label>
-        )}
-      </div>
+      )}
 
-      {settings?.enabled && <RuntimeSection health={health} api={api} t={t} lang={lang} navigate={navigate} onChanged={load} />}
+      {/* 运行情况：状态、正在执行、最近一次自省、自动处理记录 */}
+      {showStatus && (settings?.enabled
+        ? <RuntimeSection health={health} api={api} t={t} lang={lang} navigate={navigate} onChanged={load} editable={false} />
+        : (
+          <div className="px-5 py-4 border-b border-white/40 dark:border-white/[0.06] flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+            <HealthBadge health={health} t={t} />
+            <span>{t('guardian.offHint')}</span>
+            <button type="button" onClick={() => switchTab('settings')} className="text-blue-600 dark:text-blue-400 hover:underline">{t('guardian.tab.settings')} →</button>
+          </div>
+        ))}
+      {showStatus && settings && api.introspectNow && (
+        <IntrospectSection settings={settings} save={save} api={api} t={t} lang={lang} onRan={load} view="report" />
+      )}
 
+      {/* 设置：总开关、执行应用、各类处理方式、定期自省 */}
+      {showSettings && (
+        <>
+          <div className="px-5 py-4 border-b border-white/40 dark:border-white/[0.06] flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 flex flex-wrap items-center gap-2">
+                {page ? t('guardian.masterSwitch') : t('guardian.title')}
+                {/* 看护页里「运行环境」已显示状态，总开关这一行不再重复（关闭时仍显示「已关闭」） */}
+                {(!page || !settings?.enabled) && <HealthBadge health={health} t={t} />}
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">{t('guardian.hint')}</p>
+            </div>
+            {settings && (
+              <label className="shrink-0 inline-flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300 cursor-pointer">
+                <input type="checkbox" checked={!!settings.enabled} onChange={(e) => save({ enabled: e.target.checked })} />
+                {settings.enabled ? t('guardian.on') : t('guardian.off')}
+              </label>
+            )}
+          </div>
+          {settings?.enabled && page && <RunnerAppSetting health={health} api={api} t={t} navigate={navigate} onChanged={load} />}
+          {!page && settings?.enabled && <RuntimeSection health={health} api={api} t={t} lang={lang} navigate={navigate} onChanged={load} />}
       {settings && (
         <div className="px-5 py-3 space-y-2.5 border-b border-white/40 dark:border-white/[0.06]">
           {CATS.map((c) => (
@@ -372,10 +444,13 @@ export default function GuardianPanel({ page = false }) {
         </div>
       )}
 
-      {settings && api.introspectNow && (
-        <IntrospectSection settings={settings} save={save} api={api} t={t} lang={lang} onRan={load} />
+          {settings && api.introspectNow && (
+            <IntrospectSection settings={settings} save={save} api={api} t={t} lang={lang} onRan={load} view={page ? 'settings' : 'all'} />
+          )}
+        </>
       )}
 
+      {(showStatus || !page) && (<>
       <div className="px-5 py-3 flex flex-wrap items-center gap-x-3 gap-y-1">
         <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 flex-1 whitespace-nowrap">{t('guardian.records')}</h3>
         {msg && <span className="order-last basis-full text-[11px] text-zinc-500 dark:text-zinc-400">{msg}</span>}
@@ -436,6 +511,7 @@ export default function GuardianPanel({ page = false }) {
           ))}
         </ul>
       )}
+      </>)}
     </div>
   );
 }
