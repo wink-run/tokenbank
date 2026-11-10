@@ -22,6 +22,10 @@ function authorityDir(resource) {
   try { return require('../resource-canonical').resolveAuthorityDir(resource); } catch { return null; }
 }
 
+function judgment() {
+  return require('./judgment');
+}
+
 function label(r) {
   return r.display_name || r.name;
 }
@@ -90,14 +94,17 @@ async function check() {
     const q = files.length ? checks.qualityCheck(r, files) : [];
     const worst = q.some(x => x.level === 'warn') ? 'warn' : (q.length ? 'info' : null);
     if (worst) { f.quality = worst; f.qualityCodes = q.map(x => x.code); }
-    if (worst === 'warn') qualityNeeds.push({ name: label(r), id: r.id, fixable: q.some(x => x.fix && x.fix.type === 'completeDescription') });
+    const qFacts = { resourceName: r.name, codes: q.map(x => x.code).join(','), descriptionLength: String(r.description || '').length };
+    if (worst === 'warn' && !judgment().judge('asset-quality', qFacts)) qualityNeeds.push({ name: label(r), id: r.id, fixable: q.some(x => x.fix && x.fix.type === 'completeDescription'), facts: qFacts });
 
     const sec = checks.securityScan(files);
     if (sec.risk !== 'none') f.security = sec.risk;
     const secSig = `asset-security|${r.id}`;
     // 只在它已经启用到应用里时提醒（没启用的，投射前会再拦一次）；用户信任过的不再提
     const apps = projectedApps(r);
-    if (sec.risk === 'high' && apps.length && !isTrusted(r.id, sec.findings)) {
+    const high = sec.findings.filter(x => x.level === 'high');
+    const secFacts = { resourceName: r.name, codes: [...new Set(high.map(x => x.code))].join(','), files: [...new Set(high.map(x => x.file))].join(',') };
+    if (sec.risk === 'high' && apps.length && !isTrusted(r.id, sec.findings) && !judgment().judge('asset-security', secFacts)) {
       risky++;
       guardian.record({
         category: 'assets', kind: 'asset-security', status: 'info', countAsRepeat: false,
@@ -105,6 +112,7 @@ async function check() {
         detail: sec.findings.filter(x => x.level === 'high').map(x => `${x.text}（${x.file}:${x.line}）`).join('；'),
         advice: '来源可靠就信任它，以后不再提醒；不确定的话先从应用里撤下（资产还在，随时可再启用）。',
         signature: secSig,
+        facts: secFacts,
         actions: [
           { label: '从应用里撤下', done: '已撤下', run: { type: 'disableSkill', data: { resourceId: r.id } } },
           { label: '信任它', done: '已信任', run: { type: 'trustSkill', data: { resourceId: r.id } }, undo: { type: 'untrustSkill', data: { resourceId: r.id } } },
@@ -136,6 +144,7 @@ async function check() {
         ? [{ label: `一键补全（${fixIds.length} 个）`, done: '已补全', auto: true, run: { type: 'completeDescriptions', data: { resourceIds: fixIds } } }]
         : [],
       link: { to: '/resources', label: '查看', state: { resourceType: 'skill' } },
+      factsList: qualityNeeds.map(x => x.facts),
       meta: { resourceIds: qualityNeeds.map(x => x.id) },
     });
   } else {
@@ -159,6 +168,10 @@ async function check() {
       const [x, y] = [a.r.id, b.r.id].sort();
       const dupSig = `asset-dup|${x}|${y}`;
       // 两个都启用到了同一个应用才会互相抢；只要有一个停用了，资产列表的小标签就够了，不再提醒
+      let sameRealDir = false;
+      try { sameRealDir = require('fs').realpathSync(authorityDir(a.r) || '') === require('fs').realpathSync(authorityDir(b.r) || ''); } catch { /* ignore */ }
+      const dupFacts = { nameA: a.r.name, nameB: b.r.name, similarity: Math.round(sim * 100) / 100, sameRealDir };
+      if (judgment().judge('asset-duplicate', dupFacts)) { guardian.resolveSignature(dupSig, '按判断规则排除'); continue; }
       const appsA = projectedApps(a.r);
       const shared = projectedApps(b.r).filter(id => appsA.includes(id));
       if (!shared.length || disabledNow.has(a.r.id) || disabledNow.has(b.r.id)) { guardian.resolveSignature(dupSig, '已有一个没在用'); continue; }
@@ -171,6 +184,7 @@ async function check() {
         title: `「${label(a.r)}」和「${label(b.r)}」内容几乎相同（${Math.round(sim * 100)}%）`,
         advice: '停用其中一个即可：重复的技能会让应用难以选择，也多占上下文。停用只是从应用里撤下，资产还在。',
         signature: dupSig,
+        facts: dupFacts,
         actions: [a.r, b.r].map(z => ({
           label: `停用「${label(z)}」`, done: `已停用「${label(z)}」`, auto: z === drop, run: { type: 'disableSkill', data: { resourceId: z.id } },
         })),

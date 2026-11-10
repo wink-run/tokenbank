@@ -2428,6 +2428,8 @@ export default {
   "guardian.ask": "Questions? Ask",
   "debug.tabs.guardian": "Built-in Guardian",
   "guardian.checkHint": "\"Check now\" looks at the current state: projections, asset health, setup, sharing and devices. Rules only, no tokens.",
+  "guardian.falsePositive": "False positive?",
+  "guardian.falsePositiveHint": "The built-in guardian checks it; if it is a false positive it writes a judgment rule so the guardian stops flagging it",
   "guardian.noPending": "Nothing waiting on you — the guardian has it handled.",
   "guardian.pending": "Needs you · {n}",
   "guardian.handled": "Handled · {n}",

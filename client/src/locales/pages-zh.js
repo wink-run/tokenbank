@@ -2435,6 +2435,8 @@ export default {
   "guardian.ask": "有疑问？问问",
   "debug.tabs.guardian": "内置看护智能体",
   "guardian.checkHint": "「立即检查」看现在的状态：投射、资产体检、配置、分享与多设备。只用规则，不花 token。",
+  "guardian.falsePositive": "误报？",
+  "guardian.falsePositiveHint": "交给内置看护智能体核实；确认是误报，它会写一条判断规则，看护以后不再这样判",
   "guardian.noPending": "没有待处理的事，看护都处理好了。",
   "guardian.pending": "待处理 {n}",
   "guardian.handled": "已处理 {n}",

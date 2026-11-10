@@ -14,6 +14,7 @@ const {
   pathExists,
   pathsEqual,
   isRealSkillDir,
+  realSkillDir,
 } = require('./resource-canonical');
 
 function ensureDir(dir) {
@@ -269,7 +270,8 @@ function verifyProjection(resource, agentId, projectionType, targetPath) {
 
   // 权威型：该 Agent 目录本身就是权威源，健康 = 真实目录仍在
   if (projectionType === 'scan' || projectionType === 'origin') {
-    return isRealSkillDir(skillDir)
+    // 扫描进来的位置后来被换成了指向真身的软链：真身在就算健康
+    return (isRealSkillDir(skillDir) || realSkillDir(skillDir))
       ? { healthy: true, reason: 'authority', repairable: false }
       : { healthy: false, reason: 'authority-missing', repairable: false };
   }
