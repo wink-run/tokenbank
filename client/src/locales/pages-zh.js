@@ -2438,6 +2438,8 @@ export default {
   "guardian.assetsDone": "体检 {skills} 个技能：{quality} 个需完善、{risky} 个有风险、{dups} 组重复、{updates} 个有新版本",
   "guardian.status.resolved": "已解决",
   "guardian.go": "去处理",
+  "guardian.dot.busy": "看护正在执行：{what}（点击查看）",
+  "guardian.runtime.busy": "正在执行：{what}",
   "guardian.pageHint": "看护在后台照看配置、资产、路由和投射，出错后修正并给出原因；这里看它的运行状态、调整处理方式、查看处理记录。",
   "guardian.masterSwitch": "总开关",
   "guardian.openSettings": "看护设置",

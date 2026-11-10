@@ -1113,6 +1113,7 @@ export default function PersonalizedRecommend({
     });
     if (!exec || !exec.success || !exec.taskId) throw new Error((exec && exec.error) || 'agent start failed');
     PENDING.set(exec.taskId, job);
+    try { window.dispatchEvent(new Event('tb-guardian-changed')); } catch { /* 侧边栏小圆点立即显示「正在执行」 */ }
     setTaskId(exec.taskId);
     // 记进模块级存储:切 tab / 切页面回来后据此恢复并续上轮询
     if (nextPhase) setRun(rtype, { phase: nextPhase, taskId: exec.taskId, job, startedAt: Date.now() });

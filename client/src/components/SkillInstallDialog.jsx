@@ -280,6 +280,7 @@ export default function SkillInstallDialog({
       if (!exec || !exec.success || !exec.taskId) {
         throw new Error((exec && exec.error) || 'agent start failed');
       }
+    try { window.dispatchEvent(new Event('tb-guardian-changed')); } catch { /* 侧边栏小圆点立即显示「正在执行」 */ }
       setTaskId(exec.taskId);
     } catch (e) {
       setErr(e.message || String(e));

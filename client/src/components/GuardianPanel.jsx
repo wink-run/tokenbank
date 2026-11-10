@@ -52,6 +52,12 @@ function RuntimeSection({ health, api, t, lang, navigate, onChanged }) {
         <div className="text-xs font-medium text-zinc-800 dark:text-zinc-100">{t('guardian.runtime.title')}</div>
         <HealthBadge health={health} t={t} />
       </div>
+      {health.busy?.length > 0 && (
+        <div className="flex items-center gap-2 text-[11px] text-emerald-700 dark:text-emerald-300" role="status">
+          <span className="w-3 h-3 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin motion-reduce:animate-none" aria-hidden />
+          {t('guardian.runtime.busy', { what: health.busy.join('、') })}
+        </div>
+      )}
       {health.issues?.length > 0 && (
         <ul className="space-y-1">
           {health.issues.map((it) => (
@@ -120,6 +126,7 @@ function IntrospectSection({ settings, save, api, t, lang, onRan }) {
   const runNow = async () => {
     setBusy(true);
     setNote('');
+    setTimeout(() => { try { window.dispatchEvent(new Event('tb-guardian-changed')); } catch { /* ignore */ } }, 300);
     try {
       const r = await api.introspectNow();
       if (r?.report) {
@@ -267,6 +274,15 @@ export default function GuardianPanel({ page = false }) {
 
   useEffect(() => { load().catch(() => {}); }, [load]);
   useEffect(() => { if (pageActive) load().catch(() => {}); }, [pageActive, load]);
+  // 正在执行时每几秒刷新一次状态，结束后停
+  const busyNow = (health?.busy || []).length > 0;
+  useEffect(() => {
+    if (!busyNow || !api?.health) return undefined;
+    const timer = setInterval(() => {
+      api.health().then((h) => { if (h && h.success !== false) setHealth(h); }).catch(() => {});
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [busyNow, api]);
 
   if (!api) return null;
 
@@ -291,6 +307,7 @@ export default function GuardianPanel({ page = false }) {
   const runChecks = async () => {
     setBusy('checks');
     setMsg('');
+    setTimeout(() => { try { window.dispatchEvent(new Event('tb-guardian-changed')); } catch { /* ignore */ } }, 300);
     try {
       const r = await api.runChecks();
       const p = r?.results?.projection;

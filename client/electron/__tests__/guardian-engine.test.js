@@ -132,3 +132,48 @@ test('health: off / needs attention with reasons / ok, and last task outcome', a
     modelCall.modelStatus = origM;
   }
 });
+
+test('health.busy lists what is running right now, and clears when it ends', async () => {
+  const guardian = require('../guardian');
+  const health = require('../guardian/health');
+  const modelCall = require('../guardian/model-call');
+  const origT = targets.listManagedResourceAgentIds;
+  const origE = executor.execute;
+  const origM = modelCall.modelStatus;
+  try {
+    targets.listManagedResourceAgentIds = () => ['codex'];
+    modelCall.modelStatus = async () => ({ ok: true, count: 1 });
+    assert.deepEqual((await health.health()).busy, []);
+
+    // 执行应用里正在跑一个资产发现（执行器查得到、状态是运行中）
+    const origS = executor.getTaskStatus;
+    executor.getTaskStatus = async (id) => (id === 't-busy' ? { status: 'running' } : origS.call(executor, id));
+    executor.execute = async () => ({ taskId: 't-busy' });
+    await engine.run({ kind: 'discover', prompt: 'x' });
+    assert.ok((await health.health()).busy.some(b => /资产发现/.test(b)));
+    executor.emit('task:completed', { taskId: 't-busy' });
+    assert.deepEqual((await health.health()).busy, []);
+    executor.getTaskStatus = origS;
+
+    // 结束事件漏了：执行器里已经是完成，也会按完成收尾
+    executor.getTaskStatus = async (id) => (id === 't-missed' ? { status: 'completed' } : origS.call(executor, id));
+    executor.execute = async () => ({ taskId: 't-missed' });
+    await engine.run({ kind: 'portrait', prompt: 'x' });
+    assert.deepEqual((await health.health()).busy, []);
+    assert.equal(engine.lastTask().status, 'completed');
+    executor.getTaskStatus = origS;
+
+    // 一项后台检查正在跑
+    let release;
+    guardian.registerCheck('assets', () => new Promise((r) => { release = r; }));
+    const p = guardian.runCheck('assets');
+    assert.ok((await health.health()).busy.some(b => /资产体检/.test(b)));
+    release({ ok: true });
+    await p;
+    assert.deepEqual((await health.health()).busy, []);
+  } finally {
+    targets.listManagedResourceAgentIds = origT;
+    executor.execute = origE;
+    modelCall.modelStatus = origM;
+  }
+});

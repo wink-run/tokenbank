@@ -2431,6 +2431,8 @@ export default {
   "guardian.assetsDone": "Checked {skills} skills: {quality} need work, {risky} risky, {dups} duplicate pairs, {updates} updates",
   "guardian.status.resolved": "Resolved",
   "guardian.go": "Open",
+  "guardian.dot.busy": "Guardian is working: {what} (click for details)",
+  "guardian.runtime.busy": "Working on: {what}",
   "guardian.pageHint": "The guardian looks after config, assets, routes and projections in the background and fixes things after failures. See its status, adjust how it handles things, and review what it did.",
   "guardian.masterSwitch": "Master switch",
   "guardian.openSettings": "Guardian settings",

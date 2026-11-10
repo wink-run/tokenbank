@@ -83,7 +83,7 @@ async function run({ kind, prompt, sessionKey } = {}) {
     noteLast({ kind, runtime: st.runtime, status: 'failed', error: e.message });
     throw e;
   }
-  if (res?.taskId) pending.set(res.taskId, { kind, runtime: st.runtime });
+  if (res?.taskId) pending.set(res.taskId, { kind, runtime: st.runtime, startedAt: Date.now() });
   noteLast({ kind, runtime: st.runtime, status: 'running' });
   return { ok: true, taskId: res?.taskId, runtime: st.runtime };
 }
@@ -103,12 +103,40 @@ function watch(executor) {
     const job = pending.get(evt.taskId);
     if (!job) return;
     pending.delete(evt.taskId);
+    delete job.startedAt;
     const error = status === 'failed' ? String(evt.error || evt.result?.error || 'failed').slice(0, 200) : null;
     noteLast({ ...job, status, error });
   };
   executor.on('task:completed', done('completed'));
   executor.on('task:failed', done('failed'));
   executor.on('task:cancelled', done('cancelled'));
+}
+
+const STALE_MS = 2 * 60 * 60 * 1000;
+const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+
+/**
+ * 正在执行应用里跑的看护任务。先向执行器核对一遍：结束事件万一漏了（或进程重启前留下的），
+ * 按执行器记录的终态收尾；超过 2 小时还没结束的也不再算「正在执行」，避免小圆点一直转。
+ */
+async function runningTasks() {
+  let executor = null;
+  try { executor = require('../agent-executor'); } catch { /* ignore */ }
+  for (const [taskId, job] of [...pending.entries()]) {
+    if (Date.now() - (job.startedAt || 0) > STALE_MS) { pending.delete(taskId); continue; }
+    try {
+      const st = executor && typeof executor.getTaskStatus === 'function' ? await executor.getTaskStatus(taskId) : null;
+      const status = st && (st.status || st.task?.status);
+      if (TERMINAL.has(status)) {
+        pending.delete(taskId);
+        noteLast({ kind: job.kind, runtime: job.runtime, status, error: status === 'failed' ? String(st.error || st.task?.error || 'failed').slice(0, 200) : null });
+      }
+    } catch (e) {
+      // 执行器里根本没有这条任务：不可能还在跑，直接不算
+      if (/not found/i.test(String(e && e.message))) pending.delete(taskId);
+    }
+  }
+  return [...pending.values()].map(j => j.kind);
 }
 
 function lastTask() {
@@ -131,4 +159,4 @@ function retireLegacyAssistants() {
   return removed;
 }
 
-module.exports = { status, setRuntime, run, runtimes, lastTask, retireLegacyAssistants, ROLES, LEGACY_ASSISTANTS, _internal: { watch, pending } };
+module.exports = { status, setRuntime, run, runtimes, lastTask, runningTasks, retireLegacyAssistants, ROLES, LEGACY_ASSISTANTS, _internal: { watch, pending } };
