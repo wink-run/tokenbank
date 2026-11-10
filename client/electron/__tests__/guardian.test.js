@@ -65,6 +65,36 @@ test('in-place actions: pick a button on the record, failure keeps it open, undo
   assert.deepEqual(undone, { back: 'b' });
 });
 
+test('handle: auto mode does safe undoable fixes right away; suggest mode waits; an undo is respected', async () => {
+  let n = 0;
+  guardian.registerAction('test-auto', () => { n++; return { ok: true, message: 'fixed', undo: { type: 'test-auto-undo' } }; });
+  guardian.registerAction('test-auto-undo', () => ({ ok: true }));
+  const entry = () => ({
+    category: 'assets', kind: 'k', status: 'info', title: 'safe fix', signature: 'auto-sig',
+    actions: [{ label: 'Fix', done: 'Fixed', auto: true, run: { type: 'test-auto' } }, { label: 'Other', run: { type: 'test-auto' } }],
+  });
+  guardian.setSettings({ modes: { assets: 'suggest' } });
+  let r = await guardian.handle(entry());
+  assert.equal(r.status, 'info');
+  assert.equal(n, 0);
+  guardian.setSettings({ modes: { assets: 'auto' } });
+  r = await guardian.handle(entry());
+  assert.equal(r.status, 'done');
+  assert.equal(r.actedLabel, 'Fixed');
+  assert.equal(r.resultNote, 'fixed');
+  assert.equal(r.auto, true);
+  assert.equal(n, 1);
+  assert.equal(guardian.listRecords().filter(x => x.signature === 'auto-sig' && x.status === 'info').length, 0, 'the open suggestion is closed');
+  assert.equal((await guardian.undo(r.id)).ok, true);
+  r = await guardian.handle(entry());
+  assert.equal(r.status, 'info', 'user undid it once → only suggest from now on');
+  assert.equal(n, 1);
+  // 没有 auto 按钮的（比如要用户做判断的）照常等用户点
+  r = await guardian.handle({ category: 'assets', kind: 'k', status: 'info', title: 'judgement', signature: 'judge', actions: [{ label: 'A', run: { type: 'test-auto' } }] });
+  assert.equal(r.status, 'info');
+  assert.equal(n, 1);
+});
+
 test('modes: per category and global switch', () => {
   guardian.setSettings({ modes: { projection: 'suggest' } });
   assert.equal(guardian.modeOf('projection'), 'suggest');

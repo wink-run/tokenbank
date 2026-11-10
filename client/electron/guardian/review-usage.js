@@ -23,7 +23,7 @@ function isDemoted(provider, model) {
 
 function demoteAction(provider, model, label) {
   return {
-    label, done: '已下沉',
+    label, done: '已下沉', auto: true,
     run: { type: 'demoteRoute', data: { provider, model } },
     undo: { type: 'undemoteRoute', data: { provider, model } },
   };
@@ -95,7 +95,7 @@ function taskErrors(agentId, sinceMs) {
 }
 
 /** 网关路由：哪个模型在哪个来源上不稳、同一模型哪个来源更快；智能体派发：哪个运行时常失败 */
-function reviewRoutes({ sinceSec }) {
+async function reviewRoutes({ sinceSec }) {
   const items = [];
   const rows = routeStats(sinceSec);
   const byModel = new Map();
@@ -116,14 +116,15 @@ function reviewRoutes({ sinceSec }) {
         ? `同一个模型在「${providerName(better.provider)}」上失败率只有 ${pct(better.fails / better.calls)}。下沉后请求先走其它来源，这个只在都失败时兜底。`
         : '下沉后请求先走其它来源，这个只在都失败时兜底（不会删除）；没有其它来源的话，建议给这个模型加一个。';
       const title = `${model} 在「${providerName(r.provider)}」上 ${r.calls} 次请求失败 ${r.fails} 次（${pct(rate)}）`;
-      const rec = guardian.record({
+      // 下沉没风险、可撤销：「供给源」是自动处理就直接做
+      const rec = await guardian.handle({
         category: 'gateway', kind: 'review-route-unstable', status: 'suggested', countAsRepeat: false,
         title, advice, signature: `review-route|${model}|${r.provider}`,
         actions: [demoteAction(r.provider, model, '下沉这个来源')],
         link: { to: '/gateway', label: '查看路由' },
         meta: { model, provider: r.provider, calls: r.calls, fails: r.fails, better: better?.provider || null },
       });
-      items.push({ title, advice, recordId: rec?.id || null });
+      items.push({ title, advice: rec?.status === 'done' ? `已自动下沉，可在看护里撤销。${advice}` : advice, recordId: rec?.id || null });
     }
 
     const healthy = list.filter(x => x.calls >= MIN_CALLS && x.fails / x.calls <= GOOD_FAIL_RATE && x.avgLatency > 0);
@@ -134,7 +135,7 @@ function reviewRoutes({ sinceSec }) {
       if (slow.avgLatency / fast.avgLatency >= SLOW_RATIO && !isDemoted(slow.provider, model)) {
         const title = `${model}：「${providerName(fast.provider)}」比「${providerName(slow.provider)}」快 ${(slow.avgLatency / fast.avgLatency).toFixed(1)} 倍`;
         const advice = `平均耗时 ${Math.round(fast.avgLatency)}ms 对 ${Math.round(slow.avgLatency)}ms，两边都很稳，建议让快的先上。`;
-        const rec = guardian.record({
+        const rec = await guardian.handle({
           category: 'gateway', kind: 'review-route-slow', status: 'suggested', countAsRepeat: false,
           title, advice, signature: `review-route-slow|${model}`,
           actions: [demoteAction(slow.provider, model, `让「${providerName(fast.provider)}」先上`)],

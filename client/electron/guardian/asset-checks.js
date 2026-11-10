@@ -33,6 +33,15 @@ function projectedApps(r) {
   return [...new Set((r.projections || []).map(p => p.agentId).filter(id => id && !internal.has(id)))];
 }
 
+/** 最近 30 天各技能被调用的次数（自动停用重复技能时，留下用得多的那个） */
+function useCounts() {
+  try {
+    const d = require('../local-stats').getDb();
+    const rows = d.prepare('SELECT LOWER(skill_key) AS k, COUNT(*) AS n FROM skill_calls WHERE ts >= ? GROUP BY LOWER(skill_key)').all(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    return new Map(rows.map(r => [r.k, r.n]));
+  } catch { return new Map(); }
+}
+
 function findingsKey(findings) {
   return (findings || []).filter(x => x.level === 'high').map(x => `${x.code}|${x.file}|${x.line}`).sort().join(';');
 }
@@ -77,7 +86,8 @@ async function check() {
   for (const r of skills) {
     const files = checks.readSkillFiles(authorityDir(r));
     const f = {};
-    const q = checks.qualityCheck(r, files);
+    // 原文件整个不见了：投射自愈那边会处理（撤下坏链接），这里不再重复提醒「描述要完善」
+    const q = files.length ? checks.qualityCheck(r, files) : [];
     const worst = q.some(x => x.level === 'warn') ? 'warn' : (q.length ? 'info' : null);
     if (worst) { f.quality = worst; f.qualityCodes = q.map(x => x.code); }
     if (worst === 'warn') qualityNeeds.push({ name: label(r), id: r.id, fixable: q.some(x => x.fix && x.fix.type === 'completeDescription') });
@@ -114,7 +124,7 @@ async function check() {
   // 质量：汇总成一条（每个技能的细节在资产详情「诊断」里）
   if (qualityNeeds.length) {
     const fixIds = qualityNeeds.filter(x => x.fixable).map(x => x.id);
-    guardian.record({
+    await guardian.handle({
       category: 'assets', kind: 'asset-quality', status: 'info', countAsRepeat: false,
       title: `${qualityNeeds.length} 个技能的描述需要完善，应用可能不会主动调用它们`,
       detail: qualityNeeds.slice(0, 12).map(x => x.name).join('、') + (qualityNeeds.length > 12 ? ' 等' : ''),
@@ -123,7 +133,7 @@ async function check() {
         : '这些技能缺少 SKILL.md，需要到资产页逐个查看。',
       signature: 'asset-quality',
       actions: fixIds.length
-        ? [{ label: `一键补全（${fixIds.length} 个）`, done: '已补全', run: { type: 'completeDescriptions', data: { resourceIds: fixIds } } }]
+        ? [{ label: `一键补全（${fixIds.length} 个）`, done: '已补全', auto: true, run: { type: 'completeDescriptions', data: { resourceIds: fixIds } } }]
         : [],
       link: { to: '/resources', label: '查看', state: { resourceType: 'skill' } },
       meta: { resourceIds: qualityNeeds.map(x => x.id) },
@@ -134,6 +144,8 @@ async function check() {
 
   // 重复：内容高度相似的两两成对给建议
   let dups = 0;
+  const uses = useCounts();
+  const disabledNow = new Set();   // 这一轮已经自动停用的，不再参与后面的配对（防止 A≈B≈C 全被停掉）
   for (let i = 0; i < bodies.length; i++) {
     for (let j = i + 1; j < bodies.length; j++) {
       const a = bodies[i];
@@ -149,18 +161,23 @@ async function check() {
       // 两个都启用到了同一个应用才会互相抢；只要有一个停用了，资产列表的小标签就够了，不再提醒
       const appsA = projectedApps(a.r);
       const shared = projectedApps(b.r).filter(id => appsA.includes(id));
-      if (!shared.length) { guardian.resolveSignature(dupSig, '已有一个没在用'); continue; }
-      guardian.record({
+      if (!shared.length || disabledNow.has(a.r.id) || disabledNow.has(b.r.id)) { guardian.resolveSignature(dupSig, '已有一个没在用'); continue; }
+      // 自动处理时停用用得少的那个；一样多就停用后装的
+      const score = (z) => [uses.get(String(z.name).toLowerCase()) || 0, -(Date.parse(z.created_at) || 0)];
+      const [sa, sb] = [score(a.r), score(b.r)];
+      const drop = (sa[0] - sb[0] || sa[1] - sb[1]) >= 0 ? b.r : a.r;
+      const dupRec = await guardian.handle({
         category: 'assets', kind: 'asset-duplicate', status: 'info', countAsRepeat: false,
         title: `「${label(a.r)}」和「${label(b.r)}」内容几乎相同（${Math.round(sim * 100)}%）`,
         advice: '停用其中一个即可：重复的技能会让应用难以选择，也多占上下文。停用只是从应用里撤下，资产还在。',
         signature: dupSig,
         actions: [a.r, b.r].map(z => ({
-          label: `停用「${label(z)}」`, done: `已停用「${label(z)}」`, run: { type: 'disableSkill', data: { resourceId: z.id } },
+          label: `停用「${label(z)}」`, done: `已停用「${label(z)}」`, auto: z === drop, run: { type: 'disableSkill', data: { resourceId: z.id } },
         })),
         link: { to: '/resources', label: '查看', state: { resourceType: 'skill', selectKey: `r-${a.r.id}` } },
         meta: { resourceIds: [a.r.id, b.r.id], similarity: sim },
       });
+      if (dupRec && dupRec.status === 'done') disabledNow.add(drop.id);
     }
   }
 

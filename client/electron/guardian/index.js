@@ -217,6 +217,35 @@ async function act(id, index) {
   return r;
 }
 
+/** 同签名的自动处理被用户撤销过：尊重用户，之后只提建议、不再自动做 */
+function wasUndone(signature) {
+  return !!signature && listRecords({ limit: RECORDS_MAX }).some(r => r.signature === signature && r.status === 'undone');
+}
+
+/**
+ * 记一条带就地按钮的记录；该类是「自动处理」且有标了 auto 的按钮（没风险、可撤销）时直接做，
+ * 记成「已处理」并带撤销；做不成或用户撤销过，就照常留一条待处理。
+ */
+async function handle(entry) {
+  const idx = Array.isArray(entry.actions) ? entry.actions.findIndex(a => a && a.auto) : -1;
+  if (idx >= 0 && modeOf(entry.category) === 'auto' && !wasUndone(entry.signature)) {
+    const a = entry.actions[idx];
+    const r = await runAction(a.run);
+    if (r.ok) {
+      if (entry.signature) resolveSignature(entry.signature, '已自动处理');
+      const { actions, countAsRepeat, ...rest } = entry;
+      const undoSpec = r.undo || a.undo || null;
+      return record({
+        ...rest, status: 'done', auto: true, appliedAt: Date.now(), actedLabel: a.done || a.label,
+        ...(r.message ? { resultNote: String(r.message).slice(0, 300) } : {}),
+        ...(undoSpec ? { undo: undoSpec } : {}),
+      });
+    }
+    entry = { ...entry, lastError: r.error };
+  }
+  return record(entry);
+}
+
 function dismiss(id) {
   return !!updateRecord(id, { status: 'dismissed', dismissedAt: Date.now() });
 }
@@ -342,6 +371,8 @@ module.exports = {
   undo,
   apply,
   act,
+  handle,
+  wasUndone,
   dismiss,
   getRule,
   learnRule,

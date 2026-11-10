@@ -70,6 +70,8 @@ test('asset check: quality summary, risky skill, duplicate pair, update with und
   // 启用到同一个应用后才提醒（直接写投射记录，测试里没有真的应用目录）
   const ins = rm._getDb().prepare("INSERT INTO resource_projections (id, resource_id, agent_id, scope, projection_type, target_path, status, created_at) VALUES (?, ?, 'codex', 'global', 'symlink', ?, 'active', ?)");
   for (const id of ['res-skill-installer-x', 'res-skill-review-a', 'res-skill-review-b']) ins.run(`pj-${id}`, id, path.join(HOME, 'nowhere', id), Date.now());
+  // 先用「建议」模式看就地按钮；自动模式另测
+  guardian.setSettings({ modes: { assets: 'suggest' } });
   res = await assets.check();
   assert.ok(res.quality >= 1);
   assert.equal(res.risky, 1);
@@ -126,6 +128,7 @@ test('asset check: quality summary, risky skill, duplicate pair, update with und
   rm.projectToAgents = origProject;
   await assets.check();
   assert.equal(guardian.listRecords({ limit: 300 }).filter(r => r.kind === 'asset-duplicate' && ['info', 'suggested'].includes(r.status)).length, 0);
+  guardian.setSettings({ modes: { assets: 'auto' } });
 
   // 质量：一键补全；没有模型时给出明白的话，记录还开着
   const q = guardian.listRecords().find(r => r.kind === 'asset-quality');

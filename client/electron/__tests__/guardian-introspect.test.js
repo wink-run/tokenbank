@@ -47,7 +47,8 @@ test('settings: introspect defaults and validation', () => {
   guardian.setSettings({ introspect: { frequency: 'weekly', tokenCap: 20000, scope: ['assets', 'routes', 'models', 'savings', 'rules'], hour: 3 } });
 });
 
-test('route review: unstable provider with better alternative, slower duplicate, failing agent', () => {
+test('route review: unstable provider with better alternative, slower duplicate, failing agent', async () => {
+  guardian.setSettings({ modes: { gateway: 'suggest' } });
   req('glm-5', 'prov-a', { n: 12, fail: 6 });
   req('glm-5', 'prov-b', { n: 10, fail: 0 });
   req('qwen-max', 'fast', { n: 10, latency: 500 });
@@ -56,7 +57,7 @@ test('route review: unstable provider with better alternative, slower duplicate,
   const ins = db.prepare('INSERT INTO agent_tasks (id, agent_id, prompt, status, error, created_at) VALUES (?, ?, ?, ?, ?, ?)');
   for (let i = 0; i < 6; i++) ins.run(`t${i}`, 'codex', 'fix the bug', i < 4 ? 'failed' : 'completed', i < 4 ? 'Error: not logged in' : null, Date.now() - 1000);
 
-  const r = review.reviewRoutes({ sinceSec: now - 86400 });
+  const r = await review.reviewRoutes({ sinceSec: now - 86400 });
   assert.ok(r.items.some(i => /glm-5/.test(i.title) && /prov-b/.test(i.advice)), 'suggests the healthier provider');
   assert.ok(r.items.some(i => /qwen-max/.test(i.title) && /快 4\.0 倍/.test(i.title)));
   assert.ok(r.items.some(i => /codex/i.test(i.title) && /没登录/.test(i.advice)), JSON.stringify(r.items.map(i => [i.title, i.advice])));
@@ -76,9 +77,18 @@ test('route review: unstable provider with better alternative, slower duplicate,
     assert.deepEqual(order, ['prov-b', 'prov-a']);
     // 同一来源的其它模型不受影响
     assert.equal(cooldown.isCooling(cooldown.demoteKey('prov-a', 'other-model')), false);
-    assert.ok(!review.reviewRoutes({ sinceSec: now - 86400 }).items.some(i => /glm-5 在「prov-a」/.test(i.title)), 'already handled');
+    assert.ok(!(await review.reviewRoutes({ sinceSec: now - 86400 })).items.some(i => /glm-5 在「prov-a」/.test(i.title)), 'already handled');
     assert.equal((await guardian.undo(rec.id)).ok, true);
     assert.deepEqual(cooldown.sink(cands, (c) => [c.provider.id, cooldown.demoteKey(c.provider.id, c.model)]).map(c => c.provider.id), ['prov-a', 'prov-b']);
+    // 「供给源」是自动处理：慢的那一对直接下沉，记成已处理、可撤销
+    guardian.setSettings({ modes: { gateway: 'auto' } });
+    await review.reviewRoutes({ sinceSec: now - 86400 });
+    const slow = guardian.listRecords().find(x => x.signature === 'review-route-slow|qwen-max');
+    assert.equal(slow.status, 'done');
+    assert.equal(slow.auto, true);
+    assert.ok(cooldown.isCooling(cooldown.demoteKey('slow', 'qwen-max')));
+    assert.equal((await guardian.undo(slow.id)).ok, true);
+    assert.equal(cooldown.isCooling(cooldown.demoteKey('slow', 'qwen-max')), false);
   });
 });
 
@@ -90,10 +100,10 @@ test('savings review: concentrated paid spend with a stable free model', () => {
   assert.ok(r.items.some(i => /claude-opus/.test(i.title) && /deepseek-free/.test(i.advice) && /按这段时间的用量约能省 \$2\.50/.test(i.advice)));
 });
 
-test('guardian own requests (caller key tb-guardian) are left out of the review', () => {
-  const before = review.reviewRoutes({ sinceSec: now - 86400 }).stats.calls;
+test('guardian own requests (caller key tb-guardian) are left out of the review', async () => {
+  const before = (await review.reviewRoutes({ sinceSec: now - 86400 })).stats.calls;
   localStats.record({ api_key: 'tb-guardian', model: 'trial-x', provider_id: 'p', tier: 'free', ts: now - 30, data_source: 'proxy', status_code: 200, request_id: `g-${Math.random()}` });
-  assert.equal(review.reviewRoutes({ sinceSec: now - 86400 }).stats.calls, before);
+  assert.equal((await review.reviewRoutes({ sinceSec: now - 86400 })).stats.calls, before);
 });
 
 test('task failure review: classify and capability suggestion with apply/undo', async () => {

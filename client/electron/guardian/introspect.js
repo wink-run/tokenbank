@@ -156,7 +156,7 @@ async function run({ manual = false } = {}) {
       if (!scope.has(key)) continue;
       try {
         if (key === 'assets') sections.assets = await reviewAssets({ since });
-        else if (key === 'routes') sections.routes = review.reviewRoutes({ sinceSec: Math.floor(since / 1000) });
+        else if (key === 'routes') sections.routes = await review.reviewRoutes({ sinceSec: Math.floor(since / 1000) });
         else if (key === 'savings') sections.savings = review.reviewSavings({ sinceSec: Math.floor(since / 1000), days });
         else if (key === 'rules') sections.rules = tidyRules({ handling: c.handling });
         else if (key === 'models') {

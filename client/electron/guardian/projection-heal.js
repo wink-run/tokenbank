@@ -120,7 +120,7 @@ async function check() {
     const internal = require('./diagnose').INTERNAL_TARGETS;
     const apps = [...new Set(gone.filter(g => !internal.has(g.agentId)).map(g => agentName(g.agentId)))];
     const where = apps.length ? `在 ${apps.join('、')} 里用不了` : '用不了';
-    guardian.record({
+    await guardian.handle({
       category: 'projection',
       kind: 'projection-gone',
       status: 'suggested',
@@ -131,7 +131,7 @@ async function check() {
       detail: names.slice(0, 12).join('、') + (names.length > 12 ? ' 等' : ''),
       advice: '撤下这些坏掉的链接，应用里就不会再看到它们；以后需要可以重新安装。',
       signature: 'proj-gone',
-      actions: [{ label: '全部撤下', done: '已撤下', run: { type: 'unprojectMany', data: { items: gone.map(({ resourceId, agentId }) => ({ resourceId, agentId })) } } }],
+      actions: [{ label: '全部撤下', done: '已撤下坏掉的链接', auto: true, run: { type: 'unprojectMany', data: { items: gone.map(({ resourceId, agentId }) => ({ resourceId, agentId })) } } }],
       meta: { items: gone },
     });
   } else {
@@ -152,7 +152,7 @@ function register() {
     for (const it of items) {
       try { const r = m.unproject(it); if (!(r && r.success === false)) n++; } catch { /* 已撤下 */ }
     }
-    return { ok: true, message: `已撤下 ${n} 个` };
+    return { ok: true, message: n ? '已撤下，应用里不会再看到这些坏掉的技能；需要的话可以重新安装' : '已经没有要撤下的了' };
   });
   guardian.registerAction('repairProjection', ({ resourceId }) => {
     const v = rm().verifyProjections(resourceId, { repair: true });
