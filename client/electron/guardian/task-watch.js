@@ -121,6 +121,8 @@ async function handleFailed(evt = {}) {
     detail: error.slice(0, 300),
     advice: c.advice,
     signature: `task-fail|${agentId}|${c.kind}`,
+    // 只有要用户自己动手的（应用没装好、没登录）才提；超时、上下文太长这类留给自省复盘
+    needsUser: c.kind === 'runtime-missing' || c.kind === 'not-logged-in',
     ...(c.link ? { link: c.link } : {}),
     meta: { agentId, kind: c.kind, taskId: evt.taskId || null },
   });

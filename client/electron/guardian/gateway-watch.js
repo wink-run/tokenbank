@@ -80,6 +80,9 @@ async function handleFailure(type, info = {}) {
       .filter(Boolean).join(' · '),
     advice: expl.advice,
     signature,
+    // 网关已经自动换源；只有要用户自己动手的（Key 失效、额度用完）才提
+    needsUser: base.kind === 'auth' || base.kind === 'quota',
+    link: { to: '/providers', label: '去看模型来源' },
     meta: { providerId: info.providerId, model: info.model, kind: base.kind, event: type, until: info.until || null, source: expl.source },
   });
   guardian.learnRule(signature, { countDelta: 1, kind: base.kind });

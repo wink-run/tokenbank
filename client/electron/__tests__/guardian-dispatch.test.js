@@ -75,7 +75,7 @@ test('summary review: finds omissions and unmentioned failures, then adds a summ
   assert.equal(learn.feedback({ type: 'followup', mode: 'orchestrator', prompt: '再加一个对比维度', prevTaskId: 'p1' }).skipped, true);
   learn.feedback({ type: 'followup', mode: 'orchestrator', prompt: '你漏了图表，汇总不完整', prevTaskId: 'p1' });
   await tick();
-  assert.ok(guardian.listRecords().some(x => x.kind === 'summary-review' && x.meta.taskId === 'p1'));
+  assert.ok(!guardian.listRecords().some(x => x.kind === 'summary-review'), 'the review itself is not a notice; only a learned rule is recorded');
   assert.ok(!guardian.listRecords().some(x => x.kind === 'summary-rule'), 'one time is not a pattern yet');
   mk('p2', 2);
   learn.feedback({ type: 'redo', mode: 'orchestrator', agentId: 'claude-code', prompt: '做竞品分析并出报告', taskId: 'p2' });

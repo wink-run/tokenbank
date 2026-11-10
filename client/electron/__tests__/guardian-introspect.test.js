@@ -118,8 +118,11 @@ test('task failure review: classify and capability suggestion with apply/undo', 
   db.prepare('INSERT INTO agent_tasks (id, agent_id, prompt, status, error, created_at) VALUES (?, ?, ?, ?, ?, ?)')
     .run('cap1', 'claude-code', '按 Conventional Commits 规范生成 git commit 提交信息', 'failed', 'no suitable tool', Date.now());
   await taskWatch.handleFailed({ taskId: 'cap1', agentId: 'claude-code', error: "I don't have a tool for this" });
-  const info = guardian.listRecords().find(r => r.signature === 'task-fail|claude-code|capability');
-  assert.equal(info.status, 'info');
+  // 少打扰：缺能力这类失败不单独提醒（下面那条「装个技能」的建议才是用户能做的事）
+  assert.ok(!guardian.listRecords().some(r => r.signature === 'task-fail|claude-code|capability'));
+  // 要用户自己动手的（没登录）才提
+  await taskWatch.handleFailed({ taskId: 'login1', agentId: 'claude-code', error: 'Error: not logged in' });
+  assert.equal(guardian.listRecords().find(r => r.signature === 'task-fail|claude-code|not-logged-in').status, 'info');
   const sug = guardian.listRecords().find(r => r.kind === 'task-capability');
   assert.ok(sug, 'suggests a matching free skill');
   assert.equal(sug.meta.catalogId, 'git-commit-skill');
@@ -150,8 +153,9 @@ test('new-model evaluation: baseline first, then evaluate new models within toke
     const second = await rm.reviewModels({ budget });
     assert.equal(second.items.length, 1, 'stops when the token cap is reached');
     assert.ok(budget.stopped);
-    const rec = guardian.listRecords().find(r => r.signature === 'model-eval|new-b');
-    assert.match(rec.title, /适合中文问答、写代码、结构化输出/);
+    // 评估结论写进自省报告，不单独生成提醒
+    assert.match(second.items[0].title, /适合中文问答、写代码、结构化输出/);
+    assert.ok(!guardian.listRecords().some(r => r.signature === 'model-eval|new-b'));
     const third = await rm.reviewModels({ budget: { used: 0, cap: 10000 } });
     assert.equal(third.items.length, 1, 'continues with the remaining model next time');
     assert.ok(!calls.includes('old-a'));

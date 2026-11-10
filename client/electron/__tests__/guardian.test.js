@@ -16,8 +16,8 @@ const explain = require('../guardian/explain');
 const installFix = require('../guardian/install-fix');
 
 test('records dedupe by signature and keep a count', () => {
-  const a = guardian.record({ category: 'gateway', kind: 'x', status: 'info', title: 't', signature: 'sig-1' });
-  const b = guardian.record({ category: 'gateway', kind: 'x', status: 'info', title: 't', signature: 'sig-1' });
+  const a = guardian.record({ needsUser: true, category: 'gateway', kind: 'x', status: 'info', title: 't', signature: 'sig-1' });
+  const b = guardian.record({ needsUser: true, category: 'gateway', kind: 'x', status: 'info', title: 't', signature: 'sig-1' });
   assert.equal(a.id, b.id);
   assert.equal(guardian.listRecords().find(r => r.id === a.id).count, 2);
 });
@@ -214,21 +214,27 @@ test('install: network errors are explained without an extra retry (npm already 
   assert.ok(guardian.listRecords().some(x => x.kind === 'install-failed' && x.meta?.cause === 'network'));
 });
 
-test('low attention: only real decisions need the user; one click handles the recommended fixes; FYI notices expire', async () => {
+test('low attention: a notice with nothing for the user to do is never raised; one click handles the recommended fixes', async () => {
   const before = guardian.summary();
   let ran = 0;
   guardian.registerAction('la-fix', () => { ran++; return { ok: true, undo: { type: 'la-undo' } }; });
   guardian.registerAction('la-undo', () => ({ ok: true }));
   const withFix = guardian.record({ category: 'assets', kind: 'la-dup', status: 'info', title: 'dup', signature: 'la-1', actions: [{ label: 'Fix', run: { type: 'la-fix' } }, { label: 'Other', run: { type: 'la-fix' } }] });
-  const fyi = guardian.record({ category: 'community', kind: 'la-share', status: 'suggested', title: 'share?', signature: 'la-2', link: { to: '/resources' } });
+  // 只是告诉你一声的（没有按钮、不是失败、不用你动手）：不生成
+  assert.equal(guardian.record({ category: 'community', kind: 'la-share', status: 'suggested', title: 'share?', signature: 'la-2', link: { to: '/resources' } }), null);
+  assert.equal(guardian.record({ category: 'gateway', kind: 'la-net', status: 'info', title: 'network blip', signature: 'la-5', advice: 'gateway switched source' }), null);
+  // 必须用户动手的照常提
   const setup = guardian.record({ category: 'setup', kind: 'la-setup', status: 'suggested', title: 'no model', signature: 'la-3', link: { to: '/providers' } });
+  const login = guardian.record({ category: 'gateway', kind: 'la-login', status: 'info', title: 'not logged in', signature: 'la-6', needsUser: true });
+  const failed = guardian.record({ category: 'install', kind: 'la-fail', status: 'failed', title: 'install failed', signature: 'la-7' });
+  // 属于别的页面的：存着给那个页面用，不算这里的待处理
+  const gap = guardian.record({ category: 'discover', kind: 'la-gap', status: 'suggested', title: 'gap', signature: 'la-8', surface: 'discover' });
+  assert.ok(setup && login && failed && gap);
+  assert.equal(guardian.needsUser(gap), false);
   const think = guardian.record({ category: 'assets', kind: 'judgment-rule', status: 'suggested', title: 'broad rule', signature: 'la-4', _judged: true, actions: [{ label: 'Adopt', run: { type: 'la-fix' } }] });
-  assert.equal(guardian.needsUser(withFix), true);
-  assert.equal(guardian.needsUser(fyi), false, 'a share tip is only FYI');
-  assert.equal(guardian.needsUser(setup), true, 'missing setup needs the user');
   const s = guardian.summary();
-  assert.equal(s.decide - before.decide, 3);
-  assert.equal(s.fyi - before.fyi, 1);
+  assert.equal(s.decide - before.decide, 5);
+  assert.equal(s.fyi, undefined, 'there is no FYI tier any more');
   assert.equal(s.recommendable - before.recommendable, 1, 'rules that need thought are not batch-handled');
 
   const r = await guardian.actRecommended();
@@ -237,11 +243,11 @@ test('low attention: only real decisions need the user; one click handles the re
   assert.equal(guardian.listRecords({ limit: 300 }).find(x => x.id === think.id).status, 'suggested', 'left for the user');
   assert.equal((await guardian.undo(withFix.id)).ok, true, 'batch fixes stay undoable');
 
-  // 供参考的 14 天没人理 → 自动收起；要你定的不过期
-  const old = Date.now() - 15 * 24 * 60 * 60 * 1000;
-  guardian.updateRecord(fyi.id, { lastAt: old, at: old });
-  guardian.updateRecord(setup.id, { lastAt: old, at: old });
+  // 老版本留下的「只是告诉你一声」的提醒：启动时收起
+  const legacy = guardian.record({ category: 'gateway', kind: 'la-old', status: 'info', title: 'old', signature: 'la-9', needsUser: true });
+  guardian.updateRecord(legacy.id, { needsUser: false });
   assert.ok(guardian.tidy().expired >= 1);
-  assert.equal(guardian.listRecords({ limit: 300 }).find(x => x.id === fyi.id).status, 'resolved');
+  assert.equal(guardian.listRecords({ limit: 300 }).find(x => x.id === legacy.id).status, 'resolved');
   assert.equal(guardian.listRecords({ limit: 300 }).find(x => x.id === setup.id).status, 'suggested');
+  assert.equal(guardian.listRecords({ limit: 300 }).find(x => x.id === gap.id).status, 'suggested');
 });

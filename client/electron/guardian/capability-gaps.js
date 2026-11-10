@@ -108,6 +108,7 @@ async function check() {
     const name = g.offer ? (g.offer.display_name || g.offer.name) : '';
     guardian.record({
       category: 'discover', kind: 'capability-gap', status: 'suggested', countAsRepeat: false, quietDays: QUIET_DAYS,
+      surface: 'discover',   // 只在发现页置顶显示，不进看护页的待处理
       title: `最近 ${WINDOW_DAYS} 天有 ${g.times} 次在「${g.topic.label}」，还没有对应的技能`,
       advice: g.offer
         ? `社区里免费的${typeLabel[g.offer.type] || ''}「${name}」对得上，装上后应用遇到这类事会自动用它。`

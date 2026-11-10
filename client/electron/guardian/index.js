@@ -126,6 +126,11 @@ function record(entry) {
   }
   entry = { ...entry };
   delete entry._judged;
+  // 少打扰：没有可做的事就不提。只留有处理方式的、处理失败的、必须用户动手的（缺配置、没登录、Key 失效）
+  if (OPEN_STATUS.includes(entry.status) && !needsUser(entry) && !entry.surface) {
+    if (entry.signature) resolveSignature(entry.signature, '没有需要你做的事');
+    return null;
+  }
   const now = Date.now();
   const list = listRecords({ limit: RECORDS_MAX });
   if (entry.signature) {
@@ -279,14 +284,14 @@ async function handle(entry) {
 
 // ── 少打扰：只有真要用户拿主意的才算「要你定」，其余是「供参考」────────────────
 const OPEN_STATUS = ['info', 'suggested', 'failed'];
-const FYI_EXPIRE_MS = 14 * 24 * 60 * 60 * 1000;
 // 这些要用户自己想清楚，不放进「一键按推荐处理」
 const THINK_KINDS = new Set(['judgment-rule']);
 
 /** 要你定：有处理按钮的、处理失败的、缺配置的（没模型、应用没纳管）；其余只是告诉你一声 */
 function needsUser(r) {
   if (!r || !OPEN_STATUS.includes(r.status)) return false;
-  return (Array.isArray(r.actions) && r.actions.length > 0) || !!r.apply || r.status === 'failed' || r.category === 'setup';
+  if (r.surface) return false;   // 属于别的页面（比如发现页的能力缺口），在那边显示和处理，不占这里
+  return (Array.isArray(r.actions) && r.actions.length > 0) || !!r.apply || r.status === 'failed' || r.category === 'setup' || r.needsUser === true;
 }
 
 /** 一句话总览：最近 7 天替你处理了几件、几件要你定、几条供参考 */
@@ -298,7 +303,6 @@ function summary() {
   return {
     handledThisWeek: list.filter(r => r.status === 'done' && (r.appliedAt || r.lastAt || r.at) >= weekAgo).length,
     decide: decide.length,
-    fyi: open.length - decide.length,
     recommendable: decide.filter(r => !THINK_KINDS.has(r.kind) && ((r.actions || []).length || r.apply)).length,
   };
 }
@@ -316,16 +320,16 @@ async function actRecommended() {
   return { ok: true, done, failed };
 }
 
-/** 供参考的提醒 14 天没人理就自动收起（留痕，不删）；要你定的不会过期 */
+/** 老版本留下的、没有可做的事的提醒：收起（现在不再产生这类提醒） */
 function tidy() {
   const now = Date.now();
   const list = listRecords({ limit: RECORDS_MAX });
   let n = 0;
   for (const r of list) {
-    if (!OPEN_STATUS.includes(r.status) || needsUser(r) || now - (r.lastAt || r.at) < FYI_EXPIRE_MS) continue;
+    if (!OPEN_STATUS.includes(r.status) || needsUser(r) || r.surface) continue;
     r.status = 'resolved';
     r.resolvedAt = now;
-    r.resolvedNote = '过期自动收起';
+    r.resolvedNote = '没有需要你做的事';
     n++;
   }
   if (n) saveRecords(list);

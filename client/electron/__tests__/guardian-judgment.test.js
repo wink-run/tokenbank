@@ -59,7 +59,7 @@ test('a proposed rule is checked, adopted (undoable) and closes the false positi
   assert.equal(judgment.judge('projection-gone', fp), null);
   judgment.judge('projection-gone', real);
   judgment.judge('projection-gone', { ...real, resourceName: 'apps-y' });
-  const open = guardian.record({ category: 'projection', kind: 'projection-unrepairable', status: 'info', title: '「apple-design」在 Codex 里用不了', signature: 'proj-x|a|codex|authority-missing', facts: fp });
+  const open = guardian.record({ needsUser: true, category: 'projection', kind: 'projection-unrepairable', status: 'info', title: '「apple-design」在 Codex 里用不了', signature: 'proj-x|a|codex|authority-missing', facts: fp });
   void open;
 
   // 智能体写的提议（误报只排除「是软链且真身有 SKILL.md」这一种）
@@ -75,7 +75,8 @@ test('a proposed rule is checked, adopted (undoable) and closes the false positi
   const rec = guardian.listRecords().find(x => x.kind === 'judgment-rule');
   assert.equal(rec.status, 'done', 'auto mode adopts a narrow rule');
   assert.equal(rec.auto, true);
-  assert.ok(guardian.listRecords().some(x => x.kind === 'judgment-rejected' && /JSON/.test(x.detail)));
+  assert.match(fs.readFileSync(path.join(judgment.inboxDir(), 'bad.json.rejected'), 'utf8'), /JSON/, 'the reason is left next to the proposal for the agent');
+  assert.ok(!guardian.listRecords().some(x => x.kind === 'judgment-rejected'), 'the user is not bothered with it');
   assert.equal(judgment.rules().length, 1);
   // 采纳后：这条误报的提醒被收起；同类真问题照报
   assert.equal(guardian.listRecords({ limit: 300 }).find(x => x.signature === 'proj-x|a|codex|authority-missing').status, 'resolved');
@@ -90,7 +91,7 @@ test('a proposed rule is checked, adopted (undoable) and closes the false positi
 test('adopting a rule closes a grouped notice even when it also lists the asset library\'s own copy', async () => {
   const internal = [...require('../guardian/diagnose').INTERNAL_TARGETS][0];
   const app = { agentId: 'codex', resourceName: 'kept', projectionType: 'symlink', targetPath: '/x', targetExists: true, targetIsSymlink: true, targetRealPath: '', targetRealHasSkillMd: false, authorityPath: '', authorityPathIsSymlink: false, sourceUrl: '', sourceUrlExists: false };
-  guardian.record({ category: 'projection', kind: 'projection-gone', status: 'suggested', title: '「kept」的原文件已被删除', signature: 'proj-gone', factsList: [app, { ...app, agentId: internal }] });
+  guardian.record({ needsUser: true, category: 'projection', kind: 'projection-gone', status: 'suggested', title: '「kept」的原文件已被删除', signature: 'proj-gone', factsList: [app, { ...app, agentId: internal }] });
   fs.writeFileSync(path.join(judgment.inboxDir(), 'p3.json'), JSON.stringify({
     kind: 'projection-gone', reason: '用户有意移走的', when: { all: [{ fact: 'resourceName', op: 'eq', value: 'kept' }] },
   }));
@@ -130,7 +131,7 @@ test('learned fix: an act rule adds a safe, undoable fix to matching records and
   const pr = await judgment.propose({ kind: 'asset-duplicate', verdict: 'act', reason: '同名 -copy 的是复制出来的，停用它', action: { type: 'disableSkill', data: { resourceId: '${resourceId}' } }, when: { all: [{ fact: 'nameB', op: 'match', value: '-copy$' }] } });
   assert.equal(pr.ok, true, pr.error);
   assert.ok(judgment.rules().some(r => r.verdict === 'act'), 'a narrow rule is adopted in auto mode');
-  const rec = guardian.record({ category: 'assets', kind: 'asset-duplicate', status: 'info', title: 'dup', signature: 'dup|a|b', facts: { resourceId: 'res-b', nameA: 'review', nameB: 'review-copy', similarity: 0.99, sameRealDir: false } });
+  const rec = guardian.record({ needsUser: true, category: 'assets', kind: 'asset-duplicate', status: 'info', title: 'dup', signature: 'dup|a|b', facts: { resourceId: 'res-b', nameA: 'review', nameB: 'review-copy', similarity: 0.99, sameRealDir: false } });
   assert.equal(rec.actions[0].learned != null, true);
   assert.deepEqual(rec.actions[0].run, { type: 'disableSkill', data: { resourceId: 'res-b' } });
   await new Promise(r => setTimeout(r, 30));
@@ -139,7 +140,7 @@ test('learned fix: an act rule adds a safe, undoable fix to matching records and
   assert.equal(after.status, 'done');
   assert.equal(after.actedLabel, '已按学到的规则处理');
   // 不匹配的照常只是提醒
-  const other = guardian.record({ category: 'assets', kind: 'asset-duplicate', status: 'info', title: 'dup2', signature: 'dup|c|d', facts: { resourceId: 'res-d', nameA: 'c', nameB: 'd', similarity: 0.9, sameRealDir: false } });
+  const other = guardian.record({ needsUser: true, category: 'assets', kind: 'asset-duplicate', status: 'info', title: 'dup2', signature: 'dup|c|d', facts: { resourceId: 'res-d', nameA: 'c', nameB: 'd', similarity: 0.9, sameRealDir: false } });
   assert.ok(!(other.actions || []).some(a => a.learned));
 });
 

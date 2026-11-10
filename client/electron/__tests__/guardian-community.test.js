@@ -82,11 +82,9 @@ test('share suggestion: often-used own skill, not catalog installs or community 
 
   const r = await require('../guardian/share-suggest').check();
   assert.equal(r.ok, true);
-  const recs = guardian.listRecords().filter(x => x.kind === 'share-suggest');
-  assert.equal(recs.length, 1, JSON.stringify(recs.map(x => x.title)));
-  assert.match(recs[0].title, /sql-tuner.*6 次/);
-  assert.equal(recs[0].link.to, '/resources');
-  assert.equal(recs[0].apply, undefined, 'sharing is never applied automatically');
+  assert.equal(r.suggested, 1, 'only the often-used own skill qualifies');
+  // 少打扰：分享只是个机会，没有要用户处理的事，不再生成提醒
+  assert.equal(guardian.listRecords().filter(x => x.kind === 'share-suggest').length, 0);
 });
 
 test('device diff: missing and changed assets, skips self and stale devices', () => {

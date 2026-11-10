@@ -334,11 +334,8 @@ async function takeProposals() {
     taken++;
     const r = raw && !raw._parseError ? await propose(raw) : { ok: false, error: `JSON 解析失败：${raw?._parseError}` };
     if (!r.ok) {
-      guardian().record({
-        category: 'assets', kind: 'judgment-rejected', status: 'info', countAsRepeat: false,
-        title: '内置看护智能体提议的规则没通过校验', detail: r.error, advice: '可以在游乐场让内置看护智能体按格式重写一份。',
-        signature: `judgment-rejected|${n}`,
-      });
+      // 拒收原因写在提议旁边，写规则的智能体自己看；不为此打扰用户
+      try { fs.writeFileSync(`${file}.rejected`, String(r.error || 'rejected')); } catch { /* ignore */ }
     }
   }
   return { ok: true, taken };
@@ -378,7 +375,7 @@ function agentGuide() {
     '   不算问题：{"kind":"projection-gone","verdict":"ignore","when":{"all":[{"fact":"targetIsSymlink","op":"eq","value":true},{"fact":"targetRealHasSkillMd","op":"eq","value":true}]},"reason":"应用里是指向真身的软链、真身完好"}',
     `   这样处理：{"kind":"asset-duplicate","verdict":"act","action":{"type":"disableSkill","data":{"resourceId":"\${resourceId}"}},"when":{...},"reason":"..."}（处理只能用：${Object.entries(SAFE_ACTIONS).map(([k, v]) => `${k}=${v.label}`).join('；')}）`,
     '   op 可用：eq ne in notIn exists match gt lt。规则不能执行任何别的东西。',
-    `   （接口不可用时，也可以把规则 JSON 写成文件放到 ${inboxDir()}/，看护几分钟内收走。）`,
+    `   （接口不可用时，也可以把规则 JSON 写成文件放到 ${inboxDir()}/，看护几分钟内收走；没通过校验的会在旁边留一个 .rejected 文件写明原因。）`,
     '已知的结论类型和事实：',
     kinds,
   ].join('\n');

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { askGuardian, recordQuestion, falsePositiveQuestion } from '../lib/askGuardian';
+import { askGuardian, recordQuestion } from '../lib/askGuardian';
 import { useLang } from '../store/lang';
 
 const CATS = ['projection', 'gateway', 'install', 'assets', 'discover', 'setup', 'community'];
@@ -290,24 +290,15 @@ function fmtTime(ts, lang) {
 /** 自我进化：看护学到的规则（从误报、忽略、撤销和内置看护智能体的排查里学来的），可以看、可以删 */
 function LearnedRules({ api, t, lang, reloadKey }) {
   const [list, setList] = useState(null);
-  const [open, setOpen] = useState(false);
   const load = useCallback(() => {
     api.learnedRules?.().then((r) => setList(r?.rules || [])).catch(() => setList([]));
   }, [api]);
   useEffect(() => { load(); }, [load, reloadKey]);
-  if (!api.learnedRules || !list) return null;
+  if (!api.learnedRules || !list || !list.length) return null;   // 还没学到就不显示
   const SRC = { agent: t('guardian.learned.src.agent'), user: t('guardian.learned.src.user'), feedback: t('guardian.learned.src.feedback') };
   return (
     <div className="px-5 py-3 border-b border-white/40 dark:border-white/[0.06]">
-      <button type="button" onClick={() => setOpen(v => !v)} className="w-full flex items-start gap-2 text-left">
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-zinc-800 dark:text-zinc-100">{open ? '▾' : '▸'} {t('guardian.learned.title', { n: list.length })}</div>
-          <div className="text-[11px] text-zinc-400">{t('guardian.learned.hint')}</div>
-        </div>
-      </button>
-      {open && (list.length === 0 ? (
-        <p className="mt-2 text-[11px] text-zinc-400">{t('guardian.learned.empty')}</p>
-      ) : (
+      <div className="text-xs font-medium text-zinc-800 dark:text-zinc-100">{t('guardian.learned.title', { n: list.length })}</div>
         <ul className="mt-2 space-y-1.5">
           {list.map((r) => (
             <li key={r.id} className="flex items-start gap-2 text-[11px] leading-relaxed">
@@ -325,7 +316,6 @@ function LearnedRules({ api, t, lang, reloadKey }) {
             </li>
           ))}
         </ul>
-      ))}
     </div>
   );
 }
@@ -344,11 +334,6 @@ export default function GuardianPanel({ page = false }) {
   const [msg, setMsg] = useState('');
   const [openId, setOpenId] = useState(null);
   const [showHandled, setShowHandled] = useState(false);
-  const [showFyi, setShowFyi] = useState(false);
-  const [showEnv, setShowEnv] = useState(false);
-  const [showAllDecide, setShowAllDecide] = useState(false);
-  const [showMore, setShowMore] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [sum, setSum] = useState(null);
   const [health, setHealth] = useState(null);
   // 看护页分两个页签：运行情况 / 设置（记住上次选的）
@@ -428,10 +413,8 @@ export default function GuardianPanel({ page = false }) {
   const OPEN = ['info', 'failed', 'suggested'];
   const pending = records.filter(r => OPEN.includes(r.status));
   const handled = records.filter(r => !OPEN.includes(r.status));
-  // 少打扰：真要你拿主意的才摆出来；其余「供参考」默认折叠
-  const decide = pending.filter(r => r.needsYou !== false && (r.needsYou || (r.actions || []).length || r.apply || r.status === 'failed' || r.category === 'setup'));
-  const fyi = pending.filter(r => !decide.includes(r));
-  const DECIDE_SHOWN = 3;
+  // 少打扰：只有真要你拿主意的才会存在（没有可做的事的提醒，后台就不生成）
+  const decide = pending.filter(r => r.needsYou !== false && !r.surface);
 
   const actAll = async () => {
     setBusy('all');
@@ -497,13 +480,7 @@ export default function GuardianPanel({ page = false }) {
                 {busy === `apply:${r.id}` ? t('resources.busy') : t('guardian.apply')}
               </button>
             )}
-            {open && openId !== r.id && (
-              <button type="button" onClick={() => setOpenId(r.id)}
-                className="text-[11px] px-2 py-0.5 rounded-md text-zinc-400 hover:text-zinc-600 hover:bg-white dark:hover:bg-zinc-800">
-                {t('guardian.more')}
-              </button>
-            )}
-            {r.link && open && openId === r.id && (
+            {r.link && open && !acts.length && !legacyApply && (
               <button type="button" onClick={() => go(r.link)}
                 className={acts.length || legacyApply
                   ? 'text-[11px] px-2 py-0.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800'
@@ -511,17 +488,10 @@ export default function GuardianPanel({ page = false }) {
                 {r.link.label || t('guardian.go')} →
               </button>
             )}
-            {open && openId === r.id && (
+            {open && (
               <button type="button" onClick={() => askGuardian(navigate, recordQuestion(r, lang))}
                 className="text-[11px] px-2 py-0.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800">
                 {t('guardian.ask')}
-              </button>
-            )}
-            {open && openId === r.id && (
-              <button type="button" onClick={() => askGuardian(navigate, falsePositiveQuestion(r, lang))}
-                title={t('guardian.falsePositiveHint')}
-                className="text-[11px] px-2 py-0.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800">
-                {t('guardian.falsePositive')}
               </button>
             )}
             {open && (
@@ -555,12 +525,11 @@ export default function GuardianPanel({ page = false }) {
 
       {/* 运行情况：状态、正在执行、最近一次自省、自动处理记录 */}
       {showStatus && (settings?.enabled
-        ? ((health?.level === 'ok' && !(health?.busy || []).length && !showEnv)
-          // 一切正常：一行带过，想看细节再展开
+        ? ((health?.level === 'ok' && !(health?.busy || []).length)
+          // 一切正常：一行带过；有问题或正在执行时才显示细节
           ? (
             <div className="px-5 py-3 border-b border-white/40 dark:border-white/[0.06] flex flex-wrap items-center gap-2 text-xs text-zinc-500">
               <HealthBadge health={health} t={t} />
-              <button type="button" onClick={() => setShowEnv(true)} className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">{t('guardian.envDetail')}</button>
             </div>
           )
           : <RuntimeSection health={health} api={api} t={t} lang={lang} navigate={navigate} onChanged={load} />)
@@ -610,44 +579,6 @@ export default function GuardianPanel({ page = false }) {
           </div>
         </div>
       )}
-      {settings && (
-        <button type="button" onClick={() => setShowAdvanced(v => !v)}
-          className="w-full px-5 py-2.5 text-left text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 border-b border-white/40 dark:border-white/[0.06]">
-          {showAdvanced ? '▾' : '▸'} {t('guardian.advanced')}
-        </button>
-      )}
-      {settings && showAdvanced && (
-        <div className="px-5 py-3 space-y-2.5 border-b border-white/40 dark:border-white/[0.06]">
-          {CATS.map((c) => (
-            <div key={c} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-zinc-800 dark:text-zinc-100">{t(`guardian.cat.${c}`)}</div>
-                <div className="text-[11px] text-zinc-400">{t(`guardian.cat.${c}.hint`)}</div>
-              </div>
-              <div className={`inline-flex p-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-800/70 ${settings.enabled ? '' : 'opacity-50 pointer-events-none'}`} role="radiogroup" aria-label={t(`guardian.cat.${c}`)}>
-                {MODES.map((m) => (
-                  <button key={m} type="button" role="radio" aria-checked={settings.modes?.[c] === m}
-                    onClick={() => save({ modes: { [c]: m } })}
-                    className={`text-[11px] px-2.5 py-1 rounded-md ${settings.modes?.[c] === m ? 'bg-white dark:bg-zinc-900 shadow-sm font-medium text-zinc-900 dark:text-zinc-100' : 'text-zinc-500'}`}>
-                    {t(`guardian.mode.${m}`)}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-          <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-            <span>{t('guardian.modelBudget')}</span>
-            <input type="number" min="0" max="100" value={settings.modelExplainPerDay ?? 10}
-              onChange={(e) => save({ modelExplainPerDay: Number(e.target.value) || 0 })}
-              className="w-16 px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-800 dark:text-zinc-100" />
-            <span>{t('guardian.modelBudgetUnit')}</span>
-          </div>
-        </div>
-      )}
-
-          {settings && api.introspectNow && (showAdvanced || !page) && (
-            <IntrospectSection settings={settings} save={save} api={api} t={t} lang={lang} onRan={load} view={page ? 'settings' : 'all'} />
-          )}
         </>
       )}
 
@@ -659,7 +590,6 @@ export default function GuardianPanel({ page = false }) {
           </h3>
           <div className="text-[11px] text-zinc-400">
             {t('guardian.sum.handled', { n: sum?.handledThisWeek ?? handled.filter(r => r.status === 'done').length })}
-            {fyi.length ? ` · ${t('guardian.sum.fyi', { n: fyi.length })}` : ''}
           </div>
         </div>
         {msg && <span className="order-last basis-full text-[11px] text-zinc-500 dark:text-zinc-400">{msg}</span>}
@@ -671,24 +601,7 @@ export default function GuardianPanel({ page = false }) {
         )}
       </div>
       <div className="px-3 pb-3">
-        {decide.length > 0 && (
-          <ul className="space-y-1">{(showAllDecide ? decide : decide.slice(0, DECIDE_SHOWN)).map(renderRecord)}</ul>
-        )}
-        {decide.length > DECIDE_SHOWN && (
-          <button type="button" onClick={() => setShowAllDecide(v => !v)}
-            className="mt-1 px-2.5 py-1 text-[10px] font-medium text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
-            {showAllDecide ? '▾' : '▸'} {t('guardian.moreDecide', { n: decide.length - DECIDE_SHOWN })}
-          </button>
-        )}
-        {fyi.length > 0 && (
-          <>
-            <button type="button" onClick={() => setShowFyi(v => !v)}
-              className="mt-1 block px-2.5 py-1 text-[10px] font-medium text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
-              {showFyi ? '▾' : '▸'} {t('guardian.fyi', { n: fyi.length })}
-            </button>
-            {showFyi && <ul className="space-y-1">{fyi.map(renderRecord)}</ul>}
-          </>
-        )}
+        {decide.length > 0 && <ul className="space-y-1">{decide.map(renderRecord)}</ul>}
         {handled.length > 0 && (
           <>
             <button type="button" onClick={() => setShowHandled(v => !v)}
@@ -699,36 +612,7 @@ export default function GuardianPanel({ page = false }) {
           </>
         )}
       </div>
-      {/* 不常看的：自省报告、学到的规则、立即检查 —— 收进「更多」 */}
-      {page && settings && (
-        <>
-          <button type="button" onClick={() => setShowMore(v => !v)}
-            className="w-full px-5 py-2.5 text-left text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 border-t border-white/40 dark:border-white/[0.06]">
-            {showMore ? '▾' : '▸'} {t('guardian.moreSection')}
-          </button>
-          {showMore && (
-            <>
-              <div className="px-5 py-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-white/40 dark:border-white/[0.06]">
-                <div className="min-w-0 flex-1 text-[11px] text-zinc-400">{t('guardian.checkHint')}</div>
-                <button type="button" onClick={runChecks} disabled={busy === 'checks'}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-white dark:hover:bg-zinc-800 disabled:opacity-50">
-                  {busy === 'checks' ? t('guardian.checking') : t('guardian.checkNow')}
-                </button>
-              </div>
-              {api.introspectNow && <IntrospectSection settings={settings} save={save} api={api} t={t} lang={lang} onRan={load} view="report" />}
-              <LearnedRules api={api} t={t} lang={lang} reloadKey={records} />
-            </>
-          )}
-        </>
-      )}
-      {!page && (
-        <div className="px-5 pb-3">
-          <button type="button" onClick={runChecks} disabled={busy === 'checks'}
-            className="text-xs px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-white dark:hover:bg-zinc-800 disabled:opacity-50">
-            {busy === 'checks' ? t('guardian.checking') : t('guardian.checkNow')}
-          </button>
-        </div>
-      )}
+      {page && <LearnedRules api={api} t={t} lang={lang} reloadKey={records} />}
       </>)}
     </div>
   );

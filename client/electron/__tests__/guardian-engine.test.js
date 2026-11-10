@@ -189,7 +189,7 @@ test('playground guardian agent: listed on the runner app, fresh context each ti
     assert.equal(e.id, 'assistant:tb-guardian');
     assert.equal(e.guardian, true);
     assert.equal(e.runtimeAgentId, 'codex');
-    guardian.record({ category: 'assets', kind: 'k', status: 'info', title: '「x」包含高风险操作', advice: '信任或撤下' });
+    guardian.record({ needsUser: true, category: 'assets', kind: 'k', status: 'info', title: '「x」包含高风险操作', advice: '信任或撤下' });
     assert.match(chat.systemText(), /待处理：\n- \[info\] 「x」包含高风险操作（信任或撤下）/);
     assert.match(chat.systemText(), /改用户的文件、执行会改变状态的命令、删除任何东西之前/);
     assert.equal(await executor.resolveAgentId('assistant:tb-guardian'), 'assistant:tb-guardian');
