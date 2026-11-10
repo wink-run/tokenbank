@@ -130,7 +130,7 @@ async function check() {
       const facts = projectionFacts(r, p);
       const kind = p.health.reason === 'authority-missing' ? 'projection-gone' : 'projection-unrepairable';
       // 学到的规则说这种情况不算问题（之前误报过）：不提醒
-      if (judgment().judge(kind, facts, { verdict: 'ignore' })) {
+      if (judgment().judge(kind, facts)) {
         guardian.resolveSignature(sig, '按学到的规则不算问题');
         broken--;
         if (!require('./diagnose').INTERNAL_TARGETS.has(p.agentId)) excluded.add(r.id);

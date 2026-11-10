@@ -14,7 +14,7 @@ const KINDS = {
   quota: { title: '模型额度或频率受限', advice: '稍后再试，或给它换一个模型来源。', link: { to: '/providers', label: '去看模型' } },
   context: { title: '上下文太长', advice: '缩小任务范围，或换上下文更长的模型。' },
   capability: { title: '缺少需要的能力', advice: '可以给它绑定一个相关的技能。' },
-  unknown: { title: '原因不明', advice: '可以换一个智能体再试；同类失败多了，自省时会一起复盘。' },
+  unknown: { title: '原因不明', advice: '可以换一个智能体再试。' },
 };
 
 const RULES = [
@@ -126,7 +126,6 @@ async function handleFailed(evt = {}) {
     ...(c.link ? { link: c.link } : {}),
     meta: { agentId, kind: c.kind, taskId: evt.taskId || null },
   });
-  guardian.learnRule(`task-fail|${c.kind}`, { countDelta: 1, kind: c.kind });
 
   if (c.kind !== 'capability') return;
   const skill = matchSkill(taskPrompt(evt.taskId));

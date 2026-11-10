@@ -5,8 +5,6 @@ import { useLang } from '../store/lang';
 
 const CATS = ['projection', 'gateway', 'install', 'assets', 'discover', 'setup', 'community'];
 const MODES = ['auto', 'suggest', 'off'];
-const FREQS = ['off', 'daily', 'weekly', 'monthly'];
-const SCOPES = ['assets', 'routes', 'models', 'savings', 'rules'];
 const SEG = 'inline-flex p-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-800/70';
 const segBtn = (on) => `text-[11px] px-2.5 py-1 rounded-md ${on ? 'bg-white dark:bg-zinc-900 shadow-sm font-medium text-zinc-900 dark:text-zinc-100' : 'text-zinc-500'}`;
 const INPUT = 'px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-800 dark:text-zinc-100';
@@ -149,127 +147,6 @@ function RunnerAppSetting({ health, api, t, navigate, onChanged }) {
   );
 }
 
-/** 定期自省：频率、时段、token 上限、范围、结果处理、立即运行 */
-function IntrospectSection({ settings, save, api, t, lang, onRan, view = 'all' }) {
-  const c = settings.introspect || {};
-  const [busy, setBusy] = useState(false);
-  const [last, setLast] = useState(null);
-  const [note, setNote] = useState('');
-  const set = (patch) => save({ introspect: patch });
-
-  useEffect(() => {
-    api.listReports?.().then((r) => setLast(r?.reports?.[0] || null)).catch(() => {});
-  }, [api]);
-
-  const runNow = async () => {
-    setBusy(true);
-    setNote('');
-    setTimeout(() => { try { window.dispatchEvent(new Event('tb-guardian-changed')); } catch { /* ignore */ } }, 300);
-    try {
-      const r = await api.introspectNow();
-      if (r?.report) {
-        setLast(r.report);
-        const n = Object.values(r.report.sections || {}).reduce((s, x) => s + ((x && x.items) || []).length, 0);
-        setNote(t('guardian.introspect.done', { n }));
-      } else if (r && r.success === false) {
-        setNote(r.error === 'running' ? t('guardian.introspect.running') : (r.error || t('guardian.actionFailed')));
-      }
-      await onRan();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const off = !settings.enabled || c.frequency === 'off';
-  return (
-    <div className="px-5 py-3 space-y-2.5 border-b border-white/40 dark:border-white/[0.06]">
-      <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-zinc-800 dark:text-zinc-100">{view === 'report' ? t('guardian.introspect.lastTitle') : t('guardian.introspect.title')}</div>
-          <div className="text-[11px] text-zinc-400">{t('guardian.introspect.hint')}</div>
-        </div>
-        {/* 「立即自省」只放在运行情况里、挨着它产出的报告；设置页签只管配置 */}
-        {view !== 'settings' && (
-          <button type="button" onClick={runNow} disabled={busy || !settings.enabled}
-            className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-white dark:hover:bg-zinc-800 disabled:opacity-50">
-            {busy ? t('guardian.introspect.running') : t('guardian.introspect.runNow')}
-          </button>
-        )}
-      </div>
-      {view !== 'report' && (
-      <div className={`grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 text-[11px] text-zinc-500 dark:text-zinc-400 ${settings.enabled ? '' : 'opacity-50 pointer-events-none'}`}>
-        <span>{t('guardian.introspect.frequency')}</span>
-        <div className={`${SEG} justify-self-start`} role="radiogroup" aria-label={t('guardian.introspect.frequency')}>
-          {FREQS.map((f) => (
-            <button key={f} type="button" role="radio" aria-checked={c.frequency === f} onClick={() => set({ frequency: f })} className={segBtn(c.frequency === f)}>
-              {t(`guardian.introspect.freq.${f}`)}
-            </button>
-          ))}
-        </div>
-        <span className={off ? 'opacity-50' : ''}>{t('guardian.introspect.window')}</span>
-        <div className={`flex flex-wrap items-center gap-2 ${off ? 'opacity-50 pointer-events-none' : ''}`}>
-          <div className={SEG} role="radiogroup" aria-label={t('guardian.introspect.window')}>
-            {['idle', 'hour'].map((w) => (
-              <button key={w} type="button" role="radio" aria-checked={c.window === w} onClick={() => set({ window: w })} className={segBtn(c.window === w)}>
-                {t(`guardian.introspect.window.${w}`)}
-              </button>
-            ))}
-          </div>
-          {c.window === 'hour' && (
-            <span className="inline-flex items-center gap-1">
-              <input type="number" min="0" max="23" value={c.hour ?? 3} aria-label={t('guardian.introspect.window.hour')}
-                onChange={(e) => set({ hour: Number(e.target.value) || 0 })} className={`w-14 ${INPUT}`} />
-              {t('guardian.introspect.hourUnit')}
-            </span>
-          )}
-        </div>
-        <span>{t('guardian.introspect.tokenCap')}</span>
-        <div className="flex flex-wrap items-center gap-2">
-          <input type="number" min="0" step="1000" value={c.tokenCap ?? 20000} aria-label={t('guardian.introspect.tokenCap')}
-            onChange={(e) => set({ tokenCap: Number(e.target.value) || 0 })} className={`w-24 ${INPUT}`} />
-          <span className="text-zinc-400">{t('guardian.introspect.tokenCapHint')}</span>
-        </div>
-        <span>{t('guardian.introspect.scope')}</span>
-        <div className="flex flex-wrap gap-x-3 gap-y-1">
-          {SCOPES.map((k) => {
-            const on = (c.scope || []).includes(k);
-            return (
-              <label key={k} className="inline-flex items-center gap-1 cursor-pointer text-zinc-600 dark:text-zinc-300">
-                <input type="checkbox" checked={on}
-                  onChange={() => set({ scope: on ? c.scope.filter((x) => x !== k) : [...(c.scope || []), k] })} />
-                {t(`guardian.scope.${k}`)}
-              </label>
-            );
-          })}
-        </div>
-        <span>{t('guardian.introspect.handling')}</span>
-        <div className={`${SEG} justify-self-start`} role="radiogroup" aria-label={t('guardian.introspect.handling')}>
-          {['report', 'auto'].map((h) => (
-            <button key={h} type="button" role="radio" aria-checked={c.handling === h} onClick={() => set({ handling: h })} className={segBtn(c.handling === h)}>
-              {t(`guardian.introspect.handling.${h}`)}
-            </button>
-          ))}
-        </div>
-      </div>
-      )}
-      <div className="text-[11px] text-zinc-400">
-        {last ? t('guardian.introspect.last', { time: fmtTime(last.at, lang) }) : t('guardian.introspect.never')}
-        {note && <span className="ml-2 text-zinc-500 dark:text-zinc-300">{note}</span>}
-      </div>
-      {last && view !== 'settings' && (
-        <ul className="space-y-1">
-          {SCOPES.filter((k) => last.sections?.[k]?.summary).map((k) => (
-            <li key={k} className="flex gap-2 text-[11px] leading-relaxed">
-              <span className="shrink-0 w-[4.5rem] text-zinc-400">{t(`guardian.scope.${k}`)}</span>
-              <span className="min-w-0 text-zinc-600 dark:text-zinc-300">{last.sections[k].summary}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
 const STATUS_CLS = {
   done: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
   suggested: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300',
@@ -286,7 +163,6 @@ function fmtTime(ts, lang) {
   return d.toLocaleString(lang === 'en' ? 'en-US' : 'zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-
 /** 自我进化：看护学到的规则（从误报、忽略、撤销和内置看护智能体的排查里学来的），可以看、可以删 */
 function LearnedRules({ api, t, lang, reloadKey }) {
   const [list, setList] = useState(null);
@@ -302,8 +178,8 @@ function LearnedRules({ api, t, lang, reloadKey }) {
         <ul className="mt-2 space-y-1.5">
           {list.map((r) => (
             <li key={r.id} className="flex items-start gap-2 text-[11px] leading-relaxed">
-              <span className={`shrink-0 mt-px px-1.5 py-px rounded text-[10px] ${r.verdict === 'act' ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'}`}>
-                {r.verdict === 'act' ? t('guardian.learned.act') : t('guardian.learned.ignore')}
+              <span className={`shrink-0 mt-px px-1.5 py-px rounded text-[10px] bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300`}>
+                {t('guardian.learned.ignore')}
               </span>
               <span className="min-w-0 flex-1 text-zinc-700 dark:text-zinc-200">
                 {r.text}
@@ -386,24 +262,6 @@ export default function GuardianPanel({ page = false }) {
     try {
       const r = kind === 'act' ? await api.act(id, index) : await api[kind](id);
       if (r && r.success === false) setMsg(r.error || t('guardian.actionFailed'));
-      await load();
-    } finally {
-      setBusy('');
-    }
-  };
-
-  const runChecks = async () => {
-    setBusy('checks');
-    setMsg('');
-    setTimeout(() => { try { window.dispatchEvent(new Event('tb-guardian-changed')); } catch { /* ignore */ } }, 300);
-    try {
-      const r = await api.runChecks();
-      const p = r?.results?.projection;
-      const a = r?.results?.assets;
-      const parts = [];
-      if (p && !p.skipped) parts.push(t('guardian.checkDone', { broken: p.broken || 0, repaired: p.repaired || 0, suggested: p.suggested || 0 }));
-      if (a && !a.skipped) parts.push(t('guardian.assetsDone', { skills: a.skills || 0, quality: a.quality || 0, risky: a.risky || 0, dups: a.duplicates || 0, updates: a.updates || 0 }));
-      setMsg(parts.length ? parts.join('；') : t('guardian.checkDoneSimple'));
       await load();
     } finally {
       setBusy('');

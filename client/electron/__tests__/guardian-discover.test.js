@@ -113,13 +113,6 @@ test('portrait feedback becomes constraints for the next portrait', () => {
   assert.equal(learn.portraitFeedback({ action: 'remove', field: 'nope', text: 'x' }).ok, false);
 });
 
-test('self-review asset section mentions gaps and adoption rate', async () => {
-  guardian.setSettings({ introspect: { scope: ['assets'] } });
-  const r = await require('../guardian/introspect').run({ manual: true });
-  assert.equal(r.ok, true);
-  assert.match(r.report.sections.assets.summary, /采纳率 33%/);
-});
-
 test('a dispatched task that also shows up in the agent session counts once', () => {
   const { recentRequests } = gaps._internal;
   const before = recentRequests(0, { collect: () => ({ dialogues: [] }) }).length;

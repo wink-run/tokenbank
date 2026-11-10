@@ -11,8 +11,8 @@ function label(id) {
   try { return require('../config-loader').appEntityById(id)?.name || id; } catch { return id; }
 }
 const CHECK_LABEL = {
-  projection: '投射自愈', assets: '资产体检', setup: '配置提醒', 'share-suggest': '分享推荐', 'device-sync': '多设备对比',
-  'capability-gaps': '能力缺口', introspect: '定期自省', tidy: '收起过期提醒', judgment: '学规则',
+  projection: '投射自愈', assets: '资产体检', setup: '配置提醒', routes: '路由检查',
+  'capability-gaps': '能力缺口',
 };
 
 async function health() {
@@ -29,8 +29,7 @@ async function health() {
   // 正在执行的事：后台检查、定期自省、执行应用里的画像 / 发现 / 安装
   const KIND_LABEL = { portrait: '兴趣画像', discover: '资产发现', install: '技能安装' };
   const busy = [
-    ...guardian.runningCheckNames().filter(n => n !== 'introspect').map(n => `检查「${CHECK_LABEL[n] || n}」`),
-    ...(require('./introspect').isRunning() ? ['定期自省'] : []),
+    ...guardian.runningCheckNames().map(n => `检查「${CHECK_LABEL[n] || n}」`),
     ...runningKinds.map(k => `${KIND_LABEL[k] || k}（${label(st.runtime)}）`),
   ];
   const issues = [];

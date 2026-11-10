@@ -215,13 +215,6 @@ async function _collectInventory() {
     if (d30) { if (c30) d30.compression = c30; inv['30'] = attach(d30); }
     // 还没有用量快照时也上报账户配置，方便另一台终端立刻能同步
     if (!inv['1'] && (accountsSummary || accountsConfig)) inv['1'] = attach({});
-    // 资产清单（只有名字、来源、内容摘要），看护据此对比各设备差异；CLI / Docker 由 node 端心跳带
-    if (isElectron() && window.electronAPI?.guardian?.assetSnapshot) {
-      try {
-        const r = await window.electronAPI.guardian.assetSnapshot();
-        if (Array.isArray(r?.assets)) inv.assets = r.assets;
-      } catch { /* 不影响心跳 */ }
-    }
     return inv;
   }
   const d1 = await getGateway().getDailyStats().catch(() => ({}));

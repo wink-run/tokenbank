@@ -26,31 +26,7 @@ const DISMISS_QUIET_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_SETTINGS = {
   enabled: true,
   modes: Object.fromEntries(Object.entries(CATEGORIES).map(([k, v]) => [k, v.default])),
-  // 规则解释不了的新报错，每天最多请模型分析几次（0 = 只用规则）
-  modelExplainPerDay: 10,
-  // 定期自省（离线）：频率、运行时段、单次 token 上限、范围、结果处理
-  introspect: {
-    frequency: 'weekly',        // off | daily | weekly | monthly
-    window: 'idle',             // idle（闲置时）| hour（指定时间）
-    hour: 3,
-    tokenCap: 20000,
-    scope: ['assets', 'routes', 'models', 'savings', 'rules'],
-    handling: 'report',         // report（只出报告）| auto（可撤销的自动采纳）
-  },
 };
-const INTROSPECT_FREQ = new Set(['off', 'daily', 'weekly', 'monthly']);
-const INTROSPECT_SCOPE = new Set(DEFAULT_SETTINGS.introspect.scope);
-
-function normalizeIntrospect(raw = {}, base = DEFAULT_SETTINGS.introspect) {
-  const out = { ...base };
-  if (INTROSPECT_FREQ.has(raw.frequency)) out.frequency = raw.frequency;
-  if (raw.window === 'idle' || raw.window === 'hour') out.window = raw.window;
-  if (Number.isFinite(raw.hour)) out.hour = Math.min(23, Math.max(0, Math.floor(raw.hour)));
-  if (Number.isFinite(raw.tokenCap)) out.tokenCap = Math.min(1000000, Math.max(0, Math.floor(raw.tokenCap)));
-  if (Array.isArray(raw.scope)) out.scope = raw.scope.filter(x => INTROSPECT_SCOPE.has(x));
-  if (raw.handling === 'report' || raw.handling === 'auto') out.handling = raw.handling;
-  return out;
-}
 
 const listeners = new Map();   // event type → Set<fn>
 const actions = new Map();     // action type → fn(data) → { ok, error? }
@@ -62,19 +38,14 @@ function getSettings() {
   const raw = store.readJson('settings.json', {});
   const modes = { ...DEFAULT_SETTINGS.modes, ...(raw.modes || {}) };
   for (const k of Object.keys(modes)) if (!MODES.has(modes[k])) modes[k] = CATEGORIES[k]?.default || 'auto';
-  return { ...DEFAULT_SETTINGS, ...raw, modes, introspect: normalizeIntrospect(raw.introspect || {}) };
+  return { enabled: raw.enabled !== false, modes };
 }
 
 function setSettings(patch = {}) {
   const cur = getSettings();
   const next = {
-    ...cur,
-    ...(typeof patch.enabled === 'boolean' ? { enabled: patch.enabled } : {}),
-    ...(Number.isFinite(patch.modelExplainPerDay) ? { modelExplainPerDay: Math.max(0, Math.floor(patch.modelExplainPerDay)) } : {}),
+    enabled: typeof patch.enabled === 'boolean' ? patch.enabled : cur.enabled,
     modes: { ...cur.modes },
-    introspect: patch.introspect && typeof patch.introspect === 'object'
-      ? normalizeIntrospect(patch.introspect, cur.introspect)
-      : cur.introspect,
   };
   for (const [k, v] of Object.entries(patch.modes || {})) {
     if (CATEGORIES[k] && MODES.has(v)) next.modes[k] = v;
@@ -112,8 +83,7 @@ function newId() {
  * 同签名还没处理的记录 → 合并（count + 1）并移到最前，不刷屏；用户忽略过的，7 天内不再提（返回 null）
  */
 function record(entry) {
-  // 自我进化：先照学到的规则判一遍 —— 不算问题就不提醒；有学到的处理就加上按钮（自动处理时直接做）
-  let scheduleAuto = false;
+  // 自我进化：先照学到的规则判一遍 —— 不算问题就不提醒
   if (!entry._judged) {
     let j = { entry };
     try { j = require('./judgment').apply(entry); } catch (e) { console.warn('[guardian] judgment:', e.message); }
@@ -122,7 +92,6 @@ function record(entry) {
       return null;
     }
     entry = j.entry;
-    scheduleAuto = !!entry.learnedRule;
   }
   entry = { ...entry };
   delete entry._judged;
@@ -144,7 +113,6 @@ function record(entry) {
       delete merged.countAsRepeat;
       list.splice(idx, 1);
       saveRecords([merged, ...list]);
-      if (scheduleAuto) autoLearned(merged);
       return merged;
     }
     const quiet = list.find(r => r.signature === entry.signature && r.status === 'dismissed'
@@ -154,14 +122,7 @@ function record(entry) {
   const rec = { id: newId(), at: now, lastAt: now, count: 1, ...entry };
   delete rec.countAsRepeat;
   saveRecords([rec, ...list]);
-  if (scheduleAuto) autoLearned(rec);
   return rec;
-}
-
-/** 学到的处理：该类是自动处理、用户没撤销过 → 稍后直接做（不阻塞写记录的调用方） */
-function autoLearned(rec) {
-  if (modeOf(rec.category) !== 'auto' || wasUndone(rec.signature)) return;
-  setImmediate(() => { act(rec.id, 0).catch(() => {}); });
 }
 
 /** 某签名的问题已经不存在了：把还开着的记录收起（不删除，留痕） */
@@ -337,26 +298,7 @@ function tidy() {
 }
 
 function dismiss(id) {
-  const rec = updateRecord(id, { status: 'dismissed', dismissedAt: Date.now() });
-  // 自我进化：同一类提醒忽略多了，问要不要以后不提这一类
-  if (rec) setImmediate(() => { Promise.resolve(require('./judgment').learnFromDismiss(rec)).catch(() => {}); });
-  return !!rec;
-}
-
-// ── 规则库（报错签名 → 次数 / 解释 / 效果）──────────────────────────────────
-function getRule(signature) {
-  const rules = store.readJson('rules.json', {});
-  return rules[signature] || null;
-}
-
-function learnRule(signature, patch) {
-  const rules = store.readJson('rules.json', {});
-  const now = Date.now();
-  const cur = rules[signature] || { count: 0, firstAt: now };
-  rules[signature] = { ...cur, ...patch, count: (cur.count || 0) + (patch.countDelta || 0), lastAt: now };
-  delete rules[signature].countDelta;
-  store.writeJson('rules.json', rules);
-  return rules[signature];
+  return !!updateRecord(id, { status: 'dismissed', dismissedAt: Date.now() });
 }
 
 // ── 事件：异步分发，绝不阻塞调用方 ──────────────────────────────────────────
@@ -471,8 +413,6 @@ module.exports = {
   handle,
   wasUndone,
   dismiss,
-  getRule,
-  learnRule,
   on,
   emit,
   registerCheck,

@@ -44,15 +44,6 @@ function registerGuardianHandlers() {
   // 资产列表的小标签：质量 / 安全 / 重复 / 新版本
   ipcMain.handle('guardian:assetFlags', safe(() => ({ success: true, flags: require('./asset-checks').getFlags() })));
 
-  // 定期自省：立即运行、报告
-  ipcMain.handle('guardian:introspectNow', safe(async () => {
-    const r = await require('./introspect').run({ manual: true });
-    return r.ok ? { success: true, report: r.report } : { success: false, error: r.error };
-  }));
-  ipcMain.handle('guardian:listReports', safe(() => ({
-    success: true, reports: require('./introspect').listReports(), running: require('./introspect').isRunning(),
-  })));
-  // 按场景投射：新技能启用时该投到哪些应用
   ipcMain.handle('guardian:preferredTargets', safe((opts) => ({
     success: true, ...(require('./scene-targets').preferredTargets(opts || {}) || { agentIds: [] }),
   })));
@@ -62,14 +53,8 @@ function registerGuardianHandlers() {
     if (guardian.modeOf('community') === 'off') return { success: true, findings: [], changed: false, ...(input || {}) };
     return { success: true, ...require('./share-check').sanitize(input || {}) };
   }));
-  ipcMain.handle('guardian:assetSnapshot', safe(() => ({ success: true, assets: require('./device-sync').snapshot() })));
 
   // 说一句话就办：先解析给界面确认，确认后再执行
-  ipcMain.handle('guardian:commandParse', safe(async ({ text, allowModel } = {}) => ({ success: true, plan: await require('./command').parse(text, { allowModel: allowModel !== false }) })));
-  ipcMain.handle('guardian:commandRun', safe(async (plan) => {
-    const r = await require('./command').run(plan || {});
-    return r.ok ? { success: true, message: r.message, link: r.link } : { success: false, error: r.error };
-  }));
   // 游乐场的纠正：改派、重做、追问纠错（场景路由修正 / 汇总失败复盘）
   ipcMain.handle('guardian:dispatchFeedback', safe((evt) => {
     const r = require('./dispatch-learn').feedback(evt || {});
@@ -114,17 +99,14 @@ function startGuardian({ gateway, initialDelayMs } = {}) {
   try { require('./projection-heal').register(); } catch (e) { console.warn('[guardian] projection-heal:', e.message); }
   try { require('./asset-checks').register(); } catch (e) { console.warn('[guardian] asset-checks:', e.message); }
   try { require('./setup-check').register(); } catch (e) { console.warn('[guardian] setup-check:', e.message); }
-  try { require('./share-suggest').register(); } catch (e) { console.warn('[guardian] share-suggest:', e.message); }
-  try { require('./device-sync').register(); } catch (e) { console.warn('[guardian] device-sync:', e.message); }
   try { require('./discover-learn').register(); } catch (e) { console.warn('[guardian] discover-learn:', e.message); }
   try { require('./dispatch-learn').register(); } catch (e) { console.warn('[guardian] dispatch-learn:', e.message); }
   try { require('./command').register(); } catch (e) { console.warn('[guardian] command:', e.message); }
   try { require('./capability-gaps').register(); } catch (e) { console.warn('[guardian] capability-gaps:', e.message); }
-  try { guardian.tidy(); guardian.registerCheck('tidy', () => guardian.tidy(), 12 * 60 * 60 * 1000); } catch (e) { console.warn('[guardian] tidy:', e.message); }
+  try { guardian.tidy(); } catch (e) { console.warn('[guardian] tidy:', e.message); }
   try { require('./agent-api').start(); } catch (e) { console.warn('[guardian] agent-api:', e.message); }
   try { require('./judgment').register(); } catch (e) { console.warn('[guardian] judgment:', e.message); }
   try { require('./review-usage').register(); } catch (e) { console.warn('[guardian] review-usage:', e.message); }
-  try { require('./introspect').register(); } catch (e) { console.warn('[guardian] introspect:', e.message); }
   try { require('./task-watch').attach(); } catch (e) { console.warn('[guardian] task-watch:', e.message); }
   try { if (gateway) require('./gateway-watch').attach(gateway); } catch (e) { console.warn('[guardian] gateway-watch:', e.message); }
   guardian.start({ initialDelayMs });

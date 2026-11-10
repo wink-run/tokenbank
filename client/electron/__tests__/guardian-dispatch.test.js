@@ -1,5 +1,5 @@
 'use strict';
-// 场景路由修正、汇总失败复盘、说一句话就办
+// 派发偏好学习、说一句话就办（对话里的 command 操作）
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -57,39 +57,9 @@ test('scene route correction in suggest mode, mixed directions, and off', async 
   guardian.setSettings({ modes: { gateway: 'auto' } });
 });
 
-test('summary review: finds omissions and unmentioned failures, then adds a summary rule', async () => {
-  const d = localStats.getDb();
-  const ins = d.prepare('INSERT INTO agent_tasks (id, agent_id, prompt, context, status, result, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-  const mk = (pid, n) => {
-    ins.run(pid, 'claude-code', '做竞品分析并出报告', '{}', 'completed', JSON.stringify({ summary: `已完成竞品分析 ${n}，详见报告。` }), null, Date.now());
-    ins.run(`${pid}-a`, 'codex', 'x', JSON.stringify({ parentTaskId: pid }), 'completed', JSON.stringify({ summary: '生成了 reports/compare.md 和 charts/share.png，样本 1200 条' }), null, Date.now());
-    ins.run(`${pid}-b`, 'cursor', 'y', JSON.stringify({ parentTaskId: pid }), 'failed', null, 'timeout', Date.now());
-  };
-  mk('p1', 1);
-  const r = learn.reviewSummary('p1');
-  assert.deepEqual(r.causes.sort(), ['hidden-failure', 'omission']);
-  assert.ok(r.findings.some(f => /reports\/compare\.md/.test(f)));
-  assert.ok(r.findings.some(f => /失败/.test(f)));
-
-  // 追问里没有纠错词：不算
-  assert.equal(learn.feedback({ type: 'followup', mode: 'orchestrator', prompt: '再加一个对比维度', prevTaskId: 'p1' }).skipped, true);
-  learn.feedback({ type: 'followup', mode: 'orchestrator', prompt: '你漏了图表，汇总不完整', prevTaskId: 'p1' });
-  await tick();
-  assert.ok(!guardian.listRecords().some(x => x.kind === 'summary-review'), 'the review itself is not a notice; only a learned rule is recorded');
-  assert.ok(!guardian.listRecords().some(x => x.kind === 'summary-rule'), 'one time is not a pattern yet');
-  mk('p2', 2);
-  learn.feedback({ type: 'redo', mode: 'orchestrator', agentId: 'claude-code', prompt: '做竞品分析并出报告', taskId: 'p2' });
-  await tick();
-  const rules = guardian.listRecords().filter(x => x.kind === 'summary-rule');
-  assert.deepEqual(rules.map(x => x.meta.code).sort(), ['hidden-failure', 'omission']);
-  assert.match(require('../mcp-manager').orchestratorSystem(), /汇总要求[\s\S]*失败 \/ 未完成/);
-  assert.equal((await guardian.undo(rules[0].id)).ok, true);
-  assert.equal(learn._internal.tuning().summaryRules.length, 1);
-});
-
 test('command parse: management intents, business requests, unknown', async () => {
   const cases = {
-    '看护状态': 'status', '体检一下': 'check', '自省': 'introspect', '用 Codex 跑': 'runtime', '清理闲置技能': 'idle',
+    '看护状态': 'status', '体检一下': 'check', '用 Codex 跑': 'runtime', '清理闲置技能': 'idle',
     '安装 anthropics/skills': 'install', '为什么 git-commit 不生效': 'diagnose', '把 git-commit 投射到 Codex': 'project',
     '把 git-commit 从 Codex 撤下': 'unproject', '把前端技能整理一下': 'tidy', '帮我写一个登录页面': 'business', '今天天气': 'unknown',
   };

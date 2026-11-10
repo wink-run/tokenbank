@@ -13,7 +13,6 @@ import SkillInstallDialog from '../components/SkillInstallDialog';
 import AiNeedNotice from '../components/AiNeedNotice';
 import DiagnosePanel from '../components/DiagnosePanel';
 import CapabilityGapCard from '../components/CapabilityGapCard';
-import SearchCommandPanel, { useSearchCommand } from '../components/SearchCommand';
 import { projectWithGuard } from '../lib/project-guard';
 import { useAiReadiness } from '../lib/ai-readiness';
 import { isWebBridge } from '../api/webBridge';
@@ -499,7 +498,6 @@ export default function Resources() {
   const [typeFilter, setTypeFilter] = useState(() => (readViewTab() === 'recommend' ? readDiscoverType() : readTypeFilter()));
   const [query, setQuery] = useState('');
   // 说一句话就办：搜索框回车时，管理类指令弹确认
-  const searchCmd = useSearchCommand();
   const searchInputRef = useRef(null);
   /** 选中行（右侧详情面板）：资产库 r-/d-，社区 cat:，推荐 reco: */
   const [selectedKey, setSelectedKey] = useState(null);
@@ -3922,11 +3920,9 @@ export default function Resources() {
               value={query}
               onChange={e => setQuery(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Escape') { setQuery(''); searchCmd.close(); e.currentTarget.blur(); }
-                if (e.key === 'Enter' && !e.nativeEvent.isComposing) searchCmd.tryCommand(query);
+                if (e.key === 'Escape') { setQuery(''); e.currentTarget.blur(); }
               }}
               placeholder={t('resources.searchPlaceholder')}
-              title={t('resources.cmd.hint')}
               className="tb-soft-field w-full text-xs pl-8 pr-8 py-1.5 rounded-lg text-zinc-900 dark:text-zinc-100"
             />
             {searching ? (
@@ -3945,7 +3941,6 @@ export default function Resources() {
             ) : (
               <kbd className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] px-1.5 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-400 font-sans pointer-events-none">/</kbd>
             )}
-            <SearchCommandPanel cmd={searchCmd} onSearchOnly={() => searchInputRef.current?.focus()} />
           </div>
         </div>
       </header>

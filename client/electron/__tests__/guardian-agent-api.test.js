@@ -74,7 +74,7 @@ test('the local endpoint: token required, and the helper script the agent runs w
   assert.equal(JSON.parse(out).ok, true);
   const guide = api.agentGuide();
   assert.match(guide, /tb-guardian\.js/);
-  for (const op of ['act', 'undo', 'dismiss', 'check', 'introspect', 'settings', 'runtime', 'diagnose', 'command', 'learn', 'forget']) assert.match(guide, new RegExp(`- ${op}：`));
+  for (const op of ['act', 'undo', 'dismiss', 'check', 'settings', 'runtime', 'diagnose', 'command', 'learn', 'forget']) assert.match(guide, new RegExp(`- ${op}：`));
   api.stop();
   void execFileSync;
 });

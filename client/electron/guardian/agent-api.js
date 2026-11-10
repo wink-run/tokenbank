@@ -69,19 +69,11 @@ const OPS = {
     run: ({ id }) => (guardian().dismiss(id) ? ok() : fail({ error: 'not-found' })),
   },
   check: {
-    desc: '立即检查（投射、资产体检、配置、分享与多设备；只用规则，不花 token）',
+    desc: '立即检查（投射、资产、配置、路由；只用规则，不花 token）',
     run: async () => ok({ results: await guardian().runChecks() }),
   },
-  introspect: {
-    desc: '立即自省（回看使用情况：路由、新模型试跑、资产整理、省钱、规则整理）',
-    run: async () => { const r = await require('./introspect').run({ manual: true }); return r.ok ? ok({ report: r.report }) : fail(r); },
-  },
-  reports: {
-    desc: '最近的自省报告',
-    run: () => ok({ reports: require('./introspect').listReports().slice(0, 3) }),
-  },
   settings: {
-    desc: '看设置；改设置传 {"set":{...}}，例：{"set":{"modes":{"assets":"suggest"}}}、{"set":{"enabled":false}}、{"set":{"introspect":{"frequency":"daily"}}}。modes 取值 auto / suggest / off',
+    desc: '看设置；改设置传 {"set":{...}}，例：{"set":{"modes":{"assets":"suggest"}}}、{"set":{"enabled":false}}。modes 取值 auto / suggest / off',
     run: ({ set } = {}) => ok({ settings: set ? guardian().setSettings(set) : guardian().getSettings(), categories: Object.keys(guardian().CATEGORIES) }),
   },
   runtime: {
@@ -100,7 +92,7 @@ const OPS = {
     desc: '说一句话就办（安装技能、启用/撤下到某应用、清理闲置、整理、换执行应用…）。{"text":"把 git-commit 投射到 Codex"}；先看 plan 再加 "run":true 执行',
     run: async ({ text, run = false }) => {
       const command = require('./command');
-      const plan = await command.parse(String(text || ''), { allowModel: true });
+      const plan = await command.parse(String(text || ''), { allowModel: false });
       if (!run || !plan || plan.action === 'unknown') return ok({ plan });
       const r = await command.run(plan);
       return r.ok ? ok({ plan, message: r.message || null }) : fail(r);

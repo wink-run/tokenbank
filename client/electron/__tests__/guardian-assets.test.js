@@ -85,7 +85,7 @@ test('asset check: quality summary, risky skill, duplicate pair, update with und
   assert.equal(flags[inst.resource.id].updateAvailable.to, '1.0.0');
 
   const recs = guardian.listRecords();
-  assert.ok(recs.some(r => r.kind === 'asset-quality'));
+  assert.ok(!recs.some(r => r.kind === 'asset-quality'), 'quality only shows as a tag in the asset list');
   assert.ok(recs.some(r => r.kind === 'asset-security' && r.meta.resourceId === 'res-skill-installer-x'));
   assert.ok(recs.some(r => r.kind === 'asset-duplicate'));
 
@@ -129,14 +129,6 @@ test('asset check: quality summary, risky skill, duplicate pair, update with und
   await assets.check();
   assert.equal(guardian.listRecords({ limit: 300 }).filter(r => r.kind === 'asset-duplicate' && ['info', 'suggested'].includes(r.status)).length, 0);
   guardian.setSettings({ modes: { assets: 'auto' } });
-
-  // 质量：一键补全；没有模型时给出明白的话，记录还开着
-  const q = guardian.listRecords().find(r => r.kind === 'asset-quality');
-  assert.match(q.actions[0].label, /一键补全/);
-  a = await guardian.act(q.id, 0);
-  assert.equal(a.ok, false);
-  assert.match(a.error, /模型/);
-  assert.equal(guardian.listRecords().find(r => r.id === q.id).status, 'info');
 
   // 高风险：信任它 → 不再提醒、投射前不再拦；撤销后恢复
   const risk = guardian.listRecords().find(r => r.kind === 'asset-security' && r.status === 'info');

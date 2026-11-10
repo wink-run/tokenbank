@@ -95,7 +95,7 @@ async function check() {
     const worst = q.some(x => x.level === 'warn') ? 'warn' : (q.length ? 'info' : null);
     if (worst) { f.quality = worst; f.qualityCodes = q.map(x => x.code); }
     const qFacts = { resourceName: r.name, codes: q.map(x => x.code).join(','), descriptionLength: String(r.description || '').length };
-    if (worst === 'warn' && !judgment().judge('asset-quality', qFacts, { verdict: 'ignore' })) qualityNeeds.push({ name: label(r), id: r.id, fixable: q.some(x => x.fix && x.fix.type === 'completeDescription'), facts: qFacts });
+    if (worst === 'warn' && !judgment().judge('asset-quality', qFacts)) qualityNeeds.push({ name: label(r), id: r.id, fixable: q.some(x => x.fix && x.fix.type === 'completeDescription'), facts: qFacts });
 
     const sec = checks.securityScan(files);
     if (sec.risk !== 'none') f.security = sec.risk;
@@ -104,7 +104,7 @@ async function check() {
     const apps = projectedApps(r);
     const high = sec.findings.filter(x => x.level === 'high');
     const secFacts = { resourceId: r.id, resourceName: r.name, codes: [...new Set(high.map(x => x.code))].join(','), files: [...new Set(high.map(x => x.file))].join(',') };
-    if (sec.risk === 'high' && apps.length && !isTrusted(r.id, sec.findings) && !judgment().judge('asset-security', secFacts, { verdict: 'ignore' })) {
+    if (sec.risk === 'high' && apps.length && !isTrusted(r.id, sec.findings) && !judgment().judge('asset-security', secFacts)) {
       risky++;
       guardian.record({
         category: 'assets', kind: 'asset-security', status: 'info', countAsRepeat: false,
@@ -129,27 +129,8 @@ async function check() {
     if (Object.keys(f).length) flags[r.id] = f;
   }
 
-  // 质量：汇总成一条（每个技能的细节在资产详情「诊断」里）
-  if (qualityNeeds.length) {
-    const fixIds = qualityNeeds.filter(x => x.fixable).map(x => x.id);
-    await guardian.handle({
-      category: 'assets', kind: 'asset-quality', status: 'info', countAsRepeat: false,
-      title: `${qualityNeeds.length} 个技能的描述需要完善，应用可能不会主动调用它们`,
-      detail: qualityNeeds.slice(0, 12).map(x => x.name).join('、') + (qualityNeeds.length > 12 ? ' 等' : ''),
-      advice: fixIds.length
-        ? `点「一键补全」由模型为 ${fixIds.length} 个技能写好描述，改完可整体撤销。`
-        : '这些技能缺少 SKILL.md，需要到资产页逐个查看。',
-      signature: 'asset-quality',
-      actions: fixIds.length
-        ? [{ label: `一键补全（${fixIds.length} 个）`, done: '已补全', auto: true, run: { type: 'completeDescriptions', data: { resourceIds: fixIds } } }]
-        : [],
-      link: { to: '/resources', label: '查看', state: { resourceType: 'skill' } },
-      factsList: qualityNeeds.map(x => x.facts),
-      meta: { resourceIds: qualityNeeds.map(x => x.id) },
-    });
-  } else {
-    guardian.resolveSignature('asset-quality');
-  }
+  // 质量：只给资产列表打小标签（详情里的「诊断」可以手动补全描述），不单独提醒、不自动改内容
+  guardian.resolveSignature('asset-quality');
 
   // 重复：内容高度相似的两两成对给建议
   let dups = 0;
@@ -171,7 +152,7 @@ async function check() {
       let sameRealDir = false;
       try { sameRealDir = require('fs').realpathSync(authorityDir(a.r) || '') === require('fs').realpathSync(authorityDir(b.r) || ''); } catch { /* ignore */ }
       const dupFacts = { nameA: a.r.name, nameB: b.r.name, similarity: Math.round(sim * 100) / 100, sameRealDir };
-      if (judgment().judge('asset-duplicate', dupFacts, { verdict: 'ignore' })) { guardian.resolveSignature(dupSig, '按学到的规则不算问题'); continue; }
+      if (judgment().judge('asset-duplicate', dupFacts)) { guardian.resolveSignature(dupSig, '按学到的规则不算问题'); continue; }
       const appsA = projectedApps(a.r);
       const shared = projectedApps(b.r).filter(id => appsA.includes(id));
       if (!shared.length || disabledNow.has(a.r.id) || disabledNow.has(b.r.id)) { guardian.resolveSignature(dupSig, '已有一个没在用'); continue; }
@@ -420,45 +401,17 @@ function untrustSkill({ resourceId }) {
   return { ok: true };
 }
 
-/** 一键补全多个技能的描述：并发 3 个；全部失败（多半没接模型）才算失败；撤销 = 恢复全部快照 */
-async function completeDescriptions({ resourceIds = [] }) {
-  const ids = [...new Set(resourceIds)];
-  const snaps = [];
-  const failed = [];
-  let firstError = null;
-  let i = 0;
-  const worker = async () => {
-    while (i < ids.length) {
-      const id = ids[i++];
-      const r = await completeDescription({ resourceId: id, quiet: true }).catch(e => ({ ok: false, error: e.message }));
-      if (r.ok) snaps.push(r.snapshot);
-      else { failed.push(id); firstError = firstError || r.error; }
-      // 第一个就因为没模型失败了：后面不用再试
-      if (!snaps.length && failed.length && /模型/.test(firstError || '')) { i = ids.length; }
-    }
-  };
-  await Promise.all([worker(), worker(), worker()]);
-  if (!snaps.length) return { ok: false, error: firstError || '没能补全' };
-  return {
-    ok: true,
-    message: failed.length ? `已补全 ${snaps.length} 个，${failed.length} 个没成功` : `已补全 ${snaps.length} 个技能的描述`,
-    undo: { type: 'restoreSnapshots', data: { snapshots: snaps } },
-  };
-}
-
-function restoreSnapshots({ snapshots = [] }) {
-  const errs = snapshots.map(snap => restoreSnapshot({ snapshot: snap })).filter(r => !r.ok);
-  return errs.length ? { ok: false, error: errs[0].error } : { ok: true };
-}
-
 function register() {
   guardian.registerAction('updateFromCatalog', updateFromCatalog);
   guardian.registerAction('restoreSnapshot', restoreSnapshot);
-  guardian.registerAction('restoreSnapshots', restoreSnapshots);
+  // 老版本「一键补全」的撤销：恢复那一批快照
+  guardian.registerAction('restoreSnapshots', ({ snapshots = [] }) => {
+    const errs = snapshots.map(snap => restoreSnapshot({ snapshot: snap })).filter(r => !r.ok);
+    return errs.length ? { ok: false, error: errs[0].error } : { ok: true };
+  });
   guardian.registerAction('disableSkill', disableSkill);
   guardian.registerAction('trustSkill', trustSkill);
   guardian.registerAction('untrustSkill', untrustSkill);
-  guardian.registerAction('completeDescriptions', completeDescriptions);
   guardian.registerCheck('assets', check, 6 * 60 * 60 * 1000);
 }
 
