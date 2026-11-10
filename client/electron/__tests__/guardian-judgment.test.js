@@ -167,3 +167,10 @@ test('the built-in guardian agent is told how to write rules', () => {
   assert.match(g, /projection-gone/);
   assert.match(g, /targetRealHasSkillMd/);
 });
+
+test('a meta field also named kind does not hide the record\'s own kind', () => {
+  const f = judgment.factsOf({ kind: 'provider-failure', category: 'gateway', meta: { kind: 'network', model: 'm' } });
+  assert.equal(f.kind, 'provider-failure');
+  assert.equal(f.subKind, 'network');
+  assert.equal(f.model, 'm');
+});

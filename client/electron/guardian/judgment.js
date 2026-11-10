@@ -85,11 +85,13 @@ function saveRules(list) {
 
 /** 一条记录的事实：kind、category、meta 里的简单值，再加检查专门给的 facts */
 function factsOf(entry) {
-  const out = { kind: entry.kind, category: entry.category };
+  const out = {};
   for (const [k, v] of Object.entries(entry.meta || {})) {
-    if (['string', 'number', 'boolean'].includes(typeof v) && String(v).length <= 300) out[k] = v;
+    if (!['string', 'number', 'boolean'].includes(typeof v) || String(v).length > 300) continue;
+    // meta 里也叫 kind / category 的（比如供给源报错的类型），改名留着，不顶掉记录自己的类型
+    out[k === 'kind' ? 'subKind' : k === 'category' ? 'subCategory' : k] = v;
   }
-  return { ...out, ...(entry.facts || {}) };
+  return { ...out, ...(entry.facts || {}), kind: entry.kind, category: entry.category };
 }
 
 function samples(kind) {
@@ -303,6 +305,21 @@ async function propose(raw, { forceSuggest = false } = {}) {
   return { ok: true, rule };
 }
 
+/** 用户在对话里明确要求的规则：直接生效，记一条「已处理」可撤销 */
+async function adoptConfirmed(raw) {
+  const v = validate({ ...raw, source: 'user' });
+  if (!v.ok) return v;
+  const rule = v.rule;
+  const r = addRule({ rule });
+  guardian().record({
+    category: categoryOf(rule.kind), kind: 'judgment-rule', status: 'done', _judged: true,
+    title: `学到新规则：${describe(rule)}`, advice: rule.reason, actedLabel: '已采纳', resultNote: r.message,
+    signature: `judgment|${rule.id}`, undo: { type: 'removeJudgmentRule', data: { id: rule.id } },
+    meta: { ruleId: rule.id, ruleSource: 'user' },
+  });
+  return { ok: true, rule, adopted: true, message: r.message };
+}
+
 /** 收提议：proposed-rules/*.json（内置看护智能体写的） */
 async function takeProposals() {
   const dir = inboxDir();
@@ -355,13 +372,13 @@ function agentGuide() {
     '工作原则（自我进化）：',
     '- 冷启动就能发现问题；随着用户反馈（误报、忽略、撤销、改派）和你自己的排查不断改进；非功能问题自己解决，不等发版本。',
     '- 改进的方式是写「学到的规则」，看护以后所有同类结论都照着判、照着做。',
-    '写规则的方法：',
-    `1. 先核实（真实文件、链接、配置、日志都看过），向用户说清原因。条件尽量具体，只覆盖确认过的那种情况。`,
-    `2. 写成一个 JSON 文件放到 ${inboxDir()}/（文件名随意，.json 结尾）。两种规则：`,
+    '学规则的方法：',
+    '1. 先核实（真实文件、链接、配置、日志都看过）。条件尽量具体，只覆盖确认过的那种情况。',
+    '2. 用 learn 操作提交（见上面的命令）；用户明确要求的写 "source":"user"，立即生效；你自己发现的写 "source":"agent"，按该类权限采纳，会影响一整类的要用户确认。两种规则：',
     '   不算问题：{"kind":"projection-gone","verdict":"ignore","when":{"all":[{"fact":"targetIsSymlink","op":"eq","value":true},{"fact":"targetRealHasSkillMd","op":"eq","value":true}]},"reason":"应用里是指向真身的软链、真身完好"}',
     `   这样处理：{"kind":"asset-duplicate","verdict":"act","action":{"type":"disableSkill","data":{"resourceId":"\${resourceId}"}},"when":{...},"reason":"..."}（处理只能用：${Object.entries(SAFE_ACTIONS).map(([k, v]) => `${k}=${v.label}`).join('；')}）`,
     '   op 可用：eq ne in notIn exists match gt lt。规则不能执行任何别的东西。',
-    '3. 看护校验后按该类权限采纳（看护页能看到、能撤销）；会影响一整类的规则要用户确认。',
+    `   （接口不可用时，也可以把规则 JSON 写成文件放到 ${inboxDir()}/，看护几分钟内收走。）`,
     '已知的结论类型和事实：',
     kinds,
   ].join('\n');
@@ -380,5 +397,5 @@ function register() {
 
 module.exports = {
   FACTS, SAFE_ACTIONS, register, judge, apply, factsOf, validate, matches, coverage, propose, takeProposals,
-  learnFromDismiss, agentGuide, rules, list, removeRule, inboxDir, describe,
+  learnFromDismiss, adoptConfirmed, agentGuide, rules, list, removeRule, inboxDir, describe,
 };

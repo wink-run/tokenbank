@@ -191,11 +191,11 @@ test('playground guardian agent: listed on the runner app, fresh context each ti
     assert.equal(e.runtimeAgentId, 'codex');
     guardian.record({ category: 'assets', kind: 'k', status: 'info', title: '「x」包含高风险操作', advice: '信任或撤下' });
     assert.match(chat.systemText(), /待处理：\n- \[info\] 「x」包含高风险操作（信任或撤下）/);
-    assert.match(chat.systemText(), /改文件、执行会改变状态的命令、删除任何东西之前/);
+    assert.match(chat.systemText(), /改用户的文件、执行会改变状态的命令、删除任何东西之前/);
     assert.equal(await executor.resolveAgentId('assistant:tb-guardian'), 'assistant:tb-guardian');
     const r = executor._resolveAssistant('assistant:tb-guardian');
     assert.equal(r.agentId, 'codex');
-    assert.match(r.assistant.launch.promptPrefix || JSON.stringify(r.assistant.launch), /内置看护/);
+    assert.match(r.assistant.launch.promptPrefix || JSON.stringify(r.assistant.launch), /看护（自我进化）本身/);
     // 看护对话失败时，记录里写「看护（Codex）」而不是内部 id
     const tw = require('../guardian/task-watch');
     assert.match(tw._internal.agentName('assistant:tb-guardian'), /^内置看护智能体（/);
