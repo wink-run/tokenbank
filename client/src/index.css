@@ -1383,10 +1383,24 @@ html.tb-electron .tb-scroll-layer {
   html.tb-web .tb-app-main .flex:not(.flex-col):not(.flex-nowrap) {
     flex-wrap: wrap;
   }
+  /* 纵向栏也限宽，筛选条才会换行，而不是把页面撑出屏幕 */
+  html.tb-web .tb-app-main .flex.flex-col > *:not(.tb-hscroll):not(.tb-hscroll-sm) {
+    min-width: 0;
+    max-width: 100%;
+  }
   html.tb-web .tb-app-main .flex:not(.flex-col) > *,
   html.tb-web .tb-app-main .grid > * {
     min-width: 0;
     max-width: 100%;
+  }
+  /* 标题栏声明了整行宽度时，不要再被旁边的按钮挤成窄列 */
+  html.tb-web .tb-app-main .basis-full {
+    flex-basis: 100%;
+    width: 100%;
+  }
+  /* 不换行的按钮和统计短语保持整段，换到下一行，而不是被压扁 */
+  html.tb-web .tb-app-main .flex:not(.flex-col) > .whitespace-nowrap {
+    min-width: max-content;
   }
   html.tb-web .tb-app-main pre,
   html.tb-web .tb-app-main code {
@@ -1477,6 +1491,11 @@ html.tb-electron .tb-scroll-layer {
   }
   html.tb-web .tb-agent-tabs [role="separator"] {
     display: none;
+  }
+  /* 收起后只留一行标题，把高度还给对话 */
+  html.tb-web .tb-agent-tabs--collapsed {
+    max-height: none;
+    flex-shrink: 0;
   }
 }
 

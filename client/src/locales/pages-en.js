@@ -1552,6 +1552,8 @@ export default {
   'debug.agent.aborted': 'Aborted',
   'debug.tabs.noAgents': 'No agent CLI detected. Manage one in Gateway first.',
   'debug.tabs.agents': 'Agents',
+  'debug.tabs.collapseAgents': 'Hide',
+  'debug.tabs.expandAgents': 'Show',
   'debug.tabs.hub': '✨ Hub',
   'debug.tabs.orchestrating': 'Orchestrating',
   'debug.tabs.mainDispatch': 'Main: {name} · dispatching',

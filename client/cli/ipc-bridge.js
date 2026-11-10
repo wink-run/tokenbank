@@ -1,6 +1,6 @@
 // client/cli/ipc-bridge.js
 // Docker / CLI 补齐资产管理与命令行智能体纳管：
-// 复用桌面版的 IPC handler（electron/ipc-handlers-resource.js、ipc-handlers-agent.js），
+// 复用桌面版的 IPC handler（electron/ipc-handlers-resource.js、ipc-handlers-agent.js、ipc-handlers-mcp.js），
 // 通过 admin-api 以 HTTP 暴露给 Web 界面，前端 src/api/webBridge.js 按 preload 同名方法调用。
 //
 //   POST /api/bridge/invoke   { channel, args: [] }  → { ok, result } | { ok:false, error }
@@ -18,7 +18,7 @@ const https = require('https');
 const path = require('path');
 
 const STUB_PATH = path.join(__dirname, 'electron-stub.js');
-const ALLOWED_PREFIXES = ['resource:', 'agent:', 'community:', 'guardian:'];
+const ALLOWED_PREFIXES = ['resource:', 'agent:', 'community:', 'guardian:', 'mcp:'];
 const LOCAL_ONLY_CHANNELS = new Set(['llm:fetch']);
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
@@ -85,6 +85,8 @@ function init() {
     require('../electron/ipc-handlers-resource').registerResourceHandlers();
     require('../electron/ipc-handlers-agent').registerAgentHandlers();
     require('../electron/guardian/ipc').registerGuardianHandlers();
+    // MCP 管理与桌面版同一套 handler；写到容器内的用户目录（HOME=/data）
+    require('../electron/ipc-handlers-mcp').registerMcpHandlers();
     stub.__handlers.set('llm:fetch', llmFetch);
     // 没有系统文件对话框：选工作目录 = 校验 Web 界面填写的路径，默认 /workspace（挂载的项目目录）
     stub.__handlers.set('agent:pickWorkingDir', async (_event, opts = {}) => {

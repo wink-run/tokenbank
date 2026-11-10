@@ -1325,7 +1325,7 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
     return Array.isArray(a.circle_ids) ? a.circle_ids.includes(id) : isCircle;
   }).length;
 
-  const chip = (on) => `inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-colors ${
+  const chip = (on) => `inline-flex items-center gap-1 whitespace-nowrap text-xs px-2.5 py-1 rounded-full border transition-colors ${
     on
       ? 'border-zinc-900 dark:border-zinc-100 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900'
       : 'border-zinc-200 dark:border-zinc-700 bg-white/60 dark:bg-zinc-900/30 text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800'
@@ -1336,17 +1336,19 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
       {/* 市场头：在线概况 + 搜索 */}
       <div className="relative overflow-hidden rounded-2xl border border-zinc-200/70 dark:border-white/[0.07] bg-gradient-to-br from-violet-50/80 via-white/70 to-blue-50/60 dark:from-violet-950/30 dark:via-zinc-900/40 dark:to-blue-950/20 px-5 py-4">
         <div className="flex flex-wrap items-center gap-4">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-violet-500 to-blue-500 text-white flex items-center justify-center text-lg shadow-md shadow-violet-500/25 shrink-0" aria-hidden>✦</div>
-          <div className="min-w-0 flex-1">
-            <div className="text-[15px] font-semibold text-zinc-900 dark:text-zinc-50">{t('contribute.marketTitle')}</div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 flex flex-wrap items-center gap-x-2">
-              <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500" aria-hidden />{t('contribute.marketOnline', { n: onlineAgents.length, idle: idleCount })}</span>
-              <span className="text-zinc-300 dark:text-zinc-600">·</span>
-              <span>{t('contribute.marketHired', { n: hiredCount })}</span>
-              {credits != null && (<><span className="text-zinc-300 dark:text-zinc-600">·</span><span>{t('contribute.agentTaskCost', { n: credits })}</span></>)}
-            </p>
+          <div className="flex items-center gap-3 min-w-0 basis-full md:basis-auto md:flex-1">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-violet-500 to-blue-500 text-white flex items-center justify-center text-lg shadow-md shadow-violet-500/25 shrink-0" aria-hidden>✦</div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[15px] font-semibold text-zinc-900 dark:text-zinc-50">{t('contribute.marketTitle')}</div>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span className="inline-flex items-center gap-1 whitespace-nowrap"><span className="w-1.5 h-1.5 rounded-full bg-green-500" aria-hidden />{t('contribute.marketOnline', { n: onlineAgents.length, idle: idleCount })}</span>
+                <span className="text-zinc-300 dark:text-zinc-600">·</span>
+                <span className="whitespace-nowrap">{t('contribute.marketHired', { n: hiredCount })}</span>
+                {credits != null && (<><span className="text-zinc-300 dark:text-zinc-600">·</span><span className="whitespace-nowrap">{t('contribute.agentTaskCost', { n: credits })}</span></>)}
+              </p>
+            </div>
           </div>
-          <div className="relative w-72 max-w-full">
+          <div className="relative w-full md:w-72">
             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" aria-hidden>
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3.5 h-3.5"><circle cx="9" cy="9" r="5.5" /><path d="M13.5 13.5 17 17" strokeLinecap="round" /></svg>
             </span>
@@ -1937,11 +1939,12 @@ export default function Contribute() {
     <div className="flex flex-col h-full min-h-0">
       <header className="shrink-0 px-5 pt-5">
         <div className="flex flex-wrap items-start gap-3">
-          <div className="min-w-0 flex-1">
+          {/* 窄屏说明独占一行，积分和状态落到下一行 */}
+          <div className="min-w-0 basis-full md:basis-auto md:flex-1">
             <h1 className="text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">{t('contribute.title')}</h1>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">{t('contribute.subtitle')}</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">{t('contribute.subtitle')}</p>
           </div>
-          <div className="electron-no-drag relative z-50 flex items-center gap-2">
+          <div className="electron-no-drag relative z-50 flex flex-wrap items-center gap-2">
             {/* 累计积分：点击看收益记录（明细数据都在该页签） */}
             {summary && (
               <button type="button" onClick={() => changeTab('earnings')}

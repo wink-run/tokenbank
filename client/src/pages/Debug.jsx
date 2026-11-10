@@ -3287,32 +3287,35 @@ export default function Debug() {
       <div className={`${chromeTop} px-4 pt-3 pb-2 electron-drag ${mode === 'llm' ? 'space-y-2' : ''}`}>
 
         {/* 第 1 层：LLM|Agent + 供给源 + URL + API Key */}
-        <div className="flex gap-2 items-center flex-wrap min-h-[2rem]">
-          <div className="electron-no-drag shrink-0">
+        {/* 窄屏按行排开：模式和网关一行，地址一行，密钥一行 */}
+        <div className="flex flex-col gap-2 md:flex-row md:gap-2 md:items-center md:flex-wrap md:min-h-[2rem]">
+          <div className="electron-no-drag flex items-center gap-2 flex-nowrap min-w-0">
             {modeSwitcher}
-          </div>
-          {mode === 'llm' && (
-            <div className="electron-no-drag flex gap-2 items-center flex-wrap flex-1 min-w-0">
+            {mode === 'llm' && (
               <select value={selectedId} onChange={e => setSelectedId(e.target.value)}
-                className="bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-blue-500 shrink-0">
+                className="min-w-0 flex-1 md:flex-none bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-blue-500">
                 {provOpts.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
+            )}
+          </div>
+          {mode === 'llm' && (
+            <div className="electron-no-drag flex flex-col gap-2 md:flex-row md:items-center md:flex-wrap md:flex-1 md:min-w-0">
               {selectedId === '__custom__' ? (
                 <input value={manualBaseUrl} onChange={e => setManualBaseUrl(e.target.value)}
                   placeholder={t('debug.baseUrlPh')}
-                  className="flex-1 min-w-[160px] bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-1.5 text-xs font-mono text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:border-blue-500" />
+                  className="w-full md:flex-1 md:min-w-[160px] bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-1.5 text-xs font-mono text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:border-blue-500" />
               ) : (
-                <code className="text-xs font-mono text-zinc-500 dark:text-zinc-400 truncate max-w-[220px]">{effectiveBase}</code>
+                <code className="text-xs font-mono text-zinc-500 dark:text-zinc-400 break-all md:truncate md:max-w-[220px]">{effectiveBase}</code>
               )}
-              <div className="flex gap-1 items-center ml-auto">
+              <div className="flex gap-1 items-center w-full md:w-auto md:ml-auto">
                 {anthropic && effectiveBase && (
                   <span className="text-xs px-1.5 py-0.5 rounded-lg border border-zinc-200 dark:border-zinc-600 text-zinc-500 dark:text-zinc-400 shrink-0">{t('debug.protocolAnthropic')}</span>
                 )}
                 <input value={token} onChange={e => setToken(e.target.value)}
                   type={showToken ? 'text' : 'password'} placeholder={t('debug.apiKeyPh')} autoComplete="off"
-                  className="w-36 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs font-mono text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:border-blue-500" />
+                  className="min-w-0 flex-1 md:flex-none md:w-36 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs font-mono text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:border-blue-500" />
                 <button onClick={() => setShowToken(v => !v)}
-                  className="text-xs px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors shrink-0">
+                  className="text-xs px-2 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors shrink-0 whitespace-nowrap">
                   {showToken ? t('debug.hide') : t('debug.show')}
                 </button>
               </div>
@@ -3336,7 +3339,7 @@ export default function Debug() {
               </span>
             ) : !manualModel && (filteredModels.length > 0 || debugSceneRoutes.length > 0) ? (
               <select value={model} onChange={e => setModel(e.target.value)}
-                className="bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-blue-500 max-w-[280px]">
+                className="min-w-0 w-full md:w-auto bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-blue-500 md:max-w-[280px]">
                 {debugSceneRoutes.length > 0 && (
                   <optgroup label={t('gateway.app.sceneRoutes')}>
                     {debugSceneRoutes.map(r => (

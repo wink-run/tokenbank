@@ -3825,11 +3825,12 @@ export default function Resources() {
       {/* 与下方内容同色：透明底，不单独铺白 */}
       <header className="shrink-0 px-5 pt-5">
         <div className="flex flex-wrap items-start gap-3">
-          <div className="min-w-0 flex-1">
+          {/* 窄屏说明独占一行，避免被右侧按钮挤成逐字折行 */}
+          <div className="min-w-0 basis-full md:basis-auto md:flex-1">
             <h1 className="text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">{t('resources.title')}</h1>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">{t('resources.subtitle')}</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">{t('resources.subtitle')}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {(() => {
               const busyEdit = busy === 'editor' || busy === 'cleanup';
               const primaryCls = 'tb-press text-xs font-medium px-3.5 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 shadow-sm shadow-blue-600/20 disabled:opacity-50 whitespace-nowrap';

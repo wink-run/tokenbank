@@ -54,6 +54,8 @@ test('ping registers resource and agent channels', async () => {
   assert.ok(body.channels.includes('resource:listResources'));
   assert.ok(body.channels.includes('agent:execute'));
   assert.ok(body.channels.includes('llm:fetch'));
+  assert.ok(body.channels.includes('mcp:listServers'));
+  assert.ok(body.channels.includes('mcp:listCatalog'));
   assert.equal(res.headers.get('access-control-allow-origin'), null);
 });
 
@@ -102,6 +104,15 @@ test('file dialogs report cancelled in web mode', async () => {
   const body = await (await post('/api/bridge/invoke', { channel: 'resource:pickImportPath', args: [{}] })).json();
   assert.equal(body.ok, true);
   assert.equal(body.result.canceled, true);
+});
+
+test('mcp catalog is reachable through the bridge', async () => {
+  const body = await (await post('/api/bridge/invoke', { channel: 'mcp:listCatalog', args: [] })).json();
+  assert.equal(body.ok, true, body.error);
+  assert.equal(typeof body.result.success, 'boolean');
+  // 本机 sqlite 与 Node ABI 不一致时 handler 仍会返回错误，而不是 unknown channel
+  if (body.result.success) assert.ok(Array.isArray(body.result.catalog));
+  else assert.match(String(body.result.error || ''), /./);
 });
 
 test('llm.fetch only reaches loopback hosts', async () => {

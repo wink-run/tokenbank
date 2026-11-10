@@ -1,7 +1,7 @@
 // client/src/api/webBridge.js
 // Docker / CLI 的 Web 界面没有 Electron preload。admin-api 通过 /api/bridge 暴露与桌面版相同的
 // 资产管理（resource:*）和命令行智能体（agent:* / community:*）IPC handler，这里按 preload.js 的同名方法
-// 拼出 window.electronAPI.{resource, agent, llm}，让资产页、智能体相关页面不改调用方式即可工作。
+// 拼出 window.electronAPI.{resource, agent, llm, mcp}，让资产页、智能体和 MCP 页不改调用方式即可工作。
 // 标记 __web: true —— isElectron() 据此仍判为非桌面，其余桌面专属能力（网关、配置等）照旧走 HTTP 适配。
 
 const ADMIN_BASE = import.meta.env?.VITE_ADMIN_BASE ?? '';
@@ -152,6 +152,30 @@ const agent = {
   onListUpdated: on('agent:listUpdated'),
 };
 
+// 与 electron/preload.js 的 mcp 段一一对应
+const mcp = {
+  listServers: call0('mcp:listServers'),
+  listCatalog: call0('mcp:listCatalog'),
+  installCatalog: call('mcp:installCatalog', {}),
+  uninstallServer: (serverId) => invoke('mcp:uninstallServer', serverId),
+  setServerStatus: call('mcp:setServerStatus', {}),
+  saveServer: call('mcp:saveServer', {}),
+  listProfiles: call0('mcp:listProfiles'),
+  getProfile: (profileId) => invoke('mcp:getProfile', profileId),
+  saveProfile: call('mcp:saveProfile', {}),
+  syncClients: call('mcp:syncClients', {}),
+  getSyncStatus: call0('mcp:getSyncStatus'),
+  listAgentInstallations: call0('mcp:listAgentInstallations'),
+  importFromClient: call('mcp:importFromClient', {}),
+  importFromAgent: call('mcp:importFromAgent', {}),
+  setServerSyncClients: call('mcp:setServerSyncClients', {}),
+  toggleServerSyncClient: call('mcp:toggleServerSyncClient', {}),
+  removeFromAgent: call('mcp:removeFromAgent', {}),
+  setServerGatewayRouted: call('mcp:setServerGatewayRouted', {}),
+  setServersGatewayRouted: call('mcp:setServersGatewayRouted', {}),
+  getGatewayInfo: call0('mcp:getGatewayInfo'),
+};
+
 // 只能访问容器内本机网关（服务端限制）
 const llm = {
   fetch: (url, options) => invoke('llm:fetch', { url, ...(options || {}) }),
@@ -167,7 +191,7 @@ export async function installWebBridge({ timeoutMs = 1500 } = {}) {
     if (!res.ok) return false;
     const body = await res.json().catch(() => null);
     if (!body || !body.ok) return false;
-    window.electronAPI = { __web: true, resource, agent, llm, guardian };
+    window.electronAPI = { __web: true, resource, agent, llm, guardian, mcp };
     return true;
   } catch {
     return false;

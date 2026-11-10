@@ -1,7 +1,7 @@
 // Agent 左侧竖排列表：聚合入口 + 各 Agent；可指定主 Agent（编排层）
 // 选中态遵循材料层次：侧栏偏重、Hub 用实心强调色、条目用抬升面（非描边）
 // 右缘可左右拖动调宽（记忆到 localStorage）
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { resolveBrandIcon } from '../lib/brandIcons';
 import KimiAvatar from './KimiAvatar';
 import { useLang } from '../store/lang';
@@ -15,6 +15,7 @@ const FALLBACK_ICON = {
   assistant: 'AG',
 };
 
+const WEB_NARROW_MQ = '(max-width: 767px)';
 const SIDEBAR_W_KEY = 'tokenbank.debug.agentSidebarWidth';
 const SIDEBAR_W_DEFAULT = 176; // ≈ Tailwind w-44
 const SIDEBAR_W_MIN = 140;
@@ -26,6 +27,25 @@ function readSidebarWidth() {
     if (Number.isFinite(v) && v >= SIDEBAR_W_MIN && v <= SIDEBAR_W_MAX) return Math.round(v);
   } catch { /* ignore */ }
   return SIDEBAR_W_DEFAULT;
+}
+
+/** 网页窄屏（Docker 手机）。不写入 localStorage，避免影响桌面侧栏宽度。 */
+function useWebNarrow() {
+  const [narrow, setNarrow] = useState(() => {
+    if (typeof document === 'undefined') return false;
+    return document.documentElement.classList.contains('tb-web')
+      && window.matchMedia(WEB_NARROW_MQ).matches;
+  });
+  useEffect(() => {
+    const mq = window.matchMedia(WEB_NARROW_MQ);
+    const sync = () => {
+      setNarrow(document.documentElement.classList.contains('tb-web') && mq.matches);
+    };
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
+  return narrow;
 }
 
 function clampSidebarWidth(w) {
@@ -93,6 +113,8 @@ export default function AgentTabBar({
   loggingInCursorCli,
 }) {
   const { t } = useLang();
+  const narrow = useWebNarrow();
+  const [listCollapsed, setListCollapsed] = useState(false);
   const [width, setWidth] = useState(readSidebarWidth);
   const [dragging, setDragging] = useState(false);
   const widthRef = useRef(width);
@@ -131,7 +153,8 @@ export default function AgentTabBar({
     ? runningKeys
     : new Set(Array.isArray(runningKeys) ? runningKeys : []);
 
-  const shellCls = `tb-agent-tabs relative shrink-0 flex min-h-0 ${dragging ? 'select-none' : ''}`;
+  const hideList = narrow && listCollapsed;
+  const shellCls = `tb-agent-tabs relative shrink-0 flex min-h-0 ${hideList ? 'tb-agent-tabs--collapsed' : ''} ${dragging ? 'select-none' : ''}`;
   // 隐式拖拽热区：无蓝线/分割条，仅 cursor 提示可左右调宽
   const resizeHandle = (
     <div
@@ -175,18 +198,38 @@ export default function AgentTabBar({
 
   const mainAgent = agents.find(a => a.id === mainAgentId && !a.custom && a.type !== 'assistant' && a.installed !== false);
   const hubActive = !selectedAgent;
+  const currentName = selectedAgent
+    ? (selectedAgent.guardian ? t('debug.tabs.guardian') : selectedAgent.name)
+    : t('debug.tabs.hub');
 
   return (
     /* 侧栏：偏重材料，与主内容玻璃顶栏分层，避免轻材质叠轻材质 */
     <div className={shellCls} style={{ width }}>
     <aside className="w-full border-r border-white/40 dark:border-white/[0.06] bg-white/25 dark:bg-zinc-950/40 backdrop-blur-xl flex flex-col min-h-0 min-w-0">
-      <div className="shrink-0 px-3 pt-4 pb-2">
-        <p className="text-[10px] font-semibold tracking-[0.04em] text-zinc-500 dark:text-zinc-400">
-          {t('debug.tabs.agents')}
-        </p>
-      </div>
+      {narrow ? (
+        <button
+          type="button"
+          onClick={() => setListCollapsed((v) => !v)}
+          aria-expanded={!hideList}
+          className="shrink-0 w-full flex flex-nowrap items-center gap-2 px-3 py-2.5 text-left"
+        >
+          <span className="text-[10px] font-semibold tracking-[0.04em] text-zinc-500 dark:text-zinc-400">
+            {t('debug.tabs.agents')}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[12px] text-zinc-700 dark:text-zinc-200">{currentName}</span>
+          <span className="shrink-0 text-[10px] text-zinc-400">
+            {hideList ? t('debug.tabs.expandAgents') : t('debug.tabs.collapseAgents')}
+          </span>
+        </button>
+      ) : (
+        <div className="shrink-0 px-3 pt-4 pb-2">
+          <p className="text-[10px] font-semibold tracking-[0.04em] text-zinc-500 dark:text-zinc-400">
+            {t('debug.tabs.agents')}
+          </p>
+        </div>
+      )}
 
-      <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 tb-scroll-layer">
+      {!hideList && <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 tb-scroll-layer">
         {/* Hub：选中与列表项同一玻璃高亮，避免实心蓝跳出体系 */}
         <button
           type="button"
@@ -339,10 +382,10 @@ export default function AgentTabBar({
             </div>
           );
         })}
-      </div>
+      </div>}
 
       {/* 底栏：结构区轻提示，无抢戏 */}
-      {mainAgent && selectedAgent && (
+      {!hideList && mainAgent && selectedAgent && (
         <div className="shrink-0 px-3 py-2.5 border-t border-zinc-200/90 dark:border-zinc-800 text-[10px] text-zinc-500 dark:text-zinc-400 leading-snug">
           {t('debug.tabs.mainFooter', { name: mainAgent.name })}
         </div>

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import ServiceIcon from './ServiceIcon';
 import { useLang } from '../store/lang';
+import { getApps } from '../api/adapter';
 import { ASSET_BTN_GHOST, ASSET_BTN_MANAGED, ASSET_BTN_PRIMARY, AssetMoreMenu } from './ResourceAssetCard';
 import {
   FilterMenu, AppIconStack, LIB_LIST_CLS, libRowCls, LibrarySectionHead, LibraryRowTitle,
@@ -199,7 +200,8 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
     if (!silent) setLoading(true);
     setError('');
     // apps:list 很重：与 MCP 并行拉，但不参与首屏 loading 门闩
-    const appsPromise = window.electronAPI.apps?.list?.() || Promise.resolve([]);
+    // 桌面走 preload；Docker 没有 apps IPC，改走 admin-api 的应用列表
+    const appsPromise = window.electronAPI.apps?.list?.() || getApps().list().catch(() => []);
     try {
       // 目录多为本地 yaml，先返回以尽快结束「加载中」；servers/sync 含扫盘+安装探测更慢
       const catRes = await window.electronAPI.mcp.listCatalog();

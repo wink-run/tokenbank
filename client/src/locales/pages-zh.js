@@ -1557,6 +1557,8 @@ export default {
   'debug.agent.aborted': '已中止',
   'debug.tabs.noAgents': '未检测到可用 Agent CLI，请先在 Gateway 纳管',
   'debug.tabs.agents': '智能体',
+  'debug.tabs.collapseAgents': '收起',
+  'debug.tabs.expandAgents': '展开',
   'debug.tabs.hub': '✨ 聚合入口',
   'debug.tabs.orchestrating': '编排运行中',
   'debug.tabs.mainDispatch': '主：{name} · 编排派发',
