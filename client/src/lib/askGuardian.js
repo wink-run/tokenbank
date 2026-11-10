@@ -10,8 +10,8 @@ export function askGuardian(navigate, prompt) {
 export function recordQuestion(r, lang) {
   const lines = [r.title, r.advice, r.detail, r.lastError].filter(Boolean);
   return lang === 'en'
-    ? `Token Bank's guardian reported this:\n${lines.join('\n')}\n\nHelp me understand why and what I should do. Ask me before changing files or running commands.`
-    : `Token Bank 看护提示：\n${lines.join('\n')}\n\n帮我弄清楚原因和该怎么处理。改文件或执行命令前先问我。`;
+    ? `About this notice you raised:\n${lines.join('\n')}\n\nWhy is this happening, and what should be done?`
+    : `你提示的这条：\n${lines.join('\n')}\n\n这是怎么回事？该怎么处理？`;
 }
 
 /** 用户觉得这条是误报 → 让内置看护智能体核实，确认后写一条学到的规则（看护以后照着判，不用等发版本） */
@@ -19,6 +19,6 @@ export function falsePositiveQuestion(r, lang) {
   const facts = r.facts || (Array.isArray(r.factsList) ? r.factsList.slice(0, 5) : null);
   const f = facts ? JSON.stringify(facts, null, 2) : '';
   return lang === 'en'
-    ? `I think this guardian notice is a false positive:\n${r.title}\n${r.advice || ''}\nFacts it was based on:\n${f}\n\nPlease verify. If it really is a false positive, explain why and write a judgment rule in your rule format so the guardian stops judging it this way.`
-    : `我觉得这条看护提醒是误报：\n${r.title}\n${r.advice || ''}\n看护下结论的依据：\n${f}\n\n帮我核实一下。如果确实是误报，说明原因，并按学到的规则的格式写一条，让看护以后不再这样判。`;
+    ? `I think this notice of yours is a false positive:\n${r.title}\n${r.advice || ''}\nWhat you based it on:\n${f}\n\nCheck it. If you got it wrong, fix your rule so it is not raised again.`
+    : `我觉得你这条提醒是误报：\n${r.title}\n${r.advice || ''}\n你下结论的依据：\n${f}\n\n核实一下，如果判错了就改好规则，以后别再报。`;
 }
