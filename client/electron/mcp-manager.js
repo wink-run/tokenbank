@@ -812,6 +812,18 @@ class MCPManager {
       nextMeta.gateway_routed = prevMeta.gateway_routed;
     }
 
+    // mcp=协议服务；api / cli 只是可配置的工具，不写入应用的 MCP 配置
+    const requestedKind = data.tool_kind || data.metadata?.tool_kind || prevMeta.tool_kind || 'mcp';
+    const toolKind = requestedKind === 'api' || requestedKind === 'cli' ? requestedKind : 'mcp';
+    nextMeta.tool_kind = toolKind;
+    if (toolKind === 'api') {
+      const method = String(data.method || data.metadata?.method || prevMeta.method || 'POST').toUpperCase();
+      if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+        throw new Error('不支持的 HTTP 方法');
+      }
+      nextMeta.method = method;
+    }
+
     const type = data.type || existing?.type || 'stdio';
     const payload = {
       name: String(data.name || id).trim(),
@@ -854,7 +866,11 @@ class MCPManager {
     }
 
     let sync = null;
-    if (!data.skipAutoSync) {
+    const plainTool = toolKind === 'api' || toolKind === 'cli';
+    if (plainTool) {
+      // 刷新或保存都不把普通 API / CLI 投成 MCP
+      sync = { success: true, skipped: true, reason: 'not_mcp' };
+    } else if (!data.skipAutoSync) {
       if (data.syncInstalled) {
         // 仅推送到已分配 / 已安装的 Agent
         const enriched = this.listManagedServers().find(s => s.id === id);
@@ -985,6 +1001,7 @@ class MCPManager {
     this.init();
     return this.listManagedServers().filter((s) => {
       if (!s || s.status !== 'active' || !s.gateway_routed) return false;
+      if (s.metadata?.tool_kind === 'api' || s.metadata?.tool_kind === 'cli') return false;
       const isUrl = !!(s.url) || s.type === 'http' || s.type === 'sse';
       if (isUrl) return !!String(s.url || '').trim();
       return !!s.command;
@@ -1002,6 +1019,10 @@ class MCPManager {
     const db = this._getDb();
     const row = db.prepare('SELECT id, type, command, url, metadata FROM mcp_servers WHERE id = ?').get(serverId);
     if (!row) throw new Error('Server not found');
+    const rowMeta = this._parseJson(row.metadata, {});
+    if (rowMeta.tool_kind === 'api' || rowMeta.tool_kind === 'cli') {
+      throw new Error('API 与本地 CLI 不是 MCP，不能投射到应用');
+    }
 
     // 中转：stdio 需 command；远程 HTTP/SSE 需 url。通用档仍仅内置 MCP。
     const isUrl = !!(String(row.url || '').trim()) || row.type === 'sse' || row.type === 'http';

@@ -88,6 +88,41 @@ test('saveServer 新建自定义 MCP：默认中转到已纳管应用', () => {
   });
 });
 
+test('saveServer API 与本地 CLI 不进入 MCP 中转', () => {
+  withDb(() => {
+    stubManagedApps([
+      { agent_id: 'codex', hosted: true, link_method: 'shim', draft: false },
+    ]);
+    mcpManager.init();
+    const api = mcpManager.saveServer({
+      id: 'tool-api-demo',
+      name: 'demo-api',
+      display_name: 'Demo API',
+      type: 'http',
+      url: 'https://example.com/v1/search',
+      tool_kind: 'api',
+      method: 'GET',
+    });
+    assert.equal(api.success, true);
+    assert.equal(api.server.metadata.tool_kind, 'api');
+    assert.equal(api.server.metadata.method, 'GET');
+    assert.equal((api.server.gateway_clients || []).length, 0);
+
+    const cli = mcpManager.saveServer({
+      id: 'tool-cli-demo',
+      name: 'demo-cli',
+      display_name: 'Demo CLI',
+      type: 'stdio',
+      command: 'echo',
+      args: ['hi'],
+      tool_kind: 'cli',
+    });
+    assert.equal(cli.success, true);
+    assert.equal(cli.server.metadata.tool_kind, 'cli');
+    assert.equal((cli.server.gateway_clients || []).length, 0);
+  });
+});
+
 test('listRelayedMcpsForClient: 按应用过滤并带出 Pipeworx 工具名', () => {
   withDb(() => {
     stubManagedApps([

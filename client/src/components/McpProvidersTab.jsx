@@ -90,11 +90,27 @@ function isMcpUrlServer(s) {
 const EMPTY_CUSTOM_FORM = {
   name: '',
   display_name: '',
+  description: '',
+  // mcp=MCP 协议；api=HTTP API；cli=本地命令。后两种不投射成 MCP。
+  tool_kind: 'mcp',
+  method: 'POST',
   type: 'stdio', // stdio=CLI，http=URL
   command: 'npx',
   args: '-y mcp-fetch-server',
   url: '',
   headersText: '{}',
+};
+
+/** 已存工具的种类。旧数据没有 tool_kind，一律视为 MCP。 */
+function toolKindOf(s) {
+  const k = s?.tool_kind || s?.metadata?.tool_kind;
+  return k === 'api' || k === 'cli' ? k : 'mcp';
+}
+
+const TOOL_KIND_CHIP = {
+  mcp: 'bg-teal-50/80 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300',
+  api: 'bg-sky-50/80 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300',
+  cli: 'bg-amber-50/80 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200',
 };
 
 function readMcpAgentTab() {
@@ -346,9 +362,9 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
     saveMcpAgentTab('');
   }, [agentTab, gatewayApps, gatewayApiApps]);
 
-  /** 可加入网关代理：已启用的 stdio 或远程 URL */
+  /** 可加入网关代理：已启用的 MCP（普通 API / 本地 CLI 不投射） */
   function canRouteViaGateway(s) {
-    if (!s || s.status !== 'active') return false;
+    if (!s || s.status !== 'active' || toolKindOf(s) !== 'mcp') return false;
     if (isMcpUrlServer(s)) return true;
     return !!s.command;
   }
@@ -815,7 +831,8 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
   }
 
   async function saveCustomServer() {
-    const isUrl = isMcpUrlServer(customForm);
+    const kind = toolKindOf(customForm);
+    const isUrl = kind === 'api' || (kind === 'mcp' && isMcpUrlServer(customForm));
     if (!customForm.name.trim()) {
       alert(t('providers.mcp.nameRequired'));
       return;
@@ -842,13 +859,20 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
       }
     }
     const args = customForm.args.split(/\s+/).filter(Boolean);
-    const metadata = { category: 'custom', description: t('providers.mcp.customServerDesc') };
+    const metadata = {
+      category: 'custom',
+      tool_kind: kind,
+      description: customForm.description.trim() || (kind === 'mcp' ? t('providers.mcp.customServerDesc') : ''),
+    };
+    if (kind === 'api') metadata.method = customForm.method || 'POST';
     if (isUrl && Object.keys(headers).length) metadata.headers = headers;
     setBusy('custom');
     const res = await window.electronAPI.mcp.saveServer({
       name: customForm.name.trim(),
       display_name: customForm.display_name.trim() || customForm.name.trim(),
-      type: isUrl ? 'http' : 'stdio',
+      tool_kind: kind,
+      method: kind === 'api' ? (customForm.method || 'POST') : undefined,
+      type: kind === 'cli' ? 'stdio' : (isUrl ? 'http' : 'stdio'),
       command: isUrl ? '' : customForm.command.trim(),
       args: isUrl ? [] : args,
       url: isUrl ? customForm.url.trim() : null,
@@ -866,7 +890,46 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
     loadAll();
   }
 
-  /** CLI / URL 模式切换（内部仍用 stdio / http） */
+  /** 列表上的接入摘要：API 显示方法，CLI 显示命令，MCP 显示 URL / CLI */
+function toolAccessLabel(s, t) {
+  const kind = toolKindOf(s);
+  if (kind === 'api') return s.metadata?.method || 'POST';
+  if (kind === 'cli') return t('providers.mcp.kind.cli');
+  return isMcpUrlServer(s) ? t('providers.mcp.typeUrl') : t('providers.mcp.typeCli');
+}
+
+/** 工具种类：MCP / API / 本地 CLI */
+function renderToolKindToggle(kind, onChange) {
+  const items = [
+    ['mcp', t('providers.mcp.kind.mcp')],
+    ['api', t('providers.mcp.kind.api')],
+    ['cli', t('providers.mcp.kind.cli')],
+  ];
+  return (
+    <div className="space-y-1">
+      <span className="text-[10px] text-zinc-500">{t('providers.mcp.kindLabel')}</span>
+      <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden text-xs">
+        {items.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onChange(id)}
+            className={`px-3 py-1.5 ${
+              kind === id
+                ? 'bg-violet-50 dark:bg-violet-900/30 text-violet-700 dark:text-violet-200 font-medium'
+                : 'text-zinc-400 hover:text-zinc-600'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="text-[10px] text-zinc-400">{t(`providers.mcp.kindHint.${kind}`)}</p>
+    </div>
+  );
+}
+
+/** CLI / URL 模式切换（内部仍用 stdio / http） */
   function renderTypeModeToggle(isUrl, onChange) {
     return (
       <div className="space-y-1">
@@ -915,6 +978,8 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
       builtin: false,
       name: server.name || '',
       display_name: server.display_name || server.name || '',
+      tool_kind: toolKindOf(server),
+      method: server.metadata?.method || 'POST',
       type: isUrl ? (server.type === 'sse' ? 'sse' : 'http') : 'stdio',
       command: server.command || '',
       args: Array.isArray(server.args) ? server.args.join(' ') : '',
@@ -1054,8 +1119,10 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
 
     const metadata = {
       ...form.metadata,
+      tool_kind: toolKindOf(form),
       description: form.description.trim(),
     };
+    if (metadata.tool_kind === 'api') metadata.method = form.method || 'POST';
     if (Object.keys(headers).length) metadata.headers = headers;
     else delete metadata.headers;
 
@@ -1070,22 +1137,25 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
         args: isUrl ? [] : form.args.split(/\s+/).filter(Boolean),
         url: isUrl ? form.url.trim() : null,
         env,
+        tool_kind: toolKindOf(form),
+        method: toolKindOf(form) === 'api' ? (form.method || 'POST') : undefined,
         metadata,
-        skipAutoSync: !form.syncToAgents,
-        syncInstalled: !!form.syncToAgents,
+        skipAutoSync: toolKindOf(form) !== 'mcp' || !form.syncToAgents,
+        syncInstalled: toolKindOf(form) === 'mcp' && !!form.syncToAgents,
       });
       if (!res.success) {
         alert(res.error || t('providers.mcp.saveFailed'));
         return;
       }
       const synced = (res.sync?.results || []).filter(r => r.success).map(r => r.label || r.clientId);
-      if (form.syncToAgents && synced.length) {
+      const relay = toolKindOf(form) === 'mcp' && form.syncToAgents;
+      if (relay && synced.length) {
         const hitWb = (res.sync?.results || []).some(
           (r) => r.success && String(r.clientId || r.label || '').toLowerCase().includes('workbuddy'),
         );
         const msg = t('providers.mcp.savedSynced', { agents: synced.join('、') });
         alert(hitWb ? `${msg}\n${t('providers.mcp.workbuddyTrustHint')}` : msg);
-      } else if (form.syncToAgents && !synced.length) {
+      } else if (relay && !synced.length) {
         alert(t('providers.mcp.savedNoAgents'));
       }
       setEditServer(null);
@@ -1312,7 +1382,7 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
           sub={serverDesc(s)}
           chips={(
             <>
-              <span className="shrink-0 text-[10px] px-1.5 py-px rounded font-medium bg-teal-50/80 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300">MCP</span>
+              <span className={`shrink-0 text-[10px] px-1.5 py-px rounded font-medium ${TOOL_KIND_CHIP[toolKindOf(s)]}`}>{t(`providers.mcp.kind.${toolKindOf(s)}`)}</span>
               {s.builtin && <span className="shrink-0 text-[10px] text-sky-600 dark:text-sky-300">{t('providers.mcp.builtin')}</span>}
               {origin && <span className="shrink-0">{renderMcpSourceBadge(origin)}</span>}
             </>
@@ -1321,7 +1391,7 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
         <div className="hidden md:flex items-center gap-1.5 min-w-0">
           <AppIconStack apps={connectedApps(s)} emptyLabel="—" />
         </div>
-        <span className="hidden md:block text-[11px] text-zinc-500">{isMcpUrlServer(s) ? t('providers.mcp.typeUrl') : t('providers.mcp.typeCli')}</span>
+        <span className="hidden md:block text-[11px] text-zinc-500">{toolAccessLabel(s, t)}</span>
         <span className="hidden md:flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300">
           <span className={`w-1.5 h-1.5 rounded-full ${serverStatusDot(s)}`} aria-hidden />
           {s.status === 'active' ? t('providers.mcp.enabled') : t('providers.mcp.disabled')}
@@ -1350,12 +1420,12 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
         onClose={() => setSelectedKey(null)}
         chips={(
           <>
-            <span className="text-[10px] px-1.5 py-px rounded font-medium bg-teal-50/80 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300">MCP</span>
+            <span className={`text-[10px] px-1.5 py-px rounded font-medium ${TOOL_KIND_CHIP[toolKindOf(s)]}`}>{t(`providers.mcp.kind.${toolKindOf(s)}`)}</span>
             <span className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
               <span className={`w-1.5 h-1.5 rounded-full ${serverStatusDot(s)}`} aria-hidden />
               {s.status === 'active' ? t('providers.mcp.enabled') : t('providers.mcp.disabled')}
             </span>
-            <span className="text-[10px] text-zinc-400">{isMcpUrlServer(s) ? t('providers.mcp.typeUrl') : t('providers.mcp.typeCli')}</span>
+            <span className="text-[10px] text-zinc-400">{toolAccessLabel(s, t)}</span>
             {s.builtin && <span className="text-[10px] text-sky-600 dark:text-sky-300">{t('providers.mcp.builtin')}</span>}
             {origin && renderMcpSourceBadge(origin)}
           </>
@@ -2134,12 +2204,24 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
                 className="w-full text-sm px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 font-mono"
               />
             </label>
-            {renderTypeModeToggle(isMcpUrlServer(editServer), (urlMode) => {
+            {toolKindOf(editServer) === 'mcp' && renderTypeModeToggle(isMcpUrlServer(editServer), (urlMode) => {
               setEditServer((f) => ({
                 ...f,
                 type: urlMode ? (f.type === 'sse' ? 'sse' : 'http') : 'stdio',
               }));
             })}
+            {toolKindOf(editServer) === 'api' && (
+              <label className="block space-y-1">
+                <span className="text-[10px] text-zinc-500">{t('providers.mcp.method')}</span>
+                <select
+                  value={editServer.method || 'POST'}
+                  onChange={e => setEditServer(f => ({ ...f, method: e.target.value }))}
+                  className="w-full text-sm px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
+                >
+                  {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </label>
+            )}
             {isMcpUrlServer(editServer) ? (
               <>
                 <label className="block space-y-1">
@@ -2201,6 +2283,7 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
               </>
             )}
 
+            {toolKindOf(editServer) === 'mcp' && (
             <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300 cursor-pointer">
               <input
                 type="checkbox"
@@ -2213,6 +2296,7 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
                 <span className="text-[10px] text-zinc-400">{t('providers.mcp.syncCount', { n: editServer.installedCount })}</span>
               )}
             </label>
+            )}
             <div className="flex justify-end gap-2 pt-1">
               <button type="button" onClick={() => setEditServer(null)} className="text-xs px-3 py-1.5 rounded-lg border">{t('providers.mcp.cancel')}</button>
               <button
@@ -2246,10 +2330,32 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
               onChange={e => setCustomForm(f => ({ ...f, display_name: e.target.value }))}
               className="w-full text-sm px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
             />
-            {renderTypeModeToggle(isMcpUrlServer(customForm), (urlMode) => {
+            {renderToolKindToggle(toolKindOf(customForm), (id) => {
+              setCustomForm((f) => ({
+                ...f,
+                tool_kind: id,
+                type: id === 'cli' ? 'stdio' : (id === 'api' ? 'http' : f.type),
+              }));
+            })}
+            <input
+              placeholder={t('providers.mcp.descPh')}
+              value={customForm.description}
+              onChange={e => setCustomForm(f => ({ ...f, description: e.target.value }))}
+              className="w-full text-sm px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
+            />
+            {toolKindOf(customForm) === 'mcp' && renderTypeModeToggle(isMcpUrlServer(customForm), (urlMode) => {
               setCustomForm((f) => ({ ...f, type: urlMode ? 'http' : 'stdio' }));
             })}
-            {isMcpUrlServer(customForm) ? (
+            {toolKindOf(customForm) === 'api' && (
+              <select
+                value={customForm.method}
+                onChange={e => setCustomForm(f => ({ ...f, method: e.target.value }))}
+                className="w-full text-sm px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
+              >
+                {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            )}
+            {(toolKindOf(customForm) === 'api' || (toolKindOf(customForm) === 'mcp' && isMcpUrlServer(customForm))) ? (
               <>
                 <input
                   placeholder={t('providers.mcp.urlPh')}
@@ -2288,7 +2394,7 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
               <button
                 type="button"
                 onClick={saveCustomServer}
-                disabled={!!busy || !customForm.name.trim() || (isMcpUrlServer(customForm) ? !customForm.url.trim() : !customForm.command.trim())}
+                disabled={!!busy || !customForm.name.trim() || ((toolKindOf(customForm) === 'api' || (toolKindOf(customForm) === 'mcp' && isMcpUrlServer(customForm))) ? !customForm.url.trim() : !customForm.command.trim())}
                 className="text-xs px-3 py-1.5 rounded-lg bg-violet-600 text-white disabled:opacity-40"
               >
                 {t('providers.mcp.save')}
