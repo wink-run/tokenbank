@@ -64,6 +64,22 @@ test('route review: unstable provider with better alternative, slower duplicate,
   const rec = guardian.listRecords().find(x => x.signature === 'review-route|glm-5|prov-a');
   assert.equal(rec.status, 'suggested');
   assert.equal(rec.link.to, '/gateway');
+
+  // 就地处理：下沉这个来源 → 网关把这一对排到候选末尾；不再提醒；撤销恢复
+  review.register();
+  const cooldown = require('../gateway-cooldown');
+  assert.equal(rec.actions[0].label, '下沉这个来源');
+  return guardian.act(rec.id, 0).then(async (a) => {
+    assert.equal(a.ok, true, a.error);
+    const cands = [{ provider: { id: 'prov-a' }, model: 'glm-5' }, { provider: { id: 'prov-b' }, model: 'glm-5' }];
+    const order = cooldown.sink(cands, (c) => [c.provider.id, cooldown.demoteKey(c.provider.id, c.model)]).map(c => c.provider.id);
+    assert.deepEqual(order, ['prov-b', 'prov-a']);
+    // 同一来源的其它模型不受影响
+    assert.equal(cooldown.isCooling(cooldown.demoteKey('prov-a', 'other-model')), false);
+    assert.ok(!review.reviewRoutes({ sinceSec: now - 86400 }).items.some(i => /glm-5 在「prov-a」/.test(i.title)), 'already handled');
+    assert.equal((await guardian.undo(rec.id)).ok, true);
+    assert.deepEqual(cooldown.sink(cands, (c) => [c.provider.id, cooldown.demoteKey(c.provider.id, c.model)]).map(c => c.provider.id), ['prov-a', 'prov-b']);
+  });
 });
 
 test('savings review: concentrated paid spend with a stable free model', () => {

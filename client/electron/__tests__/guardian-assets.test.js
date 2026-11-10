@@ -63,7 +63,14 @@ test('asset check: quality summary, risky skill, duplicate pair, update with und
   const cur = rm.getResource(inst.resource.id);
   rm.saveResource({ ...cur, metadata: { ...(cur.metadata || {}), version: '0.9.0' } });
 
-  const res = await assets.check();
+  // 还没启用到任何应用：高风险、重复只打小标签，不提醒
+  let res = await assets.check();
+  assert.equal(res.risky, 0);
+  assert.ok(!guardian.listRecords().some(r => r.kind === 'asset-duplicate' || r.kind === 'asset-security'));
+  // 启用到同一个应用后才提醒（直接写投射记录，测试里没有真的应用目录）
+  const ins = rm._getDb().prepare("INSERT INTO resource_projections (id, resource_id, agent_id, scope, projection_type, target_path, status, created_at) VALUES (?, ?, 'codex', 'global', 'symlink', ?, 'active', ?)");
+  for (const id of ['res-skill-installer-x', 'res-skill-review-a', 'res-skill-review-b']) ins.run(`pj-${id}`, id, path.join(HOME, 'nowhere', id), Date.now());
+  res = await assets.check();
   assert.ok(res.quality >= 1);
   assert.equal(res.risky, 1);
   assert.equal(res.duplicates, 1);
@@ -98,6 +105,44 @@ test('asset check: quality summary, risky skill, duplicate pair, update with und
   assert.equal((await guardian.undo(done.id)).ok, true);
   assert.equal(rm.getResource(inst.resource.id).metadata.version, '0.9.0');
   assert.equal(fs.readFileSync(path.join(gitDir, 'SKILL.md'), 'utf8'), 'OLD LOCAL CONTENT', 'undo restores the file on disk');
+
+  // 重复：记录上就能停用其中一个（撤下投射），撤销重新启用；停用后不再提醒
+  const dup = guardian.listRecords().find(r => r.kind === 'asset-duplicate');
+  assert.equal(dup.actions.length, 2);
+  const bIdx = dup.actions.findIndex(x => /停用「review-b」/.test(x.label));
+  assert.ok(bIdx >= 0);
+  const origProject = rm.projectToAgents.bind(rm);
+  const projected = [];
+  rm.projectToAgents = (rid, ids) => { projected.push([rid, ids]); return { success: true }; };
+  require('../guardian/command').register();
+  let a = await guardian.act(dup.id, bIdx);
+  assert.equal(a.ok, true, a.error);
+  assert.ok(!rm.getResource('res-skill-review-b').projections.some(p => p.agentId === 'codex'));
+  const dupDone = guardian.listRecords().find(r => r.id === dup.id);
+  assert.equal(dupDone.status, 'done');
+  assert.equal(dupDone.actedLabel, '已停用「review-b」');
+  assert.equal((await guardian.undo(dup.id)).ok, true);
+  assert.deepEqual(projected, [['res-skill-review-b', ['codex']]], 'undo re-enables it in the same apps');
+  rm.projectToAgents = origProject;
+  await assets.check();
+  assert.equal(guardian.listRecords({ limit: 300 }).filter(r => r.kind === 'asset-duplicate' && ['info', 'suggested'].includes(r.status)).length, 0);
+
+  // 质量：一键补全；没有模型时给出明白的话，记录还开着
+  const q = guardian.listRecords().find(r => r.kind === 'asset-quality');
+  assert.match(q.actions[0].label, /一键补全/);
+  a = await guardian.act(q.id, 0);
+  assert.equal(a.ok, false);
+  assert.match(a.error, /模型/);
+  assert.equal(guardian.listRecords().find(r => r.id === q.id).status, 'info');
+
+  // 高风险：信任它 → 不再提醒、投射前不再拦；撤销后恢复
+  const risk = guardian.listRecords().find(r => r.kind === 'asset-security' && r.status === 'info');
+  assert.equal(risk.actions[1].label, '信任它');
+  assert.equal((await guardian.act(risk.id, 1)).ok, true);
+  assert.equal(assets.securityGate(rm.getResource('res-skill-installer-x')), null);
+  assert.equal((await assets.check()).risky, 0);
+  assert.equal((await guardian.undo(risk.id)).ok, true);
+  assert.equal((await assets.check()).risky, 1, 'untrusted again → reminded again');
 
   // 高风险技能：投射前需要确认
   assert.ok(assets.securityGate(rm.getResource('res-skill-installer-x')));

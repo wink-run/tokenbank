@@ -40,6 +40,31 @@ test('apply turns a suggestion into done', async () => {
   assert.equal(guardian.listRecords().find(x => x.id === r.id).status, 'done');
 });
 
+test('in-place actions: pick a button on the record, failure keeps it open, undo from the action result', async () => {
+  let ran = null;
+  let undone = null;
+  guardian.registerAction('test-pick', (d) => { ran = d; return { ok: true, message: 'done it', undo: { type: 'test-pick-undo', data: { back: d.which } } }; });
+  guardian.registerAction('test-pick-undo', (d) => { undone = d; return { ok: true }; });
+  guardian.registerAction('test-fail', () => ({ ok: false, error: 'nope' }));
+  const r = guardian.record({
+    category: 'assets', kind: 'k', status: 'info', title: 'pick one',
+    actions: [{ label: 'A', run: { type: 'test-fail' } }, { label: 'B', done: 'B done', run: { type: 'test-pick', data: { which: 'b' } } }],
+  });
+  assert.equal((await guardian.act(r.id, 0)).ok, false);
+  let cur = guardian.listRecords().find(x => x.id === r.id);
+  assert.equal(cur.status, 'info');
+  assert.equal(cur.lastError, 'nope');
+  assert.equal((await guardian.act(r.id, 1)).ok, true);
+  cur = guardian.listRecords().find(x => x.id === r.id);
+  assert.equal(cur.status, 'done');
+  assert.equal(cur.actedLabel, 'B done');
+  assert.equal(cur.resultNote, 'done it');
+  assert.deepEqual(ran, { which: 'b' });
+  assert.equal((await guardian.act(r.id, 1)).ok, false, 'already handled');
+  assert.equal((await guardian.undo(r.id)).ok, true);
+  assert.deepEqual(undone, { back: 'b' });
+});
+
 test('modes: per category and global switch', () => {
   guardian.setSettings({ modes: { projection: 'suggest' } });
   assert.equal(guardian.modeOf('projection'), 'suggest');

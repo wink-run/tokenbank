@@ -215,12 +215,34 @@ function preferSticky(steps, sticky) {
 }
 
 // 把冷却中的候选下沉到末尾：返回 [...fresh(保序), ...cooled(保序)]，不删除任何项（保证永远有可试）。
+// keyFn 可返回一个键或一组键（任一冷却即下沉）。
 function sink(items, keyFn, now = Date.now()) {
   const arr = Array.isArray(items) ? items : [];
   if (arr.length < 2) return arr.slice();
   const fresh = [], cooled = [];
-  for (const it of arr) (isCooling(keyFn(it), now) ? cooled : fresh).push(it);
+  for (const it of arr) {
+    const k = keyFn(it);
+    const hit = Array.isArray(k) ? k.some(x => x && isCooling(x, now)) : isCooling(k, now);
+    (hit ? cooled : fresh).push(it);
+  }
   return cooled.length ? [...fresh, ...cooled] : fresh;
+}
+
+// 看护「下沉这个来源」：某模型在某供给源上长期失败，用户点一下就把这一对排到候选末尾（仍可兜底，不删除）。
+// 键按 供给源 + 模型，不影响同源其它模型；落盘，撤销 = undemote。
+const DEMOTE_DEFAULT_MS = 14 * 24 * 60 * 60_000;
+function demoteKey(providerId, model) {
+  return `demote::${providerId}::${model}`;
+}
+function demote(providerId, model, ms = DEMOTE_DEFAULT_MS, note = null, now = Date.now()) {
+  if (!providerId || !model) return null;
+  const entry = { until: now + Math.min(ms, MAX_MS), status: 0, reason: 'guardian', persist: true, note: note ? String(note).slice(0, 140) : 'guardian' };
+  _map.set(demoteKey(providerId, model), entry);
+  _save();
+  return entry;
+}
+function undemote(providerId, model) {
+  clear(demoteKey(providerId, model));
 }
 
 // 当前冷却中的条目（供 UI/日志展示）。
@@ -251,4 +273,4 @@ function _save() {
 }
 _load();
 
-module.exports = { noteFailure, noteTransient, noteSlow, isCooling, entryOf, clear, sink, list, parseResetMs, parseResetFromHeaders, classify, FILE, SLOW_MS, STICKY_MS, noteSticky, stickyOf, preferSticky };
+module.exports = { demote, undemote, demoteKey, noteFailure, noteTransient, noteSlow, isCooling, entryOf, clear, sink, list, parseResetMs, parseResetFromHeaders, classify, FILE, SLOW_MS, STICKY_MS, noteSticky, stickyOf, preferSticky };

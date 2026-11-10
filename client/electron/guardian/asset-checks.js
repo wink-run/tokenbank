@@ -26,6 +26,23 @@ function label(r) {
   return r.display_name || r.name;
 }
 
+/** 投射到了哪些应用（不含 Token Bank 自己的内部目标） */
+function projectedApps(r) {
+  let internal = new Set();
+  try { internal = require('./diagnose').INTERNAL_TARGETS; } catch { /* ignore */ }
+  return [...new Set((r.projections || []).map(p => p.agentId).filter(id => id && !internal.has(id)))];
+}
+
+function findingsKey(findings) {
+  return (findings || []).filter(x => x.level === 'high').map(x => `${x.code}|${x.file}|${x.line}`).sort().join(';');
+}
+
+/** 用户点过「信任它」的高风险技能：内容（命中的位置）不变就不再提醒，也不再在投射前拦 */
+function isTrusted(resourceId, findings) {
+  const t = store.readJson('trusted-skills.json', {});
+  return !!t[resourceId] && t[resourceId].key === findingsKey(findings);
+}
+
 function getFlags() {
   return store.readJson('asset-flags.json', {});
 }
@@ -63,20 +80,26 @@ async function check() {
     const q = checks.qualityCheck(r, files);
     const worst = q.some(x => x.level === 'warn') ? 'warn' : (q.length ? 'info' : null);
     if (worst) { f.quality = worst; f.qualityCodes = q.map(x => x.code); }
-    if (worst === 'warn') qualityNeeds.push(label(r));
+    if (worst === 'warn') qualityNeeds.push({ name: label(r), id: r.id, fixable: q.some(x => x.fix && x.fix.type === 'completeDescription') });
 
     const sec = checks.securityScan(files);
     if (sec.risk !== 'none') f.security = sec.risk;
     const secSig = `asset-security|${r.id}`;
-    if (sec.risk === 'high') {
+    // 只在它已经启用到应用里时提醒（没启用的，投射前会再拦一次）；用户信任过的不再提
+    const apps = projectedApps(r);
+    if (sec.risk === 'high' && apps.length && !isTrusted(r.id, sec.findings)) {
       risky++;
       guardian.record({
         category: 'assets', kind: 'asset-security', status: 'info', countAsRepeat: false,
         title: `「${label(r)}」包含高风险操作`,
         detail: sec.findings.filter(x => x.level === 'high').map(x => `${x.text}（${x.file}:${x.line}）`).join('；'),
-        advice: '投射到应用前会再确认一次；不确定来源的话建议卸载。',
+        advice: '来源可靠就信任它，以后不再提醒；不确定的话先从应用里撤下（资产还在，随时可再启用）。',
         signature: secSig,
-        link: { to: '/resources', label: '去查看', state: { resourceType: 'skill', selectKey: `r-${r.id}` } },
+        actions: [
+          { label: '从应用里撤下', done: '已撤下', run: { type: 'disableSkill', data: { resourceId: r.id } } },
+          { label: '信任它', done: '已信任', run: { type: 'trustSkill', data: { resourceId: r.id } }, undo: { type: 'untrustSkill', data: { resourceId: r.id } } },
+        ],
+        link: { to: '/resources', label: '查看', state: { resourceType: 'skill', selectKey: `r-${r.id}` } },
         meta: { resourceId: r.id, findings: sec.findings },
       });
     } else {
@@ -90,13 +113,20 @@ async function check() {
 
   // 质量：汇总成一条（每个技能的细节在资产详情「诊断」里）
   if (qualityNeeds.length) {
+    const fixIds = qualityNeeds.filter(x => x.fixable).map(x => x.id);
     guardian.record({
       category: 'assets', kind: 'asset-quality', status: 'info', countAsRepeat: false,
       title: `${qualityNeeds.length} 个技能的描述需要完善，应用可能不会主动调用它们`,
-      detail: qualityNeeds.slice(0, 12).join('、') + (qualityNeeds.length > 12 ? ' 等' : ''),
-      advice: '在资产页打开技能点「诊断」，可一键补全描述。',
+      detail: qualityNeeds.slice(0, 12).map(x => x.name).join('、') + (qualityNeeds.length > 12 ? ' 等' : ''),
+      advice: fixIds.length
+        ? `点「一键补全」由模型为 ${fixIds.length} 个技能写好描述，改完可整体撤销。`
+        : '这些技能缺少 SKILL.md，需要到资产页逐个查看。',
       signature: 'asset-quality',
-      link: { to: '/resources', label: '去完善', state: { resourceType: 'skill' } },
+      actions: fixIds.length
+        ? [{ label: `一键补全（${fixIds.length} 个）`, done: '已补全', run: { type: 'completeDescriptions', data: { resourceIds: fixIds } } }]
+        : [],
+      link: { to: '/resources', label: '查看', state: { resourceType: 'skill' } },
+      meta: { resourceIds: qualityNeeds.map(x => x.id) },
     });
   } else {
     guardian.resolveSignature('asset-quality');
@@ -115,12 +145,20 @@ async function check() {
       (flags[a.r.id] = flags[a.r.id] || {}).duplicateOf = [...((flags[a.r.id] || {}).duplicateOf || []), b.r.id];
       (flags[b.r.id] = flags[b.r.id] || {}).duplicateOf = [...((flags[b.r.id] || {}).duplicateOf || []), a.r.id];
       const [x, y] = [a.r.id, b.r.id].sort();
+      const dupSig = `asset-dup|${x}|${y}`;
+      // 两个都启用到了同一个应用才会互相抢；只要有一个停用了，资产列表的小标签就够了，不再提醒
+      const appsA = projectedApps(a.r);
+      const shared = projectedApps(b.r).filter(id => appsA.includes(id));
+      if (!shared.length) { guardian.resolveSignature(dupSig, '已有一个没在用'); continue; }
       guardian.record({
         category: 'assets', kind: 'asset-duplicate', status: 'info', countAsRepeat: false,
         title: `「${label(a.r)}」和「${label(b.r)}」内容几乎相同（${Math.round(sim * 100)}%）`,
-        advice: '只留一个即可：重复的技能会让应用难以选择，也多占上下文。',
-        signature: `asset-dup|${x}|${y}`,
-        link: { to: '/resources', label: '去查看', state: { resourceType: 'skill', selectKey: `r-${a.r.id}` } },
+        advice: '停用其中一个即可：重复的技能会让应用难以选择，也多占上下文。停用只是从应用里撤下，资产还在。',
+        signature: dupSig,
+        actions: [a.r, b.r].map(z => ({
+          label: `停用「${label(z)}」`, done: `已停用「${label(z)}」`, run: { type: 'disableSkill', data: { resourceId: z.id } },
+        })),
+        link: { to: '/resources', label: '查看', state: { resourceType: 'skill', selectKey: `r-${a.r.id}` } },
         meta: { resourceIds: [a.r.id, b.r.id], similarity: sim },
       });
     }
@@ -240,7 +278,7 @@ function askDescription(name, body) {
 }
 
 /** 补全 / 改写 description：写回 SKILL.md 头部；可撤销 */
-async function completeDescription({ resourceId }) {
+async function completeDescription({ resourceId, quiet = false }) {
   const m = rm();
   const r = m.getResource(resourceId);
   if (!r || r.type !== 'skill') return { ok: false, error: '只支持技能' };
@@ -264,6 +302,7 @@ async function completeDescription({ resourceId }) {
   const before = snapshot(r);
   const res = saveSkillContent(m, { ...before, description: desc, content: next });
   if (res && res.success === false) return { ok: false, error: res.error };
+  if (quiet) return { ok: true, description: desc, snapshot: before };
   guardian.record({
     category: 'assets', kind: 'asset-description', status: 'done',
     title: `已为「${label(r)}」补全描述`,
@@ -312,17 +351,83 @@ async function enhancePrompt({ resourceId }) {
   return { ok: true, content: next };
 }
 
-/** 投射前的安全确认：高风险技能需要用户明确同意 */
+/** 投射前的安全确认：高风险技能需要用户明确同意（用户信任过、内容没变的放行） */
 function securityGate(resource) {
   if (!resource || resource.type !== 'skill') return null;
   if (guardian.modeOf('assets') === 'off') return null;
   const sec = checks.securityScan(checks.readSkillFiles(authorityDir(resource)));
-  return sec.risk === 'high' ? sec : null;
+  return sec.risk === 'high' && !isTrusted(resource.id, sec.findings) ? sec : null;
+}
+
+// ── 记录上就地处理的动作 ─────────────────────────────────────────────────
+
+/** 停用 = 从所有应用撤下（资产保留）；撤销 = 重新启用到原来那些应用 */
+function disableSkill({ resourceId }) {
+  const m = rm();
+  const r = m.getResource(resourceId);
+  if (!r) return { ok: false, error: '资产不存在' };
+  const apps = projectedApps(r);
+  if (!apps.length) return { ok: true, message: '它已经没有启用到任何应用' };
+  for (const id of apps) { try { m.unproject({ resourceId, agentId: id }); } catch { /* 已撤下 */ } }
+  return { ok: true, message: `已从 ${apps.length} 个应用撤下，资产还在`, undo: { type: 'commandProject', data: { resourceId, agentIds: apps } } };
+}
+
+function trustSkill({ resourceId }) {
+  const r = rm().getResource(resourceId);
+  if (!r) return { ok: false, error: '资产不存在' };
+  const sec = checks.securityScan(checks.readSkillFiles(authorityDir(r)));
+  const t = store.readJson('trusted-skills.json', {});
+  t[resourceId] = { key: findingsKey(sec.findings), at: Date.now() };
+  store.writeJson('trusted-skills.json', t);
+  return { ok: true, message: '以后不再提醒；它的内容变了会重新检查' };
+}
+
+function untrustSkill({ resourceId }) {
+  const t = store.readJson('trusted-skills.json', {});
+  delete t[resourceId];
+  store.writeJson('trusted-skills.json', t);
+  return { ok: true };
+}
+
+/** 一键补全多个技能的描述：并发 3 个；全部失败（多半没接模型）才算失败；撤销 = 恢复全部快照 */
+async function completeDescriptions({ resourceIds = [] }) {
+  const ids = [...new Set(resourceIds)];
+  const snaps = [];
+  const failed = [];
+  let firstError = null;
+  let i = 0;
+  const worker = async () => {
+    while (i < ids.length) {
+      const id = ids[i++];
+      const r = await completeDescription({ resourceId: id, quiet: true }).catch(e => ({ ok: false, error: e.message }));
+      if (r.ok) snaps.push(r.snapshot);
+      else { failed.push(id); firstError = firstError || r.error; }
+      // 第一个就因为没模型失败了：后面不用再试
+      if (!snaps.length && failed.length && /模型/.test(firstError || '')) { i = ids.length; }
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  if (!snaps.length) return { ok: false, error: firstError || '没能补全' };
+  return {
+    ok: true,
+    message: failed.length ? `已补全 ${snaps.length} 个，${failed.length} 个没成功` : `已补全 ${snaps.length} 个技能的描述`,
+    undo: { type: 'restoreSnapshots', data: { snapshots: snaps } },
+  };
+}
+
+function restoreSnapshots({ snapshots = [] }) {
+  const errs = snapshots.map(snap => restoreSnapshot({ snapshot: snap })).filter(r => !r.ok);
+  return errs.length ? { ok: false, error: errs[0].error } : { ok: true };
 }
 
 function register() {
   guardian.registerAction('updateFromCatalog', updateFromCatalog);
   guardian.registerAction('restoreSnapshot', restoreSnapshot);
+  guardian.registerAction('restoreSnapshots', restoreSnapshots);
+  guardian.registerAction('disableSkill', disableSkill);
+  guardian.registerAction('trustSkill', trustSkill);
+  guardian.registerAction('untrustSkill', untrustSkill);
+  guardian.registerAction('completeDescriptions', completeDescriptions);
   guardian.registerCheck('assets', check, 6 * 60 * 60 * 1000);
 }
 

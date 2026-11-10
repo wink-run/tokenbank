@@ -11,6 +11,24 @@ const GOOD_FAIL_RATE = 0.1;
 const SLOW_RATIO = 2;
 const MIN_TASKS = 5;
 
+function cooldown() {
+  try { return require('../gateway-cooldown'); } catch { return null; }
+}
+
+/** 这一对（供给源 + 模型）用户已经让看护下沉过了：不用再提 */
+function isDemoted(provider, model) {
+  const c = cooldown();
+  return !!(c && c.entryOf(c.demoteKey(provider, model)));
+}
+
+function demoteAction(provider, model, label) {
+  return {
+    label, done: '已下沉',
+    run: { type: 'demoteRoute', data: { provider, model } },
+    undo: { type: 'undemoteRoute', data: { provider, model } },
+  };
+}
+
 function db() {
   try { return require('../local-stats').getDb(); } catch { return null; }
 }
@@ -90,18 +108,19 @@ function reviewRoutes({ sinceSec }) {
     for (const r of list) {
       if (r.calls < MIN_CALLS) continue;
       const rate = r.fails / r.calls;
-      if (rate < BAD_FAIL_RATE) continue;
+      if (rate < BAD_FAIL_RATE || isDemoted(r.provider, model)) continue;
       const better = list
         .filter(x => x !== r && x.calls >= 5 && x.fails / x.calls <= GOOD_FAIL_RATE)
         .sort((a, b) => a.fails / a.calls - b.fails / b.calls)[0];
       const advice = better
-        ? `同一个模型在「${providerName(better.provider)}」上失败率只有 ${pct(better.fails / better.calls)}，建议在路由里优先用它。`
-        : '建议在路由里把它调到后面，或者给这个模型加一个备用来源。';
+        ? `同一个模型在「${providerName(better.provider)}」上失败率只有 ${pct(better.fails / better.calls)}。下沉后请求先走其它来源，这个只在都失败时兜底。`
+        : '下沉后请求先走其它来源，这个只在都失败时兜底（不会删除）；没有其它来源的话，建议给这个模型加一个。';
       const title = `${model} 在「${providerName(r.provider)}」上 ${r.calls} 次请求失败 ${r.fails} 次（${pct(rate)}）`;
       const rec = guardian.record({
         category: 'gateway', kind: 'review-route-unstable', status: 'suggested', countAsRepeat: false,
         title, advice, signature: `review-route|${model}|${r.provider}`,
-        link: { to: '/gateway', label: '去调整路由' },
+        actions: [demoteAction(r.provider, model, '下沉这个来源')],
+        link: { to: '/gateway', label: '查看路由' },
         meta: { model, provider: r.provider, calls: r.calls, fails: r.fails, better: better?.provider || null },
       });
       items.push({ title, advice, recordId: rec?.id || null });
@@ -112,13 +131,14 @@ function reviewRoutes({ sinceSec }) {
       healthy.sort((a, b) => a.avgLatency - b.avgLatency);
       const fast = healthy[0];
       const slow = healthy[healthy.length - 1];
-      if (slow.avgLatency / fast.avgLatency >= SLOW_RATIO) {
+      if (slow.avgLatency / fast.avgLatency >= SLOW_RATIO && !isDemoted(slow.provider, model)) {
         const title = `${model}：「${providerName(fast.provider)}」比「${providerName(slow.provider)}」快 ${(slow.avgLatency / fast.avgLatency).toFixed(1)} 倍`;
-        const advice = `平均耗时 ${Math.round(fast.avgLatency)}ms 对 ${Math.round(slow.avgLatency)}ms，两边都很稳，建议把快的排在前面。`;
+        const advice = `平均耗时 ${Math.round(fast.avgLatency)}ms 对 ${Math.round(slow.avgLatency)}ms，两边都很稳，建议让快的先上。`;
         const rec = guardian.record({
           category: 'gateway', kind: 'review-route-slow', status: 'suggested', countAsRepeat: false,
           title, advice, signature: `review-route-slow|${model}`,
-          link: { to: '/gateway', label: '去调整路由' },
+          actions: [demoteAction(slow.provider, model, `让「${providerName(fast.provider)}」先上`)],
+          link: { to: '/gateway', label: '查看路由' },
           meta: { model, fast: fast.provider, slow: slow.provider },
         });
         items.push({ title, advice, recordId: rec?.id || null });
@@ -201,4 +221,21 @@ function reviewSavings({ sinceSec }) {
   };
 }
 
-module.exports = { reviewRoutes, reviewSavings, _internal: { routeStats, taskStats } };
+const DEMOTE_DAYS = 14;
+
+function register() {
+  // 下沉：这一对排到候选末尾 14 天（仍可兜底，不删除）；撤销 = 恢复原来的顺序
+  guardian.registerAction('demoteRoute', ({ provider, model }) => {
+    const c = cooldown();
+    if (!c || !provider || !model) return { ok: false, error: '网关不可用' };
+    c.demote(provider, model, DEMOTE_DAYS * 24 * 60 * 60 * 1000, 'guardian-review');
+    return { ok: true, message: `${DEMOTE_DAYS} 天内请求先走其它来源，这个只在都失败时兜底` };
+  });
+  guardian.registerAction('undemoteRoute', ({ provider, model }) => {
+    const c = cooldown();
+    if (c) c.undemote(provider, model);
+    return { ok: true };
+  });
+}
+
+module.exports = { register, reviewRoutes, reviewSavings, _internal: { routeStats, taskStats } };

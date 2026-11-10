@@ -932,7 +932,7 @@ function orderSameModelProviders(providers, model, sharer) {
   if (list.length <= 1) return list;
   const speedByProvider = buildSpeedByProvider(model, list);
   const ranked = routingStrategies.orderBillingThenSpeed(list, { speedByProvider });
-  return cooldown.sink(ranked, (p) => coolKey(p, model, sharer));
+  return cooldown.sink(ranked, (p) => [coolKey(p, model, sharer), cooldown.demoteKey(p.id, model)]);
 }
 
 /**
@@ -3793,7 +3793,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
       input_tokens: estimateInputTokens(body), text: extractText(body), caller: callerKey };
     const ordered = cooldown.sink(buildStrategyCandidates(
       _stratStep.strategy, { scope: _stratStep.scope, tier: _stratStep.tier, provider: _stratStep.provider }, reqPath, skipP2P, _stratScene.id, routeReqCtx),
-      (c) => coolKey(c.provider, c.model, stratSharer));   // 冷却中的候选下沉到末尾（fresh 先试，成功即返回，省空跑）
+      (c) => [coolKey(c.provider, c.model, stratSharer), cooldown.demoteKey(c.provider.id, c.model)]);   // 冷却中的候选下沉到末尾（fresh 先试，成功即返回，省空跑）
     if (!ordered.length) {
       const _flt = [_stratStep.scope, _stratStep.tier].filter(Boolean).join('/');
       lastErr = new Error(`该路由过滤(${_flt || _stratStep.strategy || 'any'})下没有可用的${modalityOf(reqPath)}模型/模型来源`);
@@ -3903,7 +3903,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
         const stepSharer = step.sharer || null;   // 有效钉选 worker（与 sMeta.sharer 一致）
         const sOrdered = cooldown.sink(
           buildStrategyCandidates(stepStrat, { scope: stepScope, tier: stepTier, provider: step.provider }, reqPath, skipP2P, `${scene.id}:${stepStrat}`, ruleCtx),
-          (c) => coolKey(c.provider, c.model, stepSharer));   // 冷却候选下沉
+          (c) => [coolKey(c.provider, c.model, stepSharer), cooldown.demoteKey(c.provider.id, c.model)]);   // 冷却候选下沉
         const sMeta = { strategy: step.strategy || null, sharer: stepSharer };
         const deadSources = new Set();
         for (const c of sOrdered) {
