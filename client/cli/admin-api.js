@@ -9,6 +9,7 @@ const https  = require('https');
 const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
+const zlib   = require('zlib');
 
 const { readAgentConfig, writeAgentConfig, readLocalConfig, writeLocalConfig } = require('../shared/config-loader');
 const { isCommunityP2pEnabled } = require('../shared/community-p2p');
@@ -85,8 +86,45 @@ async function parseBody(req, res) {
   }
 }
 
+// Check if the request accepts a given encoding
+function acceptsEncoding(req, encoding) {
+  const header = req.headers['accept-encoding'];
+  if (!header) return encoding === 'identity';
+  
+  const encodings = String(header).split(',').map(e => {
+    const parts = e.trim().split(';');
+    const name = parts[0].trim().toLowerCase();
+    let q = 1.0;
+    if (parts[1]) {
+      const qMatch = parts[1].match(/q\s*=\s*([\d.]+)/);
+      if (qMatch) q = parseFloat(qMatch[1]);
+    }
+    return { name, q };
+  });
+  
+  const match = encodings.find(e => e.name === encoding);
+  if (match) return match.q > 0;
+  
+  const wildcard = encodings.find(e => e.name === '*');
+  if (wildcard) return wildcard.q > 0;
+  
+  return encoding === 'identity';
+}
+
+// Determine if a content type is compressible
+function isCompressible(contentType) {
+  const textTypes = [
+    'text/',
+    'application/javascript',
+    'application/json',
+    'application/xml',
+    'image/svg+xml',
+  ];
+  return textTypes.some(prefix => contentType.startsWith(prefix));
+}
+
 // Serve a static file from DIST_DIR; returns false if file not found.
-function serveStatic(res, relPath) {
+function serveStatic(req, res, relPath) {
   const filePath = path.join(DIST_DIR, relPath);
 
   // Prevent path traversal outside dist dir
@@ -116,16 +154,36 @@ function serveStatic(res, relPath) {
   } catch {
     return false; // file not found or unreadable
   }
+  
   // 入口页和脚本不缓存，否则改完前端刷新仍是旧包
   const cacheControl = ext === '.html' || ext === '.js' || ext === '.mjs' || ext === '.css'
     ? 'no-store'
     : 'public, max-age=86400';
-  res.writeHead(200, {
+  
+  const headers = {
     'Content-Type': ct,
-    'Content-Length': data.length,
     'Cache-Control': cacheControl,
-  });
-  res.end(data);
+  };
+  
+  // Compression logic for text-based resources
+  const isTextType = isCompressible(ct);
+  const shouldCompress = isTextType && data.length > 1024 && acceptsEncoding(req, 'gzip');
+  
+  if (shouldCompress) {
+    const compressed = zlib.gzipSync(data, { level: 6 });
+    headers['Content-Encoding'] = 'gzip';
+    headers['Content-Length'] = compressed.length;
+    headers['Vary'] = 'Accept-Encoding';
+    res.writeHead(200, headers);
+    res.end(compressed);
+  } else {
+    headers['Content-Length'] = data.length;
+    // 可压缩类型总是设置 Vary，即使未实际压缩
+    if (isTextType) headers['Vary'] = 'Accept-Encoding';
+    res.writeHead(200, headers);
+    res.end(data);
+  }
+  
   return true;
 }
 
@@ -1215,7 +1273,7 @@ async function handleRequest(req, res) {
 
   // Try to serve the exact path first
   const relPath = url === '/' ? 'index.html' : url.replace(/^\//, '');
-  if (serveStatic(res, relPath)) return;
+  if (serveStatic(req, res, relPath)) return;
 
   // 未实现的 /api/* 返回 JSON 404，避免 SPA index.html 被 fetch().json() 误解析
   if (url.startsWith('/api/')) {
@@ -1224,7 +1282,7 @@ async function handleRequest(req, res) {
 
   // SPA fallback — serve index.html for non-asset paths
   if (!url.startsWith('/assets/')) {
-    if (serveStatic(res, 'index.html')) return;
+    if (serveStatic(req, res, 'index.html')) return;
   }
 
   json(res, 404, { error: 'Not found' });
