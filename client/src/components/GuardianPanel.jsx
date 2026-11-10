@@ -344,6 +344,12 @@ export default function GuardianPanel({ page = false }) {
   const [msg, setMsg] = useState('');
   const [openId, setOpenId] = useState(null);
   const [showHandled, setShowHandled] = useState(false);
+  const [showFyi, setShowFyi] = useState(false);
+  const [showEnv, setShowEnv] = useState(false);
+  const [showAllDecide, setShowAllDecide] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [sum, setSum] = useState(null);
   const [health, setHealth] = useState(null);
   // 看护页分两个页签：运行情况 / 设置（记住上次选的）
   const [tab, setTab] = useState(() => {
@@ -365,6 +371,7 @@ export default function GuardianPanel({ page = false }) {
     if (s?.settings) setSettings(s.settings);
     setRecords(r?.records || []);
     if (h && h.success !== false) setHealth(h);
+    try { const sm = await api.summary?.(); if (sm?.summary) setSum(sm.summary); } catch { /* 老版本没有 */ }
     try { window.dispatchEvent(new Event('tb-guardian-changed')); } catch { /* ignore */ }
   }, [api]);
 
@@ -421,6 +428,26 @@ export default function GuardianPanel({ page = false }) {
   const OPEN = ['info', 'failed', 'suggested'];
   const pending = records.filter(r => OPEN.includes(r.status));
   const handled = records.filter(r => !OPEN.includes(r.status));
+  // 少打扰：真要你拿主意的才摆出来；其余「供参考」默认折叠
+  const decide = pending.filter(r => r.needsYou !== false && (r.needsYou || (r.actions || []).length || r.apply || r.status === 'failed' || r.category === 'setup'));
+  const fyi = pending.filter(r => !decide.includes(r));
+  const DECIDE_SHOWN = 3;
+
+  const actAll = async () => {
+    setBusy('all');
+    setMsg('');
+    try {
+      const r = await api.actRecommended();
+      setMsg(t('guardian.allDone', { n: r?.done || 0 }) + ((r?.failed || []).length ? t('guardian.allFailed', { n: r.failed.length }) : ''));
+      await load();
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const setAllModes = (m) => save({ modes: Object.fromEntries(CATS.map(c => [c, m])) });
+  const modeValues = settings ? [...new Set(CATS.map(c => settings.modes?.[c]))] : [];
+  const overallMode = modeValues.length === 1 ? modeValues[0] : 'custom';
   const go = (link) => navigate(link.to, link.state ? { state: link.state } : undefined);
 
   const renderRecord = (r) => {
@@ -470,7 +497,13 @@ export default function GuardianPanel({ page = false }) {
                 {busy === `apply:${r.id}` ? t('resources.busy') : t('guardian.apply')}
               </button>
             )}
-            {r.link && open && (
+            {open && openId !== r.id && (
+              <button type="button" onClick={() => setOpenId(r.id)}
+                className="text-[11px] px-2 py-0.5 rounded-md text-zinc-400 hover:text-zinc-600 hover:bg-white dark:hover:bg-zinc-800">
+                {t('guardian.more')}
+              </button>
+            )}
+            {r.link && open && openId === r.id && (
               <button type="button" onClick={() => go(r.link)}
                 className={acts.length || legacyApply
                   ? 'text-[11px] px-2 py-0.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800'
@@ -478,13 +511,13 @@ export default function GuardianPanel({ page = false }) {
                 {r.link.label || t('guardian.go')} →
               </button>
             )}
-            {open && (
+            {open && openId === r.id && (
               <button type="button" onClick={() => askGuardian(navigate, recordQuestion(r, lang))}
                 className="text-[11px] px-2 py-0.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800">
                 {t('guardian.ask')}
               </button>
             )}
-            {open && (r.facts || r.factsList) && (
+            {open && openId === r.id && (
               <button type="button" onClick={() => askGuardian(navigate, falsePositiveQuestion(r, lang))}
                 title={t('guardian.falsePositiveHint')}
                 className="text-[11px] px-2 py-0.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800">
@@ -522,7 +555,15 @@ export default function GuardianPanel({ page = false }) {
 
       {/* 运行情况：状态、正在执行、最近一次自省、自动处理记录 */}
       {showStatus && (settings?.enabled
-        ? <RuntimeSection health={health} api={api} t={t} lang={lang} navigate={navigate} onChanged={load} />
+        ? ((health?.level === 'ok' && !(health?.busy || []).length && !showEnv)
+          // 一切正常：一行带过，想看细节再展开
+          ? (
+            <div className="px-5 py-3 border-b border-white/40 dark:border-white/[0.06] flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+              <HealthBadge health={health} t={t} />
+              <button type="button" onClick={() => setShowEnv(true)} className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">{t('guardian.envDetail')}</button>
+            </div>
+          )
+          : <RuntimeSection health={health} api={api} t={t} lang={lang} navigate={navigate} onChanged={load} />)
         : (
           <div className="px-5 py-4 border-b border-white/40 dark:border-white/[0.06] flex flex-wrap items-center gap-2 text-xs text-zinc-500">
             <HealthBadge health={health} t={t} />
@@ -530,12 +571,6 @@ export default function GuardianPanel({ page = false }) {
             <button type="button" onClick={() => switchTab('settings')} className="text-blue-600 dark:text-blue-400 hover:underline">{t('guardian.tab.settings')} →</button>
           </div>
         ))}
-      {showStatus && settings && api.introspectNow && (
-        <>
-          <IntrospectSection settings={settings} save={save} api={api} t={t} lang={lang} onRan={load} view="report" />
-          <LearnedRules api={api} t={t} lang={lang} reloadKey={records} />
-        </>
-      )}
 
       {/* 设置：总开关、执行应用、各类处理方式、定期自省 */}
       {showSettings && (
@@ -559,6 +594,29 @@ export default function GuardianPanel({ page = false }) {
           {settings?.enabled && page && <RunnerAppSetting health={health} api={api} t={t} navigate={navigate} onChanged={load} />}
           {!page && settings?.enabled && <RuntimeSection health={health} api={api} t={t} lang={lang} navigate={navigate} onChanged={load} />}
       {settings && (
+        <div className="px-5 py-3 border-b border-white/40 dark:border-white/[0.06] flex flex-wrap items-center gap-x-3 gap-y-1">
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-100">{t('guardian.overall')}</div>
+            <div className="text-[11px] text-zinc-400">{t(`guardian.overall.${overallMode}.hint`)}</div>
+          </div>
+          <div className={`inline-flex p-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-800/70 ${settings.enabled ? '' : 'opacity-50 pointer-events-none'}`} role="radiogroup" aria-label={t('guardian.overall')}>
+            {['auto', 'suggest'].map((m) => (
+              <button key={m} type="button" role="radio" aria-checked={overallMode === m} onClick={() => setAllModes(m)}
+                className={`text-[11px] px-2.5 py-1 rounded-md ${overallMode === m ? 'bg-white dark:bg-zinc-900 shadow-sm font-medium text-zinc-900 dark:text-zinc-100' : 'text-zinc-500'}`}>
+                {t(`guardian.mode.${m}`)}
+              </button>
+            ))}
+            {overallMode === 'custom' && <span className="text-[11px] px-2.5 py-1 rounded-md bg-white dark:bg-zinc-900 shadow-sm font-medium text-zinc-900 dark:text-zinc-100">{t('guardian.overall.custom')}</span>}
+          </div>
+        </div>
+      )}
+      {settings && (
+        <button type="button" onClick={() => setShowAdvanced(v => !v)}
+          className="w-full px-5 py-2.5 text-left text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 border-b border-white/40 dark:border-white/[0.06]">
+          {showAdvanced ? '▾' : '▸'} {t('guardian.advanced')}
+        </button>
+      )}
+      {settings && showAdvanced && (
         <div className="px-5 py-3 space-y-2.5 border-b border-white/40 dark:border-white/[0.06]">
           {CATS.map((c) => (
             <div key={c} className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -587,7 +645,7 @@ export default function GuardianPanel({ page = false }) {
         </div>
       )}
 
-          {settings && api.introspectNow && (
+          {settings && api.introspectNow && (showAdvanced || !page) && (
             <IntrospectSection settings={settings} save={save} api={api} t={t} lang={lang} onRan={load} view={page ? 'settings' : 'all'} />
           )}
         </>
@@ -596,36 +654,79 @@ export default function GuardianPanel({ page = false }) {
       {(showStatus || !page) && (<>
       <div className="px-5 py-3 flex flex-wrap items-center gap-x-3 gap-y-1">
         <div className="min-w-0 flex-1">
-          <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 whitespace-nowrap">{t('guardian.records')}</h3>
-          <div className="text-[11px] text-zinc-400">{t('guardian.checkHint')}</div>
+          <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">
+            {decide.length ? t('guardian.sum.decide', { n: decide.length }) : t('guardian.sum.clear')}
+          </h3>
+          <div className="text-[11px] text-zinc-400">
+            {t('guardian.sum.handled', { n: sum?.handledThisWeek ?? handled.filter(r => r.status === 'done').length })}
+            {fyi.length ? ` · ${t('guardian.sum.fyi', { n: fyi.length })}` : ''}
+          </div>
         </div>
         {msg && <span className="order-last basis-full text-[11px] text-zinc-500 dark:text-zinc-400">{msg}</span>}
-        <button type="button" onClick={runChecks} disabled={busy === 'checks'}
-          className="text-xs px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-white dark:hover:bg-zinc-800 disabled:opacity-50">
-          {busy === 'checks' ? t('guardian.checking') : t('guardian.checkNow')}
-        </button>
+        {(sum?.recommendable ?? 0) > 1 && api.actRecommended && (
+          <button type="button" onClick={actAll} disabled={!!busy} title={t('guardian.allHint')}
+            className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50">
+            {busy === 'all' ? t('resources.busy') : t('guardian.all', { n: sum.recommendable })}
+          </button>
+        )}
       </div>
-      {records.length === 0 ? (
-        <p className="px-5 pb-4 text-[11px] text-zinc-400">{t('guardian.empty')}</p>
-      ) : (
-        <div className="px-3 pb-3 max-h-[480px] overflow-y-auto">
-          {pending.length === 0 ? (
-            <p className="px-2.5 py-2 text-[11px] text-zinc-400">{t('guardian.noPending')}</p>
-          ) : (
+      <div className="px-3 pb-3">
+        {decide.length > 0 && (
+          <ul className="space-y-1">{(showAllDecide ? decide : decide.slice(0, DECIDE_SHOWN)).map(renderRecord)}</ul>
+        )}
+        {decide.length > DECIDE_SHOWN && (
+          <button type="button" onClick={() => setShowAllDecide(v => !v)}
+            className="mt-1 px-2.5 py-1 text-[10px] font-medium text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
+            {showAllDecide ? '▾' : '▸'} {t('guardian.moreDecide', { n: decide.length - DECIDE_SHOWN })}
+          </button>
+        )}
+        {fyi.length > 0 && (
+          <>
+            <button type="button" onClick={() => setShowFyi(v => !v)}
+              className="mt-1 block px-2.5 py-1 text-[10px] font-medium text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
+              {showFyi ? '▾' : '▸'} {t('guardian.fyi', { n: fyi.length })}
+            </button>
+            {showFyi && <ul className="space-y-1">{fyi.map(renderRecord)}</ul>}
+          </>
+        )}
+        {handled.length > 0 && (
+          <>
+            <button type="button" onClick={() => setShowHandled(v => !v)}
+              className="mt-1 block px-2.5 py-1 text-[10px] font-medium text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
+              {showHandled ? '▾' : '▸'} {t('guardian.handled', { n: handled.length })}
+            </button>
+            {showHandled && <ul className="space-y-1 max-h-[420px] overflow-y-auto">{handled.map(renderRecord)}</ul>}
+          </>
+        )}
+      </div>
+      {/* 不常看的：自省报告、学到的规则、立即检查 —— 收进「更多」 */}
+      {page && settings && (
+        <>
+          <button type="button" onClick={() => setShowMore(v => !v)}
+            className="w-full px-5 py-2.5 text-left text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 border-t border-white/40 dark:border-white/[0.06]">
+            {showMore ? '▾' : '▸'} {t('guardian.moreSection')}
+          </button>
+          {showMore && (
             <>
-              <div className="px-2.5 pt-1 pb-1 text-[10px] font-medium text-zinc-400">{t('guardian.pending', { n: pending.length })}</div>
-              <ul className="space-y-1">{pending.map(renderRecord)}</ul>
+              <div className="px-5 py-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-white/40 dark:border-white/[0.06]">
+                <div className="min-w-0 flex-1 text-[11px] text-zinc-400">{t('guardian.checkHint')}</div>
+                <button type="button" onClick={runChecks} disabled={busy === 'checks'}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-white dark:hover:bg-zinc-800 disabled:opacity-50">
+                  {busy === 'checks' ? t('guardian.checking') : t('guardian.checkNow')}
+                </button>
+              </div>
+              {api.introspectNow && <IntrospectSection settings={settings} save={save} api={api} t={t} lang={lang} onRan={load} view="report" />}
+              <LearnedRules api={api} t={t} lang={lang} reloadKey={records} />
             </>
           )}
-          {handled.length > 0 && (
-            <>
-              <button type="button" onClick={() => setShowHandled(v => !v)}
-                className="mt-2 px-2.5 py-1 text-[10px] font-medium text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
-                {showHandled ? '▾' : '▸'} {t('guardian.handled', { n: handled.length })}
-              </button>
-              {showHandled && <ul className="space-y-1">{handled.map(renderRecord)}</ul>}
-            </>
-          )}
+        </>
+      )}
+      {!page && (
+        <div className="px-5 pb-3">
+          <button type="button" onClick={runChecks} disabled={busy === 'checks'}
+            className="text-xs px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-white dark:hover:bg-zinc-800 disabled:opacity-50">
+            {busy === 'checks' ? t('guardian.checking') : t('guardian.checkNow')}
+          </button>
         </div>
       )}
       </>)}

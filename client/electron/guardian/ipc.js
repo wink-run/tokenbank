@@ -21,7 +21,7 @@ function safe(fn) {
 function registerGuardianHandlers() {
   ipcMain.handle('guardian:getSettings', safe(() => ({ success: true, settings: guardian.getSettings() })));
   ipcMain.handle('guardian:setSettings', safe((patch) => ({ success: true, settings: guardian.setSettings(patch || {}) })));
-  ipcMain.handle('guardian:listRecords', safe((opts) => ({ success: true, records: guardian.listRecords(opts || {}) })));
+  ipcMain.handle('guardian:listRecords', safe((opts) => ({ success: true, records: guardian.listRecords(opts || {}).map(r => ({ ...r, needsYou: guardian.needsUser(r) })) })));
   ipcMain.handle('guardian:undo', safe(async (id) => {
     const r = await guardian.undo(id);
     return { success: !!r.ok, error: r.error };
@@ -37,6 +37,8 @@ function registerGuardianHandlers() {
   // 自我进化：学到的规则（看、删）
   ipcMain.handle('guardian:learnedRules', safe(() => ({ success: true, rules: require('./judgment').list() })));
   ipcMain.handle('guardian:removeLearnedRule', safe((id) => ({ success: !!require('./judgment').removeRule({ id }).ok })));
+  ipcMain.handle('guardian:summary', safe(() => ({ success: true, summary: guardian.summary() })));
+  ipcMain.handle('guardian:actRecommended', safe(async () => ({ success: true, ...(await guardian.actRecommended()) })));
   ipcMain.handle('guardian:dismiss', safe((id) => ({ success: guardian.dismiss(id) })));
   ipcMain.handle('guardian:runChecks', safe(async () => ({ success: true, results: await guardian.runChecks() })));
   // 资产列表的小标签：质量 / 安全 / 重复 / 新版本
@@ -118,6 +120,7 @@ function startGuardian({ gateway, initialDelayMs } = {}) {
   try { require('./dispatch-learn').register(); } catch (e) { console.warn('[guardian] dispatch-learn:', e.message); }
   try { require('./command').register(); } catch (e) { console.warn('[guardian] command:', e.message); }
   try { require('./capability-gaps').register(); } catch (e) { console.warn('[guardian] capability-gaps:', e.message); }
+  try { guardian.registerCheck('tidy', () => guardian.tidy(), 12 * 60 * 60 * 1000); } catch (e) { console.warn('[guardian] tidy:', e.message); }
   try { require('./agent-api').start(); } catch (e) { console.warn('[guardian] agent-api:', e.message); }
   try { require('./judgment').register(); } catch (e) { console.warn('[guardian] judgment:', e.message); }
   try { require('./review-usage').register(); } catch (e) { console.warn('[guardian] review-usage:', e.message); }

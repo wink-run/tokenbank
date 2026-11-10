@@ -277,6 +277,61 @@ async function handle(entry) {
   return record(entry);
 }
 
+// ── 少打扰：只有真要用户拿主意的才算「要你定」，其余是「供参考」────────────────
+const OPEN_STATUS = ['info', 'suggested', 'failed'];
+const FYI_EXPIRE_MS = 14 * 24 * 60 * 60 * 1000;
+// 这些要用户自己想清楚，不放进「一键按推荐处理」
+const THINK_KINDS = new Set(['judgment-rule']);
+
+/** 要你定：有处理按钮的、处理失败的、缺配置的（没模型、应用没纳管）；其余只是告诉你一声 */
+function needsUser(r) {
+  if (!r || !OPEN_STATUS.includes(r.status)) return false;
+  return (Array.isArray(r.actions) && r.actions.length > 0) || !!r.apply || r.status === 'failed' || r.category === 'setup';
+}
+
+/** 一句话总览：最近 7 天替你处理了几件、几件要你定、几条供参考 */
+function summary() {
+  const list = listRecords({ limit: RECORDS_MAX });
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const open = list.filter(r => OPEN_STATUS.includes(r.status));
+  const decide = open.filter(needsUser);
+  return {
+    handledThisWeek: list.filter(r => r.status === 'done' && (r.appliedAt || r.lastAt || r.at) >= weekAgo).length,
+    decide: decide.length,
+    fyi: open.length - decide.length,
+    recommendable: decide.filter(r => !THINK_KINDS.has(r.kind) && ((r.actions || []).length || r.apply)).length,
+  };
+}
+
+/** 一键按推荐处理：每条用第一个按钮（看护推荐的、可撤销的那个）；要想清楚的那几类跳过 */
+async function actRecommended() {
+  let done = 0;
+  const failed = [];
+  for (const r of listRecords({ limit: RECORDS_MAX })) {
+    if (!needsUser(r) || THINK_KINDS.has(r.kind)) continue;
+    if (!((r.actions || []).length || r.apply)) continue;
+    const res = (r.actions || []).length ? await act(r.id, 0) : await apply(r.id);
+    if (res.ok) done++; else failed.push({ title: r.title, error: res.error });
+  }
+  return { ok: true, done, failed };
+}
+
+/** 供参考的提醒 14 天没人理就自动收起（留痕，不删）；要你定的不会过期 */
+function tidy() {
+  const now = Date.now();
+  const list = listRecords({ limit: RECORDS_MAX });
+  let n = 0;
+  for (const r of list) {
+    if (!OPEN_STATUS.includes(r.status) || needsUser(r) || now - (r.lastAt || r.at) < FYI_EXPIRE_MS) continue;
+    r.status = 'resolved';
+    r.resolvedAt = now;
+    r.resolvedNote = '过期自动收起';
+    n++;
+  }
+  if (n) saveRecords(list);
+  return { ok: true, expired: n };
+}
+
 function dismiss(id) {
   const rec = updateRecord(id, { status: 'dismissed', dismissedAt: Date.now() });
   // 自我进化：同一类提醒忽略多了，问要不要以后不提这一类
@@ -405,6 +460,10 @@ module.exports = {
   undo,
   apply,
   act,
+  needsUser,
+  summary,
+  actRecommended,
+  tidy,
   handle,
   wasUndone,
   dismiss,

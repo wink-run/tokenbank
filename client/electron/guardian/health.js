@@ -12,7 +12,7 @@ function label(id) {
 }
 const CHECK_LABEL = {
   projection: '投射自愈', assets: '资产体检', setup: '配置提醒', 'share-suggest': '分享推荐', 'device-sync': '多设备对比',
-  'capability-gaps': '能力缺口', introspect: '定期自省',
+  'capability-gaps': '能力缺口', introspect: '定期自省', tidy: '收起过期提醒', judgment: '学规则',
 };
 
 async function health() {
