@@ -48,7 +48,7 @@ function providerName(id) {
 function agentName(id) {
   if (require('./chat').isGuardianAgent(id)) {
     const rt = require('./engine').status().runtime;
-    return `看护${rt ? `（${agentName(rt)}）` : ''}`;
+    return `内置看护智能体${rt ? `（${agentName(rt)}）` : ''}`;
   }
   try { return require('../config-loader').appEntityById(id)?.name || id; } catch { return id; }
 }

@@ -732,9 +732,9 @@ class AgentExecutor extends EventEmitter {
     let guardianEntry = null;
     try { guardianEntry = require('./guardian/chat').listEntry(launchableCliIds, AGENT_CLI); } catch { /* 看护不可用 */ }
     const agents = [
-      // 内置看护：有疑问就在游乐场里和它对话
-      ...(guardianEntry ? [guardianEntry] : []),
       ...cliAgents,
+      // 内置看护智能体：排在各应用（运行时）下面、自定义智能体前面
+      ...(guardianEntry ? [guardianEntry] : []),
       ...this._listCustomAssistants(launchableCliIds),
       // 已雇佣的社区武将（远程执行，无正文）
       ...require('./hired-community-agents').toAgentListEntries(),

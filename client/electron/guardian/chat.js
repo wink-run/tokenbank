@@ -23,7 +23,7 @@ function listEntry(launchableIds, AGENT_CLI = {}) {
   const runtimeName = AGENT_CLI[st.runtime]?.name || st.runtimes.find(r => r.id === st.runtime)?.label || st.runtime;
   return {
     id: AGENT_ID,
-    name: '看护',
+    name: '内置看护智能体',
     type: 'assistant',
     guardian: true,
     builtin: true,

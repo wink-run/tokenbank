@@ -198,7 +198,7 @@ test('playground guardian agent: listed on the runner app, fresh context each ti
     assert.match(r.assistant.launch.promptPrefix || JSON.stringify(r.assistant.launch), /内置看护/);
     // 看护对话失败时，记录里写「看护（Codex）」而不是内部 id
     const tw = require('../guardian/task-watch');
-    assert.match(tw._internal.agentName('assistant:tb-guardian'), /^看护（/);
+    assert.match(tw._internal.agentName('assistant:tb-guardian'), /^内置看护智能体（/);
     guardian.setSettings({ enabled: false });
     assert.equal(chat.listEntry(new Set(['codex'])), null, 'guardian off → not listed');
     guardian.setSettings({ enabled: true });
