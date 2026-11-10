@@ -188,10 +188,13 @@ function IntrospectSection({ settings, save, api, t, lang, onRan, view = 'all' }
           <div className="text-xs font-medium text-zinc-800 dark:text-zinc-100">{view === 'report' ? t('guardian.introspect.lastTitle') : t('guardian.introspect.title')}</div>
           <div className="text-[11px] text-zinc-400">{t('guardian.introspect.hint')}</div>
         </div>
-        <button type="button" onClick={runNow} disabled={busy || !settings.enabled}
-          className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-white dark:hover:bg-zinc-800 disabled:opacity-50">
-          {busy ? t('guardian.introspect.running') : t('guardian.introspect.runNow')}
-        </button>
+        {/* 「立即自省」只放在运行情况里、挨着它产出的报告；设置页签只管配置 */}
+        {view !== 'settings' && (
+          <button type="button" onClick={runNow} disabled={busy || !settings.enabled}
+            className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-white dark:hover:bg-zinc-800 disabled:opacity-50">
+            {busy ? t('guardian.introspect.running') : t('guardian.introspect.runNow')}
+          </button>
+        )}
       </div>
       {view !== 'report' && (
       <div className={`grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 text-[11px] text-zinc-500 dark:text-zinc-400 ${settings.enabled ? '' : 'opacity-50 pointer-events-none'}`}>
@@ -538,7 +541,10 @@ export default function GuardianPanel({ page = false }) {
 
       {(showStatus || !page) && (<>
       <div className="px-5 py-3 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 flex-1 whitespace-nowrap">{t('guardian.records')}</h3>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 whitespace-nowrap">{t('guardian.records')}</h3>
+          <div className="text-[11px] text-zinc-400">{t('guardian.checkHint')}</div>
+        </div>
         {msg && <span className="order-last basis-full text-[11px] text-zinc-500 dark:text-zinc-400">{msg}</span>}
         <button type="button" onClick={runChecks} disabled={busy === 'checks'}
           className="text-xs px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-white dark:hover:bg-zinc-800 disabled:opacity-50">
