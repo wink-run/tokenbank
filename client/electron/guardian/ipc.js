@@ -55,6 +55,18 @@ function registerGuardianHandlers() {
   }));
   ipcMain.handle('guardian:assetSnapshot', safe(() => ({ success: true, assets: require('./device-sync').snapshot() })));
 
+  // 说一句话就办：先解析给界面确认，确认后再执行
+  ipcMain.handle('guardian:commandParse', safe(async ({ text, allowModel } = {}) => ({ success: true, plan: await require('./command').parse(text, { allowModel: allowModel !== false }) })));
+  ipcMain.handle('guardian:commandRun', safe(async (plan) => {
+    const r = await require('./command').run(plan || {});
+    return r.ok ? { success: true, message: r.message, link: r.link } : { success: false, error: r.error };
+  }));
+  // 游乐场的纠正：改派、重做、追问纠错（场景路由修正 / 汇总失败复盘）
+  ipcMain.handle('guardian:dispatchFeedback', safe((evt) => {
+    const r = require('./dispatch-learn').feedback(evt || {});
+    return { success: !!r.ok, learned: !!r.learned, error: r.error };
+  }));
+
   // 运行状态：设置页顶部的标志
   ipcMain.handle('guardian:health', safe(async () => ({ success: true, ...(await require('./health').health()) })));
   // 看护执行引擎：兴趣画像 / 资产发现 / 资产安装交给一个已纳管的应用在后台跑
@@ -96,6 +108,8 @@ function startGuardian({ gateway, initialDelayMs } = {}) {
   try { require('./share-suggest').register(); } catch (e) { console.warn('[guardian] share-suggest:', e.message); }
   try { require('./device-sync').register(); } catch (e) { console.warn('[guardian] device-sync:', e.message); }
   try { require('./discover-learn').register(); } catch (e) { console.warn('[guardian] discover-learn:', e.message); }
+  try { require('./dispatch-learn').register(); } catch (e) { console.warn('[guardian] dispatch-learn:', e.message); }
+  try { require('./command').register(); } catch (e) { console.warn('[guardian] command:', e.message); }
   try { require('./capability-gaps').register(); } catch (e) { console.warn('[guardian] capability-gaps:', e.message); }
   try { require('./introspect').register(); } catch (e) { console.warn('[guardian] introspect:', e.message); }
   try { require('./task-watch').attach(); } catch (e) { console.warn('[guardian] task-watch:', e.message); }

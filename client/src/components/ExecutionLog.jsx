@@ -1594,6 +1594,7 @@ export default function ExecutionLog({
   delegations = {},
   agentNames = {},
   onPreviewImage,
+  footer = null,   // 本轮结束后显示在最后（游乐场的「重做 / 改派」）
 }) {
   const { t } = useLang();
   const endRef = useRef(null);
@@ -1841,6 +1842,7 @@ export default function ExecutionLog({
         <TaskCompletionCard result={result} task={task} />
       )}
 
+      {footer}
       <div ref={endRef} />
     </div>
   );
