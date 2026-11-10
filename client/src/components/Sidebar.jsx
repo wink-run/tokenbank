@@ -4,6 +4,7 @@ import { useAuth } from '../store/index';
 import { useLang } from '../store/lang';
 import { useUpdater } from '../store/updater';
 import logoSvg from '../assets/logo.svg';
+import GuardianDot from './GuardianDot';
 
 export default function Sidebar({ onToggleCollapse }) {
   const { user, guest } = useAuth();
@@ -110,7 +111,10 @@ export default function Sidebar({ onToggleCollapse }) {
       <div className="electron-drag flex items-center gap-2.5 pt-14 pb-4 px-3.5 select-none mb-2">
         <img src={logoSvg} alt="Token Bank" className="w-10 h-10 shrink-0 rounded-2xl" />
         <div className="min-w-0">
-          <p className="text-[13px] font-bold text-gray-900 dark:text-gray-100 leading-tight tracking-tight">Token Bank</p>
+          <p className="text-[13px] font-bold text-gray-900 dark:text-gray-100 leading-tight tracking-tight flex items-center gap-1.5">
+            Token Bank
+            <GuardianDot />
+          </p>
           <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-tight mt-0.5">{t('sidebar.tagline')}</p>
         </div>
       </div>

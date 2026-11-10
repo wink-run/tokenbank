@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useLang } from '../store/lang';
 
 const CATS = ['projection', 'gateway', 'install', 'assets', 'discover', 'setup', 'community'];
@@ -250,6 +250,15 @@ export default function GuardianPanel() {
   const [msg, setMsg] = useState('');
   const [openId, setOpenId] = useState(null);
   const [health, setHealth] = useState(null);
+  const location = useLocation();
+  const rootRef = useRef(null);
+
+  // 从侧边栏的看护小圆点点进来：滚到这里
+  useEffect(() => {
+    if (location.state?.focus !== 'guardian') return;
+    const t0 = setTimeout(() => rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
+    return () => clearTimeout(t0);
+  }, [location.state, location.key]);
 
   const load = useCallback(async () => {
     if (!api) return;
@@ -259,6 +268,7 @@ export default function GuardianPanel() {
     if (s?.settings) setSettings(s.settings);
     setRecords(r?.records || []);
     if (h && h.success !== false) setHealth(h);
+    try { window.dispatchEvent(new Event('tb-guardian-changed')); } catch { /* ignore */ }
   }, [api]);
 
   useEffect(() => { load().catch(() => {}); }, [load]);
@@ -301,7 +311,7 @@ export default function GuardianPanel() {
   };
 
   return (
-    <div className="tb-soft-card rounded-2xl overflow-hidden">
+    <div ref={rootRef} className="tb-soft-card rounded-2xl overflow-hidden scroll-mt-4">
       <div className="px-5 py-4 border-b border-white/40 dark:border-white/[0.06] flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 flex flex-wrap items-center gap-2">
