@@ -687,7 +687,7 @@ function tildify(p) {
 // 应用列表统一栅格：固定短列 + minmax(0,fr) 弹性列，避免内容撑开导致各行列宽不一致
 // 应用列保留 modest 最小宽；不设表格 min-width，避免常态出现横向滚动条
 // 应用列加大最小宽；固定短列与路由 min 适当压缩，空间让给应用名
-const APPS_TABLE_GRID = 'grid w-full grid-cols-[1.75rem_minmax(8rem,2fr)_5rem_1.75rem_3.75rem_3.5rem_3.75rem_minmax(4.5rem,1.6fr)_minmax(7.75rem,auto)] gap-x-2 items-center px-2.5 [&>*]:min-w-0';
+const APPS_TABLE_GRID = 'tb-apps-grid grid w-full grid-cols-[1.75rem_minmax(8rem,2fr)_5rem_1.75rem_3.75rem_3.5rem_3.75rem_minmax(4.5rem,1.6fr)_minmax(7.75rem,auto)] gap-x-2 items-center px-2.5 [&>*]:min-w-0';
 
 /** 应用行测试状态：成功/进行中行内短提示；失败用浮层展示完整错误（避免窄列截断） */
 function AppTestResultHint({ ts, t }) {
@@ -2493,7 +2493,8 @@ function SessionRow({ row, fmtN, handoffTargets = [], onTrace, onMeta, onExport,
 
   return (
     <div className="px-5 py-2.5">
-      <div className="grid grid-cols-[7.25rem_minmax(0,1.4fr)_3.5rem_4rem_4.5rem_5rem_auto] gap-2 items-center text-xs">
+      <div className="overflow-x-auto">
+      <div className="tb-hscroll-sm grid grid-cols-[7.25rem_minmax(0,1.4fr)_3.5rem_4rem_4.5rem_5rem_auto] gap-2 items-center text-xs">
         {(() => {
           const client = row.client || row.agent_id;
           const brand = resolveBrandIcon(client);
@@ -2544,6 +2545,7 @@ function SessionRow({ row, fmtN, handoffTargets = [], onTrace, onMeta, onExport,
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );
@@ -2894,7 +2896,8 @@ function AppDetailModal({ app, onClose }) {
               {sessionHistoryRows.length === 0 ? (
                 <div className="text-xs text-zinc-400 px-1">{t('gateway.detail.noSessions')}</div>
               ) : (
-                <div className="tb-table-shell rounded-lg">
+                <div className="tb-table-shell rounded-lg overflow-x-auto">
+                  <div className="tb-hscroll-sm">
                   <div className="tb-table-head grid grid-cols-[minmax(5.5rem,1.15fr)_minmax(0,2fr)_3.5rem_3.5rem_4.5rem_3.5rem] gap-2 px-3 py-1.5">
                     <span>{t('gateway.detail.colProject')}</span><span>{t('gateway.detail.colContext')}</span><span className="text-right">{t('gateway.detail.colRequests')}</span><span className="text-right">Token</span><span className="text-right">{t('gateway.detail.colTime')}</span><span className="text-right">{canTrace ? 'Trace' : t('gateway.detail.colDetail')}</span>
                   </div>
@@ -2935,6 +2938,7 @@ function AppDetailModal({ app, onClose }) {
                         )}
                       </div>
                     ))}
+                  </div>
                   </div>
                 </div>
               )}
@@ -3571,7 +3575,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                 <p className="text-sky-700/90 dark:text-sky-300/80">{t('gateway.docker.agentsInstall')}</p>
                 <p className="text-sky-700/90 dark:text-sky-300/80">
                   {t('gateway.docker.agentsLogin')}{' '}
-                  <code className="font-mono px-1 py-px rounded bg-white/80 dark:bg-zinc-900/60 select-all">docker exec -it -u node {'<容器名>'} claude</code>
+                  <code className="mt-1 block font-mono px-1.5 py-1 rounded bg-white/80 dark:bg-zinc-900/60 select-all break-all">docker exec -it -u node {'<容器名>'} claude</code>
                 </p>
                 <p className="text-sky-700/90 dark:text-sky-300/80">{t('gateway.docker.agentsWorkspace')}</p>
               </div>
@@ -3599,6 +3603,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
               // 嵌套在 soft-card 内：由 CSS 去掉第二层铺底，避免叠成实色
               <div className={`tb-table-shell rounded-xl ${visibleApps.length > 20 ? 'max-h-[min(75vh,900px)] overflow-y-auto' : ''}`}>
                 <div className="overflow-x-auto">
+                <div className="tb-hscroll">
                 <div className={`${APPS_TABLE_GRID} tb-table-head py-2.5 sticky top-0 z-10`}>
                   <span className="text-base text-center shrink-0 invisible">🔧</span>
                   <div className="min-w-0">{t('gateway.apps.colApp')}</div>
@@ -3899,6 +3904,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                     </React.Fragment>
                   );
                 })}
+                </div>
                 </div>
               </div>
             )}
@@ -4735,7 +4741,7 @@ function KeyConfigPanel({ apiKey, localBase, model, modelType, hideAuto = false 
   return (
     <div className="border border-zinc-200 dark:border-zinc-700 rounded-xl overflow-hidden">
       {/* Tab bar */}
-      <div className="flex items-center bg-zinc-50 dark:bg-zinc-800/60 border-b border-zinc-200 dark:border-zinc-700">
+      <div className="flex items-center overflow-x-auto bg-zinc-50 dark:bg-zinc-800/60 border-b border-zinc-200 dark:border-zinc-700">
         {tabs.map(tabItem => (
           <button key={tabItem.id} onClick={() => { setTab(tabItem.id); setWriteOk(false); }}
             className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
@@ -5380,7 +5386,7 @@ export default function Gateway() {
     <div className="px-4 py-4 space-y-3.5">
 
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
         <span className="relative flex h-2.5 w-2.5" aria-hidden>
           <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${status?.running ? 'bg-green-500' : 'bg-zinc-400'}`} />
         </span>
@@ -5454,8 +5460,8 @@ export default function Gateway() {
       {/* 应用列表 / 场景路由 Tab — 大面板用更透的 soft-panel */}
       <div className="tb-soft-panel rounded-2xl overflow-hidden">
         {/* Tab bar（macOS 分段控件）+ Endpoint 合并一行 */}
-        <div className="flex items-center gap-3 px-2.5 py-2 border-b border-white/40 dark:border-white/[0.06]">
-          <div className="tb-glass-chip inline-flex items-center gap-0.5 p-0.5 rounded-[10px]">
+        <div className="flex items-center gap-3 px-2.5 py-2 border-b border-white/40 dark:border-white/[0.06] overflow-x-auto">
+          <div className="tb-glass-chip inline-flex items-center gap-0.5 p-0.5 rounded-[10px] shrink-0">
           {[
             { label: t('gateway.tab.apps'), icon: (
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="w-[15px] h-[15px] shrink-0">
@@ -5477,7 +5483,7 @@ export default function Gateway() {
               setMainTab(i);
               if (i === 2) setSessionsMounted(true);
             }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-medium transition-[background-color,color,box-shadow] duration-150 ease-out ${mainTab === i
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-medium whitespace-nowrap transition-[background-color,color,box-shadow] duration-150 ease-out ${mainTab === i
                 ? 'bg-white/80 dark:bg-white/10 text-zinc-900 dark:text-white shadow-sm'
                 : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'}`}>
               {icon}

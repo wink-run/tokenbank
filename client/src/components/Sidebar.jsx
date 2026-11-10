@@ -108,7 +108,8 @@ export default function Sidebar({ onToggleCollapse }) {
         </button>
       )}
       {/* Logo — pt-14 避开 macOS 交通灯 / Windows 标题栏按钮；electron-drag 允许拖动窗口 */}
-      <div className="electron-drag flex items-center gap-2.5 pt-14 pb-4 px-3.5 select-none mb-2">
+      {/* Web 窄屏抽屉不需要给窗口按钮留 pt-14；桌面仍避开交通灯 */}
+      <div className={`electron-drag flex items-center gap-2.5 pb-4 px-3.5 select-none mb-2 ${onToggleCollapse ? 'pt-4 md:pt-14' : 'pt-14'}`}>
         <img src={logoSvg} alt="Token Bank" className="w-10 h-10 shrink-0 rounded-2xl" />
         <div className="min-w-0">
           <p className="text-[13px] font-bold text-gray-900 dark:text-gray-100 leading-tight tracking-tight flex items-center gap-1.5">

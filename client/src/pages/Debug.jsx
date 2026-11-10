@@ -3325,7 +3325,7 @@ export default function Debug() {
       </div>
 
       {/* ── 主体：Agent 模式下左侧智能体列表 + 右侧对话 ── */}
-      <div className="flex flex-1 min-h-0 min-w-0">
+      <div className="tb-debug-body flex flex-1 min-h-0 min-w-0">
         {mode === 'agent' && (
           <AgentTabBar
             agents={agents}
@@ -3735,7 +3735,7 @@ export default function Debug() {
         ) : (
           <div className="space-y-2">
             {/* 工作目录 + 历史 / 新会话：始终可见 */}
-            <div className="flex items-center gap-2 flex-nowrap min-w-0">
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
               <button
                 type="button"
                 onClick={pickWorkingDir}
@@ -3777,7 +3777,7 @@ export default function Debug() {
                 </span>
               )}
               {!communityAgent && agentRouteApp ? (
-                <div className="shrink-0 w-[200px] min-w-0" title={t('debug.agent.modelPick')}>
+                <div className="shrink-0 w-full sm:w-[200px] min-w-0" title={t('debug.agent.modelPick')}>
                   <RouteSelect
                     compact
                     multi={!!agentRouteApp.route_multi_select}

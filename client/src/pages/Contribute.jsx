@@ -1969,10 +1969,10 @@ export default function Contribute() {
           </div>
         </div>
 
-        <div role="tablist" className="mt-4 flex items-end gap-6 border-b border-zinc-200/80 dark:border-white/[0.08]">
+        <div role="tablist" className="mt-4 flex items-end gap-4 sm:gap-6 overflow-x-auto border-b border-zinc-200/80 dark:border-white/[0.08]">
           {TABS.map(tb => (
             <button key={tb.id} type="button" role="tab" aria-selected={tab === tb.id} onClick={() => changeTab(tb.id)}
-              className={`-mb-px pb-2.5 text-[13px] border-b-2 transition-colors ${
+              className={`-mb-px pb-2.5 text-[13px] border-b-2 whitespace-nowrap shrink-0 transition-colors ${
                 tab === tb.id
                   ? 'border-zinc-900 dark:border-zinc-100 text-zinc-900 dark:text-zinc-50 font-semibold'
                   : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'

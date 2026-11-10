@@ -183,7 +183,7 @@ function SkillToolUsageSection({ skillUsage, toolUsage, mcpUsage, rangeLabel, lo
     );
   };
 
-  // 始终三栏：窄窗口靠压缩内边距/间距撑住，避免堆叠换行
+  // 手机单列，宽屏仍三栏
   const Card = ({ title, hint, totalClass, total, children }) => (
     <div className="tb-soft-card min-w-0 rounded-xl overflow-hidden">
       <div className="px-3.5 py-2.5 border-b border-white/40 dark:border-white/[0.06] flex items-start justify-between gap-1.5">
@@ -203,7 +203,7 @@ function SkillToolUsageSection({ skillUsage, toolUsage, mcpUsage, rangeLabel, lo
   );
 
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
       <Card
         title={t('dashboard.skillUsage')}
         hint={t('dashboard.skillUsageHint')}
@@ -727,7 +727,7 @@ export default function Dashboard() {
 
       {/* Header：标题行放 Desktop 标签与日期选择，副标题单独一行 */}
       <div>
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 min-w-0">
             <h1 className="text-[17px] font-bold text-zinc-900 dark:text-zinc-100 tracking-tight shrink-0">{t('dashboard.title')}</h1>
             <span className="tb-tag tb-tag-muted !border-solid inline-flex items-center gap-1 text-xs rounded-full px-2 py-0.5 shrink-0">
@@ -753,7 +753,7 @@ export default function Dashboard() {
       <WeeklyReportCard />
 
       {/* Summary cards — 5列 */}
-      <div className="grid grid-cols-5 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
         {[
           {
             label: t('dashboard.totalRequests'),
@@ -797,12 +797,12 @@ export default function Dashboard() {
       </div>
 
       {/* Row: tier donut + trend bars */}
-      <div className="grid grid-cols-5 gap-4">
-        <div className="col-span-2 tb-soft-card rounded-2xl p-5 flex flex-col gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="md:col-span-2 tb-soft-card rounded-2xl p-5 flex flex-col gap-4">
           <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{t('dashboard.tierDist')}</div>
           <TierDonut byProvider={byProvider} t={t} />
         </div>
-        <div className="col-span-3 tb-soft-card rounded-2xl p-5">
+        <div className="md:col-span-3 tb-soft-card rounded-2xl p-5">
           <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-4">{trendTitle}</div>
           <TrendBars mode={trendMode} data={trendData} t={t} fmtCost={fmtCost} fmtN={fmtN} />
         </div>

@@ -750,7 +750,7 @@ export default function TokenDashboard() {
 
       {/* 用量总览 */}
       <div className={`${PROFILE_CARD} p-6`}>
-        <div className="flex items-center justify-between mb-4 gap-3">
+        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
           <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">{t('profile.overview', { range: rangeLabel })}</p>
           <div className={RANGE_PILL_WRAP}>
             {RANGE_KEYS.map(r => (
@@ -760,7 +760,7 @@ export default function TokenDashboard() {
             ))}
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">{t('profile.calls')}</p>
             <p className="text-3xl sm:text-4xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">{fmtRangeCalls}</p>

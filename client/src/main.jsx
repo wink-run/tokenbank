@@ -7,6 +7,9 @@ import { installWebBridge } from './api/webBridge';
 
 if (isElectron()) {
   document.documentElement.classList.add('tb-electron');
+} else {
+  // Docker / CLI Web：窄屏样式只挂在这一类上，不影响桌面窗口
+  document.documentElement.classList.add('tb-web');
 }
 
 // Docker / CLI：先挂上资产管理与命令行智能体的 bridge，再渲染（桌面版直接跳过）

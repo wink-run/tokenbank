@@ -129,7 +129,7 @@ export default function AgentTabBar({
     ? runningKeys
     : new Set(Array.isArray(runningKeys) ? runningKeys : []);
 
-  const shellCls = `relative shrink-0 flex min-h-0 ${dragging ? 'select-none' : ''}`;
+  const shellCls = `tb-agent-tabs relative shrink-0 flex min-h-0 ${dragging ? 'select-none' : ''}`;
   // 隐式拖拽热区：无蓝线/分割条，仅 cursor 提示可左右调宽
   const resizeHandle = (
     <div

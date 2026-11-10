@@ -219,7 +219,7 @@ export default function Login() {
 
   return (
     <div className="flex h-full items-center justify-center bg-transparent">
-      <div className="w-full max-w-[360px] px-8 py-10 space-y-5">
+      <div className="w-full max-w-[360px] px-5 sm:px-8 py-8 sm:py-10 space-y-5">
         <div className="flex flex-col items-center gap-3 mb-2">
           <img src={logo} alt="Token Bank" className="w-14 h-14" />
           <div className="text-center">
