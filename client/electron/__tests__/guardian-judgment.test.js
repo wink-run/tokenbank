@@ -107,14 +107,62 @@ test('a rule that would hide every notice of its kind waits for the user', async
   await judgment.takeProposals();
   const rec = guardian.listRecords().find(x => x.kind === 'judgment-rule' && /asset-duplicate|重复/.test(x.title));
   assert.equal(rec.status, 'suggested');
-  assert.match(rec.advice, /范围可能太宽/);
+  assert.match(rec.advice, /需要你确认/);
   assert.equal(judgment.rules().length, before);
   assert.equal((await guardian.act(rec.id, 0)).ok, true, 'the user can still adopt it');
   assert.equal(judgment.rules().length, before + 1);
 });
 
+test('learned fix: an act rule adds a safe, undoable fix to matching records and runs it in auto mode', async () => {
+  for (const r of judgment.rules()) if (r.kind === 'asset-duplicate') judgment.removeRule({ id: r.id });   // 上一个用例采纳的宽规则
+  const ran = [];
+  guardian.registerAction('disableSkill', (d) => { ran.push(d); return { ok: true, undo: { type: 'noop-undo', data: {} } }; });
+  guardian.registerAction('noop-undo', () => ({ ok: true }));
+  judgment.judge('asset-duplicate', { kind: 'asset-duplicate', category: 'assets', resourceId: 'r0', nameA: 'x', nameB: 'y', similarity: 0.95, sameRealDir: false });
+  assert.match(judgment.validate({ kind: 'asset-duplicate', verdict: 'act', action: { type: 'rmrf', data: {} }, when: { all: [{ fact: 'nameA', op: 'eq', value: 'a' }] }, reason: 'r' }).error, /只能用/);
+  assert.match(judgment.validate({ kind: 'asset-duplicate', verdict: 'act', action: { type: 'disableSkill', data: {} }, when: { all: [{ fact: 'nameA', op: 'eq', value: 'a' }] }, reason: 'r' }).error, /resourceId/);
+  const v = judgment.validate({
+    kind: 'asset-duplicate', verdict: 'act', reason: '同名 -copy 的是复制出来的，停用它',
+    action: { type: 'disableSkill', data: { resourceId: '${resourceId}' } },
+    when: { all: [{ fact: 'nameB', op: 'match', value: '-copy$' }] },
+  });
+  assert.equal(v.ok, true, v.error);
+  const pr = await judgment.propose({ kind: 'asset-duplicate', verdict: 'act', reason: '同名 -copy 的是复制出来的，停用它', action: { type: 'disableSkill', data: { resourceId: '${resourceId}' } }, when: { all: [{ fact: 'nameB', op: 'match', value: '-copy$' }] } });
+  assert.equal(pr.ok, true, pr.error);
+  assert.ok(judgment.rules().some(r => r.verdict === 'act'), 'a narrow rule is adopted in auto mode');
+  const rec = guardian.record({ category: 'assets', kind: 'asset-duplicate', status: 'info', title: 'dup', signature: 'dup|a|b', facts: { resourceId: 'res-b', nameA: 'review', nameB: 'review-copy', similarity: 0.99, sameRealDir: false } });
+  assert.equal(rec.actions[0].learned != null, true);
+  assert.deepEqual(rec.actions[0].run, { type: 'disableSkill', data: { resourceId: 'res-b' } });
+  await new Promise(r => setTimeout(r, 30));
+  assert.deepEqual(ran, [{ resourceId: 'res-b' }], 'auto mode runs the learned fix');
+  const after = guardian.listRecords().find(x => x.id === rec.id);
+  assert.equal(after.status, 'done');
+  assert.equal(after.actedLabel, '已按学到的规则处理');
+  // 不匹配的照常只是提醒
+  const other = guardian.record({ category: 'assets', kind: 'asset-duplicate', status: 'info', title: 'dup2', signature: 'dup|c|d', facts: { resourceId: 'res-d', nameA: 'c', nameB: 'd', similarity: 0.9, sameRealDir: false } });
+  assert.ok(!(other.actions || []).some(a => a.learned));
+});
+
+test('any kind can learn: facts come from the record itself; repeated dismissals turn into a rule after the user confirms', async () => {
+  const mk = (i) => guardian.record({ category: 'setup', kind: 'setup-unmanaged', status: 'suggested', title: `装了 app${i} 还没纳管`, signature: `setup-unmanaged|app${i}`, meta: { agentId: `app${i}` } });
+  const recs = [mk(1), mk(2), mk(3)];
+  assert.ok(judgment.validate({ kind: 'setup-unmanaged', when: { all: [{ fact: 'agentId', op: 'eq', value: 'app1' }] }, reason: 'r' }).ok, 'facts from meta are usable');
+  for (const r of recs) guardian.dismiss(r.id);
+  await new Promise(r => setTimeout(r, 50));
+  const ask = guardian.listRecords().find(x => x.kind === 'judgment-rule' && x.meta?.ruleSource === 'feedback');
+  assert.ok(ask, 'asks whether to stop this kind of reminder');
+  assert.equal(ask.status, 'suggested', 'a whole-kind rule always waits for the user');
+  assert.match(ask.advice, /忽略了 3 条/);
+  assert.equal((await guardian.act(ask.id, 0)).ok, true);
+  assert.equal(mk(4), null, 'from now on this kind is not raised');
+  assert.equal((await guardian.undo(ask.id)).ok, true);
+  assert.ok(mk(5), 'undo brings it back');
+});
+
 test('the built-in guardian agent is told how to write rules', () => {
   const g = judgment.agentGuide();
+  assert.match(g, /工作原则/);
+  assert.match(g, /setup-unmanaged/, 'kinds it has seen are listed too');
   assert.match(g, /proposed-rules/);
   assert.match(g, /projection-gone/);
   assert.match(g, /targetRealHasSkillMd/);

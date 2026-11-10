@@ -4621,7 +4621,7 @@ export default function Resources() {
         open={skillInstallOpen}
         onClose={() => setSkillInstallOpen(false)}
         onNeedAgent={() => {
-          // 没有执行应用：到「智能看护」页设置（那里再引导去纳管）
+          // 没有执行应用：到「自我进化」页设置（那里再引导去纳管）
           setSkillInstallOpen(false);
           navigate('/guardian');
         }}

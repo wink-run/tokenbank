@@ -539,7 +539,7 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
         </div>
       </div>
 
-      {/* 智能看护：设置都在单独的看护页，这里只留入口和当前状态 */}
+      {/* 自我进化：设置都在单独的看护页，这里只留入口和当前状态 */}
       <GuardianEntry />
 
       {/* Diagnostics / troubleshooting section */}

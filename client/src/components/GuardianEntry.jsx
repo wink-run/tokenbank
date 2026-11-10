@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useLang } from '../store/lang';
 import { HealthBadge } from './GuardianPanel';
 
-/** 设置页里的「智能看护」入口：只显示状态，点「看护设置」到单独的看护页 */
+/** 设置页里的「自我进化」入口：只显示状态，点「看护设置」到单独的看护页 */
 export default function GuardianEntry() {
   const { t } = useLang();
   const navigate = useNavigate();

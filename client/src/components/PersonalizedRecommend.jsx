@@ -705,7 +705,7 @@ export default function PersonalizedRecommend({
   LogoComp,
   onNeedProject,
   onNeedAgent,
-  onOpenGuardian,   // 打开「智能看护」页（执行应用在那里设置）
+  onOpenGuardian,   // 打开「自我进化」页（执行应用在那里设置）
   onRefresh,
   onAdopted,
   onItemsChange,
@@ -1018,13 +1018,13 @@ export default function PersonalizedRecommend({
         setSelectedRuntime('');
         return setReady({ loading: false, step: 'needAgent' });
       }
-      // 运行应用以看护设置为准（设置 → 智能看护 → 执行应用；这里改也会同步过去）
+      // 运行应用以看护设置为准（设置 → 自我进化 → 执行应用；这里改也会同步过去）
       setSelectedRuntime(st.runtime);
       return setReady({ loading: false, step: 'ready' });
     } catch (e) { setReady({ loading: false, step: 'error' }); setErr(e.message || String(e)); }
   }, []);
   useEffect(() => { checkReady(); }, [checkReady]);
-  // 在「智能看护」页改了执行应用后，这里跟着更新
+  // 在「自我进化」页改了执行应用后，这里跟着更新
   useEffect(() => {
     const onChanged = () => { checkReady(); };
     window.addEventListener('tb-guardian-changed', onChanged);
@@ -1390,7 +1390,7 @@ export default function PersonalizedRecommend({
   isRecommendPanelRef.current = isRecommendPanel;
 
   /** 运行时选择条：有 1+ 可选时展示 */
-  /** 由哪个应用在后台跑：只显示，改在「智能看护」页（各页面不再单独设置） */
+  /** 由哪个应用在后台跑：只显示，改在「自我进化」页（各页面不再单独设置） */
   function renderRuntimePicker({ compact = false } = {}) {
     if (ready.step !== 'ready' || !selectedRuntime) return null;
     const label = (runtimes.find((r) => r.id === selectedRuntime) || {}).label || selectedRuntime;

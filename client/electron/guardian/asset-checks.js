@@ -95,7 +95,7 @@ async function check() {
     const worst = q.some(x => x.level === 'warn') ? 'warn' : (q.length ? 'info' : null);
     if (worst) { f.quality = worst; f.qualityCodes = q.map(x => x.code); }
     const qFacts = { resourceName: r.name, codes: q.map(x => x.code).join(','), descriptionLength: String(r.description || '').length };
-    if (worst === 'warn' && !judgment().judge('asset-quality', qFacts)) qualityNeeds.push({ name: label(r), id: r.id, fixable: q.some(x => x.fix && x.fix.type === 'completeDescription'), facts: qFacts });
+    if (worst === 'warn' && !judgment().judge('asset-quality', qFacts, { verdict: 'ignore' })) qualityNeeds.push({ name: label(r), id: r.id, fixable: q.some(x => x.fix && x.fix.type === 'completeDescription'), facts: qFacts });
 
     const sec = checks.securityScan(files);
     if (sec.risk !== 'none') f.security = sec.risk;
@@ -103,8 +103,8 @@ async function check() {
     // 只在它已经启用到应用里时提醒（没启用的，投射前会再拦一次）；用户信任过的不再提
     const apps = projectedApps(r);
     const high = sec.findings.filter(x => x.level === 'high');
-    const secFacts = { resourceName: r.name, codes: [...new Set(high.map(x => x.code))].join(','), files: [...new Set(high.map(x => x.file))].join(',') };
-    if (sec.risk === 'high' && apps.length && !isTrusted(r.id, sec.findings) && !judgment().judge('asset-security', secFacts)) {
+    const secFacts = { resourceId: r.id, resourceName: r.name, codes: [...new Set(high.map(x => x.code))].join(','), files: [...new Set(high.map(x => x.file))].join(',') };
+    if (sec.risk === 'high' && apps.length && !isTrusted(r.id, sec.findings) && !judgment().judge('asset-security', secFacts, { verdict: 'ignore' })) {
       risky++;
       guardian.record({
         category: 'assets', kind: 'asset-security', status: 'info', countAsRepeat: false,
@@ -171,7 +171,7 @@ async function check() {
       let sameRealDir = false;
       try { sameRealDir = require('fs').realpathSync(authorityDir(a.r) || '') === require('fs').realpathSync(authorityDir(b.r) || ''); } catch { /* ignore */ }
       const dupFacts = { nameA: a.r.name, nameB: b.r.name, similarity: Math.round(sim * 100) / 100, sameRealDir };
-      if (judgment().judge('asset-duplicate', dupFacts)) { guardian.resolveSignature(dupSig, '按判断规则排除'); continue; }
+      if (judgment().judge('asset-duplicate', dupFacts, { verdict: 'ignore' })) { guardian.resolveSignature(dupSig, '按学到的规则不算问题'); continue; }
       const appsA = projectedApps(a.r);
       const shared = projectedApps(b.r).filter(id => appsA.includes(id));
       if (!shared.length || disabledNow.has(a.r.id) || disabledNow.has(b.r.id)) { guardian.resolveSignature(dupSig, '已有一个没在用'); continue; }
