@@ -114,7 +114,7 @@ async function reviewRoutes({ sinceSec }) {
       const rate = r.fails / r.calls;
       if (rate < BAD_FAIL_RATE || isDemoted(r.provider, model)) continue;
       const routeFacts = { model, provider: r.provider, calls: r.calls, fails: r.fails, failRate: Math.round(rate * 100) / 100 };
-      if (require('./judgment').judge('review-route-unstable', routeFacts)) continue;
+      if (require('./judgment').judge('review-route-unstable', routeFacts, { verdict: 'ignore' })) continue;
       const better = list
         .filter(x => x !== r && x.calls >= 5 && x.fails / x.calls <= GOOD_FAIL_RATE)
         .sort((a, b) => a.fails / a.calls - b.fails / b.calls)[0];

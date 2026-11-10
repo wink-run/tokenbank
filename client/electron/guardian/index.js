@@ -112,6 +112,20 @@ function newId() {
  * 同签名还没处理的记录 → 合并（count + 1）并移到最前，不刷屏；用户忽略过的，7 天内不再提（返回 null）
  */
 function record(entry) {
+  // 自我进化：先照学到的规则判一遍 —— 不算问题就不提醒；有学到的处理就加上按钮（自动处理时直接做）
+  let scheduleAuto = false;
+  if (!entry._judged) {
+    let j = { entry };
+    try { j = require('./judgment').apply(entry); } catch (e) { console.warn('[guardian] judgment:', e.message); }
+    if (j.skip) {
+      if (entry.signature) resolveSignature(entry.signature, `按学到的规则不算问题：${j.rule.reason}`);
+      return null;
+    }
+    entry = j.entry;
+    scheduleAuto = !!entry.learnedRule;
+  }
+  entry = { ...entry };
+  delete entry._judged;
   const now = Date.now();
   const list = listRecords({ limit: RECORDS_MAX });
   if (entry.signature) {
@@ -125,6 +139,7 @@ function record(entry) {
       delete merged.countAsRepeat;
       list.splice(idx, 1);
       saveRecords([merged, ...list]);
+      if (scheduleAuto) autoLearned(merged);
       return merged;
     }
     const quiet = list.find(r => r.signature === entry.signature && r.status === 'dismissed'
@@ -134,7 +149,14 @@ function record(entry) {
   const rec = { id: newId(), at: now, lastAt: now, count: 1, ...entry };
   delete rec.countAsRepeat;
   saveRecords([rec, ...list]);
+  if (scheduleAuto) autoLearned(rec);
   return rec;
+}
+
+/** 学到的处理：该类是自动处理、用户没撤销过 → 稍后直接做（不阻塞写记录的调用方） */
+function autoLearned(rec) {
+  if (modeOf(rec.category) !== 'auto' || wasUndone(rec.signature)) return;
+  setImmediate(() => { act(rec.id, 0).catch(() => {}); });
 }
 
 /** 某签名的问题已经不存在了：把还开着的记录收起（不删除，留痕） */
@@ -227,6 +249,15 @@ function wasUndone(signature) {
  * 记成「已处理」并带撤销；做不成或用户撤销过，就照常留一条待处理。
  */
 async function handle(entry) {
+  // 自我进化：照学到的规则判一遍（record() 就不再判第二次）
+  try {
+    const j = require('./judgment').apply(entry);
+    if (j.skip) {
+      if (entry.signature) resolveSignature(entry.signature, `按学到的规则不算问题：${j.rule.reason}`);
+      return null;
+    }
+    entry = { ...j.entry, _judged: true };
+  } catch (e) { console.warn('[guardian] judgment:', e.message); }
   const idx = Array.isArray(entry.actions) ? entry.actions.findIndex(a => a && a.auto) : -1;
   if (idx >= 0 && modeOf(entry.category) === 'auto' && !wasUndone(entry.signature)) {
     const a = entry.actions[idx];
@@ -247,7 +278,10 @@ async function handle(entry) {
 }
 
 function dismiss(id) {
-  return !!updateRecord(id, { status: 'dismissed', dismissedAt: Date.now() });
+  const rec = updateRecord(id, { status: 'dismissed', dismissedAt: Date.now() });
+  // 自我进化：同一类提醒忽略多了，问要不要以后不提这一类
+  if (rec) setImmediate(() => { Promise.resolve(require('./judgment').learnFromDismiss(rec)).catch(() => {}); });
+  return !!rec;
 }
 
 // ── 规则库（报错签名 → 次数 / 解释 / 效果）──────────────────────────────────

@@ -34,6 +34,9 @@ function registerGuardianHandlers() {
     const r = await guardian.act(id, index);
     return { success: !!r.ok, error: r.error, message: r.message };
   }));
+  // 自我进化：学到的规则（看、删）
+  ipcMain.handle('guardian:learnedRules', safe(() => ({ success: true, rules: require('./judgment').list() })));
+  ipcMain.handle('guardian:removeLearnedRule', safe((id) => ({ success: !!require('./judgment').removeRule({ id }).ok })));
   ipcMain.handle('guardian:dismiss', safe((id) => ({ success: guardian.dismiss(id) })));
   ipcMain.handle('guardian:runChecks', safe(async () => ({ success: true, results: await guardian.runChecks() })));
   // 资产列表的小标签：质量 / 安全 / 重复 / 新版本

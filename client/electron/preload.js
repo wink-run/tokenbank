@@ -189,6 +189,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     undo: (id) => ipcRenderer.invoke('guardian:undo', id),
     apply: (id) => ipcRenderer.invoke('guardian:apply', id),
     act: (id, index) => ipcRenderer.invoke('guardian:act', id, index),
+    learnedRules: () => ipcRenderer.invoke('guardian:learnedRules'),
+    removeLearnedRule: (id) => ipcRenderer.invoke('guardian:removeLearnedRule', id),
     dismiss: (id) => ipcRenderer.invoke('guardian:dismiss', id),
     runChecks: () => ipcRenderer.invoke('guardian:runChecks'),
     assetFlags: () => ipcRenderer.invoke('guardian:assetFlags'),
