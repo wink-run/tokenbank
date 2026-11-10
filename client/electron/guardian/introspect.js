@@ -96,7 +96,7 @@ function restoreRules({ rules }) {
 }
 
 // ── 资产整理：体检（质量 / 安全 / 重复 / 新版本）+ 闲置统计 ─────────────────
-async function reviewAssets() {
+async function reviewAssets({ since = 0 } = {}) {
   const a = await require('./asset-checks').check();
   if (a && a.skipped) return { summary: '资产体检已在设置里关闭。', items: [], stats: {} };
   let idle = 0;
@@ -112,7 +112,13 @@ async function reviewAssets() {
   if (a.duplicates) parts.push(`${a.duplicates} 对内容重复`);
   if (a.updates) parts.push(`${a.updates} 个有新版本`);
   if (idle) parts.push(`${idle} 个 30 天没用过`);
-  return { summary: `${parts.join('，')}。`, items: [], stats: { ...a, idle } };
+  // 能力缺口 + 发现页推荐的采纳情况
+  let gaps = 0;
+  try { gaps = (await require('./capability-gaps').check()).gaps || 0; } catch { /* ignore */ }
+  if (gaps) parts.push(`${gaps} 类常做的事还没有对应技能`);
+  const reco = require('./discover-learn').recoStats(since);
+  if (reco.rate != null) parts.push(`发现页推荐采纳 ${reco.adopt} 个、不感兴趣 ${reco.dismiss} 个（采纳率 ${Math.round(reco.rate * 100)}%）`);
+  return { summary: `${parts.join('，')}。`, items: [], stats: { ...a, idle, gaps, reco } };
 }
 
 const AUTO_APPLY_OK = new Set(['updateFromCatalog']);
@@ -149,7 +155,7 @@ async function run({ manual = false } = {}) {
     for (const key of SECTION_ORDER) {
       if (!scope.has(key)) continue;
       try {
-        if (key === 'assets') sections.assets = await reviewAssets();
+        if (key === 'assets') sections.assets = await reviewAssets({ since });
         else if (key === 'routes') sections.routes = review.reviewRoutes({ sinceSec: Math.floor(since / 1000) });
         else if (key === 'savings') sections.savings = review.reviewSavings({ sinceSec: Math.floor(since / 1000), days });
         else if (key === 'rules') sections.rules = tidyRules({ handling: c.handling });

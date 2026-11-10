@@ -125,7 +125,7 @@ function record(entry) {
       return merged;
     }
     const quiet = list.find(r => r.signature === entry.signature && r.status === 'dismissed'
-      && now - (r.dismissedAt || r.lastAt || r.at) < DISMISS_QUIET_MS);
+      && now - (r.dismissedAt || r.lastAt || r.at) < (r.quietDays ? r.quietDays * 24 * 60 * 60 * 1000 : DISMISS_QUIET_MS));
     if (quiet) return null;
   }
   const rec = { id: newId(), at: now, lastAt: now, count: 1, ...entry };

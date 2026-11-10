@@ -195,6 +195,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     preferredTargets: (opts) => ipcRenderer.invoke('guardian:preferredTargets', opts || {}),
     shareCheck: (input) => ipcRenderer.invoke('guardian:shareCheck', input || {}),
     assetSnapshot: () => ipcRenderer.invoke('guardian:assetSnapshot'),
+    capabilityGaps: () => ipcRenderer.invoke('guardian:capabilityGaps'),
+    recoFeedback: (input) => ipcRenderer.invoke('guardian:recoFeedback', input || {}),
+    recoState: (opts) => ipcRenderer.invoke('guardian:recoState', opts || {}),
+    portraitFeedback: (input) => ipcRenderer.invoke('guardian:portraitFeedback', input || {}),
+    portraitConstraints: () => ipcRenderer.invoke('guardian:portraitConstraints'),
   },
   config: {
     read:  () => ipcRenderer.invoke('config:read'),
