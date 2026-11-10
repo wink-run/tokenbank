@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { askGuardian, recordQuestion } from '../lib/askGuardian';
+import { askGuardian, recordQuestion, falsePositiveQuestion } from '../lib/askGuardian';
 import { useLang } from '../store/lang';
 
 const CATS = ['projection', 'gateway', 'install', 'assets', 'discover', 'setup', 'community'];
@@ -438,6 +438,13 @@ export default function GuardianPanel({ page = false }) {
               <button type="button" onClick={() => askGuardian(navigate, recordQuestion(r, lang))}
                 className="text-[11px] px-2 py-0.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800">
                 {t('guardian.ask')}
+              </button>
+            )}
+            {open && (r.facts || r.factsList) && (
+              <button type="button" onClick={() => askGuardian(navigate, falsePositiveQuestion(r, lang))}
+                title={t('guardian.falsePositiveHint')}
+                className="text-[11px] px-2 py-0.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800">
+                {t('guardian.falsePositive')}
               </button>
             )}
             {open && (

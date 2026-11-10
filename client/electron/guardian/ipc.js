@@ -115,6 +115,7 @@ function startGuardian({ gateway, initialDelayMs } = {}) {
   try { require('./dispatch-learn').register(); } catch (e) { console.warn('[guardian] dispatch-learn:', e.message); }
   try { require('./command').register(); } catch (e) { console.warn('[guardian] command:', e.message); }
   try { require('./capability-gaps').register(); } catch (e) { console.warn('[guardian] capability-gaps:', e.message); }
+  try { require('./judgment').register(); } catch (e) { console.warn('[guardian] judgment:', e.message); }
   try { require('./review-usage').register(); } catch (e) { console.warn('[guardian] review-usage:', e.message); }
   try { require('./introspect').register(); } catch (e) { console.warn('[guardian] introspect:', e.message); }
   try { require('./task-watch').attach(); } catch (e) { console.warn('[guardian] task-watch:', e.message); }

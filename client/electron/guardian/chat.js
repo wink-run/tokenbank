@@ -23,7 +23,7 @@ function listEntry(launchableIds, AGENT_CLI = {}) {
   const runtimeName = AGENT_CLI[st.runtime]?.name || st.runtimes.find(r => r.id === st.runtime)?.label || st.runtime;
   return {
     id: AGENT_ID,
-    name: '看护',
+    name: '内置看护智能体',
     type: 'assistant',
     guardian: true,
     builtin: true,
@@ -53,6 +53,7 @@ function systemText() {
     '4. 看护页的记录都能撤销，能用看护记录上的按钮解决的，优先告诉用户点哪个。',
     '常用位置：资产库技能目录 ~/.agents/skills；各应用技能目录如 ~/.claude/skills、~/.codex/skills；模型来源 ~/.llm-agent/config.json；应用与路由 ~/.llm-agent/local-config.json；看护数据 ~/.tokenbank/guardian/。',
   ];
+  try { out.push(require('./judgment').agentGuide()); } catch { /* ignore */ }
   try {
     const h = require('./health').health();
     out.push(`看护运行状态：${h.level}${(h.issues || []).length ? `；问题：${h.issues.map(i => i.text).join('；')}` : ''}`);

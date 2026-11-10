@@ -48,7 +48,7 @@ function providerName(id) {
 function agentName(id) {
   if (require('./chat').isGuardianAgent(id)) {
     const rt = require('./engine').status().runtime;
-    return `看护${rt ? `（${agentName(rt)}）` : ''}`;
+    return `内置看护智能体${rt ? `（${agentName(rt)}）` : ''}`;
   }
   try { return require('../config-loader').appEntityById(id)?.name || id; } catch { return id; }
 }
@@ -113,6 +113,8 @@ async function reviewRoutes({ sinceSec }) {
       if (r.calls < MIN_CALLS) continue;
       const rate = r.fails / r.calls;
       if (rate < BAD_FAIL_RATE || isDemoted(r.provider, model)) continue;
+      const routeFacts = { model, provider: r.provider, calls: r.calls, fails: r.fails, failRate: Math.round(rate * 100) / 100 };
+      if (require('./judgment').judge('review-route-unstable', routeFacts)) continue;
       const better = list
         .filter(x => x !== r && x.calls >= 5 && x.fails / x.calls <= GOOD_FAIL_RATE)
         .sort((a, b) => a.fails / a.calls - b.fails / b.calls)[0];
@@ -123,7 +125,7 @@ async function reviewRoutes({ sinceSec }) {
       // 下沉没风险、可撤销：「供给源」是自动处理就直接做
       const rec = await guardian.handle({
         category: 'gateway', kind: 'review-route-unstable', status: 'suggested', countAsRepeat: false,
-        title, advice, signature: `review-route|${model}|${r.provider}`,
+        title, advice, signature: `review-route|${model}|${r.provider}`, facts: routeFacts,
         actions: [demoteAction(r.provider, model, '下沉这个来源')],
         link: { to: '/gateway', label: '查看路由' },
         meta: { model, provider: r.provider, calls: r.calls, fails: r.fails, better: better?.provider || null },
