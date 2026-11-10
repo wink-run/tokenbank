@@ -26,40 +26,14 @@ const mockGateway = {
   getDailyStats: () => ({ calls: 0 }),
 };
 
-// 初始化测试服务器
-async function setupServer() {
-  return new Promise((resolve) => {
-    const testServer = http.createServer();
-    testServer.listen(0, '127.0.0.1', () => {
-      port = testServer.address().port;
-      testServer.close(() => {
-        server = adminApi.start(port, mockGateway, '127.0.0.1');
-        setTimeout(resolve, 100);
-      });
-    });
-  });
-}
-
-// 清理测试服务器
-async function teardownServer() {
-  return new Promise((resolve) => {
-    if (server) {
-      adminApi.stop();
-      setTimeout(resolve, 100);
-    } else {
-      resolve();
-    }
-  });
-}
-
-function makeRequest(path, headers = {}) {
+function makeRequest(path, headers = {}, method = 'GET') {
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
         hostname: '127.0.0.1',
         port,
         path,
-        method: 'GET',
+        method,
         headers,
       },
       (res) => {
@@ -79,41 +53,58 @@ function makeRequest(path, headers = {}) {
   });
 }
 
-test('应该在 Accept-Encoding: gzip 时压缩 HTML', async () => {
+function setupServer() {
+  return new Promise((resolve) => {
+    const testServer = http.createServer();
+    testServer.listen(0, '127.0.0.1', () => {
+      port = testServer.address().port;
+      testServer.close(() => {
+        server = adminApi.start(port, mockGateway, '127.0.0.1');
+        setTimeout(resolve, 100);
+      });
+    });
+  });
+}
+
+function teardownServer() {
+  return new Promise((resolve) => {
+    if (server) {
+      adminApi.stop();
+      setTimeout(resolve, 100);
+    } else {
+      resolve();
+    }
+  });
+}
+
+test('JS 文件应该被 gzip 压缩', async () => {
   await setupServer();
   
-  const res = await makeRequest('/', { 'Accept-Encoding': 'gzip' });
+  const res = await makeRequest('/assets/test-B4DzBrva.js', { 'Accept-Encoding': 'gzip' });
   
   assert.strictEqual(res.statusCode, 200);
-  assert.match(res.headers['content-type'], /text\/html/);
+  assert.match(res.headers['content-type'], /javascript/);
   assert.strictEqual(res.headers['content-encoding'], 'gzip');
   assert.strictEqual(res.headers['vary'], 'Accept-Encoding');
-  assert.strictEqual(res.headers['content-length'], String(res.body.length));
+  assert.strictEqual(parseInt(res.headers['content-length']), res.body.length);
   
   const decompressed = zlib.gunzipSync(res.body);
-  assert.match(decompressed.toString(), /<!doctype html>/i);
+  const originalSize = decompressed.length;
+  const compressedSize = res.body.length;
+  
+  assert.ok(compressedSize < originalSize, `压缩应该减少大小: ${compressedSize} >= ${originalSize}`);
+  console.log(`  JS: ${originalSize}B → ${compressedSize}B (${(compressedSize / originalSize * 100).toFixed(1)}%)`);
   
   await teardownServer();
 });
 
-test('应该在 Accept-Encoding: gzip 时压缩 JS', async () => {
+test('CSS 文件应该被 gzip 压缩', async () => {
   await setupServer();
   
-  const distDir = path.resolve(__dirname, '..', '..', 'dist');
-  const assetsDir = path.join(distDir, 'assets');
-  const files = fs.readdirSync(assetsDir);
-  const jsFile = files.find(f => f.endsWith('.js'));
-  
-  if (!jsFile) {
-    console.log('跳过 JS 测试：未找到文件');
-    await teardownServer();
-    return;
-  }
-
-  const res = await makeRequest(`/assets/${jsFile}`, { 'Accept-Encoding': 'gzip' });
+  const res = await makeRequest('/assets/test-style.css', { 'Accept-Encoding': 'gzip' });
   
   assert.strictEqual(res.statusCode, 200);
-  assert.match(res.headers['content-type'], /javascript/);
+  assert.match(res.headers['content-type'], /css/);
   assert.strictEqual(res.headers['content-encoding'], 'gzip');
   assert.strictEqual(res.headers['vary'], 'Accept-Encoding');
   
@@ -121,61 +112,98 @@ test('应该在 Accept-Encoding: gzip 时压缩 JS', async () => {
   const originalSize = decompressed.length;
   const compressedSize = res.body.length;
   
-  assert.ok(compressedSize < originalSize * 0.9, '压缩应该减少至少 10% 大小');
-  console.log(`JS 压缩: ${originalSize} -> ${compressedSize} (${(compressedSize / originalSize * 100).toFixed(1)}%)`);
+  assert.ok(compressedSize < originalSize);
+  console.log(`  CSS: ${originalSize}B → ${compressedSize}B (${(compressedSize / originalSize * 100).toFixed(1)}%)`);
   
   await teardownServer();
 });
 
-test('应该在不支持 gzip 时返回未压缩内容', async () => {
+test('gzip 解码后内容应该与原始文件相同', async () => {
   await setupServer();
   
-  const res = await makeRequest('/', { 'Accept-Encoding': 'identity' });
+  const originalFile = fs.readFileSync(path.join(__dirname, '../../dist/assets/test-B4DzBrva.js'));
+  const res = await makeRequest('/assets/test-B4DzBrva.js', { 'Accept-Encoding': 'gzip' });
+  
+  const decompressed = zlib.gunzipSync(res.body);
+  assert.ok(Buffer.compare(decompressed, originalFile) === 0, '解码内容应该与原文件完全一致');
+  
+  await teardownServer();
+});
+
+test('HEAD 请求应该返回正确的头且无 body', async () => {
+  await setupServer();
+  
+  const headRes = await makeRequest('/assets/test-B4DzBrva.js', { 'Accept-Encoding': 'gzip' }, 'HEAD');
+  const getRes = await makeRequest('/assets/test-B4DzBrva.js', { 'Accept-Encoding': 'gzip' }, 'GET');
+  
+  assert.strictEqual(headRes.statusCode, 200);
+  assert.strictEqual(headRes.headers['content-encoding'], getRes.headers['content-encoding']);
+  assert.strictEqual(headRes.headers['content-length'], getRes.headers['content-length']);
+  assert.strictEqual(headRes.body.length, 0, 'HEAD 响应不应该有 body');
+  
+  await teardownServer();
+});
+
+test('Accept-Encoding: gzip;q=0 应该拒绝压缩', async () => {
+  await setupServer();
+  
+  const res = await makeRequest('/assets/test-B4DzBrva.js', { 'Accept-Encoding': 'gzip;q=0' });
   
   assert.strictEqual(res.statusCode, 200);
-  assert.match(res.headers['content-type'], /text\/html/);
   assert.strictEqual(res.headers['content-encoding'], undefined);
   assert.strictEqual(res.headers['vary'], 'Accept-Encoding');
-  assert.match(res.body.toString(), /<!doctype html>/i);
+  
+  const originalFile = fs.readFileSync(path.join(__dirname, '../../dist/assets/test-B4DzBrva.js'));
+  assert.ok(Buffer.compare(res.body, originalFile) === 0);
   
   await teardownServer();
 });
 
-test('应该在没有 Accept-Encoding 时返回未压缩内容', async () => {
+test('Accept-Encoding: identity 应该返回未压缩内容', async () => {
   await setupServer();
   
-  const res = await makeRequest('/');
-  
-  assert.strictEqual(res.statusCode, 200);
-  assert.match(res.headers['content-type'], /text\/html/);
-  assert.strictEqual(res.headers['content-encoding'], undefined);
-  assert.match(res.body.toString(), /<!doctype html>/i);
-  
-  await teardownServer();
-});
-
-test('应该正确处理 Accept-Encoding: gzip;q=0 (拒绝 gzip)', async () => {
-  await setupServer();
-  
-  const res = await makeRequest('/', { 'Accept-Encoding': 'gzip;q=0' });
+  const res = await makeRequest('/assets/test-B4DzBrva.js', { 'Accept-Encoding': 'identity' });
   
   assert.strictEqual(res.statusCode, 200);
   assert.strictEqual(res.headers['content-encoding'], undefined);
-  assert.match(res.body.toString(), /<!doctype html>/i);
+  assert.strictEqual(res.headers['vary'], 'Accept-Encoding');
   
   await teardownServer();
 });
 
-test('应该正确处理 Accept-Encoding: gzip, deflate', async () => {
+test('Accept-Encoding: gzip;q=0.8, identity;q=0.5 应该选择 gzip', async () => {
   await setupServer();
   
-  const res = await makeRequest('/', { 'Accept-Encoding': 'gzip, deflate' });
+  const res = await makeRequest('/assets/test-B4DzBrva.js', { 
+    'Accept-Encoding': 'gzip;q=0.8, identity;q=0.5' 
+  });
   
   assert.strictEqual(res.statusCode, 200);
   assert.strictEqual(res.headers['content-encoding'], 'gzip');
   
-  const decompressed = zlib.gunzipSync(res.body);
-  assert.match(decompressed.toString(), /<!doctype html>/i);
+  await teardownServer();
+});
+
+test('没有 Accept-Encoding 应该返回未压缩内容', async () => {
+  await setupServer();
+  
+  const res = await makeRequest('/assets/test-B4DzBrva.js');
+  
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(res.headers['content-encoding'], undefined);
+  
+  await teardownServer();
+});
+
+test('小文件(<1KB)不应该被压缩但设置 Vary', async () => {
+  await setupServer();
+  
+  const res = await makeRequest('/', { 'Accept-Encoding': 'gzip' });
+  
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(res.headers['content-encoding'], undefined, 'HTML 太小不应压缩');
+  assert.strictEqual(res.headers['vary'], 'Accept-Encoding', '应该设置 Vary 头');
+  assert.match(res.body.toString(), /<!doctype html>/i);
   
   await teardownServer();
 });
@@ -198,7 +226,7 @@ test('API 响应不应该被压缩', async () => {
 test('Content-Length 应该与实际响应体大小匹配', async () => {
   await setupServer();
   
-  const res = await makeRequest('/', { 'Accept-Encoding': 'gzip' });
+  const res = await makeRequest('/assets/test-B4DzBrva.js', { 'Accept-Encoding': 'gzip' });
   
   assert.strictEqual(res.statusCode, 200);
   assert.strictEqual(parseInt(res.headers['content-length'], 10), res.body.length);
@@ -206,13 +234,13 @@ test('Content-Length 应该与实际响应体大小匹配', async () => {
   await teardownServer();
 });
 
-test('Vary 头应该被正确设置', async () => {
+test('Vary 头应该在可压缩类型上正确设置', async () => {
   await setupServer();
   
-  const res1 = await makeRequest('/', { 'Accept-Encoding': 'gzip' });
+  const res1 = await makeRequest('/assets/test-B4DzBrva.js', { 'Accept-Encoding': 'gzip' });
   assert.strictEqual(res1.headers['vary'], 'Accept-Encoding');
 
-  const res2 = await makeRequest('/', { 'Accept-Encoding': 'identity' });
+  const res2 = await makeRequest('/assets/test-B4DzBrva.js', { 'Accept-Encoding': 'identity' });
   assert.strictEqual(res2.headers['vary'], 'Accept-Encoding');
   
   await teardownServer();

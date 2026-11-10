@@ -124,7 +124,8 @@ function isCompressible(contentType) {
 }
 
 // Serve a static file from DIST_DIR; returns false if file not found.
-function serveStatic(req, res, relPath) {
+// Uses async compression to avoid blocking event loop on large files.
+async function serveStatic(req, res, relPath) {
   const filePath = path.join(DIST_DIR, relPath);
 
   // Prevent path traversal outside dist dir
@@ -170,21 +171,33 @@ function serveStatic(req, res, relPath) {
   const shouldCompress = isTextType && data.length > 1024 && acceptsEncoding(req, 'gzip');
   
   if (shouldCompress) {
-    const compressed = zlib.gzipSync(data, { level: 6 });
-    headers['Content-Encoding'] = 'gzip';
-    headers['Content-Length'] = compressed.length;
-    headers['Vary'] = 'Accept-Encoding';
-    res.writeHead(200, headers);
-    res.end(compressed);
+    // Use async gzip to avoid blocking event loop
+    return new Promise((resolve) => {
+      zlib.gzip(data, { level: 6 }, (err, compressed) => {
+        if (err) {
+          // Fallback to uncompressed on error
+          headers['Content-Length'] = data.length;
+          if (isTextType) headers['Vary'] = 'Accept-Encoding';
+          res.writeHead(200, headers);
+          res.end(data);
+        } else {
+          headers['Content-Encoding'] = 'gzip';
+          headers['Content-Length'] = compressed.length;
+          headers['Vary'] = 'Accept-Encoding';
+          res.writeHead(200, headers);
+          res.end(compressed);
+        }
+        resolve(true);
+      });
+    });
   } else {
     headers['Content-Length'] = data.length;
     // 可压缩类型总是设置 Vary，即使未实际压缩
     if (isTextType) headers['Vary'] = 'Accept-Encoding';
     res.writeHead(200, headers);
     res.end(data);
+    return true;
   }
-  
-  return true;
 }
 
 // ── Apps（local-config.apps[]，与 Electron apps:* IPC 同结构）──────────────────
@@ -1273,7 +1286,7 @@ async function handleRequest(req, res) {
 
   // Try to serve the exact path first
   const relPath = url === '/' ? 'index.html' : url.replace(/^\//, '');
-  if (serveStatic(req, res, relPath)) return;
+  if (await serveStatic(req, res, relPath)) return;
 
   // 未实现的 /api/* 返回 JSON 404，避免 SPA index.html 被 fetch().json() 误解析
   if (url.startsWith('/api/')) {
@@ -1282,7 +1295,7 @@ async function handleRequest(req, res) {
 
   // SPA fallback — serve index.html for non-asset paths
   if (!url.startsWith('/assets/')) {
-    if (serveStatic(req, res, 'index.html')) return;
+    if (await serveStatic(req, res, 'index.html')) return;
   }
 
   json(res, 404, { error: 'Not found' });
