@@ -2138,12 +2138,15 @@ export default function Debug() {
         if (sameTask) {
           const prev = sess.taskSteps || [];
           // 收到步骤时拉回 executing，避免锁被误释放后无法停止/继续
+          if (instanceId) routeTask(taskId, ownerKey, instanceId);
           patchSession(ownerKey, {
             currentTask: sess.currentTask?.id === taskId
               ? { ...sess.currentTask, status: 'running' }
               : { id: taskId, status: 'running', parentTaskId: parentTaskId || sess.currentTask?.parentTaskId },
             taskSteps: coalesceAgentSteps(prev, stepData),
             executing: true,
+            // 刷新后本地没有实例号，接上这条还在跑的任务，不另开一轮
+            ...(instanceId && !sess.sessionInstanceId ? { sessionInstanceId: instanceId } : {}),
           });
           // 同步 JSON 批量步骤到达后延迟收尾
           if (stepData.content?.trim() || stepData.is_snapshot) {

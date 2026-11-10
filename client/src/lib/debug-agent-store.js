@@ -129,10 +129,12 @@ export function resolveTaskInstance(taskId) {
   return store.taskInstances[taskId] || null;
 }
 
-/** 事件是否属于当前页面最新 session */
+/** 事件是否属于当前页面最新 session。刷新后本地还没有实例号时先收下，避免过程卡住、按钮却停在「停止」。 */
 export function eventMatchesSession(sessionKey, sessionInstanceId) {
   if (!sessionKey || !sessionInstanceId) return true;
-  return getStoreSession(sessionKey).sessionInstanceId === sessionInstanceId;
+  const current = getStoreSession(sessionKey).sessionInstanceId;
+  if (!current) return true;
+  return current === sessionInstanceId;
 }
 
 /** 当前 store 会话是否接受该 task 的 sessionInstanceId */
@@ -397,7 +399,7 @@ export function mergeTaskIntoStore(status) {
   const key = inferSessionKeyFromTask(status);
   if (isFreshAgentSession(getStoreSession(key))) return;
 
-  routeTask(status.id, key);
+  routeTask(status.id, key, ctx.sessionInstanceId || null);
 
   const steps = mapDbSteps(status);
   const running = status.status === 'running' || status.status === 'pending';
@@ -474,6 +476,10 @@ export function mergeTaskIntoStore(status) {
       executing: true,
       taskResult: null,
       skipHistoryRecover: 0,
+      // 刷新后本地实例号是空的，接上这条任务原来的号，后续步骤才进得来
+      ...(ctx.sessionInstanceId && !prev.sessionInstanceId
+        ? { sessionInstanceId: ctx.sessionInstanceId }
+        : {}),
     });
     return;
   }

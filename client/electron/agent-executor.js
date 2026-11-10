@@ -2260,7 +2260,7 @@ class AgentExecutor extends EventEmitter {
   }
 
   /**
-   * 列出进行中的任务（切换页面后恢复 UI 用）
+   * 列出进行中的任务（刷新页面只恢复界面，不取消进程）
    */
   async listActiveTasks() {
     const db = this._getDb();
