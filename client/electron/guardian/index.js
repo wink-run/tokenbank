@@ -253,12 +253,41 @@ function scheduleCheck(name) {
 async function runCheck(name) {
   const c = checks.get(name);
   if (!c) return { ok: false, error: 'unknown-check' };
+  let r;
+  runningChecks.add(name);
   try {
-    return (await c.fn()) || { ok: true };
+    r = (await c.fn()) || { ok: true };
   } catch (e) {
     console.warn(`[guardian] check ${name} failed:`, e.message);
-    return { ok: false, error: e.message };
+    r = { ok: false, error: e.message };
+  } finally {
+    runningChecks.delete(name);
   }
+  noteCheck(name, r);
+  return r;
+}
+
+// 正在跑的检查（侧边栏小圆点据此显示「正在执行」的动效）
+const runningChecks = new Set();
+function runningCheckNames() {
+  return [...runningChecks];
+}
+
+// ── 运行状态：每项检查最近一次的结果（设置页「运行是否正常」据此显示）────────
+function noteCheck(name, r) {
+  try {
+    const h = store.readJson('health.json', {});
+    h[name] = { at: Date.now(), ok: r.ok !== false, error: r.ok === false ? String(r.error || 'failed').slice(0, 200) : null };
+    store.writeJson('health.json', h);
+  } catch { /* 记不下来不影响检查 */ }
+}
+
+function checkHealth() {
+  const h = store.readJson('health.json', {});
+  const names = [...checks.keys()];
+  const runs = names.map(n => ({ name: n, ...(h[n] || { at: null, ok: null, error: null }) }));
+  const lastAt = runs.reduce((m, r) => Math.max(m, r.at || 0), 0) || null;
+  return { lastAt, failing: runs.filter(r => r.ok === false), total: names.length };
 }
 
 async function runChecks() {
@@ -300,6 +329,8 @@ module.exports = {
   registerCheck,
   runCheck,
   runChecks,
+  checkHealth,
+  runningCheckNames,
   start,
   stop,
 };

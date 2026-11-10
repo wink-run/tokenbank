@@ -15,6 +15,7 @@ import Contribute from './pages/Contribute';
 import Dashboard  from './pages/Dashboard';
 import Network    from './pages/Network';
 import Config     from './pages/Config';
+import Guardian   from './pages/Guardian';
 import Login      from './pages/Login';
 import Debug      from './pages/Debug';
 import CircleDetail from './pages/CircleDetail';
@@ -39,6 +40,7 @@ const KEEP_ALIVE_ROUTE_CONFIGS = [
   { path: '/dashboard', Component: Dashboard, requireAuthed: true },
   { path: '/network', Component: Network },
   { path: '/config', Component: Config },
+  { path: '/guardian', Component: Guardian },
   { path: '/debug', Component: Debug },
   { path: '/account', Component: TokenDashboard, requireUser: true },
 ];

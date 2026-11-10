@@ -55,6 +55,19 @@ function registerGuardianHandlers() {
   }));
   ipcMain.handle('guardian:assetSnapshot', safe(() => ({ success: true, assets: require('./device-sync').snapshot() })));
 
+  // 运行状态：设置页顶部的标志
+  ipcMain.handle('guardian:health', safe(async () => ({ success: true, ...(await require('./health').health()) })));
+  // 看护执行引擎：兴趣画像 / 资产发现 / 资产安装交给一个已纳管的应用在后台跑
+  ipcMain.handle('guardian:engineStatus', safe(() => ({ success: true, ...require('./engine').status() })));
+  ipcMain.handle('guardian:engineSetRuntime', safe((id) => {
+    const r = require('./engine').setRuntime(id);
+    return { success: !!r.ok, error: r.error, runtime: r.runtime };
+  }));
+  ipcMain.handle('guardian:engineRun', safe(async (input) => {
+    const r = await require('./engine').run(input || {});
+    return r.ok ? { success: true, taskId: r.taskId, runtime: r.runtime } : { success: false, error: r.error };
+  }));
+
   // 发现页：能力缺口、推荐反馈、画像修改
   ipcMain.handle('guardian:capabilityGaps', safe(async () => ({ success: true, gaps: await require('./capability-gaps').listOpen() })));
   ipcMain.handle('guardian:recoFeedback', safe((input) => {

@@ -76,12 +76,15 @@ test('unknown or non-whitelisted channels are refused', async () => {
   assert.equal(res.status, 404);
 });
 
-test('built-in assistants are managed through the bridge', async () => {
+test('no system agents are created; the guardian engine is reachable through the bridge', async () => {
   const res = await post('/api/bridge/invoke', { channel: 'resource:listResources', args: [{ type: 'assistant' }] });
   const body = await res.json();
   assert.equal(body.ok, true, body.error);
   const names = (body.result.resources || []).map((r) => r.name);
-  assert.ok(names.includes('resource-installer'));
+  for (const n of ['resource-installer', 'resource-finder', 'resource-portrait']) assert.ok(!names.includes(n), n);
+  const st = await (await post('/api/bridge/invoke', { channel: 'guardian:engineStatus', args: [] })).json();
+  assert.equal(st.ok, true, st.error);
+  assert.equal(typeof st.result.ready, 'boolean');
 });
 
 test('a prompt can be saved and listed through the bridge', async () => {
