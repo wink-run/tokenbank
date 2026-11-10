@@ -9,6 +9,24 @@ import { classifyProfileFailure } from '../../shared/contribute-autostart.mjs';
 const AuthContext = createContext(null);
 
 const POLL_INTERVAL = 30_000;
+// 上次成功的资料。冷启动用它进界面，不再等登录接口和贡献 WebSocket。
+const PROFILE_CACHE_KEY = 'tb.profile';
+
+function readCachedProfile() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PROFILE_CACHE_KEY) || 'null');
+    return raw && typeof raw === 'object' ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedProfile(data) {
+  try {
+    if (data) localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(data));
+    else localStorage.removeItem(PROFILE_CACHE_KEY);
+  } catch { /* 隐私模式写不了就当没有缓存 */ }
+}
 
 // 将登录 JWT 同步到网关主进程 / CLI admin-api（用量上报与设备心跳须 JWT，非 P2P Key）
 async function syncUserSession(jwt) {
@@ -147,6 +165,8 @@ export function AuthProvider({ children }) {
     const gen = sessionGenRef.current;
     profileReadyRef.current = true;
     setUser(r.data);
+    setGuest(false);
+    writeCachedProfile(r.data);
     startPolling();
     syncCloudKey();
     syncCloudConfigUrl();
@@ -154,7 +174,8 @@ export function AuthProvider({ children }) {
     syncUserSession(token);
     window.electronAPI?.tray?.setAuthState?.(true);
     if (gen !== sessionGenRef.current) return;
-    await syncAgentCredentials(r.data);
+    // 贡献 WebSocket 在后台连，不把资料回调卡住
+    syncAgentCredentials(r.data).catch(() => {});
   }
 
   async function handleProfileFailure(err, onAnonymous) {
@@ -166,6 +187,7 @@ export function AuthProvider({ children }) {
     profileReadyRef.current = false;
     sessionGenRef.current += 1;
     localStorage.removeItem('token');
+    writeCachedProfile(null);
     stopPolling();
     window.electronAPI?.tray?.setAuthState?.(false);
     await rejectContributionAuth();
@@ -200,33 +222,64 @@ export function AuthProvider({ children }) {
     }
   }
 
-  useEffect(() => {
-    // 桌面版无 token 时进游客。Docker / CLI Web 不开放游客，未登录只能停在登录页。
-    const enterGuestMode = () => {
+  // 桌面版无 token 时进游客。Docker / CLI Web 不开放游客，未登录只能停在登录页。
+  function onAnonymous() {
+    setUser(null);
+    if (isElectron()) {
       localStorage.setItem('guest', '1');
       setGuest(true);
       // 游客不得继续用上次登录残留的转发 Key 打社区 P2P
       clearP2pAuthForGuest();
-    };
-    const stayLoggedOut = () => {
+    } else {
       localStorage.removeItem('guest');
       setGuest(false);
-    };
-    const onAnonymous = () => (isElectron() ? enterGuestMode() : stayLoggedOut());
-      bootstrapServerUrl().then(async () => {
-      const token = localStorage.getItem('token');
-      // 启动即拉取应用目录（公开）；登录用户再全量同步 sources/scenes
-      await syncRemoteConfig();
-      if (!token) { onAnonymous(); setLoading(false); return; }
-      getProfile()
-        .then((r) => acceptProfile(r, token))
-        .catch((err) => handleProfileFailure(err, onAnonymous))
-        .finally(() => setLoading(false));
-    }).catch(() => {
-      // bootstrapServerUrl 失败（如 electronAPI 同步抛错）也必须解除 loading，
-      // 否则 App 会永远卡在「加载中…」spinner、登录框无法出现。
+    }
+  }
+
+  // 本机已保存的贡献凭证：马上连 WebSocket，不等这次登录校验。
+  function connectSavedContribution() {
+    getConfig().read().then((cfg) => {
+      const wk = cfg?.worker_key;
+      const url = cfg?.server_url || workerSocketUrl();
+      if (!wk || !url) return;
+      if (isElectron() && window.electronAPI?.contribute?.credentialsReady) {
+        window.electronAPI.contribute.credentialsReady({ workerKey: wk, serverUrl: url }).catch(() => {});
+      }
+    }).catch(() => {});
+  }
+
+  // 恢复登录态。资料接口和长连接并行，调用方不等它们结束。
+  function resumeCloudSession(token) {
+    if (!token) return;
+    syncUserSession(token);
+    connectSavedContribution();
+    getProfile()
+      .then((r) => acceptProfile(r, token))
+      .catch((err) => handleProfileFailure(err, onAnonymous));
+  }
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    const cached = token ? readCachedProfile() : null;
+    // 界面只看本机：有缓存就直接进，没有也不等登录接口或贡献 WebSocket。
+    if (cached) {
+      localStorage.removeItem('guest');
+      setGuest(false);
+      setUser(cached);
+      profileReadyRef.current = true;
+      startPolling();
+    } else if (!token) {
       onAnonymous();
-      setLoading(false);
+    } else if (isElectron()) {
+      // 有凭证但资料还没到：先以游客进本机功能，资料回来再换成登录态
+      setGuest(true);
+    }
+    setLoading(false);
+
+    // 登录校验、贡献长连接立刻开始，不排在地址回填或目录同步后面
+    resumeCloudSession(token);
+    bootstrapServerUrl().catch(() => {}).then(() => {
+      syncRemoteConfig().catch(() => {});
     });
     return () => stopPolling();
   }, []);
@@ -237,15 +290,22 @@ export function AuthProvider({ children }) {
     localStorage.setItem('token', token);
     profileReadyRef.current = true;
     setUser(userData);
+    writeCachedProfile(userData);
     window.electronAPI?.tray?.setAuthState?.(true);
     startPolling();
-    // 本进程若已手动停止或登出，主进程会拒绝自动拉起，不会抵消这次意图。
-    syncAgentCredentials(userData);
+    // 会话和贡献长连接都在后台。没有 worker_key 时等资料回来再连。
+    syncUserSession(token);
     syncCloudKey();
     syncCloudConfigUrl();
     syncRemoteConfig();
     syncUserBilling();
-    syncUserSession(token);
+    if (userData?.worker_key) syncAgentCredentials(userData).catch(() => {});
+    else {
+      // 登录接口没有 worker_key：后台拉资料再连，不用本机上一个账号的长连接
+      getProfile()
+        .then((r) => acceptProfile(r, token))
+        .catch((err) => handleProfileFailure(err, onAnonymous));
+    }
   }
 
   function enterGuest() {
@@ -260,6 +320,7 @@ export function AuthProvider({ children }) {
 
   function logout() {
     localStorage.removeItem('token');
+    writeCachedProfile(null);
     profileReadyRef.current = false;
     sessionGenRef.current += 1;
     setUser(null);

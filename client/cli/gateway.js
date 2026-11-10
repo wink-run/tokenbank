@@ -110,15 +110,9 @@ async function cmdStart(port, adminPort) {
   // Claude Desktop 透明 mask 名（与 Electron main.js 一致）
   try { gateway.setClaudeModels(configLoader.claudeModels()); } catch {}
 
-  // P2P：拉取云端在线模型（与 Electron fetchPeerModels 一致）
+  // 云端模型和设备注册都不参与监听。先把端口打开，避免登录或拉模型把进程卡住。
   const cc = lc.cloud_config || {};
   const serverUrl = cc.url || defaultServerUrlFromEnv() || null;
-  await refreshGatewayPeerModels(gateway, readLocalConfig, defaultServerUrlFromEnv, readAgentConfig);
-  if (_peerModelsTimer) clearInterval(_peerModelsTimer);
-  _peerModelsTimer = setInterval(
-    () => refreshGatewayPeerModels(gateway, readLocalConfig, defaultServerUrlFromEnv, readAgentConfig),
-    PEER_MODELS_POLL_MS,
-  );
 
   // Start HTTP gateway
   gateway.start(port, readAgentConfig, undefined, bindHost);
@@ -183,6 +177,16 @@ async function cmdStart(port, adminPort) {
   adminApi.start(adminPort, gateway, bindHost, { reporterGetStats });
   console.log(`[gateway] Admin API started on port ${adminPort}`);
 
+  // P2P 在线模型：后台拉，失败就保持空列表，不挡就绪
+  refreshGatewayPeerModels(gateway, readLocalConfig, defaultServerUrlFromEnv, readAgentConfig).catch((e) => {
+    console.warn('[gateway] fetchPeerModels failed:', e && e.message);
+  });
+  if (_peerModelsTimer) clearInterval(_peerModelsTimer);
+  _peerModelsTimer = setInterval(
+    () => refreshGatewayPeerModels(gateway, readLocalConfig, defaultServerUrlFromEnv, readAgentConfig),
+    PEER_MODELS_POLL_MS,
+  );
+
   // 内置看护（与桌面版共用 electron/guardian）：handler 经 ipc-bridge 注册，这里登记检查并挂网关失败事件
   try {
     require('./ipc-bridge').init();
@@ -197,20 +201,24 @@ async function cmdStart(port, adminPort) {
   });
   const userJwt = lc.user_session?.jwt || null;
   gateway.setUserAuth(userJwt);
-  await reporter.init({
+  // 注册和心跳走云端，失败不影响本机网关。贡献 WebSocket 同样延后，不在启动路径上等待握手。
+  reporter.init({
     type: 'cli',
     name: identity.name,
     platform: identity.platform,
     version: identity.version,
     serverUrl: serverUrl,
     userJwt,
+  }).then(() => {
+    if (userJwt) reporter.start(reporterGetStats);
+  }).catch((e) => {
+    console.warn('[device-reporter] init:', e && e.message);
   });
-  if (userJwt) reporter.start(reporterGetStats);
 
   console.log(`[gateway] Ready. Gateway :${port}  Admin :${adminPort}`);
   console.log('[gateway] Press Ctrl+C to stop.');
 
-  // 与桌面版一致：配置 auto_start 且已登录（有 worker_key）时自动启动贡献 Agent（延后，不阻塞 gateway 就绪）
+  // 与桌面版一致：配置 auto_start 且已有 worker_key 时再连贡献 WebSocket。连不上也不影响网关。
   const agentCfg = readAgentConfig();
   if (agentCfg?.auto_start && agentCfg?.worker_key) {
     setImmediate(() => agentControl.startAgent());
