@@ -221,7 +221,10 @@ function appendCoalescedStep(steps, stepData) {
     });
     if (normalizeLoose(merged) === normalizeLoose(last.content)
       && normalizeLoose(merged) === normalizeLoose(stepData.content)) {
-      return steps;
+      if (merged === last.content) return steps;
+      // 正文相同、只是多了换行：留下能排版的那份
+      const breaks = (s) => (String(s).match(/\n/g) || []).length;
+      if (breaks(merged) <= breaks(last.content)) return steps;
     }
     if (merged === last.content && merged === stepData.content) return steps;
     return [

@@ -769,4 +769,36 @@ const cursorAssist = parseAgentOutputLine(JSON.stringify({
 }), 'cursor');
 assert.ok(cursorAssist.some(s => s.stepType === 'output' && s.content.includes('curl')));
 
+// Pi --mode json：text_delta 随到随推，换行留在增量里
+{
+  const { summarizeAgentStdout, extractCliSessionId } = require('../agent-output-parser');
+  const state = {};
+  const events = [
+    { type: 'session', id: '11111111-2222-4333-8444-555555555555' },
+    { type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '我先检查了一遍。\n' } },
+    { type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '## 现状\n\n| 部分 | 状态 |\n' } },
+    { type: 'tool_execution_start', toolCallId: 'c1', toolName: 'bash', args: { command: 'ls' } },
+    { type: 'tool_execution_end', toolCallId: 'c1', toolName: 'bash', result: { content: [{ type: 'text', text: 'ok' }] }, isError: false },
+  ];
+  const steps = [];
+  for (const ev of events) steps.push(...parseAgentOutputLine(JSON.stringify(ev), 'pi', state));
+  const text = steps.filter(s => s.stepType === 'output').map(s => s.content).join('');
+  assert.ok(text.includes('\n## 现状\n'));
+  assert.ok(text.includes('| 部分 | 状态 |'));
+  assert.equal(steps.find(s => s.stepType === 'tool_call').tool_name, 'bash');
+  assert.equal(steps.find(s => s.stepType === 'tool_result').content, 'ok');
+  // 增量里若丢了换行，收尾快照用带换行的全文换上，Markdown 才能排
+  const end = parseAgentOutputLine(JSON.stringify({
+    type: 'message_update',
+    assistantMessageEvent: { type: 'text_end', contentIndex: 0, content: '## 仓库结构\n\n| 目录 | 内容 |' },
+  }), 'pi', state);
+  assert.equal(end[0].is_snapshot, true);
+  assert.ok(end[0].content.includes('\n\n| 目录 |'));
+  const err = parseAgentOutputLine('model error', 'pi', state, { stream: 'stderr' });
+  assert.ok(!err.some(s => String(s.content).includes('## 现状')));
+  const raw = events.map(e => JSON.stringify(e)).join('\n') + '\n';
+  assert.equal(summarizeAgentStdout(raw, 'pi'), text.trim());
+  assert.equal(extractCliSessionId(raw, 'pi'), '11111111-2222-4333-8444-555555555555');
+}
+
 console.log('agent-output-parser.test.js OK');

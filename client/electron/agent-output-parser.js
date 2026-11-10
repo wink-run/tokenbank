@@ -1241,11 +1241,137 @@ function parseKimiJsonLine(obj, streamState) {
   return steps;
 }
 
+function isPiPrintAgent(agentId) {
+  const aid = String(agentId || '');
+  return aid === 'pi' || aid === 'app:pi';
+}
+
+/** 从 Pi 事件里的 content / result 取出可读文本 */
+function piEventText(content) {
+  if (content == null) return '';
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.map((b) => {
+      if (typeof b === 'string') return b;
+      if (b?.type === 'text' || b?.type === 'thinking') return b.text || b.thinking || '';
+      return b?.text || '';
+    }).join('');
+  }
+  if (typeof content === 'object') {
+    if (typeof content.text === 'string') return content.text;
+    if (Array.isArray(content.content)) return piEventText(content.content);
+  }
+  return '';
+}
+
+/**
+ * Pi `--mode json`：一行一个事件。text_delta 按增量推。
+ * text_end / message_end 用带换行的全文做快照，否则纯换行增量被丢掉后标题和表格粘成一行。
+ */
+function parsePiJsonLine(obj, streamState) {
+  if (!obj || typeof obj !== 'object') return [];
+  const state = ensureStreamState(streamState);
+
+  if (obj.type === 'message_end' && obj.message?.role === 'assistant') {
+    const blocks = Array.isArray(obj.message.content) ? obj.message.content : [];
+    const text = blocks.filter((b) => b?.type === 'text' && b.text).map((b) => b.text).join('\n');
+    if (!text.trim()) return [];
+    return [{ stepType: 'output', content: text, is_snapshot: true }];
+  }
+
+  if (obj.type === 'message_update') {
+    const ev = obj.assistantMessageEvent || {};
+    const kind = ev.type;
+    const isThink = kind === 'thinking_delta' || kind === 'thinking_end';
+    const isText = kind === 'text_delta' || kind === 'text_end';
+    if (!isThink && !isText) return [];
+
+    const idx = ev.contentIndex ?? 0;
+    const key = `${isThink ? 't' : 'o'}:${idx}`;
+    if (state && !state.piBlocks) state.piBlocks = new Map();
+    const prev = state?.piBlocks?.get(key) || '';
+
+    if (kind.endsWith('_delta')) {
+      const next = prev + String(ev.delta || '');
+      if (state?.piBlocks) state.piBlocks.set(key, next);
+      const delta = next.slice(prev.length);
+      if (!delta) return [];
+      return [{
+        stepType: isThink ? 'thinking' : 'output',
+        content: delta,
+        is_delta: true,
+      }];
+    }
+
+    const full = piEventText(ev.content);
+    if (!full.trim()) return [];
+    if (state?.piBlocks) state.piBlocks.set(key, full);
+    if (full === prev) return [];
+    return [{
+      stepType: isThink ? 'thinking' : 'output',
+      content: full,
+      is_snapshot: true,
+    }];
+  }
+
+  if (obj.type === 'tool_execution_start') {
+    const args = obj.args;
+    const inputStr = typeof args === 'string' ? args : JSON.stringify(args || {}, null, 2);
+    return [{
+      stepType: 'tool_call',
+      tool_name: obj.toolName || 'tool',
+      content: inputStr || '(无参数)',
+      tool_use_id: obj.toolCallId || null,
+    }];
+  }
+
+  if (obj.type === 'tool_execution_end') {
+    const text = piEventText(obj.result).trim() || (obj.isError ? '(失败)' : '(无输出)');
+    return [{
+      stepType: 'tool_result',
+      tool_name: obj.toolName || 'tool',
+      content: text,
+      is_error: !!obj.isError,
+      tool_use_id: obj.toolCallId || null,
+    }];
+  }
+
+  return [];
+}
+
+/**
+ * Pi `--print --mode text` 把最终正文按行写到 stdout。
+ * 这里累积成一份快照（含空行），避免逐行拼接时丢掉换行，标题 / 表格 / 列表才能排版。
+ */
+function parsePiPrintLine(line, streamState) {
+  const state = ensureStreamState(streamState);
+  // 无跨行状态（摘要逐行调用）时只交还本行
+  if (!state) {
+    const text = String(line || '').trim();
+    return text ? [{ stepType: 'output', content: text, is_snapshot: true }] : [];
+  }
+  if (!Array.isArray(state.piLines)) state.piLines = [];
+  state.piLines.push(line);
+  const text = state.piLines.join('\n').replace(/^\n+/, '').replace(/\n+$/, '');
+  if (!text.trim()) return [];
+  return [{ stepType: 'output', content: text, is_snapshot: true }];
+}
+
 /**
  * 解析单行 CLI 输出 → 0..n 个步骤 { stepType, content, tool_name? }
+ * opts.stream = 'stderr' 时 Pi 不把日志行并进正文。
  */
-function parseAgentOutputLine(rawLine, agentId, streamState) {
+function parseAgentOutputLine(rawLine, agentId, streamState, opts) {
   const line = stripAnsi(rawLine).trimEnd();
+  if (isPiPrintAgent(agentId) && opts?.stream !== 'stderr') {
+    const trimmed = line.trim();
+    if (!trimmed) return [];
+    // json 模式：一行一个事件，增量里保留换行
+    if (trimmed.startsWith('{')) {
+      try { return parsePiJsonLine(JSON.parse(trimmed), streamState); } catch { return []; }
+    }
+    return parsePiPrintLine(line, streamState);
+  }
   if (isNoise(line)) return [];
 
   if (line.startsWith('{')) {
@@ -1462,6 +1588,9 @@ function extractCliSessionId(rawStdout, agentId = 'claude-code') {
         }
         continue;
       }
+      if ((agentId === 'pi' || agentId === 'app:pi') && obj.type === 'session' && obj.id) {
+        return normalizeCliSessionId(obj.id);
+      }
       if (agentId === 'codex' && obj.type === 'thread.started') {
         return normalizeCliSessionId(obj.thread_id || obj.threadId);
       }
@@ -1549,6 +1678,29 @@ function detectAgentExecutionFailure(rawStdout) {
  * 将原始 stdout 解析为步骤后，拼成可读摘要（供 MCP / 任务结果展示）
  */
 function summarizeAgentStdout(rawStdout, agentId = 'claude-code') {
+  // Pi json 流：拼 text_delta；没有事件时再当纯文本
+  if (isPiPrintAgent(agentId)) {
+    const raw = stripAnsi(String(rawStdout || ''));
+    let text = '';
+    let sawJson = false;
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('{')) continue;
+      try {
+        const obj = JSON.parse(trimmed);
+        sawJson = true;
+        const ev = obj.assistantMessageEvent;
+        if (obj.type === 'message_update' && ev?.type === 'text_delta' && ev.delta) text += ev.delta;
+        else if (obj.type === 'message_update' && ev?.type === 'text_end') {
+          const full = piEventText(ev.content);
+          if (full && !text.endsWith(full) && full.startsWith(text)) text = full;
+        }
+      } catch { /* 半行忽略 */ }
+    }
+    if (text.trim()) return text.trim();
+    if (sawJson) return '(无输出)';
+    return raw.replace(/\s+$/, '').trim() || '(无输出)';
+  }
   if (agentId === 'claude-code') {
     const sync = parseClaudeSyncStdout(rawStdout);
     const outputs = sync.steps

@@ -1893,7 +1893,7 @@ export default {
   'portrait.useLocal': 'Use locally',
 
   'resources.title': 'Assets',
-  'resources.subtitle': 'Bring prompts, skills, assistants and MCP tools under one roof, then project them into Claude Code, Codex and other apps in one click',
+  'resources.subtitle': 'One set of prompts, skills, assistants and MCP tools, ready in Claude Code, Codex and other apps',
   'resources.invokeHint': 'Summon the "{name}" agent from Token Bank to complete this task',
   'resources.enabledWithInvoke': '✅ Enabled "{name}" and projected. Invoke copied: {invoke}',
   'resources.enabledNeedProject': '✅ "{name}" saved. Project to an app to invoke. Hint: {invoke}',

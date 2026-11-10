@@ -65,6 +65,18 @@ const AGENT_RESOURCE_TARGETS = {
     label: 'WorkBuddy',
     getSkillRoot: () => path.join(os.homedir(), '.workbuddy', 'skills'),
   },
+  pi: {
+    id: 'pi',
+    label: 'Pi',
+    // 与 MCP 写盘同一 agent 目录：<agent-dir>/skills
+    getSkillRoot: () => {
+      try {
+        const dir = require('./pi-config').defaultAgentDir();
+        if (dir) return path.join(dir, 'skills');
+      } catch { /* 回退默认目录 */ }
+      return path.join(os.homedir(), '.pi', 'agent', 'skills');
+    },
+  },
 };
 
 /** 从应用目录读取勾选了 resource_project（可作为游乐场/贡献 runtime）的实体 id */
@@ -243,6 +255,16 @@ function _probeAgentInstalled(id) {
   if (id === 'deepseek-harness') {
     if (shimInstaller?.resolveRealCommand?.('dsh')) return true;
     if (isDshPresent()) return true;
+  }
+
+  // Pi：PATH 上的 `pi`，或 agent 目录里已有 settings / auth / sessions。
+  // 不把本程序写入的 mcp.json / models.json 当成安装证据。
+  if (id === 'pi') {
+    if (shimInstaller?.resolveRealCommand?.('pi')) return true;
+    try {
+      const piCfg = require('./pi-config');
+      if (piCfg.piAgentReady(piCfg.defaultAgentDir())) return true;
+    } catch { /* ignore */ }
   }
 
   // 注意：不再用「Skill 根目录非空」反推安装 —— TB 投射会往该目录写内容，

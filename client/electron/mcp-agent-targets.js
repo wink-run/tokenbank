@@ -109,6 +109,20 @@ const AGENT_MCP_TARGETS = {
     format: 'json-mcp',
     sync: true,
   },
+  pi: {
+    id: 'pi',
+    label: 'Pi',
+    // 用户级 MCP：~/.pi/agent/mcp.json（PI_CODING_AGENT_DIR 优先），格式与 Claude / Cursor 相同
+    getPaths: () => {
+      try {
+        const dir = require('./pi-config').defaultAgentDir();
+        if (dir) return [path.join(dir, 'mcp.json')];
+      } catch { /* 回退默认目录 */ }
+      return [path.join(os.homedir(), '.pi', 'agent', 'mcp.json')];
+    },
+    format: 'json-mcp',
+    sync: true,
+  },
   'deepseek-harness': {
     id: 'deepseek-harness',
     label: 'DeepSeek Harness',
