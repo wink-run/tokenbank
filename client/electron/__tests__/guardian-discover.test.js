@@ -129,3 +129,31 @@ test('a dispatched task that also shows up in the agent session counts once', ()
   ] }) });
   assert.equal(out.length, before + 1);
 });
+
+test('discover is a guardian category: records with undo, switch turns learning off', async () => {
+  learn.register();
+  learn.recoFeedback({ action: 'dismiss', key: 'z1', name: 'Z 工具', type: 'assistant', category: 'misc' });
+  const rec = guardian.listRecords().find(r => r.kind === 'reco-dismissed' && r.meta.key === 'z1');
+  assert.equal(rec.category, 'discover');
+  assert.match(rec.title, /不再推荐「Z 工具」/);
+  assert.ok(learn.recoState({ type: 'assistant' }).hidden.includes('z1'));
+  assert.equal((await guardian.undo(rec.id)).ok, true);
+  assert.ok(!learn.recoState({ type: 'assistant' }).hidden.includes('z1'), 'undo forgets the dismissal');
+
+  learn.portraitFeedback({ action: 'remove', field: 'extensions', text: '摄影' });
+  const pr = guardian.listRecords().find(r => r.kind === 'portrait-learned' && /摄影/.test(r.title));
+  assert.match(learn.portraitConstraints().join('\n'), /摄影/);
+  assert.equal((await guardian.undo(pr.id)).ok, true);
+  assert.doesNotMatch(learn.portraitConstraints().join('\n'), /摄影/);
+
+  // 关掉「发现与画像」：不提醒缺口、不藏、不带约束、不再记
+  guardian.setSettings({ modes: { discover: 'off' } });
+  assert.deepEqual(await gaps.listOpen(), []);
+  assert.equal((await gaps.check()).skipped, true);
+  assert.deepEqual(learn.recoState({ type: 'skill' }).hidden, []);
+  assert.deepEqual(learn.portraitConstraints(), []);
+  assert.equal(learn.recoFeedback({ action: 'dismiss', key: 'z2', type: 'skill' }).skipped, true);
+  guardian.setSettings({ modes: { discover: 'auto' } });
+  assert.ok(!learn.recoState({ type: 'skill' }).hidden.includes('z2'), 'nothing was learned while off');
+  assert.ok(learn.recoState({ type: 'skill' }).hidden.includes('b'), 'earlier learning comes back when switched on');
+});

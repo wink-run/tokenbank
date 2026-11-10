@@ -94,7 +94,7 @@ function findGaps({ requests, owned, catalog }) {
 const typeLabel = { skill: '技能', prompt: '提示词', assistant: '智能体' };
 
 async function check() {
-  if (guardian.modeOf('assets') === 'off') return { ok: true, skipped: true };
+  if (guardian.modeOf('discover') === 'off') return { ok: true, skipped: true };
   const m = rm();
   const owned = m.listResources({}).filter(r => ['skill', 'prompt', 'assistant'].includes(r.type));
   let catalog = [];
@@ -107,7 +107,7 @@ async function check() {
     open.add(sig);
     const name = g.offer ? (g.offer.display_name || g.offer.name) : '';
     guardian.record({
-      category: 'assets', kind: 'capability-gap', status: 'suggested', countAsRepeat: false, quietDays: QUIET_DAYS,
+      category: 'discover', kind: 'capability-gap', status: 'suggested', countAsRepeat: false, quietDays: QUIET_DAYS,
       title: `最近 ${WINDOW_DAYS} 天有 ${g.times} 次在「${g.topic.label}」，还没有对应的技能`,
       advice: g.offer
         ? `社区里免费的${typeLabel[g.offer.type] || ''}「${name}」对得上，装上后应用遇到这类事会自动用它。`
@@ -130,6 +130,7 @@ async function check() {
 
 /** 发现页用：太久没算就先算一次，再返回还开着的缺口建议 */
 async function listOpen() {
+  if (guardian.modeOf('discover') === 'off') return [];
   const st = store.readJson('gaps-state.json', {});
   if (!st.at || Date.now() - st.at > STALE_MS) { try { await check(); } catch { /* ignore */ } }
   return guardian.listRecords({ limit: 300 }).filter(r => r.kind === 'capability-gap' && r.status === 'suggested');
@@ -153,7 +154,7 @@ async function installCatalogItem({ catalogId }) {
     if (item && (item.display_name || item.name)) shown = item.display_name || item.name;
   } catch { /* 用资产名 */ }
   guardian.record({
-    category: 'assets', kind: 'gap-filled', status: 'done',
+    category: 'discover', kind: 'gap-filled', status: 'done',
     title: `已装上「${shown}」补上能力缺口`,
     undo: { type: 'removeInstalled', data: { ids: [id] } },
     meta: { resourceId: id, catalogId },

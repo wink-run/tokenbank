@@ -2426,6 +2426,8 @@ export default {
   "guardian.cat.setup.hint": "Remind when installed apps are not managed or no model source is set up",
   "guardian.cat.community": "Sharing & devices",
   "guardian.cat.community.hint": "Suggests skills worth sharing, strips private info before sharing, flags differences between your devices; publishing always needs your click",
+  "guardian.cat.discover": "Discover & profile",
+  "guardian.cat.discover.hint": "Flags things you do often without a skill; remembers dismissed recommendations and your profile edits",
   "guardian.assetsDone": "Checked {skills} skills: {quality} need work, {risky} risky, {dups} duplicate pairs, {updates} updates",
   "guardian.status.resolved": "Resolved",
   "guardian.go": "Open",

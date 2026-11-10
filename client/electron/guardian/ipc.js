@@ -82,6 +82,7 @@ function startGuardian({ gateway, initialDelayMs } = {}) {
   try { require('./setup-check').register(); } catch (e) { console.warn('[guardian] setup-check:', e.message); }
   try { require('./share-suggest').register(); } catch (e) { console.warn('[guardian] share-suggest:', e.message); }
   try { require('./device-sync').register(); } catch (e) { console.warn('[guardian] device-sync:', e.message); }
+  try { require('./discover-learn').register(); } catch (e) { console.warn('[guardian] discover-learn:', e.message); }
   try { require('./capability-gaps').register(); } catch (e) { console.warn('[guardian] capability-gaps:', e.message); }
   try { require('./introspect').register(); } catch (e) { console.warn('[guardian] introspect:', e.message); }
   try { require('./task-watch').attach(); } catch (e) { console.warn('[guardian] task-watch:', e.message); }

@@ -2433,6 +2433,8 @@ export default {
   "guardian.cat.setup.hint": "装了应用还没纳管、还没有可用的模型来源时提醒",
   "guardian.cat.community": "分享与多设备",
   "guardian.cat.community.hint": "推荐值得分享的技能、分享前去掉私人信息、提醒设备之间的资产差异；发布永远要你点",
+  "guardian.cat.discover": "发现与画像",
+  "guardian.cat.discover.hint": "提醒常做却没有技能的事；记住你不感兴趣的推荐和对画像的修改，下次照着来",
   "guardian.assetsDone": "体检 {skills} 个技能：{quality} 个需完善、{risky} 个有风险、{dups} 组重复、{updates} 个有新版本",
   "guardian.status.resolved": "已解决",
   "guardian.go": "去处理",
