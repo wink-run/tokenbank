@@ -205,7 +205,11 @@ export default function AgentTabBar({
   return (
     /* 侧栏：偏重材料，与主内容玻璃顶栏分层，避免轻材质叠轻材质 */
     <div className={shellCls} style={{ width }}>
-    <aside className="w-full border-r border-white/40 dark:border-white/[0.06] bg-white/25 dark:bg-zinc-950/40 backdrop-blur-xl flex flex-col min-h-0 min-w-0">
+    <aside className={`w-full flex flex-col min-h-0 min-w-0 ${
+      narrow
+        ? 'overflow-visible bg-white/90 dark:bg-zinc-950/95'
+        : 'border-r border-white/40 dark:border-white/[0.06] bg-white/25 dark:bg-zinc-950/40 backdrop-blur-xl'
+    }`}>
       {narrow ? (
         <button
           type="button"
@@ -229,7 +233,12 @@ export default function AgentTabBar({
         </div>
       )}
 
-      {!hideList && <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 tb-scroll-layer">
+      {!hideList && (
+      /* 窄屏：列表脱离文档流，盖住对话；不透明底，避免气泡从缝里透出来 */
+      <div className={narrow
+        ? 'absolute left-0 right-0 top-full z-20 max-h-[min(22rem,calc(100dvh-14rem))] overflow-y-auto overscroll-contain px-2 py-2 space-y-0.5 rounded-b-2xl border border-zinc-200/90 bg-white shadow-[0_16px_40px_rgb(15_23_42/0.14)] dark:border-zinc-700 dark:bg-zinc-950'
+        : 'flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 tb-scroll-layer'
+      }>
         {/* Hub：选中与列表项同一玻璃高亮，避免实心蓝跳出体系 */}
         <button
           type="button"
@@ -382,10 +391,16 @@ export default function AgentTabBar({
             </div>
           );
         })}
-      </div>}
+        {narrow && mainAgent && selectedAgent && (
+          <p className="px-2.5 pt-2 pb-1 text-[10px] text-zinc-500 dark:text-zinc-400 leading-snug">
+            {t('debug.tabs.mainFooter', { name: mainAgent.name })}
+          </p>
+        )}
+      </div>
+      )}
 
-      {/* 底栏：结构区轻提示，无抢戏 */}
-      {!hideList && mainAgent && selectedAgent && (
+      {/* 底栏：结构区轻提示，无抢戏。窄屏已放进浮层 */}
+      {!narrow && !hideList && mainAgent && selectedAgent && (
         <div className="shrink-0 px-3 py-2.5 border-t border-zinc-200/90 dark:border-zinc-800 text-[10px] text-zinc-500 dark:text-zinc-400 leading-snug">
           {t('debug.tabs.mainFooter', { name: mainAgent.name })}
         </div>

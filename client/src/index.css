@@ -1495,10 +1495,11 @@ html.tb-electron .tb-scroll-layer {
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
   }
+  /* 展开时整块抬到对话之上。列表是浮层，不能被后面的气泡盖住。 */
   html.tb-web .tb-agent-tabs {
     width: 100% !important;
-    max-height: 11.5rem;
-    flex-shrink: 1;
+    flex-shrink: 0;
+    z-index: 30;
   }
   html.tb-web .tb-agent-tabs aside {
     border-right-width: 0;
@@ -1507,10 +1508,11 @@ html.tb-electron .tb-scroll-layer {
   html.tb-web .tb-agent-tabs [role="separator"] {
     display: none;
   }
-  /* 收起后只留一行标题，把高度还给对话 */
+  /* 收起后只留一行标题，不再压住对话 */
   html.tb-web .tb-agent-tabs--collapsed {
     max-height: none;
     flex-shrink: 0;
+    z-index: auto;
   }
 }
 
