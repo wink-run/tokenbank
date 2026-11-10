@@ -929,8 +929,16 @@ export default function Debug() {
   useEffect(() => {
     const p = location.state?.prompt;
     if (typeof p === 'string' && p.trim()) {
+      // 看护那边「有疑问？」点过来的：切到看护的执行应用，和它对话
+      const wantId = location.state?.agentId;
+      let target = selectedAgentRef.current;
+      if (wantId && wantId !== target?.id) {
+        const hit = (agentsRef.current || []).find(a => a.id === wantId);
+        if (hit) { switchAgent(hit); target = hit; }
+        else { setStoreSelectedAgentId(wantId); target = { id: wantId }; }   // 列表还没加载：加载后按这个选中
+      }
       // 进页时会从会话草稿恢复输入框，所以草稿里也写一份，再在恢复之后补一次
-      try { patchStoreSession(agentSessionKey(selectedAgentRef.current), { agentPrompt: p }); } catch { /* ignore */ }
+      try { patchStoreSession(agentSessionKey(target), { agentPrompt: p }); } catch { /* ignore */ }
       setMode('agent');   // 做事的请求交给智能体
       setAgentPrompt(p);
       setTimeout(() => setAgentPrompt(p), 300);

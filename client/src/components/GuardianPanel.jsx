@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { askGuardian, recordQuestion } from '../lib/askGuardian';
 import { useLang } from '../store/lang';
 
 const CATS = ['projection', 'gateway', 'install', 'assets', 'discover', 'setup', 'community'];
@@ -428,6 +429,12 @@ export default function GuardianPanel({ page = false }) {
                   ? 'text-[11px] px-2 py-0.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800'
                   : 'text-[11px] px-2 py-0.5 rounded-md border border-blue-200 dark:border-blue-900/60 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40'}>
                 {r.link.label || t('guardian.go')} →
+              </button>
+            )}
+            {open && (
+              <button type="button" onClick={() => askGuardian(navigate, recordQuestion(r, lang))}
+                className="text-[11px] px-2 py-0.5 rounded-md text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800">
+                {t('guardian.ask')}
               </button>
             )}
             {open && (

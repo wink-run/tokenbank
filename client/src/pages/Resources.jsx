@@ -3500,7 +3500,7 @@ export default function Resources() {
                 {busy === li.resourceId ? t('resources.busy') : t('resources.project')}
               </button>
             )}
-            {li.resourceId && <DiagnosePanel resourceId={li.resourceId} onChanged={() => loadAll({ silent: true })} />}
+            {li.resourceId && <DiagnosePanel resourceId={li.resourceId} resourceName={li.name} onChanged={() => loadAll({ silent: true })} />}
           </div>
         </InspectorSection>
         {li.type === 'assistant' && (() => {
