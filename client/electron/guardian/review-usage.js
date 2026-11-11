@@ -160,4 +160,4 @@ async function check() {
   return { ok: true, calls: r.stats.calls, fails: r.stats.fails, items: r.items.length };
 }
 
-module.exports = { register, check, reviewRoutes, demote, isDemoted, _internal: { routeStats } };
+module.exports = { register, check, reviewRoutes, demote, isDemoted, _internal: { routeStats, providerName } };

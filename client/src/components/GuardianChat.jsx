@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useLang } from '../store/lang';
+import RichText from './RichText';
 
 function Spark({ className }) {
   return (
@@ -115,11 +116,11 @@ export default function GuardianChat() {
             <span className="shrink-0 mt-0.5 w-7 h-7 rounded-full bg-white dark:bg-zinc-800 flex items-center justify-center text-amber-600 dark:text-amber-400">
               <Spark className="w-3.5 h-3.5" />
             </span>
-            <div className="min-w-0 space-y-2">
+            <div className="min-w-0 flex-1 space-y-2">
               {m.pending ? (
                 <p className="text-[15px] leading-relaxed text-zinc-400">{t('guardian.chat.thinking')}</p>
               ) : (
-                <p className="text-[15px] leading-[1.75] text-zinc-900 dark:text-zinc-100 whitespace-pre-wrap">{m.text}</p>
+                <RichText text={m.text} />
               )}
               {m === last && !m.answered && (m.replies || []).length > 0 && (
                 <div className="flex flex-wrap gap-2 pt-0.5">

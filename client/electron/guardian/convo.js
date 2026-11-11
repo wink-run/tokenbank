@@ -88,10 +88,6 @@ function unread() {
   return all().filter(m => m.from === 'guardian' && !m.read).length;
 }
 
-function join(items) {
-  return items.length <= 1 ? (items[0] || '') : `${items.slice(0, -1).join('；')}；${items[items.length - 1]}`;
-}
-
 /** 用户打开对话时：把上次之后静默处理好的事合成一段话（没有就不说） */
 function brief() {
   const st = state();
@@ -104,10 +100,10 @@ function brief() {
   if (!done.length) return null;
   const parts = [];
   if (done.length) {
-    const shown = done.slice(0, 5).map(r => r.title);
+    const shown = done.slice(0, 6).map(r => r.title);
     parts.push(done.length === 1
       ? `有一件事我处理好了，你不用管：${shown[0]}。`
-      : `有 ${done.length} 件事我处理好了，你不用管：${join(shown)}${done.length > 5 ? ' 等' : ''}。`);
+      : `有 ${done.length} 件事我处理好了，你不用管：\n${shown.map(x => `- ${x}`).join('\n')}${done.length > 6 ? `\n- 还有 ${done.length - 6} 件小事` : ''}`);
     if (done.some(r => r.undo)) parts.push('哪件不合适，告诉我撤掉哪件就行。');
   }
   return add({ from: 'guardian', text: parts.join('\n'), read: true, brief: true });
@@ -157,7 +153,11 @@ function awaiting() {
 async function runReply(msg, reply) {
   patch(msg.id, { answered: reply.label });
   add({ from: 'user', text: reply.label });
-  if (reply.say) return askModel(reply.say);
+  if (reply.say) {
+    const known = answerFromData(norm(reply.say));
+    if (known) { add({ from: 'guardian', read: true, text: known }); return { ok: true }; }
+    return askModel(reply.say);
+  }
   if (reply.mute) {
     const st = state();
     setState({ muted: [...new Set([...(st.muted || []), reply.mute])] });
@@ -271,7 +271,56 @@ async function say(text) {
   if (/^(换|更换)(一个)?(执行)?应用$|^换个应用$/.test(norm(t))) { chooseRuntime(); return { ok: true }; }
   if (/^(暂停|停用|关闭)看护$/.test(norm(t))) { guardian().setSettings({ enabled: false }); add({ from: 'guardian', read: true, text: '好，我先停下。想让我继续时说「恢复看护」。' }); return { ok: true }; }
   if (/^(恢复|开启|打开)看护$/.test(norm(t))) { guardian().setSettings({ enabled: true }); add({ from: 'guardian', read: true, text: '好，我回来了。' }); return { ok: true }; }
+  const known = answerFromData(norm(t));
+  if (known) { add({ from: 'guardian', read: true, text: known }); return { ok: true }; }
   return askModel(t);
+}
+
+function fmtWhen(ts) {
+  const d = new Date(ts);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** 手头数据就能回答的问题：直接用表格 / 列表 / 图表回答，不用模型（没登录执行应用时也能答） */
+function answerFromData(q) {
+  const g = guardian();
+  if (/(最近|这周|这几天|今天).{0,4}(做|干|处理)了?(什么|啥|哪些)/.test(q) || /^(处理)?(日志|记录)$/.test(q)) {
+    const recs = g.listRecords({ limit: 300 }).filter(r => ['done', 'undone', 'failed'].includes(r.status)).slice(0, 12);
+    if (!recs.length) return '最近没有需要我动手的事，一切正常。';
+    const state = (r) => (r.status === 'undone' ? '已撤销' : r.status === 'failed' ? '没办成' : (r.undo ? '可撤销' : '已完成'));
+    const rows = recs.map(r => `| ${fmtWhen(r.appliedAt || r.at)} | ${String(r.title).replace(/\|/g, '/')} | ${state(r)} |`);
+    return `最近处理过 ${recs.length} 件事：\n\n| 时间 | 做了什么 | 状态 |\n| --- | --- | --- |\n${rows.join('\n')}\n\n想撤掉哪件，直接告诉我。`;
+  }
+  if (/(有|定过|记了|学了)?(哪些|什么|啥)(规则|规矩)/.test(q) || /^(规则|规矩)$/.test(q)) {
+    let rules = [];
+    try { rules = require('./judgment').list(); } catch { /* ignore */ }
+    if (!rules.length) return '你还没有给我定过规矩。遇到我处理得不对的，直接告诉我以后该怎么做。';
+    return `现在记着 ${rules.length} 条：\n${rules.map(r => `- ${r.text}（${r.reason}；用过 ${r.hits || 0} 次）`).join('\n')}\n\n哪条不合适了，告诉我改成什么。`;
+  }
+  if (/(请求|来源|路由|模型).{0,6}(情况|统计|怎么样|稳不稳|失败)/.test(q)) {
+    let rows = [];
+    try { rows = require('./review-usage')._internal.routeStats(Math.floor(Date.now() / 1000) - 7 * 86400); } catch { /* ignore */ }
+    if (!rows.length) return '最近 7 天网关没有请求记录。';
+    const by = new Map();
+    for (const r of rows) {
+      const k = r.provider;
+      let label = k;
+      try { label = require('./review-usage')._internal.providerName(k) || k; } catch { /* 用 id */ }
+      const cur = by.get(k) || { name: label, ok: 0, fail: 0 };
+      cur.ok += r.calls - r.fails;
+      cur.fail += r.fails;
+      by.set(k, cur);
+    }
+    const data = [...by.values()].sort((a, b) => (b.ok + b.fail) - (a.ok + a.fail)).slice(0, 8);
+    const total = data.reduce((n, d) => n + d.ok + d.fail, 0);
+    const fails = data.reduce((n, d) => n + d.fail, 0);
+    const worst = [...data].filter(d => d.ok + d.fail >= 5).sort((a, b) => b.fail / (b.ok + b.fail) - a.fail / (a.ok + a.fail))[0];
+    const lead = `最近 7 天网关处理了 ${total} 次请求，失败 ${fails} 次。${worst && worst.fail ? `失败最多的是「${worst.name}」（${worst.fail}/${worst.ok + worst.fail}）。` : '各来源都比较稳。'}`;
+    const spec = { type: 'bar', title: '最近 7 天各来源的请求', series: ['ok', 'fail'], labels: { ok: '成功', fail: '失败' }, data };
+    return `${lead}\n\n\`\`\`chart\n${JSON.stringify(spec)}\n\`\`\``;
+  }
+  return null;
 }
 
 function list({ limit = 80 } = {}) {

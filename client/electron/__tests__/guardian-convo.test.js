@@ -207,3 +207,22 @@ test('there are no timers: registering a check does not schedule anything, and t
   await convo.say('恢复看护');
   assert.equal(guardian.getSettings().enabled, true);
 });
+
+test('questions the data can answer come back as a table, a list or a chart, without a model', async () => {
+  await convo.say('你最近做了什么');
+  let t = lastMsg().text;
+  assert.match(t, /\| 时间 \| 做了什么 \| 状态 \|\n\| --- \| --- \| --- \|/);
+  assert.match(t, /已撤销|可撤销|已完成/);
+  await convo.say('我定过哪些规矩');
+  assert.match(lastMsg().text, /还没有给我定过规矩|现在记着 \d+ 条：\n- /);
+  const now = Math.floor(Date.now() / 1000);
+  for (let i = 0; i < 6; i++) {
+    localStats.record({ model: 'm1', provider_id: i < 4 ? 'good-src' : 'dead-src', tier: 'free', ts: now - 60 - i, data_source: 'proxy', status_code: i < 4 ? 200 : 500, error: i < 4 ? null : 'x', request_id: `c-${i}-${Math.random()}` });
+  }
+  await convo.say('最近请求情况怎么样');
+  t = lastMsg().text;
+  assert.match(t, /最近 7 天网关处理了 6 次请求，失败 2 次/);
+  const spec = JSON.parse(t.match(/```chart\n([\s\S]*?)\n```/)[1]);
+  assert.equal(spec.type, 'bar');
+  assert.deepEqual(spec.data.find(d => d.name === 'dead-src'), { name: 'dead-src', ok: 0, fail: 2 });
+});
