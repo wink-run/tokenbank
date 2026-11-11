@@ -25,7 +25,6 @@ import { normalizeNetworkPayload, workerInfo, workersForModel } from '../lib/net
 import { buildInvokeText, buildMcpInvokeText } from '../lib/resource-enable';
 import { speedDotClass, statusDotBucket } from '../lib/speed';
 import AppAgentsUnder from '../components/AppAgentsUnder';
-import GatewayApiSection from '../components/GatewayApiSection';
 import { askGuardian } from '../lib/askGuardian';
 
 // tier:id 作为下拉唯一 value，避免同模型跨层选中错位
@@ -3030,6 +3029,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
   const [rentIds, setRentIds] = useState(() => new Set());    // 出租中的智能体资产 id
   const [pending, setPending] = useState(() => readPending()); // 应用 id → { at, shell }
   const [rowMenu, setRowMenu] = useState(null);       // { id, top, right }：「⋯」菜单
+  const [apiApp, setApiApp] = useState(null);         // 点了应用旁「接口」：弹出这个应用的接口说明
   const [loading,  setLoading]  = useState(true);   // 首次加载中（应用检测较慢）→ 显示加载特效而非空状态
   const [toolboxOpen, setToolboxOpen] = useState(false);       // 应用百宝箱展开态
   const [toolboxBusy, setToolboxBusy] = useState(false);       // 展开前从云端拉取目录
@@ -3865,17 +3865,31 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                       })()}
                       {isChild ? (
                         <div className="min-w-0 pl-4 border-l border-zinc-200 dark:border-zinc-800" title={app.name + (app.instance?.dir_glob ? '  ·  ' + app.instance.dir_glob : '')}>
-                          <div className={`text-xs font-medium tracking-tight text-zinc-800 dark:text-zinc-100 truncate ${isActive ? '' : 'opacity-50'}`}>
-                            {String(app.name || '').split(' · ').slice(1).join(' · ') || app.name}
+                          <div className={`text-xs font-medium tracking-tight text-zinc-800 dark:text-zinc-100 truncate flex items-center gap-1.5 ${isActive ? '' : 'opacity-50'}`}>
+                            <span className="truncate">{String(app.name || '').split(' · ').slice(1).join(' · ') || app.name}</span>
+                            {app.api_key && (
+                              <button type="button" onClick={() => setApiApp(app)} title={t('gateway.api.chipTitle')}
+                              className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-300">
+                              {t('gateway.api.chip')}
+                            </button>
+                            )}
                           </div>
                           {app.instance?.dir_glob && <div className="tb-table-cell-meta font-mono truncate">{tildify(app.instance.dir_glob)}</div>}
                           {app.instance?.account_email && <div className="tb-table-cell-meta truncate">{app.instance.account_email}</div>}
                         </div>
                       ) : (
-                        <div
-                          className={`text-xs font-medium tracking-tight text-zinc-800 dark:text-zinc-100 truncate min-w-0 ${isActive ? '' : 'opacity-50'}`}
-                          title={app.name}
-                        >{app.name}</div>
+                        <div className="min-w-0 flex items-center gap-1.5">
+                          <span
+                            className={`text-xs font-medium tracking-tight text-zinc-800 dark:text-zinc-100 truncate min-w-0 ${isActive ? '' : 'opacity-50'}`}
+                            title={app.name}
+                          >{app.name}</span>
+                          {app.api_key && !app._virtual_apikey && (
+                            <button type="button" onClick={() => setApiApp(app)} title={t('gateway.api.chipTitle')}
+                              className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-300">
+                              {t('gateway.api.chip')}
+                            </button>
+                          )}
+                        </div>
                       )}
 
                       {/* 状态：一个词 + 一句话；要用户处理时给出去处 */}
@@ -4054,11 +4068,74 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                 document.body,
               );
             })()}
-            <div className="mt-4">
-              <GatewayApiSection localBase={localBase} />
-            </div>
+            {apiApp && (
+              <AppApiDialog app={apiApp} routes={routes} availableModels={availableModels} localBase={localBase} onClose={() => setApiApp(null)} />
+            )}
           </div>
     </>
+  );
+}
+
+/** 应用旁「接口」：这个应用用自己的 Key 怎么接入网关（模型接口 + 智能体接口），示例里填好了它的 Key */
+function AppApiDialog({ app, routes = [], availableModels = [], localBase = '', onClose }) {
+  const { t } = useLang();
+  const base = (localBase || resolveLocalGatewayBase()).replace(/\/$/, '');
+  const origin = base.replace(/\/v1$/, '');
+  const key = app.api_key || '$TOKENBANK_KEY';
+  const model = exampleModelFromRoute(effectiveRouteIds(app)[0] || '', routes, availableModels).model || 'gpt-4o';
+  const modelCurl = `curl ${origin}/v1/chat/completions \\\n  -H "Authorization: Bearer ${key}" \\\n  -H "content-type: application/json" \\\n  -d '{"model":"${model}","messages":[{"role":"user","content":"Hello!"}]}'`;
+  const harnessId = runnableHarnessId(app);
+  const agentCurl = agentDebugCurl(origin, key, harnessId);
+  const masked = app.api_key ? `${app.api_key.slice(0, 9)}····${app.api_key.slice(-4)}` : '';
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  // 路径整段不拆行；地址可能很长，单独允许折行
+  const code = 'font-mono text-[11px] px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700/60 text-zinc-700 dark:text-zinc-200 whitespace-nowrap';
+  return createPortal(
+    <div className="electron-no-drag fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-labelledby="app-api-title"
+        className="bg-white dark:bg-zinc-800 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-700 w-full max-w-2xl mx-auto flex flex-col max-h-[min(88vh,760px)]"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-200 dark:border-zinc-700 shrink-0">
+          <h2 id="app-api-title" className="text-sm font-semibold text-zinc-800 dark:text-zinc-100 truncate">{t('gateway.api.dialogTitle', { name: app.name })}</h2>
+          <button type="button" onClick={onClose} aria-label={t('gateway.common.close')}
+            className="ml-auto w-8 h-8 rounded-lg text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700">✕</button>
+        </div>
+        <div className="px-4 py-4 space-y-4 overflow-y-auto min-h-0 text-xs text-zinc-700 dark:text-zinc-200">
+          <p className="leading-relaxed text-zinc-600 dark:text-zinc-300">{t('gateway.api.dialogIntro')}</p>
+          <div className="grid gap-2 sm:grid-cols-[6rem_1fr] items-center">
+            <span className="text-zinc-500">{t('gateway.api.base')}</span>
+            <div className="flex items-center gap-2 min-w-0"><code className={`${code} !whitespace-normal break-all`}>{base}</code><CopyButton text={base} label={t('gateway.common.copy')} className="py-1 text-xs" /></div>
+            {masked && <>
+              <span className="text-zinc-500">{t('gateway.api.key')}</span>
+              <div className="flex items-center gap-2 min-w-0"><code className={code}>{masked}</code><CopyButton text={app.api_key} label={t('gateway.common.copy')} className="py-1 text-xs" /></div>
+            </>}
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <div className="font-medium">{t('gateway.api.modelTitle')}</div>
+              <div>{t('gateway.api.openai')} <code className={code}>/v1/chat/completions</code></div>
+              <div>{t('gateway.api.anthropic')} <code className={code}>/v1/messages</code></div>
+              <div>{t('gateway.api.codex')} <code className={code}>/v1/responses</code></div>
+              <div>{t('gateway.api.models')} <code className={code}>/v1/models</code></div>
+            </div>
+            <div className="space-y-1.5">
+              <div className="font-medium">{t('gateway.api.agentTitle')}</div>
+              <div>{t('gateway.api.agentList')} <code className={code}>GET /v1/agent/harnesses</code></div>
+              <div>{t('gateway.api.agentRun')} <code className={code}>POST /v1/agent/responses</code></div>
+            </div>
+          </div>
+          <CallMethodBlock title={t('gateway.app.callModel')} path="POST /v1/chat/completions" curl={modelCurl} t={t} />
+          {agentCurl
+            ? <CallMethodBlock title={t('gateway.app.callAgent')} path="POST /v1/agent/responses" curl={agentCurl} t={t} />
+            : <p className="text-zinc-500">{t('gateway.app.callAgentUnavailable')}</p>}
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
