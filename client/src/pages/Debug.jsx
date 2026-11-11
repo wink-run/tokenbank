@@ -928,6 +928,16 @@ export default function Debug() {
   // 「说一句话就办」把做事的请求交过来：放进输入框，用户确认后发送
   useEffect(() => {
     const p = location.state?.prompt;
+    // 网关页「去游乐场试」只带智能体：切过去就行，不动输入框
+    const onlyAgent = location.state?.agentId && !(typeof p === 'string' && p.trim());
+    if (onlyAgent) {
+      const wantId = location.state.agentId;
+      const hit = (agentsRef.current || []).find(a => a.id === wantId);
+      if (hit) switchAgent(hit); else setStoreSelectedAgentId(wantId);
+      setMode('agent');
+      navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
     if (typeof p === 'string' && p.trim()) {
       // 看护那边「有疑问？」点过来的：切到看护的执行应用，和它对话
       const wantId = location.state?.agentId;

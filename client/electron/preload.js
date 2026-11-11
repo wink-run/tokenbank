@@ -200,6 +200,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     preferredTargets: (opts) => ipcRenderer.invoke('guardian:preferredTargets', opts || {}),
     shareCheck: (input) => ipcRenderer.invoke('guardian:shareCheck', input || {}),
     health: () => ipcRenderer.invoke('guardian:health'),
+    providerIssues: () => ipcRenderer.invoke('guardian:providerIssues'),
     dispatchFeedback: (evt) => ipcRenderer.invoke('guardian:dispatchFeedback', evt || {}),
     engineStatus: () => ipcRenderer.invoke('guardian:engineStatus'),
     engineSetRuntime: (id) => ipcRenderer.invoke('guardian:engineSetRuntime', id),

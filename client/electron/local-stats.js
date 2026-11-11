@@ -1749,14 +1749,19 @@ function queryAppStatsInPeriod({ appId, apiKey, dataSource, dataSources, days = 
 function queryAppStatsToday({ appId, apiKey, dataSource, dataSources, includeSessionImport = true } = {}) {
   const today = queryAppStatsInPeriod({ appId, apiKey, dataSource, dataSources, since: todaySinceTs(), includeSessionImport });
   let lastTs = null;
+  let models = [];
   const match = _appMatchParts({ appId, apiKey, dataSource, dataSources, includeSessionImport });
   if (db && match) {
     try {
       const r = db.prepare(`SELECT MAX(ts) AS lastTs FROM requests WHERE ${match.where}`).get(match.params);
       lastTs = r.lastTs || null;
+      models = db.prepare(`SELECT DISTINCT model FROM requests WHERE ${match.where} AND ts >= @since AND data_source = 'proxy' AND model IS NOT NULL`)
+        .all({ ...match.params, since: todaySinceTs() }).map(x => x.model);
     } catch { /* ignore */ }
   }
-  return { calls: today.calls, tokens: today.tokens, lastTs };
+  // cost / providers / models：应用列表「今天怎样」显示花费；据今天用过的来源和模型判断要不要提示（Key 失效等，
+  // 网关已经换到别的来源时，记录里是最后成功的来源，所以还要按模型对）
+  return { calls: today.calls, tokens: today.tokens, lastTs, cost: today.cost || 0, providers: Object.keys(today.providers || {}), models };
 }
 
 /** 按 data_source 查单个工具的统计（shim 类 app 用 session-claude / session-codex 等）。*/

@@ -18,6 +18,36 @@ function streakKey(info) {
 
 function noteSuccess(info = {}) {
   if (info.providerId && info.model) streaks.delete(streakKey(info));
+  if (info.providerId) clearIssue(info.providerId);
+}
+
+// 要用户自己动手的来源问题（Key 失效、额度用完）：记下来，应用列表据此在用到它的应用行上提示；成功一次就清掉
+const ISSUES_FILE = 'provider-issues.json';
+
+function issues() {
+  const v = require('./store').readJson(ISSUES_FILE, {});
+  return v && typeof v === 'object' ? v : {};
+}
+
+function noteIssue(providerId, entry) {
+  if (!providerId) return;
+  const all = issues();
+  const models = new Set([...(all[providerId]?.models || []), ...(entry.model ? [entry.model] : [])]);
+  delete entry.model;
+  all[providerId] = { ...entry, models: [...models].slice(0, 50), at: Date.now() };
+  require('./store').writeJson(ISSUES_FILE, all);
+}
+
+function clearIssue(providerId) {
+  const all = issues();
+  if (!all[providerId]) return;
+  delete all[providerId];
+  require('./store').writeJson(ISSUES_FILE, all);
+}
+
+/** { providerId: { kind: 'auth'|'quota', label, text, at } } */
+function providerIssues() {
+  return issues();
 }
 
 function threshold(info) {
@@ -84,6 +114,10 @@ async function handleFailure(type, info = {}) {
   if (type === 'attempt-failed') { await noteStreak(info); return; }
   if (base.kind !== 'auth' && base.kind !== 'quota') return;   // 其它的网关已经自动换源，不打扰
   const who = info.providerLabel || info.providerId || '供给源';
+  noteIssue(info.providerId, {
+    kind: base.kind, label: who, model: info.model || null,
+    text: base.kind === 'quota' ? `「${who}」的额度用完了` : `「${who}」的 Key 失效了`,
+  });
   guardian.record({
     category: 'gateway',
     kind: base.kind === 'quota' ? 'quota-alert' : 'provider-failure',
@@ -114,4 +148,4 @@ function attach(gatewayModule) {
   return true;
 }
 
-module.exports = { attach, handleFailure, noteSuccess, _internal: { streaks } };
+module.exports = { attach, handleFailure, noteSuccess, providerIssues, _internal: { streaks } };

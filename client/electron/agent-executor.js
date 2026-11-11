@@ -828,6 +828,7 @@ class AgentExecutor extends EventEmitter {
         runtimeName: displayName,
         execRuntimeName: execName,
         description: resource.description || '',
+        skillCount: Array.isArray(config.skills) ? config.skills.length : 0,
         custom: true,
         // 显式模型优先；未写模型且运行时是 Cursor 时，用 CLI 当前选中模型
         modelLabel: explicitModel || (runtimeAgentId === 'cursor' ? readCursorCliModelLabel() : ''),
@@ -2299,20 +2300,35 @@ class AgentExecutor extends EventEmitter {
     let rows = [];
     try {
       rows = this._getDb().prepare(
-        'SELECT status, created_at, completed_at FROM agent_tasks WHERE created_at >= ?',
+        'SELECT agent_id, status, created_at, completed_at FROM agent_tasks WHERE created_at >= ?',
       ).all(start.getTime());
     } catch {
-      return empty;
+      return { ...empty, by_agent: {} };
     }
-    const done = rows.filter(r => r.status === 'completed' && r.completed_at && r.created_at);
-    const avg = done.length
-      ? Math.round(done.reduce((sum, r) => sum + (r.completed_at - r.created_at), 0) / done.length)
-      : null;
+    const sum = (list) => {
+      const done = list.filter(r => r.status === 'completed' && r.completed_at && r.created_at);
+      return {
+        tasks: list.length,
+        ok: done.length,
+        running: list.filter(r => r.status === 'pending' || r.status === 'running').length,
+        failed: list.filter(r => r.status === 'failed' || r.status === 'cancelled').length,
+        avg_duration_ms: done.length
+          ? Math.round(done.reduce((s, r) => s + (r.completed_at - r.created_at), 0) / done.length)
+          : null,
+      };
+    };
+    // 应用列表里每个智能体一行「今天几个任务、成功几个、平均多久」
+    const groups = {};
+    for (const r of rows) (groups[r.agent_id] = groups[r.agent_id] || []).push(r);
+    const byAgent = {};
+    for (const [id, list] of Object.entries(groups)) byAgent[id] = sum(list);
+    const all = sum(rows);
     return {
-      tasks: rows.length,
-      running: rows.filter(r => r.status === 'pending' || r.status === 'running').length,
-      failed: rows.filter(r => r.status === 'failed' || r.status === 'cancelled').length,
-      avg_duration_ms: avg,
+      tasks: all.tasks,
+      running: all.running,
+      failed: all.failed,
+      avg_duration_ms: all.avg_duration_ms,
+      by_agent: byAgent,
     };
   }
 

@@ -109,6 +109,7 @@ const guardian = {
   preferredTargets: call('guardian:preferredTargets', {}),
   shareCheck: call('guardian:shareCheck', {}),
   health: call0('guardian:health'),
+  providerIssues: call0('guardian:providerIssues'),
   dispatchFeedback: call('guardian:dispatchFeedback', {}),
   engineStatus: call0('guardian:engineStatus'),
   engineSetRuntime: (id) => invoke('guardian:engineSetRuntime', id),
