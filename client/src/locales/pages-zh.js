@@ -342,6 +342,10 @@ export default {
   'gateway.apps.lastUsed': "{when}用过",
   'gateway.apps.tagApi': "API",
   'gateway.apps.more': "{name} 的更多操作",
+  'gateway.apps.confirm.toGateway': "会改写 {name} 的配置，让它的请求经过本机网关。{when}。想恢复原样，随时在「⋯」里点「还原」。",
+  'gateway.apps.confirm.toOfficial': "会把 {name} 改回官方订阅，请求不再经过本机网关，这里仍会统计用量。{when}。",
+  'gateway.apps.confirm.whenShell': "重开终端后生效",
+  'gateway.apps.confirm.whenApp': "重启 {name} 后生效",
   'gateway.apps.menu.testModel': "测试模型",
   'gateway.apps.menu.testModelHint': "发一条请求，看它现在实际走到哪个模型",
   'gateway.apps.menu.testAgent': "测试智能体",
@@ -1309,6 +1313,9 @@ export default {
   'dashboard.sourceMixTitle': '网关 {proxy} · 会话 {session}',
 
   // ── 交易 ──
+  'providers.rent.hint': "把这个来源的模型上架到社区，别人用时你拿积分",
+  'providers.rent.button': "出租",
+  'contribute.offerAdded': "已加进清单，打开接单或点「让改动生效」后才上架",
   'contribute.tab.buy': "买",
   'contribute.tab.sell': "卖",
   'contribute.tab.money': "收支",

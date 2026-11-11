@@ -3458,6 +3458,17 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
   async function applyAppRouteSelection(app, val, selected) {
     const routeIds = Array.isArray(selected) && selected.length ? selected : (val ? [val] : []);
     const primary = routeIds[0] || null;
+    // 会改写应用配置的切换（官方订阅 ⇄ 走网关）：先说清楚改什么、何时生效、怎么还原；只是换路由不问
+    const writesConfig = app.host_method === 'config-file' || app.link_method === 'shim';
+    const wasRouted = effectiveRouteIds(app).length > 0;
+    if (writesConfig && wasRouted !== routeIds.length > 0) {
+      const name = String(app.name || '').split(' · ')[0] || app.name;
+      const when = app.link_method === 'shim' ? t('gateway.apps.confirm.whenShell') : t('gateway.apps.confirm.whenApp', { name });
+      const msg = routeIds.length
+        ? t('gateway.apps.confirm.toGateway', { name, when })
+        : t('gateway.apps.confirm.toOfficial', { name, when });
+      if (!window.confirm(msg)) return;
+    }
     setBusyId(app.id);
     if (app.host_method === 'config-file') {
       await appsApi.update({

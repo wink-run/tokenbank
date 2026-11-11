@@ -5469,6 +5469,15 @@ export default function Providers() {
               </div>
               {sel && (
                 <LibraryPanel title={t('providers.list.detail')} closeLabel={t('providers.list.close')} onClose={() => setSelectedSourceKey(null)}>
+                  {sel.modelNames?.length > 0 && (
+                    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-zinc-100 dark:border-white/[0.06] px-3 py-2.5">
+                      <span className="text-[11px] text-zinc-500 dark:text-zinc-400 flex-1 min-w-0">{t('providers.rent.hint')}</span>
+                      <button type="button" onClick={() => navigate('/contribute', { state: { tradeTab: 'supply', offerModels: sel.modelNames } })}
+                        className="shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-500">
+                        {t('providers.rent.button')}
+                      </button>
+                    </div>
+                  )}
                   {renderDependents(sel)}
                   {renderSourceCard(sel.row)}
                 </LibraryPanel>

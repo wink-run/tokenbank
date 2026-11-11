@@ -70,7 +70,7 @@ export default function AppAgentsUnder({ appKey, agents, stats = {}, rentIds = n
                   {a.builtin ? null : renting(a) ? (
                     <span className="font-medium text-emerald-600 dark:text-emerald-400">{t('gateway.apps.agents.renting')}</span>
                   ) : (
-                    <button type="button" onClick={() => navigate('/contribute', { state: { tradeTab: 'supply' } })}
+                    <button type="button" onClick={() => navigate('/contribute', { state: { tradeTab: 'supply', offerAssistant: a.resourceId } })}
                       className="px-1.5 py-1 rounded-md text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20">
                       {t('gateway.apps.agents.rent')}
                     </button>

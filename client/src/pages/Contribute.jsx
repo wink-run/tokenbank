@@ -255,8 +255,28 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
       setSelectedAssistantIds(prevAsst);
       assistantsHydratedRef.current = true;
       snapPending.current = true;
+      setHydrated(true);
     });
   }, []);
+
+  // 网关页智能体行 / 模型页来源上点「出租」：把那一项加进上架清单，等用户确认生效
+  const [hydrated, setHydrated] = useState(false);
+  const [offerNote, setOfferNote] = useState('');
+  useEffect(() => {
+    if (!hydrated) return;
+    const st = location.state || {};
+    const names = Array.isArray(st.offerModels) ? st.offerModels.filter(Boolean) : [];
+    const asst = st.offerAssistant || '';
+    if (!names.length && !asst) return;
+    if (names.length) {
+      const avail = new Set(availableModels.map(m => m.name));
+      const ok = names.filter(n => avail.has(n));
+      if (ok.length) setSelectedNames(prev => new Set([...prev, ...ok]));
+    }
+    if (asst) setSelectedAssistantIds(prev => new Set([...prev, asst]));
+    setOfferNote(t('contribute.offerAdded'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 每次带着出租项进来处理一次
+  }, [hydrated, location.key]);
 
   // 当前上架内容的指纹：和保存时一样就没有要生效的改动
   const snapNow = JSON.stringify([
@@ -441,6 +461,7 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {savedMsg && <span className="text-xs text-green-600 dark:text-green-400">{savedMsg}</span>}
+            {offerNote && dirty && <span className="text-xs text-blue-600 dark:text-blue-400">{offerNote}</span>}
             {running && dirty && (
               <button type="button" onClick={save} disabled={saving}
                 className="tb-press text-xs font-medium px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50">
