@@ -112,6 +112,7 @@ async function handleFailed(evt = {}) {
   if (guardian.modeOf('gateway') === 'off') return;
   const agentId = evt.agentId || null;
   if (!agentId) return;
+  if (require('./chat').isGuardianAgent(agentId)) return;   // 看护自己的对话失败，对话里已经说了，不再另说一遍
   const error = String(evt.error || evt.result?.error || '');
   const c = classify(error);
   const who = agentName(agentId);
@@ -125,19 +126,6 @@ async function handleFailed(evt = {}) {
     needsUser: c.kind === 'runtime-missing' || c.kind === 'not-logged-in',
     ...(c.link ? { link: c.link } : {}),
     meta: { agentId, kind: c.kind, taskId: evt.taskId || null },
-  });
-
-  if (c.kind !== 'capability') return;
-  const skill = matchSkill(taskPrompt(evt.taskId));
-  if (!skill) return;
-  guardian.record({
-    category: 'gateway', kind: 'task-capability', status: 'suggested',
-    title: `给 ${who} 补一个技能：${skill.display_name || skill.name}`,
-    advice: `刚才失败的任务需要它没有的能力；社区里免费的「${skill.display_name || skill.name}」对得上。采纳后只装给 ${who}，可撤销。`,
-    signature: `task-capability|${agentId}|${skill.catalogId}`,
-    apply: { type: 'installSkillFor', data: { catalogId: skill.catalogId, agentId } },
-    applyUndo: { type: 'unprojectSkill', data: { catalogId: skill.catalogId, agentId } },
-    meta: { agentId, catalogId: skill.catalogId },
   });
 }
 

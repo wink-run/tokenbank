@@ -15,13 +15,6 @@ const guardian = require('../guardian');
 const explain = require('../guardian/explain');
 const installFix = require('../guardian/install-fix');
 
-test('records dedupe by signature and keep a count', () => {
-  const a = guardian.record({ needsUser: true, category: 'gateway', kind: 'x', status: 'info', title: 't', signature: 'sig-1' });
-  const b = guardian.record({ needsUser: true, category: 'gateway', kind: 'x', status: 'info', title: 't', signature: 'sig-1' });
-  assert.equal(a.id, b.id);
-  assert.equal(guardian.listRecords().find(r => r.id === a.id).count, 2);
-});
-
 test('undo runs the registered action and marks the record', async () => {
   let undone = null;
   guardian.registerAction('test-undo', (d) => { undone = d; return { ok: true }; });
@@ -31,78 +24,6 @@ test('undo runs the registered action and marks the record', async () => {
   assert.deepEqual(undone, { n: 1 });
   assert.equal(guardian.listRecords().find(x => x.id === r.id).status, 'undone');
   assert.equal((await guardian.undo(r.id)).ok, false, 'cannot undo twice');
-});
-
-test('apply turns a suggestion into done', async () => {
-  guardian.registerAction('test-apply', () => ({ ok: true }));
-  const r = guardian.record({ category: 'projection', kind: 'k', status: 'suggested', title: 'fix?', apply: { type: 'test-apply' } });
-  assert.equal((await guardian.apply(r.id)).ok, true);
-  assert.equal(guardian.listRecords().find(x => x.id === r.id).status, 'done');
-});
-
-test('in-place actions: pick a button on the record, failure keeps it open, undo from the action result', async () => {
-  let ran = null;
-  let undone = null;
-  guardian.registerAction('test-pick', (d) => { ran = d; return { ok: true, message: 'done it', undo: { type: 'test-pick-undo', data: { back: d.which } } }; });
-  guardian.registerAction('test-pick-undo', (d) => { undone = d; return { ok: true }; });
-  guardian.registerAction('test-fail', () => ({ ok: false, error: 'nope' }));
-  const r = guardian.record({
-    category: 'assets', kind: 'k', status: 'info', title: 'pick one',
-    actions: [{ label: 'A', run: { type: 'test-fail' } }, { label: 'B', done: 'B done', run: { type: 'test-pick', data: { which: 'b' } } }],
-  });
-  assert.equal((await guardian.act(r.id, 0)).ok, false);
-  let cur = guardian.listRecords().find(x => x.id === r.id);
-  assert.equal(cur.status, 'info');
-  assert.equal(cur.lastError, 'nope');
-  assert.equal((await guardian.act(r.id, 1)).ok, true);
-  cur = guardian.listRecords().find(x => x.id === r.id);
-  assert.equal(cur.status, 'done');
-  assert.equal(cur.actedLabel, 'B done');
-  assert.equal(cur.resultNote, 'done it');
-  assert.deepEqual(ran, { which: 'b' });
-  assert.equal((await guardian.act(r.id, 1)).ok, false, 'already handled');
-  assert.equal((await guardian.undo(r.id)).ok, true);
-  assert.deepEqual(undone, { back: 'b' });
-});
-
-test('handle: auto mode does safe undoable fixes right away; suggest mode waits; an undo is respected', async () => {
-  let n = 0;
-  guardian.registerAction('test-auto', () => { n++; return { ok: true, message: 'fixed', undo: { type: 'test-auto-undo' } }; });
-  guardian.registerAction('test-auto-undo', () => ({ ok: true }));
-  const entry = () => ({
-    category: 'assets', kind: 'k', status: 'info', title: 'safe fix', signature: 'auto-sig',
-    actions: [{ label: 'Fix', done: 'Fixed', auto: true, run: { type: 'test-auto' } }, { label: 'Other', run: { type: 'test-auto' } }],
-  });
-  guardian.setSettings({ modes: { assets: 'suggest' } });
-  let r = await guardian.handle(entry());
-  assert.equal(r.status, 'info');
-  assert.equal(n, 0);
-  guardian.setSettings({ modes: { assets: 'auto' } });
-  r = await guardian.handle(entry());
-  assert.equal(r.status, 'done');
-  assert.equal(r.actedLabel, 'Fixed');
-  assert.equal(r.resultNote, 'fixed');
-  assert.equal(r.auto, true);
-  assert.equal(n, 1);
-  assert.equal(guardian.listRecords().filter(x => x.signature === 'auto-sig' && x.status === 'info').length, 0, 'the open suggestion is closed');
-  assert.equal((await guardian.undo(r.id)).ok, true);
-  r = await guardian.handle(entry());
-  assert.equal(r.status, 'info', 'user undid it once → only suggest from now on');
-  assert.equal(n, 1);
-  // 没有 auto 按钮的（比如要用户做判断的）照常等用户点
-  r = await guardian.handle({ category: 'assets', kind: 'k', status: 'info', title: 'judgement', signature: 'judge', actions: [{ label: 'A', run: { type: 'test-auto' } }] });
-  assert.equal(r.status, 'info');
-  assert.equal(n, 1);
-});
-
-test('modes: per category and global switch', () => {
-  guardian.setSettings({ modes: { projection: 'suggest' } });
-  assert.equal(guardian.modeOf('projection'), 'suggest');
-  guardian.setSettings({ enabled: false });
-  assert.equal(guardian.modeOf('gateway'), 'off');
-  guardian.setSettings({ enabled: true, modes: { projection: 'auto', bogus: 'auto' } });
-  assert.equal(guardian.modeOf('projection'), 'auto');
-  assert.equal(guardian.getSettings().modes.bogus, undefined);
 });
 
 test('explain: known gateway errors map to a cause and a fix', () => {
@@ -119,23 +40,6 @@ test('explain: known gateway errors map to a cause and a fix', () => {
     explain.signatureOf({ providerId: 'p', status: 418, message: 'req_abc123 failed at 12:00' }, 'unknown'),
     explain.signatureOf({ providerId: 'p', status: 418, message: 'req_zzz999 failed at 13:30' }, 'unknown'),
   );
-});
-
-test('gateway failure becomes one explained record; off mode records nothing', async () => {
-  guardian.setSettings({ modelExplainPerDay: 0 });
-  const watch = require('../guardian/gateway-watch');
-  await watch.handleFailure('cooldown', { providerId: 'deepseek', providerLabel: 'DeepSeek', model: 'm', status: 402, message: 'Insufficient Balance' });
-  await watch.handleFailure('request-failed', { providerId: 'deepseek', providerLabel: 'DeepSeek', model: 'm', status: 402, message: 'Insufficient Balance' });
-  const recs = guardian.listRecords().filter(r => r.category === 'gateway' && r.meta?.providerId === 'deepseek');
-  assert.equal(recs.length, 1);
-  assert.equal(recs[0].kind, 'quota-alert');
-  assert.equal(recs[0].count, 2);
-  assert.match(recs[0].title, /额度/);
-
-  guardian.setSettings({ modes: { gateway: 'off' } });
-  await watch.handleFailure('cooldown', { providerId: 'other', status: 401 });
-  assert.equal(guardian.listRecords().filter(r => r.meta?.providerId === 'other').length, 0);
-  guardian.setSettings({ modes: { gateway: 'auto' } });
 });
 
 test('install: leftover staging is cleaned and retried once', async () => {
@@ -214,40 +118,3 @@ test('install: network errors are explained without an extra retry (npm already 
   assert.ok(guardian.listRecords().some(x => x.kind === 'install-failed' && x.meta?.cause === 'network'));
 });
 
-test('low attention: a notice with nothing for the user to do is never raised; one click handles the recommended fixes', async () => {
-  const before = guardian.summary();
-  let ran = 0;
-  guardian.registerAction('la-fix', () => { ran++; return { ok: true, undo: { type: 'la-undo' } }; });
-  guardian.registerAction('la-undo', () => ({ ok: true }));
-  const withFix = guardian.record({ category: 'assets', kind: 'la-dup', status: 'info', title: 'dup', signature: 'la-1', actions: [{ label: 'Fix', run: { type: 'la-fix' } }, { label: 'Other', run: { type: 'la-fix' } }] });
-  // 只是告诉你一声的（没有按钮、不是失败、不用你动手）：不生成
-  assert.equal(guardian.record({ category: 'community', kind: 'la-share', status: 'suggested', title: 'share?', signature: 'la-2', link: { to: '/resources' } }), null);
-  assert.equal(guardian.record({ category: 'gateway', kind: 'la-net', status: 'info', title: 'network blip', signature: 'la-5', advice: 'gateway switched source' }), null);
-  // 必须用户动手的照常提
-  const setup = guardian.record({ category: 'setup', kind: 'la-setup', status: 'suggested', title: 'no model', signature: 'la-3', link: { to: '/providers' } });
-  const login = guardian.record({ category: 'gateway', kind: 'la-login', status: 'info', title: 'not logged in', signature: 'la-6', needsUser: true });
-  const failed = guardian.record({ category: 'install', kind: 'la-fail', status: 'failed', title: 'install failed', signature: 'la-7' });
-  // 属于别的页面的：存着给那个页面用，不算这里的待处理
-  const gap = guardian.record({ category: 'discover', kind: 'la-gap', status: 'suggested', title: 'gap', signature: 'la-8', surface: 'discover' });
-  assert.ok(setup && login && failed && gap);
-  assert.equal(guardian.needsUser(gap), false);
-  const think = guardian.record({ category: 'assets', kind: 'judgment-rule', status: 'suggested', title: 'broad rule', signature: 'la-4', _judged: true, actions: [{ label: 'Adopt', run: { type: 'la-fix' } }] });
-  const s = guardian.summary();
-  assert.equal(s.decide - before.decide, 5);
-  assert.equal(s.fyi, undefined, 'there is no FYI tier any more');
-  assert.equal(s.recommendable - before.recommendable, 1, 'rules that need thought are not batch-handled');
-
-  const r = await guardian.actRecommended();
-  assert.ok(r.done >= 1);
-  assert.equal(guardian.listRecords({ limit: 300 }).find(x => x.id === withFix.id).status, 'done');
-  assert.equal(guardian.listRecords({ limit: 300 }).find(x => x.id === think.id).status, 'suggested', 'left for the user');
-  assert.equal((await guardian.undo(withFix.id)).ok, true, 'batch fixes stay undoable');
-
-  // 老版本留下的「只是告诉你一声」的提醒：启动时收起
-  const legacy = guardian.record({ category: 'gateway', kind: 'la-old', status: 'info', title: 'old', signature: 'la-9', needsUser: true });
-  guardian.updateRecord(legacy.id, { needsUser: false });
-  assert.ok(guardian.tidy().expired >= 1);
-  assert.equal(guardian.listRecords({ limit: 300 }).find(x => x.id === legacy.id).status, 'resolved');
-  assert.equal(guardian.listRecords({ limit: 300 }).find(x => x.id === setup.id).status, 'suggested');
-  assert.equal(guardian.listRecords({ limit: 300 }).find(x => x.id === gap.id).status, 'suggested');
-});

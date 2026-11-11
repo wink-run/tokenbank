@@ -32,78 +32,10 @@ function req(model, provider, { n = 1, fail = 0, latency = 800, tier = 'paid', c
   }
 }
 
-test('route check: unstable provider with better alternative, slower duplicate', async () => {
-  guardian.setSettings({ modes: { gateway: 'suggest' } });
-  req('glm-5', 'prov-a', { n: 12, fail: 6 });
-  req('glm-5', 'prov-b', { n: 10, fail: 0 });
-  req('qwen-max', 'fast', { n: 10, latency: 500 });
-  req('qwen-max', 'slow', { n: 10, latency: 2000 });
-  const db = localStats.getDb();
-  const ins = db.prepare('INSERT INTO agent_tasks (id, agent_id, prompt, status, error, created_at) VALUES (?, ?, ?, ?, ?, ?)');
-  for (let i = 0; i < 6; i++) ins.run(`t${i}`, 'codex', 'fix the bug', i < 4 ? 'failed' : 'completed', i < 4 ? 'Error: not logged in' : null, Date.now() - 1000);
-
-  const r = await review.reviewRoutes({ sinceSec: now - 86400 });
-  assert.ok(r.items.some(i => /glm-5/.test(i.title) && /prov-b/.test(i.advice)), 'suggests the healthier provider');
-  assert.ok(r.items.some(i => /qwen-max/.test(i.title) && /快 4\.0 倍/.test(i.title)));
-  assert.equal(r.stats.calls, 42);
-  const rec = guardian.listRecords().find(x => x.signature === 'review-route|glm-5|prov-a');
-  assert.equal(rec.status, 'suggested');
-  assert.equal(rec.link.to, '/gateway');
-
-  // 就地处理：下沉这个来源 → 网关把这一对排到候选末尾；不再提醒；撤销恢复
-  review.register();
-  const cooldown = require('../gateway-cooldown');
-  assert.equal(rec.actions[0].label, '下沉这个来源');
-  return guardian.act(rec.id, 0).then(async (a) => {
-    assert.equal(a.ok, true, a.error);
-    const cands = [{ provider: { id: 'prov-a' }, model: 'glm-5' }, { provider: { id: 'prov-b' }, model: 'glm-5' }];
-    const order = cooldown.sink(cands, (c) => [c.provider.id, cooldown.demoteKey(c.provider.id, c.model)]).map(c => c.provider.id);
-    assert.deepEqual(order, ['prov-b', 'prov-a']);
-    // 同一来源的其它模型不受影响
-    assert.equal(cooldown.isCooling(cooldown.demoteKey('prov-a', 'other-model')), false);
-    assert.ok(!(await review.reviewRoutes({ sinceSec: now - 86400 })).items.some(i => /glm-5 在「prov-a」/.test(i.title)), 'already handled');
-    assert.equal((await guardian.undo(rec.id)).ok, true);
-    assert.deepEqual(cooldown.sink(cands, (c) => [c.provider.id, cooldown.demoteKey(c.provider.id, c.model)]).map(c => c.provider.id), ['prov-a', 'prov-b']);
-    // 「供给源」是自动处理：慢的那一对直接下沉，记成已处理、可撤销
-    guardian.setSettings({ modes: { gateway: 'auto' } });
-    await review.reviewRoutes({ sinceSec: now - 86400 });
-    const slow = guardian.listRecords().find(x => x.signature === 'review-route-slow|qwen-max');
-    assert.equal(slow.status, 'done');
-    assert.equal(slow.auto, true);
-    assert.ok(cooldown.isCooling(cooldown.demoteKey('slow', 'qwen-max')));
-    assert.equal((await guardian.undo(slow.id)).ok, true);
-    assert.equal(cooldown.isCooling(cooldown.demoteKey('slow', 'qwen-max')), false);
-  });
-});
-
 test('guardian own requests (caller key tb-guardian) are left out of the review', async () => {
   const before = (await review.reviewRoutes({ sinceSec: now - 86400 })).stats.calls;
   localStats.record({ api_key: 'tb-guardian', model: 'trial-x', provider_id: 'p', tier: 'free', ts: now - 30, data_source: 'proxy', status_code: 200, request_id: `g-${Math.random()}` });
   assert.equal((await review.reviewRoutes({ sinceSec: now - 86400 })).stats.calls, before);
-});
-
-test('task failure review: classify and capability suggestion with apply/undo', async () => {
-  assert.equal(taskWatch.classify('spawn codex ENOENT').kind, 'runtime-missing');
-  assert.equal(taskWatch.classify('Request timed out after 600s').kind, 'timeout');
-  assert.equal(taskWatch.classify('429 rate limit exceeded').kind, 'quota');
-  assert.equal(taskWatch.classify("I don't have a tool to browse the web").kind, 'capability');
-  assert.equal(taskWatch.classify('weird').kind, 'unknown');
-
-  require('../../cli/ipc-bridge').installElectronStub();
-  const db = localStats.getDb();
-  db.prepare('INSERT INTO agent_tasks (id, agent_id, prompt, status, error, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run('cap1', 'claude-code', '按 Conventional Commits 规范生成 git commit 提交信息', 'failed', 'no suitable tool', Date.now());
-  await taskWatch.handleFailed({ taskId: 'cap1', agentId: 'claude-code', error: "I don't have a tool for this" });
-  // 少打扰：缺能力这类失败不单独提醒（下面那条「装个技能」的建议才是用户能做的事）
-  assert.ok(!guardian.listRecords().some(r => r.signature === 'task-fail|claude-code|capability'));
-  // 要用户自己动手的（没登录）才提
-  await taskWatch.handleFailed({ taskId: 'login1', agentId: 'claude-code', error: 'Error: not logged in' });
-  assert.equal(guardian.listRecords().find(r => r.signature === 'task-fail|claude-code|not-logged-in').status, 'info');
-  const sug = guardian.listRecords().find(r => r.kind === 'task-capability');
-  assert.ok(sug, 'suggests a matching free skill');
-  assert.equal(sug.meta.catalogId, 'git-commit-skill');
-  assert.equal(sug.apply.type, 'installSkillFor');
-  assert.ok(sug.applyUndo);
 });
 
 test('scene targets: prefer apps that actually use skills', () => {

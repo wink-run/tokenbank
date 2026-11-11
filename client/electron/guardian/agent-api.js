@@ -49,27 +49,19 @@ const OPS = {
     run: () => ok({ health: require('./health').health() }),
   },
   records: {
-    desc: '看护记录。参数 {"open":true} 只看待处理；{"limit":30}',
+    desc: '我做过的事（处理日志，每条说明能不能撤销）。{"limit":30}',
     run: ({ open = false, limit = 30 } = {}) => {
-      const list = guardian().listRecords({ limit: 300 })
-        .filter(r => !open || ['info', 'suggested', 'failed'].includes(r.status)).slice(0, limit);
+      void open;
+      const list = guardian().listRecords({ limit: 300 }).slice(0, limit);
       return ok({ records: list.map(brief) });
     },
-  },
-  act: {
-    desc: '点记录上的处理按钮。{"id":"g-…","index":0}（index 见 records 里的 actions）',
-    run: async ({ id, index = 0 }) => { const r = await guardian().act(id, index); return r.ok ? ok({ message: r.message || null }) : fail(r); },
   },
   undo: {
     desc: '撤销一条已处理的记录。{"id":"g-…"}',
     run: async ({ id }) => { const r = await guardian().undo(id); return r.ok ? ok() : fail(r); },
   },
-  dismiss: {
-    desc: '忽略一条提醒。{"id":"g-…"}',
-    run: ({ id }) => (guardian().dismiss(id) ? ok() : fail({ error: 'not-found' })),
-  },
   check: {
-    desc: '立即检查（投射、资产、配置、路由；只用规则，不花 token）',
+    desc: '现在检查一遍投射和资产（用户要求时才跑；只用规则，不花 token）',
     run: async () => ok({ results: await guardian().runChecks() }),
   },
   settings: {
@@ -96,6 +88,15 @@ const OPS = {
       if (!run || !plan || plan.action === 'unknown') return ok({ plan });
       const r = await command.run(plan);
       return r.ok ? ok({ plan, message: r.message || null }) : fail(r);
+    },
+  },
+  hire: {
+    desc: '雇佣任务：最近拦截的任务、被拒接的雇佣者、规则文件位置。拒接 {"refuse":"<雇佣者>"}；恢复 {"allow":"<雇佣者>"}。放宽审查规则只能由用户自己改规则文件，你不能替他改',
+    run: ({ refuse, allow } = {}) => {
+      const h = require('./hire-guard');
+      if (refuse) return ok(h.refuseHirer({ consumer: refuse }));
+      if (allow) return ok(h.allowHirer({ consumer: allow }));
+      return ok({ blocks: store.readJson('hire-blocks.json', []).slice(0, 20), refused: h._internal.refused(), rulesFile: h.skillFile(), sandbox: h.hasSandbox() });
     },
   },
   rules: {
@@ -178,7 +179,7 @@ function agentGuide() {
     `  node "${helperPath()}" <操作> '<JSON 参数>'`,
     '操作：',
     ...Object.entries(OPS).map(([k, v]) => `- ${k}：${v.desc}`),
-    '先用 records / status 看清楚再动手；改设置、安装、撤下这类会改变状态的，按规矩先跟用户说清楚（用户已经明确要求的直接做）。做完告诉用户结果和怎么撤销。',
+    '先用 records / status 看清楚再动手。用户明确要求的直接做，做完用一两句话告诉他结果和怎么撤销；你自己想做的改动先说清楚再做。',
   ].join('\n');
 }
 

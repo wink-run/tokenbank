@@ -134,20 +134,22 @@ async function reviewRoutes({ sinceSec }) {
 
 const DEMOTE_DAYS = 14;
 
+/** 把这一对（来源 + 模型）排到候选末尾 14 天；仍可兜底，不删除 */
+function demote({ provider, model }) {
+  const c = cooldown();
+  if (!c || !provider || !model) return { ok: false, error: '网关不可用' };
+  c.demote(provider, model, DEMOTE_DAYS * 24 * 60 * 60 * 1000, 'guardian');
+  return { ok: true, message: `${DEMOTE_DAYS} 天内请求先走其它来源，这个只在都失败时兜底` };
+}
+
 function register() {
   // 下沉：这一对排到候选末尾 14 天（仍可兜底，不删除）；撤销 = 恢复原来的顺序
-  guardian.registerAction('demoteRoute', ({ provider, model }) => {
-    const c = cooldown();
-    if (!c || !provider || !model) return { ok: false, error: '网关不可用' };
-    c.demote(provider, model, DEMOTE_DAYS * 24 * 60 * 60 * 1000, 'guardian-review');
-    return { ok: true, message: `${DEMOTE_DAYS} 天内请求先走其它来源，这个只在都失败时兜底` };
-  });
+  guardian.registerAction('demoteRoute', demote);
   guardian.registerAction('undemoteRoute', ({ provider, model }) => {
     const c = cooldown();
     if (c) c.undemote(provider, model);
     return { ok: true };
   });
-  guardian.registerCheck('routes', check, 6 * 60 * 60 * 1000);
 }
 
 const WINDOW_DAYS = 7;
@@ -158,4 +160,4 @@ async function check() {
   return { ok: true, calls: r.stats.calls, fails: r.stats.fails, items: r.items.length };
 }
 
-module.exports = { register, check, reviewRoutes, _internal: { routeStats } };
+module.exports = { register, check, reviewRoutes, demote, isDemoted, _internal: { routeStats } };

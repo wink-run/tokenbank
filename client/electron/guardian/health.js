@@ -12,7 +12,6 @@ function label(id) {
 }
 const CHECK_LABEL = {
   projection: '投射自愈', assets: '资产体检', setup: '配置提醒', routes: '路由检查',
-  'capability-gaps': '能力缺口',
 };
 
 async function health() {
@@ -33,15 +32,17 @@ async function health() {
     ...runningKinds.map(k => `${KIND_LABEL[k] || k}（${label(st.runtime)}）`),
   ];
   const issues = [];
-  if (!s.enabled) return { level: 'off', enabled: false, issues, model, engine: { ...st, last }, checks, busy: [] };
-  if (model && !model.ok) issues.push({ code: 'no-model', text: '还没有可用的模型：报错解读、补全描述、提示词增强、新模型试跑暂时只能用规则', link: { to: '/providers', label: '去添加模型' } });
+  let unread = 0;
+  try { unread = require('./convo').unread(); } catch { /* ignore */ }
+  if (!s.enabled) return { level: 'off', enabled: false, issues, model, engine: { ...st, last }, checks, busy: [], unread };
+  if (model && !model.ok) issues.push({ code: 'no-model', text: '还没有可用的模型', link: { to: '/providers', label: '去添加模型' } });
   if (model == null) issues.push({ code: 'gateway-down', text: '本机网关没有响应，用到模型的看护功能暂停' });
-  if (!st.ready) issues.push({ code: 'no-runtime', text: '还没有纳管能执行命令的应用：兴趣画像、资产发现、技能安装暂时用不了', link: { to: '/gateway', label: '去纳管应用' } });
+  if (!st.ready) issues.push({ code: 'no-runtime', text: '还没有纳管能执行命令的应用：技能安装和对话提问暂时用不了', link: { to: '/gateway', label: '去纳管应用' } });
   if (last && last.status === 'failed' && Date.now() - last.at < RECENT_MS) {
     issues.push({ code: 'runtime-failed', text: `执行应用最近一次任务失败：${last.error || '未知原因'}` });
   }
   for (const f of checks.failing) issues.push({ code: `check-${f.name}`, text: `后台检查「${CHECK_LABEL[f.name] || f.name}」出错：${f.error}` });
-  return { level: issues.length ? 'warn' : 'ok', enabled: true, issues, model, engine: { ...st, last }, checks, busy };
+  return { level: issues.length ? 'warn' : 'ok', enabled: true, issues, model, engine: { ...st, last }, checks, busy, unread };
 }
 
 module.exports = { health };

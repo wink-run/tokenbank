@@ -55,11 +55,12 @@ export default function GuardianDot() {
 
   if (!api?.health || !health) return null;
   const lv = health.level || 'off';
-  const label = busy
+  const unread = Number(health.unread) || 0;
+  const label = unread > 0
+    ? t('guardian.dot.unread', { n: unread })
+    : busy
     ? t('guardian.dot.busy', { what: health.busy.join('、') })
-    : lv === 'warn'
-      ? t('guardian.dot.warn', { n: health.issues?.length || 0, first: health.issues?.[0]?.text || '' })
-      : t(`guardian.dot.${lv}`);
+    : t(`guardian.dot.${lv === 'warn' ? 'ok' : lv}`);
 
   return (
     <button
@@ -72,6 +73,12 @@ export default function GuardianDot() {
       {/* 看护开着时只做轻微缩放，不把颜色呼吸淡掉。正在执行时更快 */}
       <style>{'@keyframes tb-spark-breathe{0%,100%{transform:scale(.94)}50%{transform:scale(1.06)}}.tb-spark-breathe{animation:tb-spark-breathe 2.8s ease-in-out infinite;transform-origin:center}.tb-spark-breathe-busy{animation-duration:1.5s}@media (prefers-reduced-motion:reduce){.tb-spark-breathe{animation:none}}'}</style>
       <SparkIcon className={`relative w-4 h-4 origin-center ${TONE[lv]} ${lv === 'off' ? '' : `tb-spark-breathe${busy ? ' tb-spark-breathe-busy' : ''}`}`} />
+      {/* 看护有话要说：未读标记，打开对话页后清除 */}
+      {unread > 0 && (
+        <span className="absolute -top-1.5 -right-2 min-w-[14px] h-[14px] px-[3px] rounded-full bg-red-600 text-white text-[9px] font-semibold leading-[14px] text-center" aria-hidden>
+          {unread > 9 ? '9+' : unread}
+        </span>
+      )}
     </button>
   );
 }

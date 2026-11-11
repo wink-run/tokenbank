@@ -874,6 +874,14 @@ function notifyGuardian(type, info) {
 }
 
 function noteCooldown(provider, model, err, sharer) {
+  // 每一次失败的尝试都告诉看护（即使后面换源成功了）：它据此数「连续失败」
+  notifyGuardian('attempt-failed', {
+    providerId: provider && provider.id,
+    providerLabel: provider && (provider.label || provider.name),
+    model,
+    status: err && (err.status || err.statusCode),
+    message: (err && err.message) || '',
+  });
   const p2p = isP2pProvider(provider);
   const key = coolKey(provider, model, sharer);
   // 个人源 与 钉选 worker(有 sharer) 同走 noteFailure；仅未钉选的池走 noteTransient。
@@ -4241,6 +4249,9 @@ function pushLog(entry) {
       status: entry.status_code || entry.http_status || entry.upstream_status,
       message: entry.error || '',
     });
+  } else if (entry && (entry.via || entry.provider_id)) {
+    // 成功一次：看护据此把这一对的「连续失败」清零
+    notifyGuardian('request-ok', { providerId: entry.via || entry.provider_id, model: entry.model || entry.requested_model });
   }
   const place = routePlace(entry);
   log.push(place ? { ...entry, place } : entry);

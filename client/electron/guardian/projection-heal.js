@@ -141,18 +141,12 @@ async function check() {
         guardian.resolveSignature(sig, '合并到「原文件已被删除」');   // 旧版本一条一条记的，收起
         continue;
       }
+      // 修不了、也不是原文件没了：只记日志，用户问起时能查到
       guardian.record({
-        category: 'projection',
-        kind: 'projection-unrepairable',
-        status: 'info',
-        countAsRepeat: false,
-        title: `「${skillName(r)}」在 ${agentName(p.agentId)} 里用不了`,
+        category: 'projection', kind: 'projection-unrepairable', status: 'failed', countAsRepeat: false,
+        title: `「${skillName(r)}」在 ${agentName(p.agentId)} 里的链接坏了，我没能修好`,
         detail: `原因：${REASON_TEXT[p.health.reason] || p.health.reason}`,
-        advice: '撤下后应用里就不会再出现这个坏掉的技能；资产还在，修好后可再启用。',
-        signature: sig,
-        facts,
-        actions: [{ label: '从这个应用撤下', done: '已撤下', run: { type: 'unprojectMany', data: { items: [{ resourceId: r.id, agentId: p.agentId }] } } }],
-        link: { to: '/resources', label: '诊断', state: { resourceType: 'skill', selectKey: `r-${r.id}` } },
+        signature: sig, facts,
         meta: { resourceId: r.id, agentId: p.agentId, reason: p.health.reason },
       });
     }
@@ -205,7 +199,7 @@ function register() {
     const still = (v.projections || []).filter(p => p.health && !p.health.healthy && p.health.repairable);
     return still.length ? { ok: false, error: still.map(p => p.health.repairError || p.health.reason).join('; ') } : { ok: true };
   });
-  guardian.registerCheck('projection', check, 30 * 60 * 1000);
+  guardian.registerCheck('projection', check);
 }
 
 module.exports = { register, check };

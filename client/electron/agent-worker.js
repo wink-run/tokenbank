@@ -999,6 +999,20 @@ async function handleAgentTask(msg, cfg) {
   }
   // 按调用方，再按会话隔离。同一用户的两段对话不共用目录，成品和看图缓存都不会串。
   const consumerKey = resolveConsumerKey(msg);
+  // 看护：别人下发的任务先过安全审查，危险的不执行（规则见 guardian/hire-guard.js）
+  const hireGuard = require('./guardian/hire-guard');
+  let guardVerdict;
+  try {
+    guardVerdict = hireGuard.screenTask({ prompt, files: msg.files, consumer: consumerKey });
+  } catch (e) {
+    guardVerdict = { ok: false, message: hireGuard.REJECT_MESSAGE, hits: [{ id: 'error', label: e.message }] };   // 审查出错一律拦截
+  }
+  if (!guardVerdict.ok) {
+    log(`[agent] agent_task ${taskId} blocked by guardian: ${(guardVerdict.hits || []).map((h) => h.id).join(',')}`);
+    noteRoute(false, 'blocked by owner security policy');
+    send({ type: 'agent_task_result', task_id: taskId, status: 'rejected', error: guardVerdict.message });
+    return;
+  }
   const sessionDirKey = resolveSessionDirKey(msg);
   const sessionKey = contributeSessionKey(assistantId, consumerKey, sessionDirKey);
   const workingDir = ensureContributeWorkspace(assistantId, consumerKey, sessionDirKey);
@@ -1128,9 +1142,21 @@ async function handleAgentTask(msg, cfg) {
     });
   }
 
+  // 看护：执行中每一步也审；命中就立即终止这单
+  let guardStopped = null;
   const onStep = (step) => {
     if (!trackedTaskId || !step || step.taskId !== trackedTaskId) return;
     const st = String(step.stepType || '');
+    if (!guardStopped && st === 'tool_call') {
+      let hits = null;
+      try { hits = hireGuard.screenStep(step, { consumer: consumerKey, prompt }); } catch (e) { hits = [{ id: 'error', label: e.message }]; }
+      if (hits) {
+        guardStopped = hits;
+        log(`[agent] agent_task ${taskId} stopped by guardian: ${hits.map((h) => h.id).join(',')}`);
+        Promise.resolve(executor.cancel(trackedTaskId)).catch(() => {});
+        return;
+      }
+    }
     if (st === 'output') {
       applySegment('text', step.content, !!step.is_delta, !!step.is_snapshot);
       pushProgress();
@@ -1241,6 +1267,12 @@ async function handleAgentTask(msg, cfg) {
       return;
     }
 
+    if (guardStopped) {
+      // 被看护终止：不交回任何内容
+      send({ type: 'agent_task_result', task_id: taskId, status: 'rejected', error: hireGuard.REJECT_MESSAGE, usage: { duration_ms: Date.now() - started } });
+      noteRoute(false, 'stopped by owner security policy');
+      return;
+    }
     pushProgress({ force: true });
     const transcript = textAcc;
     const output = status?.result?.summary
@@ -1268,8 +1300,9 @@ async function handleAgentTask(msg, cfg) {
     }
     commitAgentOutput(send, taskId, {
       status: ok ? 'completed' : (status?.status || 'failed'),
-      output: finalBody.slice(0, 200_000),
-      error: ok ? null : (status?.error || status?.result?.output || 'failed'),
+      // 交回前本机再抹一遍密钥和本机路径
+      output: hireGuard.redact(finalBody, { workingDir }).slice(0, 200_000),
+      error: ok ? null : hireGuard.redact(status?.error || status?.result?.output || 'failed', { workingDir }),
       usage: { duration_ms: Date.now() - started },
       cli_session_id: cliSessionId || undefined,
     }, artifacts);

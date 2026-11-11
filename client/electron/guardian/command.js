@@ -261,6 +261,16 @@ function register() {
     const res = rm().projectToAgents(resourceId, agentIds, 'global', { force: false });
     return res && res.success === false ? { ok: false, error: res.error } : { ok: true };
   });
+  // 撤销一次安装：删掉这次装上的资产（连同它的投射）
+  guardian.registerAction('removeInstalled', ({ id, ids = [] }) => {
+    const m = rm();
+    for (const rid of [...new Set([id, ...ids].filter(Boolean))]) {
+      if (!m.getResource(rid)) continue;
+      const r = m.deleteResource(rid, { force: true });
+      if (r && r.success === false) return { ok: false, error: r.error };
+    }
+    return { ok: true };
+  });
   guardian.registerAction('commandSetRuntime', ({ agent }) => {
     const r = require('./engine').setRuntime(agent);
     return r.ok ? { ok: true } : { ok: false, error: r.error };

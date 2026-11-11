@@ -100,29 +100,8 @@ async function check() {
     const sec = checks.securityScan(files);
     if (sec.risk !== 'none') f.security = sec.risk;
     const secSig = `asset-security|${r.id}`;
-    // 只在它已经启用到应用里时提醒（没启用的，投射前会再拦一次）；用户信任过的不再提
-    const apps = projectedApps(r);
-    const high = sec.findings.filter(x => x.level === 'high');
-    const secFacts = { resourceId: r.id, resourceName: r.name, codes: [...new Set(high.map(x => x.code))].join(','), files: [...new Set(high.map(x => x.file))].join(',') };
-    if (sec.risk === 'high' && apps.length && !isTrusted(r.id, sec.findings) && !judgment().judge('asset-security', secFacts)) {
-      risky++;
-      guardian.record({
-        category: 'assets', kind: 'asset-security', status: 'info', countAsRepeat: false,
-        title: `「${label(r)}」包含高风险操作`,
-        detail: sec.findings.filter(x => x.level === 'high').map(x => `${x.text}（${x.file}:${x.line}）`).join('；'),
-        advice: '来源可靠就信任它，以后不再提醒；不确定的话先从应用里撤下（资产还在，随时可再启用）。',
-        signature: secSig,
-        facts: secFacts,
-        actions: [
-          { label: '从应用里撤下', done: '已撤下', run: { type: 'disableSkill', data: { resourceId: r.id } } },
-          { label: '信任它', done: '已信任', run: { type: 'trustSkill', data: { resourceId: r.id } }, undo: { type: 'untrustSkill', data: { resourceId: r.id } } },
-        ],
-        link: { to: '/resources', label: '查看', state: { resourceType: 'skill', selectKey: `r-${r.id}` } },
-        meta: { resourceId: r.id, findings: sec.findings },
-      });
-    } else {
-      guardian.resolveSignature(secSig);
-    }
+    // 高风险只打标签；启用到应用的那一刻会当场确认一次（securityGate），事后不再提醒
+    if (sec.risk === 'high') risky++;
 
     const md = files.find(x => /^skill\.md$/i.test(x.rel));
     if (md) bodies.push({ r, sh: checks.shingles(md.text) });
@@ -130,12 +109,9 @@ async function check() {
   }
 
   // 质量：只给资产列表打小标签（详情里的「诊断」可以手动补全描述），不单独提醒、不自动改内容
-  guardian.resolveSignature('asset-quality');
 
   // 重复：内容高度相似的两两成对给建议
   let dups = 0;
-  const uses = useCounts();
-  const disabledNow = new Set();   // 这一轮已经自动停用的，不再参与后面的配对（防止 A≈B≈C 全被停掉）
   for (let i = 0; i < bodies.length; i++) {
     for (let j = i + 1; j < bodies.length; j++) {
       const a = bodies[i];
@@ -146,33 +122,6 @@ async function check() {
       dups++;
       (flags[a.r.id] = flags[a.r.id] || {}).duplicateOf = [...((flags[a.r.id] || {}).duplicateOf || []), b.r.id];
       (flags[b.r.id] = flags[b.r.id] || {}).duplicateOf = [...((flags[b.r.id] || {}).duplicateOf || []), a.r.id];
-      const [x, y] = [a.r.id, b.r.id].sort();
-      const dupSig = `asset-dup|${x}|${y}`;
-      // 两个都启用到了同一个应用才会互相抢；只要有一个停用了，资产列表的小标签就够了，不再提醒
-      let sameRealDir = false;
-      try { sameRealDir = require('fs').realpathSync(authorityDir(a.r) || '') === require('fs').realpathSync(authorityDir(b.r) || ''); } catch { /* ignore */ }
-      const dupFacts = { nameA: a.r.name, nameB: b.r.name, similarity: Math.round(sim * 100) / 100, sameRealDir };
-      if (judgment().judge('asset-duplicate', dupFacts)) { guardian.resolveSignature(dupSig, '按学到的规则不算问题'); continue; }
-      const appsA = projectedApps(a.r);
-      const shared = projectedApps(b.r).filter(id => appsA.includes(id));
-      if (!shared.length || disabledNow.has(a.r.id) || disabledNow.has(b.r.id)) { guardian.resolveSignature(dupSig, '已有一个没在用'); continue; }
-      // 自动处理时停用用得少的那个；一样多就停用后装的
-      const score = (z) => [uses.get(String(z.name).toLowerCase()) || 0, -(Date.parse(z.created_at) || 0)];
-      const [sa, sb] = [score(a.r), score(b.r)];
-      const drop = (sa[0] - sb[0] || sa[1] - sb[1]) >= 0 ? b.r : a.r;
-      const dupRec = await guardian.handle({
-        category: 'assets', kind: 'asset-duplicate', status: 'info', countAsRepeat: false,
-        title: `「${label(a.r)}」和「${label(b.r)}」内容几乎相同（${Math.round(sim * 100)}%）`,
-        advice: '停用其中一个即可：重复的技能会让应用难以选择，也多占上下文。停用只是从应用里撤下，资产还在。',
-        signature: dupSig,
-        facts: dupFacts,
-        actions: [a.r, b.r].map(z => ({
-          label: `停用「${label(z)}」`, done: `已停用「${label(z)}」`, auto: z === drop, run: { type: 'disableSkill', data: { resourceId: z.id } },
-        })),
-        link: { to: '/resources', label: '查看', state: { resourceType: 'skill', selectKey: `r-${a.r.id}` } },
-        meta: { resourceIds: [a.r.id, b.r.id], similarity: sim },
-      });
-      if (dupRec && dupRec.status === 'done') disabledNow.add(drop.id);
     }
   }
 
@@ -187,18 +136,9 @@ async function check() {
     try { item = getCatalogItem(cid); } catch { /* ignore */ }
     const latest = item?.metadata?.version;
     const current = r.metadata?.version;
-    const sig = `asset-update|${r.id}`;
-    if (!item || !latest || !current || cmpVersion(latest, current) <= 0) { guardian.resolveSignature(sig); continue; }
+    if (!item || !latest || !current || cmpVersion(latest, current) <= 0) continue;
     updates++;
     (flags[r.id] = flags[r.id] || {}).updateAvailable = { from: current, to: latest, catalogId: cid };
-    guardian.record({
-      category: 'assets', kind: 'asset-update', status: 'suggested', countAsRepeat: false,
-      title: `「${label(r)}」有新版本 ${latest}（当前 ${current}）`,
-      advice: '更新会替换为社区里的新内容；更新后可在这里撤销。',
-      signature: sig,
-      apply: { type: 'updateFromCatalog', data: { resourceId: r.id, catalogId: cid } },
-      meta: { resourceId: r.id, from: current, to: latest },
-    });
   }
 
   store.writeJson('asset-flags.json', flags);
@@ -412,7 +352,7 @@ function register() {
   guardian.registerAction('disableSkill', disableSkill);
   guardian.registerAction('trustSkill', trustSkill);
   guardian.registerAction('untrustSkill', untrustSkill);
-  guardian.registerCheck('assets', check, 6 * 60 * 60 * 1000);
+  guardian.registerCheck('assets', check);
 }
 
 module.exports = { register, check, getFlags, updateFromCatalog, completeDescription, enhancePrompt, isSimplePrompt, securityGate, cmpVersion };

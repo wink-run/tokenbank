@@ -20,7 +20,6 @@ const learn = require('../guardian/dispatch-learn');
 const command = require('../guardian/command');
 learn.register();
 command.register();
-require('../guardian/capability-gaps').register();   // 撤销安装用的 removeInstalled
 
 const tick = () => new Promise((r) => setImmediate(r));
 let t_restore = () => {};
@@ -40,21 +39,18 @@ test('scene route correction: consistent reassigns become a dispatch preference 
   assert.doesNotMatch(require('../mcp-manager').orchestratorSystem(), /派发偏好/);
 });
 
-test('scene route correction in suggest mode, mixed directions, and off', async () => {
-  guardian.setSettings({ modes: { gateway: 'suggest' } });
+test('scene route correction: mixed directions do not become a preference; nothing is learned while the guardian is off', async () => {
   for (const to of ['codex', 'cursor', 'codex']) learn.feedback({ type: 'reassign', from: 'claude-code', to, prompt: '写测试用例，补单元测试' });
   assert.equal(guardian.listRecords().filter(r => r.kind === 'dispatch-pref' && r.meta.topic === 'test').length, 0, '2 of 3 is below 70% agreement');
   learn.feedback({ type: 'reassign', from: 'claude-code', to: 'codex', prompt: '给这个函数写单元测试' });
   learn.feedback({ type: 'reassign', from: 'claude-code', to: 'codex', prompt: '补一下 e2e tests' });
-  const sug = guardian.listRecords().find(r => r.kind === 'dispatch-pref' && r.meta.topic === 'test');
-  assert.equal(sug.status, 'suggested');
-  assert.deepEqual(learn.orchestratorHints(), [], 'suggest mode waits for the user');
-  assert.equal((await guardian.apply(sug.id)).ok, true);
+  const rec = guardian.listRecords().find(r => r.kind === 'dispatch-pref' && r.meta.topic === 'test');
+  assert.equal(rec.status, 'done', 'done silently, undoable');
   assert.match(learn.orchestratorHints().join('\n'), /写测试/);
-  guardian.setSettings({ modes: { gateway: 'off' } });
+  guardian.setSettings({ enabled: false });
   assert.deepEqual(learn.orchestratorHints(), []);
   assert.equal(learn.feedback({ type: 'reassign', from: 'a', to: 'b', prompt: 'x' }).skipped, true);
-  guardian.setSettings({ modes: { gateway: 'auto' } });
+  guardian.setSettings({ enabled: true });
 });
 
 test('command parse: management intents, business requests, unknown', async () => {

@@ -54,11 +54,9 @@ function setSettings(patch = {}) {
   return next;
 }
 
-/** 该类处理当前的模式；看护整体关闭时一律 off */
-function modeOf(category) {
-  const s = getSettings();
-  if (!s.enabled) return 'off';
-  return s.modes[category] || CATEGORIES[category]?.default || 'off';
+/** 看护开着就直接处理（'auto'），关了就什么都不做（'off'）。不再有「只给建议」 */
+function modeOf() {
+  return getSettings().enabled ? 'auto' : 'off';
 }
 
 // ── 自动处理记录 ─────────────────────────────────────────────────────────────
@@ -95,9 +93,9 @@ function record(entry) {
   }
   entry = { ...entry };
   delete entry._judged;
-  // 少打扰：没有可做的事就不提。只留有处理方式的、处理失败的、必须用户动手的（缺配置、没登录、Key 失效）
-  if (OPEN_STATUS.includes(entry.status) && !needsUser(entry) && !entry.surface) {
-    if (entry.signature) resolveSignature(entry.signature, '没有需要你做的事');
+  // 没有「待处理」：需要用户的事由看护在对话里说一句；只是告诉一声的不说；记录里只留做过的事
+  if (entry.status === 'info' || entry.status === 'suggested') {
+    if (needsUser(entry)) speak(entry);
     return null;
   }
   const now = Date.now();
@@ -243,54 +241,43 @@ async function handle(entry) {
   return record(entry);
 }
 
-// ── 少打扰：只有真要用户拿主意的才算「要你定」，其余是「供参考」────────────────
+// ── 需要用户的事：在对话里说一句，带几个快捷回复 ───────────────────────────────
 const OPEN_STATUS = ['info', 'suggested', 'failed'];
-// 这些要用户自己想清楚，不放进「一键按推荐处理」
-const THINK_KINDS = new Set(['judgment-rule']);
 
-/** 要你定：有处理按钮的、处理失败的、缺配置的（没模型、应用没纳管）；其余只是告诉你一声 */
-function needsUser(r) {
-  if (!r || !OPEN_STATUS.includes(r.status)) return false;
-  if (r.surface) return false;   // 属于别的页面（比如发现页的能力缺口），在那边显示和处理，不占这里
-  return (Array.isArray(r.actions) && r.actions.length > 0) || !!r.apply || r.status === 'failed' || r.category === 'setup' || r.needsUser === true;
+/** 只有用户能决定或动手的才开口：有处理方式可选的，或明确标了 needsUser 的 */
+function needsUser(e) {
+  if (!e) return false;
+  return (Array.isArray(e.actions) && e.actions.length > 0) || !!e.apply || e.needsUser === true;
 }
 
-/** 一句话总览：最近 7 天替你处理了几件、几件要你定、几条供参考 */
-function summary() {
-  const list = listRecords({ limit: RECORDS_MAX });
-  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const open = list.filter(r => OPEN_STATUS.includes(r.status));
-  const decide = open.filter(needsUser);
-  return {
-    handledThisWeek: list.filter(r => r.status === 'done' && (r.appliedAt || r.lastAt || r.at) >= weekAgo).length,
-    decide: decide.length,
-    recommendable: decide.filter(r => !THINK_KINDS.has(r.kind) && ((r.actions || []).length || r.apply)).length,
-  };
-}
-
-/** 一键按推荐处理：每条用第一个按钮（看护推荐的、可撤销的那个）；要想清楚的那几类跳过 */
-async function actRecommended() {
-  let done = 0;
-  const failed = [];
-  for (const r of listRecords({ limit: RECORDS_MAX })) {
-    if (!needsUser(r) || THINK_KINDS.has(r.kind)) continue;
-    if (!((r.actions || []).length || r.apply)) continue;
-    const res = (r.actions || []).length ? await act(r.id, 0) : await apply(r.id);
-    if (res.ok) done++; else failed.push({ title: r.title, error: res.error });
+function speak(entry) {
+  const log = { category: entry.category, kind: entry.kind, title: entry.title, signature: entry.signature, meta: entry.meta };
+  const replies = [];
+  for (const a of entry.actions || []) {
+    replies.push({ label: a.label, op: a.run, undo: a.undo || null, done: a.doneText || null, log: { ...log, actedLabel: a.done || a.label }, confirmOnly: !!a.confirmOnly, match: a.match || [] });
   }
-  return { ok: true, done, failed };
+  if (entry.apply) replies.push({ label: entry.applyLabel || '好，就这样做', op: entry.apply, undo: entry.applyUndo || null, log });
+  if (entry.link) replies.push({ label: entry.link.label || '带我去看', nav: { to: entry.link.to, state: entry.link.state || null } });
+  if (!entry.noMute) replies.push({ label: '这类不用告诉我', mute: entry.kind });
+  const text = [entry.say || `${entry.title}。`, entry.advice].filter(Boolean).join('');
+  try {
+    return require('./convo').push({ text, replies, mergeKey: entry.signature || null, topic: entry.kind });
+  } catch (e) {
+    console.warn('[guardian] speak:', e.message);
+    return null;
+  }
 }
 
-/** 老版本留下的、没有可做的事的提醒：收起（现在不再产生这类提醒） */
+/** 老版本留下的「待处理」记录：收起（现在需要用户的事在对话里说） */
 function tidy() {
   const now = Date.now();
   const list = listRecords({ limit: RECORDS_MAX });
   let n = 0;
   for (const r of list) {
-    if (!OPEN_STATUS.includes(r.status) || needsUser(r) || r.surface) continue;
+    if (r.status !== 'info' && r.status !== 'suggested') continue;
     r.status = 'resolved';
     r.resolvedAt = now;
-    r.resolvedNote = '没有需要你做的事';
+    r.resolvedNote = '改为在对话里说';
     n++;
   }
   if (n) saveRecords(list);
@@ -320,18 +307,9 @@ function emit(type, payload) {
   });
 }
 
-// ── 定期检查（轻量、离线；只看 Token Bank 自己的状态）────────────────────────
-function registerCheck(name, fn, intervalMs) {
-  checks.set(name, { fn, intervalMs, timer: null });
-  if (started) scheduleCheck(name);
-}
-
-function scheduleCheck(name) {
-  const c = checks.get(name);
-  if (!c || !c.intervalMs) return;
-  if (c.timer) clearInterval(c.timer);
-  c.timer = setInterval(() => runCheck(name).catch(() => {}), c.intervalMs);
-  if (c.timer.unref) c.timer.unref();
+// ── 检查：没有定时器。只在事件发生时（启动、应用变化）或用户在对话里要求时跑 ──────────
+function registerCheck(name, fn) {
+  checks.set(name, { fn });
 }
 
 async function runCheck(name) {
@@ -380,16 +358,15 @@ async function runChecks() {
   return out;
 }
 
+/** 启动事件：把上次运行期间可能坏掉的投射看一遍（只这一次，不是定时） */
 function start({ initialDelayMs = 30000 } = {}) {
   if (started) return;
   started = true;
-  for (const name of checks.keys()) scheduleCheck(name);
-  const t = setTimeout(() => runChecks().catch(() => {}), initialDelayMs);
+  const t = setTimeout(() => { if (checks.has('projection')) runCheck('projection').catch(() => {}); }, initialDelayMs);
   if (t.unref) t.unref();
 }
 
 function stop() {
-  for (const c of checks.values()) if (c.timer) clearInterval(c.timer);
   started = false;
 }
 
@@ -407,8 +384,7 @@ module.exports = {
   apply,
   act,
   needsUser,
-  summary,
-  actRecommended,
+  runAction,
   tidy,
   handle,
   wasUndone,

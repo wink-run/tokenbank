@@ -11,7 +11,6 @@ import McpProvidersTab from '../components/McpProvidersTab';
 import SkillInstallDialog from '../components/SkillInstallDialog';
 import AiNeedNotice from '../components/AiNeedNotice';
 import DiagnosePanel from '../components/DiagnosePanel';
-import CapabilityGapCard from '../components/CapabilityGapCard';
 import { projectWithGuard } from '../lib/project-guard';
 import { useAiReadiness } from '../lib/ai-readiness';
 import { isWebBridge } from '../api/webBridge';
@@ -4244,8 +4243,6 @@ export default function Resources() {
         ) : viewTab === 'recommend' ? (
           <div className="flex gap-4 items-start">
             <div className="flex-1 min-w-0 space-y-6">
-              {/* 能力缺口：常做却没有对应技能，置顶 */}
-              <CapabilityGapCard onChanged={() => loadAll({ silent: true })} onSearch={(q) => setQuery(q)} />
               {/* 社区精选 */}
               <section>
                 <LibrarySectionHead title={t('resources.catalogSection')} count={filteredCatalog.length || null} />
