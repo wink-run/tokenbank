@@ -2324,12 +2324,12 @@ function PreferenceMiningModal({ onClose, flash, onJobStart }) {
 }
 
 /** 会话管理面板：跨 agent 聚合 + 搜索/过滤 + 收藏/标签/归档 + 导出 */
-function SessionManager() {
+function SessionManager({ initialAgent = 'all' }) {
   const { t } = useLang();
   const [rows, setRows]           = useState([]);
   const [loading, setLoading]     = useState(true);
   const [q, setQ]                 = useState('');
-  const [agentFilter, setAgent]   = useState('all');
+  const [agentFilter, setAgent]   = useState(initialAgent || 'all');
   const [favOnly, setFavOnly]     = useState(false);
   const [traceRow, setTraceRow]   = useState(null);
   const [contState, setContState] = useState(null);
@@ -3030,6 +3030,14 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
   const [pending, setPending] = useState(() => readPending()); // 应用 id → { at, shell }
   const [rowMenu, setRowMenu] = useState(null);       // { id, top, right }：「⋯」菜单
   const [apiApp, setApiApp] = useState(null);         // 点了应用旁「接口」：弹出这个应用的接口说明
+  const [sessionsFor, setSessionsFor] = useState(null); // 会话弹窗：'all' 或某个应用的会话 agent id
+  // 「⋯」菜单、会话弹窗：按 Esc 关（焦点在哪都行）
+  useEffect(() => {
+    if (!rowMenu && !sessionsFor) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') { setRowMenu(null); setSessionsFor(null); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [rowMenu, sessionsFor]);
   const [loading,  setLoading]  = useState(true);   // 首次加载中（应用检测较慢）→ 显示加载特效而非空状态
   const [toolboxOpen, setToolboxOpen] = useState(false);       // 应用百宝箱展开态
   const [toolboxBusy, setToolboxBusy] = useState(false);       // 展开前从云端拉取目录
@@ -3702,6 +3710,10 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                 {t('gateway.apps.new')}
               </button>
               <span className="text-xs text-zinc-400 dark:text-zinc-500">{t('gateway.apps.newHint')}</span>
+              <button type="button" onClick={() => setSessionsFor('all')}
+                className="text-xs px-2.5 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                {t('gateway.sessions.allButton')}
+              </button>
               <AppToolbox
                 open={toolboxOpen}
                 busy={toolboxBusy}
@@ -4042,6 +4054,9 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
               if (app.api_key && runnableHarnessId(app)) {
                 items.push({ key: 'ta', label: t('gateway.apps.menu.testAgent'), hint: t('gateway.apps.menu.testAgentHint'), run: () => runAgentTest(app) });
               }
+              if (traceAgentIdForApp(app)) {
+                items.push({ key: 'ss', label: t('gateway.apps.menu.sessions'), hint: t('gateway.apps.menu.sessionsHint'), run: () => setSessionsFor(traceAgentIdForApp(app)) });
+              }
               items.push({ key: 'set', label: t('gateway.apps.menu.settings'), hint: t('gateway.apps.menu.settingsHint'), run: () => openAppSettings(app) });
               const revertable = rs.isDirectOnly || rs.isSessionApp || app.link_method === 'shim' || app.host_method === 'config-file';
               if (revertable && rs.tracked) {
@@ -4068,6 +4083,22 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                 document.body,
               );
             })()}
+            {sessionsFor && createPortal(
+              <div className="electron-no-drag fixed inset-0 z-[80] flex items-start justify-center bg-black/40 p-4 overflow-y-auto" onClick={() => setSessionsFor(null)}>
+                <div role="dialog" aria-modal="true" aria-labelledby="gw-sessions-title"
+                  className="w-full max-w-5xl my-8 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-2xl"
+                  onClick={e => e.stopPropagation()}
+                  onKeyDown={e => { if (e.key === 'Escape') setSessionsFor(null); }}>
+                  <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-200 dark:border-zinc-700">
+                    <h2 id="gw-sessions-title" className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">{t('gateway.tab.sessions')}</h2>
+                    <button type="button" onClick={() => setSessionsFor(null)} aria-label={t('gateway.common.close')}
+                      className="ml-auto w-8 h-8 rounded-lg text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800">✕</button>
+                  </div>
+                  <SessionManager key={sessionsFor} initialAgent={sessionsFor} />
+                </div>
+              </div>,
+              document.body,
+            )}
             {apiApp && (
               <AppApiDialog app={apiApp} routes={routes} availableModels={availableModels} localBase={localBase} onClose={() => setApiApp(null)} />
             )}
@@ -5592,7 +5623,6 @@ export default function Gateway() {
   const [network, setNetwork]   = useState(null);   // /public/network 快照：路由日志把 worker_id join 成分享者
   const [selectedLog, setSelectedLog] = useState(null);
   const [restarting, setRestarting] = useState(false);
-  const [mainTab, setMainTab]   = useState(0);   // 0=应用列表 2=会话（自定义路由搬到了模型页）
   const routeLogRef = useRef(null);
   const pendingRouteLogScroll = useRef(false);
   // 其它页跳转到场景路由：navigate('/gateway', { state: { gatewayTab: 'routes' } })
@@ -5602,7 +5632,6 @@ export default function Gateway() {
     const want = gwLocation.state?.gatewayTab;
     if (!want) return;
     if (want === 'routes') { gwNavigate('/providers', { replace: true, state: { focus: 'customRoutes' } }); return; }
-    if (want === 'apps') setMainTab(0);
     gwNavigate(gwLocation.pathname, { replace: true, state: null });
   }, [gwLocation.state]); // eslint-disable-line react-hooks/exhaustive-deps
   // 顶部「请求 / 任务」点进来：展开请求明细并滚过去
@@ -5617,7 +5646,6 @@ export default function Gateway() {
     pendingRouteLogScroll.current = false;
     routeLogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [showLog]);
-  const [sessionsMounted, setSessionsMounted] = useState(false); // 首次进入会话 Tab 后保持挂载
 
   // Scene routing
   const [routes, setRoutes]               = useState([]);
@@ -5868,46 +5896,8 @@ export default function Gateway() {
 
       {/* 应用列表 / 场景路由 Tab — 大面板用更透的 soft-panel */}
       <div className="tb-soft-panel rounded-2xl overflow-hidden min-w-0">
-        {/* Tab bar（macOS 分段控件）+ Endpoint 合并一行 */}
-        <div className="flex items-center gap-3 px-2.5 py-2 border-b border-white/40 dark:border-white/[0.06] overflow-x-auto">
-          <div className="tb-glass-chip inline-flex items-center gap-0.5 p-0.5 rounded-[10px] shrink-0">
-          {[
-            { id: 0, label: t('gateway.tab.apps'), icon: (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="w-[15px] h-[15px] shrink-0">
-                <path d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
-              </svg>
-            )},
-            { id: 2, label: t('gateway.tab.sessions'), icon: (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="w-[15px] h-[15px] shrink-0">
-                <path d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
-              </svg>
-            )},
-          ].map(({ id: i, label, icon }) => (
-            <button key={i} onClick={() => {
-              setMainTab(i);
-              if (i === 2) setSessionsMounted(true);
-            }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-medium whitespace-nowrap transition-[background-color,color,box-shadow] duration-150 ease-out ${mainTab === i
-                ? 'bg-white/80 dark:bg-white/10 text-zinc-900 dark:text-white shadow-sm'
-                : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'}`}>
-              {icon}
-              {label}
-            </button>
-          ))}
-          </div>
-        </div>
-
-        {/* Tab0: 应用列表 & 托管 */}
-        {mainTab === 0 && (
-          <AppManager externalRoutes={routes} availableModels={availableModels} onActivity={refresh} />
-        )}
-
-        {/* Tab2: 会话管理 — 首次进入后保持挂载，避免切 Tab 反复扫盘 */}
-        {sessionsMounted && (
-          <div className={mainTab === 2 ? '' : 'hidden'}>
-            <SessionManager />
-          </div>
-        )}
+        {/* 应用列表；会话从应用的「⋯ → 会话」或「全部会话」打开 */}
+        <AppManager externalRoutes={routes} availableModels={availableModels} onActivity={refresh} />
       </div>
 
       {/* 请求明细：默认收起；点顶部「请求 / 任务」或这里展开 */}

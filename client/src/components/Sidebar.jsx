@@ -56,7 +56,7 @@ export default function Sidebar({ onToggleCollapse }) {
 
   const settingsBtn = (
     <button
-      onClick={() => navigate('/config')}
+      onClick={() => (user ? navigate('/account', { state: { focus: 'settings' } }) : navigate('/config'))}
       title={pendingVersion ? t('updater.pendingTitle', { version: pendingVersion }) : t('nav.settings')}
       className={`tb-press relative shrink-0 flex items-center justify-center w-10 rounded-xl ${
         settingsActive

@@ -346,6 +346,9 @@ export default {
   'gateway.apps.menu.testModelHint': "发一条请求，看它现在实际走到哪个模型",
   'gateway.apps.menu.testAgent': "测试智能体",
   'gateway.apps.menu.testAgentHint': "发一个任务，看能不能拉起来",
+  'gateway.sessions.allButton': "全部会话",
+  'gateway.apps.menu.sessions': "会话",
+  'gateway.apps.menu.sessionsHint': "这个应用的历史会话：搜索、收藏、导出、换个应用接着聊",
   'gateway.apps.menu.settings': "设置",
   'gateway.apps.menu.settingsHint': "路由、限速、允许的模型、接入配置",
   'gateway.apps.menu.revert': "还原",
@@ -1246,6 +1249,11 @@ export default {
   'common.sourceSessionImport': '订阅直连',
 
   // ── 盘点 ──
+  'dashboard.scopeMerged': "已登录，{n} 台设备合并",
+  'dashboard.scopeLocal': "只看这台电脑，登录后能把多台设备合在一起看",
+  'dashboard.thisDevice': "这台电脑的明细",
+  'profile.usageMoved': "用量和花费都在「盘点」里，登录后那里是多台设备合并的数。",
+  'profile.goDashboard': "去盘点",
   'dashboard.title': '盘点',
   'dashboard.subtitle': '看清每个 AI 应用用了多少、花了多少',
   'dashboard.totalRequests': '总请求数',

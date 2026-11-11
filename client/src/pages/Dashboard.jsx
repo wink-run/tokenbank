@@ -7,6 +7,8 @@ import { useCurrency } from '../store/currency';
 import { RANGE_KEYS, RANGE_DAYS } from '../utils/ranges';
 import { isAppIcon, appIconSvg } from '../lib/appIcons';
 import { brandIconFor } from '../lib/brandIcons';
+import { useAuth } from '../store/index';
+import { MultiDeviceUsage } from './TokenDashboard';
 
 const PAID_PROVIDERS = ['openai', 'anthropic-paid', 'openrouter', 'anthropic'];
 const P2P_PROVIDERS  = ['tokenbank-p2p'];
@@ -608,6 +610,8 @@ export default function Dashboard() {
   const [gwStatus, setGwStatus]   = useState(null);
   const [compStats, setCompStats] = useState(null);
   const [loading, setLoading]     = useState(true);
+  const { user } = useAuth();
+  const [merged, setMerged]       = useState(null);   // 登录后：多台设备合并的数（云端）
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -746,8 +750,25 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
-        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">{t('dashboard.subtitle')}</p>
+        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+          {t('dashboard.subtitle')}
+          {' · '}
+          {user && merged?.source === 'cloud'
+            ? t('dashboard.scopeMerged', { n: merged.device_count ?? (merged.devices || []).length ?? 0 })
+            : t('dashboard.scopeLocal')}
+        </p>
       </div>
+
+      {/* 登录后：多台设备合并（云端汇总），按设备看分布 */}
+      {/* 云端取不到时它会退回这台电脑的数，和下面重复，所以只在拿到云端数据时显示 */}
+      {user && (
+        <div className={merged?.source === 'cloud' ? '' : 'hidden'}>
+          <MultiDeviceUsage range={range} onData={setMerged} />
+        </div>
+      )}
+      {user && merged?.source === 'cloud' && (
+        <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 pt-2">{t('dashboard.thisDevice')}</h2>
+      )}
 
       {/* Summary cards — 5列 */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">

@@ -21,7 +21,7 @@ function persistServerUrl(url) {
   return next;
 }
 
-export default function Config() {
+export default function Config({ embedded = false }) {
   const { user, logout } = useAuth();
 
   const [serverUrl, setServerUrl] = useState(
@@ -38,7 +38,7 @@ export default function Config() {
   }
 
   // 设置页：登录与否均可访问
-  return <Settings user={user} onLogout={handleLogout} serverUrl={serverUrl} setServerUrl={setServerUrl} />;
+  return <Settings user={user} onLogout={handleLogout} serverUrl={serverUrl} setServerUrl={setServerUrl} embedded={embedded} />;
 }
 
 // ── Toggle helper ─────────────────────────────────────────────────────────────
@@ -76,7 +76,7 @@ function SelectRow({ label, hint, value, onChange, options }) {
 }
 
 // ── Settings（登录与否均可访问）──────────────────────────────────────────────
-function Settings({ user, onLogout, serverUrl, setServerUrl }) {
+function Settings({ user, onLogout, serverUrl, setServerUrl, embedded = false }) {
   const { theme, setTheme } = useTheme();
   const { lang, setLang, t } = useLang();
   const { currency, usdCnyRate, applySettings } = useCurrency();
@@ -315,13 +315,17 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
   ];
 
   return (
-    <div className="px-4 py-4 space-y-4 w-full max-w-4xl mx-auto">
+    <div className={embedded ? 'space-y-4 w-full' : 'px-4 py-4 space-y-4 w-full max-w-4xl mx-auto'}>
 
-      {/* Header */}
+      {/* Header：嵌在个人页时用小标题 */}
+      {embedded ? (
+        <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{t('settings.title')}</h2>
+      ) : (
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">{t('settings.title')}</h1>
         <p className="text-sm text-gray-500 mt-0.5">{t('settings.subtitle')}</p>
       </div>
+      )}
 
       {/* Gateway section */}
       <div className="tb-soft-card rounded-2xl overflow-hidden">

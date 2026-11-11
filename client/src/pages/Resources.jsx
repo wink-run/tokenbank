@@ -933,6 +933,12 @@ export default function Resources() {
   // 看护资产体检的小标签（质量 / 安全 / 重复 / 新版本），按资产 id 索引
   const [assetFlags, setAssetFlags] = useState({});
   const [addMenuOpen, setAddMenuOpen] = useState(false);   // 右上角「添加」菜单
+  useEffect(() => {
+    if (!addMenuOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setAddMenuOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [addMenuOpen]);
   const loadAssetFlags = useCallback(async () => {
     try {
       const r = await window.electronAPI?.guardian?.assetFlags?.();

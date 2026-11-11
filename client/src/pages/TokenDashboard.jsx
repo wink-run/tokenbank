@@ -6,6 +6,7 @@ import { useLang } from '../store/lang';
 import { useCurrency } from '../store/currency';
 import { getTransactions, checkin, getCheckinStatus, getPurchaseOrders, createPurchaseOrder, spin, getSpinStatus, getUserDevices, deleteDevice, getInventoryStats, getProviderCatalog } from '../api/client';
 import UserAccountsPanel from '../components/UserAccountsPanel';
+import Config from './Config';
 import { billingAccountsFromDevices } from '../lib/accountsSummary';
 import { enrichBillingCost, resolveBillableSubscriptions } from '../utils/billing-cost';
 import { loadUserAccounts } from '../api/userAccounts';
@@ -14,7 +15,7 @@ import { getReportedDeviceId } from '../hooks/useDeviceReporter';
 import { isAppIcon, appIconSvg } from '../lib/appIcons';
 
 /** 从云端拉取各设备聚合盘点；失败时回退本机数据，并合并订阅折算 + 按量费用 */
-async function fetchDashboardStats(days) {
+export async function fetchDashboardStats(days) {
   let raw = null;
   try {
     const r = await getInventoryStats(days);
@@ -50,6 +51,168 @@ async function fetchDashboardStats(days) {
   } catch { /* 无账户配置时仅显示按量 token 费用 */ }
 
   return enrichBillingCost(raw, [], payg, days, catalog);
+}
+
+
+/**
+ * 多台设备合并的用量（登录后云端汇总；取不到时退回这台电脑）。盘点页顶部用。
+ * onData：把合并后的总数交给盘点页的指标卡
+ */
+export function MultiDeviceUsage({ range = 'today', onData }) {
+  const { t } = useLang();
+  const { fmtCost } = useCurrency();
+  const [rangeStats,  setRangeStats] = useState({ calls: 0, tokens: 0, free: 0, p2p: 0, paid: 0 });
+  const [localData,   setLocalData]  = useState(null);
+  const [compStats,   setCompStats]  = useState(null);
+  const [dataSource,  setDataSource]  = useState('cloud');
+  const [deviceList,  setDeviceList]  = useState([]);
+  const [distFilter,  setDistFilter]  = useState('all');
+  useEffect(() => {
+    const days = RANGE_DAYS[range];
+    fetchDashboardStats(days).then(data => {
+      setLocalData(data);
+      setDataSource(data.source || 'cloud');
+      setRangeStats({
+        calls:  data.total_calls  || 0,
+        tokens: data.total_tokens || 0,
+        free:   data.tiers?.free  || 0,
+        p2p:    data.tiers?.p2p   || 0,
+        paid:   data.tiers?.paid  || 0,
+      });
+      setDeviceList(data.devices || []);
+      setDistFilter('all');
+      // 压缩比：个人页优先用云端各端汇总（merge 后的 inventory 带 compression）；
+      // 云端不可用回退到本机日志。
+      if (data.compression) {
+        setCompStats(data.compression);
+      } else {
+        const cp = window.electronAPI?.localStats?.compression
+          ? window.electronAPI.localStats.compression(days)
+          : fetch(`/api/compression-stats?days=${days}`).then(r => (r.ok ? r.json() : null)).catch(() => null);
+        Promise.resolve(cp).then(s => setCompStats(s || null)).catch(() => setCompStats(null));
+      }
+      onData?.(data);
+    }).catch(() => {});
+  }, [range]); // eslint-disable-line react-hooks/exhaustive-deps
+
+
+  const rangeLabel = t(`profile.range.${range}`);
+  const heroTotal   = rangeStats.calls;
+  const heroFree    = rangeStats.free;
+
+  const localTotalCalls = localData?.total_calls ?? 0;
+
+  const fmtRangeCalls  = heroTotal >= 1000 ? `${(heroTotal / 1000).toFixed(1)}K` : String(heroTotal);
+  const fmtRangeTokens = fmtNum(rangeStats.tokens);
+  const deviceCount    = localData?.device_count ?? localData?.devices?.length ?? 0;
+  const onlineCount    = (localData?.devices || []).filter(d => d.online).length;
+
+
+  const subCostStr = localData?.subscription_cost > 0
+    ? fmtCost(localData.subscription_cost)
+    : ' —';
+  const paygCostStr = localData?.payg_cost > 0
+    ? fmtCost(localData.payg_cost)
+    : ' —';
+
+  return (
+    <div className="space-y-4">
+      {/* 用量总览 */}
+      <div className={`${PROFILE_CARD} p-6`}>
+        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+          <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">{t('profile.overview', { range: rangeLabel })}</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">{t('profile.calls')}</p>
+            <p className="text-3xl sm:text-4xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">{fmtRangeCalls}</p>
+            {heroTotal > 0 && (
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
+                {t('profile.freeBreakdown', {
+                  free: heroFree,
+                  pct: Math.round(heroFree / heroTotal * 100),
+                  p2p: rangeStats.p2p,
+                  paid: rangeStats.paid,
+                })}
+              </p>
+            )}
+            {deviceCount > 0 && (
+              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                {onlineCount > 0
+                  ? t('profile.devicesOnline', { count: deviceCount, online: onlineCount })
+                  : t('profile.devicesCount', { count: deviceCount })}
+              </p>
+            )}
+          </div>
+          <div className="border-l border-zinc-200 dark:border-zinc-800 pl-4">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">{t('profile.tokens')}</p>
+            <p className="text-3xl sm:text-4xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">{fmtRangeTokens}</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
+              {dataSource === 'cloud'
+                ? t('profile.cloudTotal', { range: rangeLabel })
+                : t('profile.localTotal', { range: rangeLabel })}
+            </p>
+          </div>
+          <div className="border-l border-zinc-200 dark:border-zinc-800 pl-4">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">{t('profile.cost')}</p>
+            <p className="text-3xl sm:text-4xl font-bold text-zinc-900 dark:text-zinc-100 font-mono tabular-nums">
+              {localData?.total_cost > 0
+                ? fmtCost(localData.total_cost)
+                : '—'}
+            </p>
+            {localData?.total_cost > 0 && (
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
+                {t('profile.costSub', { sub: subCostStr, payg: paygCostStr })}
+              </p>
+            )}
+            <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">{t('profile.costEstimate')}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* 用量分布：工具 / 供给 / 模型（可按端筛选） */}
+      <UsageDistributionPanel
+        localData={localData}
+        devices={deviceList.length ? deviceList : localData?.devices}
+        rangeLabel={rangeLabel}
+        filterId={distFilter}
+        onFilterChange={setDistFilter}
+      />
+      {/* 压缩节省（无损 JSON 压缩） */}
+      {compStats && (
+        <div className={`${PROFILE_CARD} p-5`}>
+          <div className="mb-3">
+            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{t('profile.compression.title')}</h2>
+          </div>
+          {compStats.count > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">{t('profile.compression.requests')}</p>
+                <p className="text-2xl font-bold text-zinc-800 dark:text-zinc-100">{compStats.count}</p>
+              </div>
+              <div className="border-l border-zinc-200/70 dark:border-zinc-700/70 pl-4">
+                <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">{t('profile.compression.saved')}</p>
+                <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                  {fmtNum(compStats.saved)}
+                </p>
+              </div>
+              <div className="border-l border-zinc-200/70 dark:border-zinc-700/70 pl-4">
+                <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">{t('profile.compression.savedCost')}</p>
+                <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtCost(compStats.saved_usd || 0)}</p>
+              </div>
+              <div className="border-l border-zinc-200/70 dark:border-zinc-700/70 pl-4">
+                <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">{t('profile.compression.ratio')}</p>
+                <p className="text-2xl font-bold text-zinc-800 dark:text-zinc-100">{(compStats.ratio * 100).toFixed(1)}%</p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-zinc-400 dark:text-zinc-500">{t('profile.compression.empty')}</p>
+          )}
+        </div>
+      )}
+
+    </div>
+  );
 }
 
 // 颜色 palette，按 provider id hash 分配，避免写死 provider 列表
@@ -624,13 +787,6 @@ export default function TokenDashboard() {
   const [orderMsg, setOrderMsg] = useState('');
   const [orderMsgOk,setOrderMsgOk]=useState(false);
   const [creditsOpen,setCreditsOpen]=useState(false);
-  const [range,       setRange]      = useState('today');
-  const [rangeStats,  setRangeStats] = useState({ calls: 0, tokens: 0, free: 0, p2p: 0, paid: 0 });
-  const [localData,   setLocalData]  = useState(null);
-  const [compStats,   setCompStats]  = useState(null);
-  const [dataSource,  setDataSource]  = useState('cloud');
-  const [deviceList,  setDeviceList]  = useState([]);
-  const [distFilter,  setDistFilter]  = useState('all');
   useEffect(() => {
     if (user) {   // 账号相关数据仅登录时拉取；游客跳过（统计走本地 fetchDashboardStats）
       refreshUser();
@@ -652,46 +808,13 @@ export default function TokenDashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 从侧栏齿轮或其它页带 focus: 'settings' 过来：滚到设置
   useEffect(() => {
-    const days = RANGE_DAYS[range];
-    fetchDashboardStats(days).then(data => {
-      setLocalData(data);
-      setDataSource(data.source || 'cloud');
-      setRangeStats({
-        calls:  data.total_calls  || 0,
-        tokens: data.total_tokens || 0,
-        free:   data.tiers?.free  || 0,
-        p2p:    data.tiers?.p2p   || 0,
-        paid:   data.tiers?.paid  || 0,
-      });
-      setDeviceList(data.devices || []);
-      setDistFilter('all');
-      // 压缩比：个人页优先用云端各端汇总（merge 后的 inventory 带 compression）；
-      // 云端不可用回退到本机日志。
-      if (data.compression) {
-        setCompStats(data.compression);
-      } else {
-        const cp = window.electronAPI?.localStats?.compression
-          ? window.electronAPI.localStats.compression(days)
-          : fetch(`/api/compression-stats?days=${days}`).then(r => (r.ok ? r.json() : null)).catch(() => null);
-        Promise.resolve(cp).then(s => setCompStats(s || null)).catch(() => setCompStats(null));
-      }
-    }).catch(() => {});
-  }, [range]);
+    if (location.state?.focus !== 'settings') return;
+    setTimeout(() => document.getElementById('settings')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!user && !guest) return null;
-
-  const heroTotal   = rangeStats.calls;
-  const heroFree    = rangeStats.free;
-
-  const localTotalCalls = localData?.total_calls ?? 0;
-
-  const fmtRangeCalls  = heroTotal >= 1000 ? `${(heroTotal / 1000).toFixed(1)}K` : String(heroTotal);
-  const fmtRangeTokens = fmtNum(rangeStats.tokens);
-  const deviceCount    = localData?.device_count ?? localData?.devices?.length ?? 0;
-  const onlineCount    = (localData?.devices || []).filter(d => d.online).length;
-
-  const rangeLabel = t(`profile.range.${range}`);
 
   async function handleOrder(e) {
     e.preventDefault();
@@ -706,13 +829,6 @@ export default function TokenDashboard() {
       setOrderMsgOk(false); setOrderMsg(err.response?.data?.detail || t('profile.purchase.failed'));
     } finally { setSubmitting(false); }
   }
-
-  const subCostStr = localData?.subscription_cost > 0
-    ? fmtCost(localData.subscription_cost)
-    : ' —';
-  const paygCostStr = localData?.payg_cost > 0
-    ? fmtCost(localData.payg_cost)
-    : ' —';
 
   return (
     <div className="px-4 py-4 space-y-4">
@@ -748,66 +864,6 @@ export default function TokenDashboard() {
       </div>
       )}
 
-      {/* 用量总览 */}
-      <div className={`${PROFILE_CARD} p-6`}>
-        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-          <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">{t('profile.overview', { range: rangeLabel })}</p>
-          <div className={RANGE_PILL_WRAP}>
-            {RANGE_KEYS.map(r => (
-              <button key={r} type="button" onClick={() => setRange(r)} className={rangePillClass(range === r)}>
-                {t(`profile.range.${r}`)}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">{t('profile.calls')}</p>
-            <p className="text-3xl sm:text-4xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">{fmtRangeCalls}</p>
-            {heroTotal > 0 && (
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
-                {t('profile.freeBreakdown', {
-                  free: heroFree,
-                  pct: Math.round(heroFree / heroTotal * 100),
-                  p2p: rangeStats.p2p,
-                  paid: rangeStats.paid,
-                })}
-              </p>
-            )}
-            {deviceCount > 0 && (
-              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-                {onlineCount > 0
-                  ? t('profile.devicesOnline', { count: deviceCount, online: onlineCount })
-                  : t('profile.devicesCount', { count: deviceCount })}
-              </p>
-            )}
-          </div>
-          <div className="border-l border-zinc-200 dark:border-zinc-800 pl-4">
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">{t('profile.tokens')}</p>
-            <p className="text-3xl sm:text-4xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">{fmtRangeTokens}</p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
-              {dataSource === 'cloud'
-                ? t('profile.cloudTotal', { range: rangeLabel })
-                : t('profile.localTotal', { range: rangeLabel })}
-            </p>
-          </div>
-          <div className="border-l border-zinc-200 dark:border-zinc-800 pl-4">
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">{t('profile.cost')}</p>
-            <p className="text-3xl sm:text-4xl font-bold text-zinc-900 dark:text-zinc-100 font-mono tabular-nums">
-              {localData?.total_cost > 0
-                ? fmtCost(localData.total_cost)
-                : '—'}
-            </p>
-            {localData?.total_cost > 0 && (
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
-                {t('profile.costSub', { sub: subCostStr, payg: paygCostStr })}
-              </p>
-            )}
-            <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">{t('profile.costEstimate')}</p>
-          </div>
-        </div>
-      </div>
-
       {/* 我的设备（仅登录） */}
       {user && <DevicesSection />}
 
@@ -842,47 +898,20 @@ export default function TokenDashboard() {
       />
       )}
 
-      {/* 用量分布：工具 / 供给 / 模型（可按端筛选） */}
-      <UsageDistributionPanel
-        localData={localData}
-        devices={deviceList.length ? deviceList : localData?.devices}
-        rangeLabel={rangeLabel}
-        filterId={distFilter}
-        onFilterChange={setDistFilter}
-      />
+      {/* 用量和花费都在「盘点」里：登录后那里是多台设备合并的数 */}
+      <div className={`${PROFILE_CARD} p-5 flex flex-wrap items-center gap-3`}>
+        <p className="text-sm text-zinc-600 dark:text-zinc-300 flex-1 min-w-0">{t('profile.usageMoved')}</p>
+        <button type="button" onClick={() => navigate('/dashboard')}
+          className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800">
+          {t('profile.goDashboard')}
+        </button>
+      </div>
 
-      {/* 压缩节省（无损 JSON 压缩） */}
-      {compStats && (
-        <div className={`${PROFILE_CARD} p-5`}>
-          <div className="mb-3">
-            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{t('profile.compression.title')}</h2>
-          </div>
-          {compStats.count > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div>
-                <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">{t('profile.compression.requests')}</p>
-                <p className="text-2xl font-bold text-zinc-800 dark:text-zinc-100">{compStats.count}</p>
-              </div>
-              <div className="border-l border-zinc-200/70 dark:border-zinc-700/70 pl-4">
-                <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">{t('profile.compression.saved')}</p>
-                <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                  {fmtNum(compStats.saved)}
-                </p>
-              </div>
-              <div className="border-l border-zinc-200/70 dark:border-zinc-700/70 pl-4">
-                <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">{t('profile.compression.savedCost')}</p>
-                <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtCost(compStats.saved_usd || 0)}</p>
-              </div>
-              <div className="border-l border-zinc-200/70 dark:border-zinc-700/70 pl-4">
-                <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">{t('profile.compression.ratio')}</p>
-                <p className="text-2xl font-bold text-zinc-800 dark:text-zinc-100">{(compStats.ratio * 100).toFixed(1)}%</p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-zinc-400 dark:text-zinc-500">{t('profile.compression.empty')}</p>
-          )}
-        </div>
-      )}
+      {/* 设置：原侧栏齿轮的设置页并到这里（没登录时仍从齿轮进设置页） */}
+      <section id="settings" className="scroll-mt-3">
+        <Config embedded />
+      </section>
+
 
 
     </div>
