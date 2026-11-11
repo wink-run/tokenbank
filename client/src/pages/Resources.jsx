@@ -7,13 +7,10 @@ import {
   LIB_LIST_CLS, libRowCls, LibrarySectionHead, LibraryRowTitle,
   LibraryInspector, InspectorSection, InspectorPreview,
 } from '../components/LibraryControls';
-import PersonalizedRecommend from '../components/PersonalizedRecommend';
 import McpProvidersTab from '../components/McpProvidersTab';
 import SkillInstallDialog from '../components/SkillInstallDialog';
 import AiNeedNotice from '../components/AiNeedNotice';
 import DiagnosePanel from '../components/DiagnosePanel';
-import CapabilityGapCard from '../components/CapabilityGapCard';
-import SearchCommandPanel, { useSearchCommand } from '../components/SearchCommand';
 import { projectWithGuard } from '../lib/project-guard';
 import { useAiReadiness } from '../lib/ai-readiness';
 import { isWebBridge } from '../api/webBridge';
@@ -499,11 +496,10 @@ export default function Resources() {
   const [typeFilter, setTypeFilter] = useState(() => (readViewTab() === 'recommend' ? readDiscoverType() : readTypeFilter()));
   const [query, setQuery] = useState('');
   // 说一句话就办：搜索框回车时，管理类指令弹确认
-  const searchCmd = useSearchCommand();
   const searchInputRef = useRef(null);
   /** 选中行（右侧详情面板）：资产库 r-/d-，社区 cat:，推荐 reco: */
   const [selectedKey, setSelectedKey] = useState(null);
-  /** 推荐 Tab 详情面板挂载点（PersonalizedRecommend 通过 portal 渲染进来） */
+  /** 发现页详情面板挂载点 */
   const [inspectorHost, setInspectorHost] = useState(null);
   /** MCP 类型：「新建」按钮 → 打开 MCP 组件内的自定义表单 */
   const [mcpCreateSignal, setMcpCreateSignal] = useState(0);
@@ -945,21 +941,6 @@ export default function Resources() {
     await loadBase({ silent });
     loadAssetFlags();
   }, [loadBase, runScan, loadAssetFlags]);
-
-  /** 推荐页纳管后的静默刷新:不切 loading,避免卸载 PersonalizedRecommend 丢按钮状态 */
-  const refreshAfterAdopt = useCallback(async () => {
-    try { await runScan({ silent: true }); } catch { /* 扫描失败不阻断列表刷新 */ }
-    try { await loadBase({ silent: true }); } catch { /* ignore */ }
-  }, [loadBase, runScan]);
-
-  /** 个性化推荐纳管成功:立刻插入本机列表,再静默刷新依赖 */
-  const handleRecoAdopted = useCallback((resource, meta = {}) => {
-    if (resource && resource.id) {
-      upsertResourceLocally(resource);
-      if (meta.catalogId) markCatalogInstalled(meta.catalogId, resource);
-    }
-    refreshAfterAdopt();
-  }, [refreshAfterAdopt]);
 
   // 首屏全量加载；之后筛选/搜索走 silent，避免列表被掏空
   useEffect(() => {
@@ -3922,11 +3903,9 @@ export default function Resources() {
               value={query}
               onChange={e => setQuery(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Escape') { setQuery(''); searchCmd.close(); e.currentTarget.blur(); }
-                if (e.key === 'Enter' && !e.nativeEvent.isComposing) searchCmd.tryCommand(query);
+                if (e.key === 'Escape') { setQuery(''); e.currentTarget.blur(); }
               }}
               placeholder={t('resources.searchPlaceholder')}
-              title={t('resources.cmd.hint')}
               className="tb-soft-field w-full text-xs pl-8 pr-8 py-1.5 rounded-lg text-zinc-900 dark:text-zinc-100"
             />
             {searching ? (
@@ -3945,7 +3924,6 @@ export default function Resources() {
             ) : (
               <kbd className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] px-1.5 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-400 font-sans pointer-events-none">/</kbd>
             )}
-            <SearchCommandPanel cmd={searchCmd} onSearchOnly={() => searchInputRef.current?.focus()} />
           </div>
         </div>
       </header>
@@ -4265,24 +4243,6 @@ export default function Resources() {
         ) : viewTab === 'recommend' ? (
           <div className="flex gap-4 items-start">
             <div className="flex-1 min-w-0 space-y-6">
-              {/* 能力缺口：常做却没有对应技能，置顶 */}
-              <CapabilityGapCard onChanged={() => loadAll({ silent: true })} onSearch={(q) => setQuery(q)} />
-              {/* 画像 + 基于画像的推荐（列表 / 详情与资产库一致） */}
-              <PersonalizedRecommend
-                typeFilter={typeFilter}
-                purposeFilter={tagFilter}
-                searchQuery={debouncedQuery}
-                LogoComp={AssetLogo}
-                onNeedProject={() => changeViewTab('managed')}
-                onNeedAgent={() => navigate('/guardian')}
-                onOpenGuardian={() => navigate('/guardian')}
-                onRefresh={refreshAfterAdopt}
-                onAdopted={handleRecoAdopted}
-                onItemsChange={() => setRecoPurposeRev((n) => n + 1)}
-                selectedKey={selectedKey}
-                onSelect={setSelectedKey}
-                inspectorHost={inspectorHost}
-              />
               {/* 社区精选 */}
               <section>
                 <LibrarySectionHead title={t('resources.catalogSection')} count={filteredCatalog.length || null} />
@@ -4304,7 +4264,7 @@ export default function Resources() {
                 )}
               </section>
             </div>
-            {/* 详情面板挂载点：社区条目由本页渲染，推荐条目由 PersonalizedRecommend portal 进来 */}
+            {/* 详情面板挂载点：社区条目由本页渲染 */}
             <div ref={setInspectorHost} className="contents">
               {(() => {
                 if (!selectedKey?.startsWith('cat:')) return null;

@@ -1,20 +1,14 @@
 import React from 'react';
-import { useLang } from '../store/lang';
-import GuardianPanel from '../components/GuardianPanel';
+import GuardianChat from '../components/GuardianChat';
 
 /**
- * 自我进化页：侧边栏 Logo 旁的小圆点、设置页的「看护设置」都跳到这里。
- * 运行环境、各类处理方式、定期自省、自动处理记录都在这一页，设置页只留一个入口。
+ * 智能管家页：就是和智能管家的对话。侧边栏 Logo 旁的火花图标点进来；有新消息时图标上有未读标记。
+ * 没有设置区和列表：做过什么、定过什么规矩、换执行应用，都在对话里问、在对话里办。
  */
 export default function Guardian() {
-  const { t } = useLang();
   return (
-    <div className="px-4 py-4 space-y-4 w-full max-w-4xl mx-auto">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">{t('guardian.title')}</h1>
-        <p className="text-sm text-gray-500 mt-0.5">{t('guardian.pageHint')}</p>
-      </div>
-      <GuardianPanel page />
+    <div className="h-full min-h-0 flex">
+      <GuardianChat />
     </div>
   );
 }

@@ -14,7 +14,7 @@ const KINDS = {
   quota: { title: '模型额度或频率受限', advice: '稍后再试，或给它换一个模型来源。', link: { to: '/providers', label: '去看模型' } },
   context: { title: '上下文太长', advice: '缩小任务范围，或换上下文更长的模型。' },
   capability: { title: '缺少需要的能力', advice: '可以给它绑定一个相关的技能。' },
-  unknown: { title: '原因不明', advice: '可以换一个智能体再试；同类失败多了，自省时会一起复盘。' },
+  unknown: { title: '原因不明', advice: '可以换一个智能体再试。' },
 };
 
 const RULES = [
@@ -36,7 +36,7 @@ function classify(errorText) {
 function agentName(id) {
   if (require('./chat').isGuardianAgent(id)) {
     const rt = require('./engine').status().runtime;
-    return `内置看护智能体${rt ? `（${agentName(rt)}）` : ''}`;
+    return `智能管家${rt ? `（${agentName(rt)}）` : ''}`;
   }
   try { return require('../config-loader').appEntityById(id)?.name || id; } catch { return id; }
 }
@@ -112,31 +112,48 @@ async function handleFailed(evt = {}) {
   if (guardian.modeOf('gateway') === 'off') return;
   const agentId = evt.agentId || null;
   if (!agentId) return;
+  if (require('./chat').isGuardianAgent(agentId)) return;   // 智能管家自己的对话失败，对话里已经说了，不再另说一遍
   const error = String(evt.error || evt.result?.error || '');
   const c = classify(error);
   const who = agentName(agentId);
+  try { if (require('./rules').decide('task-failed', { agentId, kind: c.kind })?.action === 'ignore') return; } catch { /* ignore */ }
+  // 智能兜底：规则认不出原因的失败，让模型看报错，判断用户要不要知道、能做什么
+  if (c.kind === 'unknown' && error.trim()) {
+    let j = null;
+    try {
+      j = await require('./judge').judge({
+        event: 'task-failed', label: '用户在游乐场派给某个应用的任务失败了，现有规则认不出原因',
+        facts: { agentId, app: who }, keyFacts: { agentId, err: error.replace(/[0-9a-f]{8,}|\d+/gi, '#').slice(0, 160) },
+        context: `报错：${error.slice(0, 1500)}\n任务开头：${taskPrompt(evt.taskId).slice(0, 300)}`,
+        actions: {
+          tell: '用户自己动手才能解决（要登录、装东西、改配置、换应用或模型）。tell 里用一两句大白话写清原因和该怎么做',
+          ignore: '不用打扰用户：任务本身的问题、偶发失败，或者从报错看不出用户能做什么',
+        },
+        fallback: 'ignore',
+      });
+    } catch { j = null; }
+    if (j && j.action === 'tell' && j.tell) {
+      guardian.record({
+        category: 'gateway', kind: 'task-failed', status: 'info', needsUser: true,
+        title: `派给 ${who} 的任务失败了`,
+        say: `派给 ${who} 的任务失败了。${j.tell}`,
+        detail: error.slice(0, 300),
+        signature: `task-fail|${agentId}|judge|${j.tell.slice(0, 40)}`,
+        meta: { agentId, kind: 'unknown', taskId: evt.taskId || null, byJudge: true },
+      });
+    }
+    return;
+  }
   guardian.record({
     category: 'gateway', kind: 'task-failed', status: 'info',
     title: `派给 ${who} 的任务失败：${c.title}`,
     detail: error.slice(0, 300),
     advice: c.advice,
     signature: `task-fail|${agentId}|${c.kind}`,
+    // 只有要用户自己动手的（应用没装好、没登录）才提；超时、上下文太长这类留给自省复盘
+    needsUser: c.kind === 'runtime-missing' || c.kind === 'not-logged-in',
     ...(c.link ? { link: c.link } : {}),
     meta: { agentId, kind: c.kind, taskId: evt.taskId || null },
-  });
-  guardian.learnRule(`task-fail|${c.kind}`, { countDelta: 1, kind: c.kind });
-
-  if (c.kind !== 'capability') return;
-  const skill = matchSkill(taskPrompt(evt.taskId));
-  if (!skill) return;
-  guardian.record({
-    category: 'gateway', kind: 'task-capability', status: 'suggested',
-    title: `给 ${who} 补一个技能：${skill.display_name || skill.name}`,
-    advice: `刚才失败的任务需要它没有的能力；社区里免费的「${skill.display_name || skill.name}」对得上。采纳后只装给 ${who}，可撤销。`,
-    signature: `task-capability|${agentId}|${skill.catalogId}`,
-    apply: { type: 'installSkillFor', data: { catalogId: skill.catalogId, agentId } },
-    applyUndo: { type: 'unprojectSkill', data: { catalogId: skill.catalogId, agentId } },
-    meta: { agentId, catalogId: skill.catalogId },
   });
 }
 
@@ -149,7 +166,7 @@ function attach(executor) {
   attached = true;
   guardian.registerAction('installSkillFor', installSkillFor);
   guardian.registerAction('unprojectSkill', unprojectSkill);
-  // 执行器同步 emit：转成看护的异步事件，不占执行器的时间
+  // 执行器同步 emit：转成智能管家的异步事件，不占执行器的时间
   ex.on('task:failed', (evt) => guardian.emit('task:failed', evt));
   guardian.on('task:failed', handleFailed);
   return true;

@@ -1,5 +1,5 @@
 // client/electron/guardian/store.js
-// 看护的本地数据：设置、自动处理记录、规则库。存 ~/.tokenbank/guardian/*.json（桌面版与 Docker 同一格式；
+// 智能管家的本地数据：设置、自动处理记录、规则库。存 ~/.tokenbank/guardian/*.json（桌面版与 Docker 同一格式；
 // Docker 在 /data 卷里，升级镜像不丢）。写入走临时文件 + rename，读失败回退默认值。
 'use strict';
 

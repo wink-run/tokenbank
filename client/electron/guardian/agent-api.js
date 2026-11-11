@@ -1,8 +1,8 @@
 // client/electron/guardian/agent-api.js
-// 内置看护智能体（游乐场里的「内置看护智能体」）就是看护本身：对话里能做看护页上能做的一切。
-// 它跑在一个应用（Claude Code / Codex …）里，靠这里的本机接口操作看护：
+// 智能管家（游乐场里的「智能管家」）就是智能管家本身：对话里能做智能管家页上能做的一切。
+// 它跑在一个应用（Claude Code / Codex …）里，靠这里的本机接口操作智能管家：
 //   - 只监听 127.0.0.1、随机端口、带令牌；端点写在 ~/.tokenbank/guardian/agent-api.json（只有本机这个用户能读）
-//   - 只暴露看护已有的能力（和看护页按钮一一对应），没有任意执行
+//   - 只暴露智能管家已有的能力（和智能管家页按钮一一对应），没有任意执行
 //   - 附带一个小脚本 ~/.tokenbank/guardian/tb-guardian.js，智能体用 `node <脚本> <操作> '<JSON>'` 调用
 // 桌面版与 Docker 共用（startGuardian 里启动）。
 'use strict';
@@ -49,39 +49,23 @@ const OPS = {
     run: () => ok({ health: require('./health').health() }),
   },
   records: {
-    desc: '看护记录。参数 {"open":true} 只看待处理；{"limit":30}',
+    desc: '我做过的事（处理日志，每条说明能不能撤销）。{"limit":30}',
     run: ({ open = false, limit = 30 } = {}) => {
-      const list = guardian().listRecords({ limit: 300 })
-        .filter(r => !open || ['info', 'suggested', 'failed'].includes(r.status)).slice(0, limit);
+      void open;
+      const list = guardian().listRecords({ limit: 300 }).slice(0, limit);
       return ok({ records: list.map(brief) });
     },
-  },
-  act: {
-    desc: '点记录上的处理按钮。{"id":"g-…","index":0}（index 见 records 里的 actions）',
-    run: async ({ id, index = 0 }) => { const r = await guardian().act(id, index); return r.ok ? ok({ message: r.message || null }) : fail(r); },
   },
   undo: {
     desc: '撤销一条已处理的记录。{"id":"g-…"}',
     run: async ({ id }) => { const r = await guardian().undo(id); return r.ok ? ok() : fail(r); },
   },
-  dismiss: {
-    desc: '忽略一条提醒。{"id":"g-…"}',
-    run: ({ id }) => (guardian().dismiss(id) ? ok() : fail({ error: 'not-found' })),
-  },
   check: {
-    desc: '立即检查（投射、资产体检、配置、分享与多设备；只用规则，不花 token）',
+    desc: '现在检查一遍投射和资产（用户要求时才跑；只用规则，不花 token）',
     run: async () => ok({ results: await guardian().runChecks() }),
   },
-  introspect: {
-    desc: '立即自省（回看使用情况：路由、新模型试跑、资产整理、省钱、规则整理）',
-    run: async () => { const r = await require('./introspect').run({ manual: true }); return r.ok ? ok({ report: r.report }) : fail(r); },
-  },
-  reports: {
-    desc: '最近的自省报告',
-    run: () => ok({ reports: require('./introspect').listReports().slice(0, 3) }),
-  },
   settings: {
-    desc: '看设置；改设置传 {"set":{...}}，例：{"set":{"modes":{"assets":"suggest"}}}、{"set":{"enabled":false}}、{"set":{"introspect":{"frequency":"daily"}}}。modes 取值 auto / suggest / off',
+    desc: '看设置；改设置传 {"set":{...}}，例：{"set":{"modes":{"assets":"suggest"}}}、{"set":{"enabled":false}}。modes 取值 auto / suggest / off',
     run: ({ set } = {}) => ok({ settings: set ? guardian().setSettings(set) : guardian().getSettings(), categories: Object.keys(guardian().CATEGORIES) }),
   },
   runtime: {
@@ -100,14 +84,63 @@ const OPS = {
     desc: '说一句话就办（安装技能、启用/撤下到某应用、清理闲置、整理、换执行应用…）。{"text":"把 git-commit 投射到 Codex"}；先看 plan 再加 "run":true 执行',
     run: async ({ text, run = false }) => {
       const command = require('./command');
-      const plan = await command.parse(String(text || ''), { allowModel: true });
+      const plan = await command.parse(String(text || ''), { allowModel: false });
       if (!run || !plan || plan.action === 'unknown') return ok({ plan });
       const r = await command.run(plan);
       return r.ok ? ok({ plan, message: r.message || null }) : fail(r);
     },
   },
+  hire: {
+    desc: '雇佣任务：最近拦截的任务、被拒接的雇佣者、规则文件位置。拒接 {"refuse":"<雇佣者>"}；恢复 {"allow":"<雇佣者>"}。放宽审查规则只能由用户自己改规则文件，你不能替他改',
+    run: ({ refuse, allow } = {}) => {
+      const h = require('./hire-guard');
+      if (refuse) return ok(h.refuseHirer({ consumer: refuse }));
+      if (allow) return ok(h.allowHirer({ consumer: allow }));
+      return ok({ blocks: store.readJson('hire-blocks.json', []).slice(0, 20), refused: h._internal.refused(), rulesFile: h.skillFile(), sandbox: h.hasSandbox() });
+    },
+  },
+  rule: {
+    desc: '用户教的规矩（事件 + 条件 + 处理）。看全部：{}；加一条：{"add":{...}}（格式见下）；删：{"remove":"er-…"}',
+    run: ({ add, remove } = {}) => {
+      const r = require('./rules');
+      if (add) return r.add(add);
+      if (remove) return ok(r.remove({ id: remove }));
+      return ok({ rules: r.list() });
+    },
+  },
+  threshold: {
+    desc: '连续失败几次才把来源排到后面（默认 5）。{"provider":"来源 id","model":"模型","value":10}；不带 provider 就是改默认值。范围 2~50',
+    run: ({ provider, model, value } = {}) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 2 || v > 50) return { ok: false, error: 'value 要在 2 到 50 之间' };
+      const t = store.readJson('thresholds.json', {});
+      t[provider && model ? `${provider}::${model}` : 'default'] = Math.round(v);
+      store.writeJson('thresholds.json', t);
+      return ok({ thresholds: t });
+    },
+  },
+  pattern: {
+    desc: '记一个报错识别模式，下次能直接认出原因。{"match":"报错里的一段文字或正则","kind":"auth|quota|rate|context|model|network|upstream"}',
+    run: (args = {}) => require('./explain').learnPattern(args),
+  },
+  skill: {
+    desc: '装给你的技能。看全部：{}；提出装一个：{"propose":"技能名","auto":true}（会在对话里请用户确认）；移除：{"detach":"资产 id"}',
+    run: ({ propose, auto, perDay, detach } = {}) => {
+      const s = require('./skills');
+      if (propose) return s.propose({ name: propose, auto: !!auto, perDay });
+      if (detach) return ok(s.detach({ resourceId: detach }));
+      return ok({ skills: s.list() });
+    },
+  },
+  remind: {
+    desc: '你说了「到时候再提醒你」就必须记下来。{"text":"提醒什么","minutes":240}；取消全部：{"cancel":true}',
+    run: ({ text, minutes, cancel } = {}) => {
+      const c = require('./convo');
+      return cancel ? ok(c.cancelReminders()) : c.remind({ text, minutes });
+    },
+  },
   rules: {
-    desc: '学到的规则列表',
+    desc: '「这种情况不算问题」的规则列表（老的那一套；新规矩用 rule）',
     run: () => ok({ rules: require('./judgment').list() }),
   },
   learn: {
@@ -135,7 +168,7 @@ async function handle(op, args) {
 }
 
 const HELPER = `#!/usr/bin/env node
-// Token Bank 看护的本机接口（内置看护智能体用）。用法：node tb-guardian.js <操作> '<JSON 参数>'
+// Token Bank 智能管家的本机接口（智能管家用）。用法：node tb-guardian.js <操作> '<JSON 参数>'
 const fs = require('fs'); const http = require('http'); const path = require('path');
 const info = JSON.parse(fs.readFileSync(path.join(__dirname, 'agent-api.json'), 'utf8'));
 const [op = 'help', raw = '{}'] = process.argv.slice(2);
@@ -144,7 +177,7 @@ const u = new URL(info.url + '/op');
 const req = http.request({ host: u.hostname, port: u.port, path: u.pathname, method: 'POST',
   headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Authorization: 'Bearer ' + info.token } },
   (res) => { let b = ''; res.on('data', c => { b += c; }); res.on('end', () => { process.stdout.write(b + '\\n'); process.exitCode = res.statusCode < 400 ? 0 : 1; }); });
-req.on('error', (e) => { console.error('看护接口连不上（Token Bank 没在运行？）', e.message); process.exitCode = 1; });
+req.on('error', (e) => { console.error('智能管家接口连不上（Token Bank 没在运行？）', e.message); process.exitCode = 1; });
 req.end(body);
 `;
 
@@ -179,14 +212,14 @@ function stop() {
   if (server) { server.close(); server = null; }
 }
 
-/** 给内置看护智能体的说明：怎么在对话里操作看护 */
+/** 给智能管家的说明：怎么在对话里操作智能管家 */
 function agentGuide() {
   return [
-    '你在对话里能做看护页上能做的一切，用这个命令（Token Bank 在运行时可用）：',
+    '你在对话里能做智能管家页上能做的一切，用这个命令（Token Bank 在运行时可用）：',
     `  node "${helperPath()}" <操作> '<JSON 参数>'`,
     '操作：',
     ...Object.entries(OPS).map(([k, v]) => `- ${k}：${v.desc}`),
-    '先用 records / status 看清楚再动手；改设置、安装、撤下这类会改变状态的，按规矩先跟用户说清楚（用户已经明确要求的直接做）。做完告诉用户结果和怎么撤销。',
+    '先用 records / status 看清楚再动手。用户明确要求的直接做，做完用一两句话告诉他结果和怎么撤销；你自己想做的改动先说清楚再做。',
   ].join('\n');
 }
 

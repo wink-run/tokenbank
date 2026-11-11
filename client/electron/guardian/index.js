@@ -1,5 +1,5 @@
 // client/electron/guardian/index.js
-// Token Bank 内置看护（看不见的智能层）核心：桌面版 main.js 与 Docker（cli/gateway.js）共用。
+// Token Bank 内置智能管家（看不见的智能层）核心：桌面版 main.js 与 Docker（cli/gateway.js）共用。
 //
 // 原则（见方案文档）：
 //  - 不在业务链路上：模型分发、智能体调用照常运行；这里只接收「已经发生」的失败事件，异步处理
@@ -26,31 +26,7 @@ const DISMISS_QUIET_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_SETTINGS = {
   enabled: true,
   modes: Object.fromEntries(Object.entries(CATEGORIES).map(([k, v]) => [k, v.default])),
-  // 规则解释不了的新报错，每天最多请模型分析几次（0 = 只用规则）
-  modelExplainPerDay: 10,
-  // 定期自省（离线）：频率、运行时段、单次 token 上限、范围、结果处理
-  introspect: {
-    frequency: 'weekly',        // off | daily | weekly | monthly
-    window: 'idle',             // idle（闲置时）| hour（指定时间）
-    hour: 3,
-    tokenCap: 20000,
-    scope: ['assets', 'routes', 'models', 'savings', 'rules'],
-    handling: 'report',         // report（只出报告）| auto（可撤销的自动采纳）
-  },
 };
-const INTROSPECT_FREQ = new Set(['off', 'daily', 'weekly', 'monthly']);
-const INTROSPECT_SCOPE = new Set(DEFAULT_SETTINGS.introspect.scope);
-
-function normalizeIntrospect(raw = {}, base = DEFAULT_SETTINGS.introspect) {
-  const out = { ...base };
-  if (INTROSPECT_FREQ.has(raw.frequency)) out.frequency = raw.frequency;
-  if (raw.window === 'idle' || raw.window === 'hour') out.window = raw.window;
-  if (Number.isFinite(raw.hour)) out.hour = Math.min(23, Math.max(0, Math.floor(raw.hour)));
-  if (Number.isFinite(raw.tokenCap)) out.tokenCap = Math.min(1000000, Math.max(0, Math.floor(raw.tokenCap)));
-  if (Array.isArray(raw.scope)) out.scope = raw.scope.filter(x => INTROSPECT_SCOPE.has(x));
-  if (raw.handling === 'report' || raw.handling === 'auto') out.handling = raw.handling;
-  return out;
-}
 
 const listeners = new Map();   // event type → Set<fn>
 const actions = new Map();     // action type → fn(data) → { ok, error? }
@@ -62,19 +38,14 @@ function getSettings() {
   const raw = store.readJson('settings.json', {});
   const modes = { ...DEFAULT_SETTINGS.modes, ...(raw.modes || {}) };
   for (const k of Object.keys(modes)) if (!MODES.has(modes[k])) modes[k] = CATEGORIES[k]?.default || 'auto';
-  return { ...DEFAULT_SETTINGS, ...raw, modes, introspect: normalizeIntrospect(raw.introspect || {}) };
+  return { enabled: raw.enabled !== false, modes };
 }
 
 function setSettings(patch = {}) {
   const cur = getSettings();
   const next = {
-    ...cur,
-    ...(typeof patch.enabled === 'boolean' ? { enabled: patch.enabled } : {}),
-    ...(Number.isFinite(patch.modelExplainPerDay) ? { modelExplainPerDay: Math.max(0, Math.floor(patch.modelExplainPerDay)) } : {}),
+    enabled: typeof patch.enabled === 'boolean' ? patch.enabled : cur.enabled,
     modes: { ...cur.modes },
-    introspect: patch.introspect && typeof patch.introspect === 'object'
-      ? normalizeIntrospect(patch.introspect, cur.introspect)
-      : cur.introspect,
   };
   for (const [k, v] of Object.entries(patch.modes || {})) {
     if (CATEGORIES[k] && MODES.has(v)) next.modes[k] = v;
@@ -83,11 +54,9 @@ function setSettings(patch = {}) {
   return next;
 }
 
-/** 该类处理当前的模式；看护整体关闭时一律 off */
-function modeOf(category) {
-  const s = getSettings();
-  if (!s.enabled) return 'off';
-  return s.modes[category] || CATEGORIES[category]?.default || 'off';
+/** 智能管家开着就直接处理（'auto'），关了就什么都不做（'off'）。不再有「只给建议」 */
+function modeOf() {
+  return getSettings().enabled ? 'auto' : 'off';
 }
 
 // ── 自动处理记录 ─────────────────────────────────────────────────────────────
@@ -112,8 +81,7 @@ function newId() {
  * 同签名还没处理的记录 → 合并（count + 1）并移到最前，不刷屏；用户忽略过的，7 天内不再提（返回 null）
  */
 function record(entry) {
-  // 自我进化：先照学到的规则判一遍 —— 不算问题就不提醒；有学到的处理就加上按钮（自动处理时直接做）
-  let scheduleAuto = false;
+  // 自我进化：先照学到的规则判一遍 —— 不算问题就不提醒
   if (!entry._judged) {
     let j = { entry };
     try { j = require('./judgment').apply(entry); } catch (e) { console.warn('[guardian] judgment:', e.message); }
@@ -122,10 +90,14 @@ function record(entry) {
       return null;
     }
     entry = j.entry;
-    scheduleAuto = !!entry.learnedRule;
   }
   entry = { ...entry };
   delete entry._judged;
+  // 没有「待处理」：需要用户的事由智能管家在对话里说一句；只是告诉一声的不说；记录里只留做过的事
+  if (entry.status === 'info' || entry.status === 'suggested') {
+    if (needsUser(entry)) speak(entry);
+    return null;
+  }
   const now = Date.now();
   const list = listRecords({ limit: RECORDS_MAX });
   if (entry.signature) {
@@ -139,7 +111,6 @@ function record(entry) {
       delete merged.countAsRepeat;
       list.splice(idx, 1);
       saveRecords([merged, ...list]);
-      if (scheduleAuto) autoLearned(merged);
       return merged;
     }
     const quiet = list.find(r => r.signature === entry.signature && r.status === 'dismissed'
@@ -149,14 +120,7 @@ function record(entry) {
   const rec = { id: newId(), at: now, lastAt: now, count: 1, ...entry };
   delete rec.countAsRepeat;
   saveRecords([rec, ...list]);
-  if (scheduleAuto) autoLearned(rec);
   return rec;
-}
-
-/** 学到的处理：该类是自动处理、用户没撤销过 → 稍后直接做（不阻塞写记录的调用方） */
-function autoLearned(rec) {
-  if (modeOf(rec.category) !== 'auto' || wasUndone(rec.signature)) return;
-  setImmediate(() => { act(rec.id, 0).catch(() => {}); });
 }
 
 /** 某签名的问题已经不存在了：把还开着的记录收起（不删除，留痕） */
@@ -205,7 +169,16 @@ async function undo(id) {
   if (!rec) return { ok: false, error: 'not-found' };
   if (rec.status !== 'done' || !rec.undo) return { ok: false, error: 'not-undoable' };
   const r = await runAction(rec.undo);
-  if (r.ok) updateRecord(id, { status: 'undone', undoneAt: Date.now() });
+  if (r.ok) {
+    updateRecord(id, { status: 'undone', undoneAt: Date.now() });
+    // 进化：撤销就是「这次处理错了」。记成案例；是按规矩做的，就给那条规矩记一笔
+    try {
+      const rules = require('./rules');
+      if (rec.byRule) rules.noteUndo(rec.byRule);
+      if (rec.byJudge && rec.caseEvent) { try { require('./judge').forgetEvent(rec.caseEvent); } catch { /* ignore */ } }
+      if (rec.caseEvent && rec.facts) rules.addCase({ event: rec.caseEvent, facts: rec.facts, expect: 'ignore', note: `用户撤销了：${rec.title}` });
+    } catch { /* ignore */ }
+  }
   return r;
 }
 
@@ -277,27 +250,52 @@ async function handle(entry) {
   return record(entry);
 }
 
-function dismiss(id) {
-  const rec = updateRecord(id, { status: 'dismissed', dismissedAt: Date.now() });
-  // 自我进化：同一类提醒忽略多了，问要不要以后不提这一类
-  if (rec) setImmediate(() => { Promise.resolve(require('./judgment').learnFromDismiss(rec)).catch(() => {}); });
-  return !!rec;
+// ── 需要用户的事：在对话里说一句，带几个快捷回复 ───────────────────────────────
+const OPEN_STATUS = ['info', 'suggested', 'failed'];
+
+/** 只有用户能决定或动手的才开口：有处理方式可选的，或明确标了 needsUser 的 */
+function needsUser(e) {
+  if (!e) return false;
+  return (Array.isArray(e.actions) && e.actions.length > 0) || !!e.apply || e.needsUser === true;
 }
 
-// ── 规则库（报错签名 → 次数 / 解释 / 效果）──────────────────────────────────
-function getRule(signature) {
-  const rules = store.readJson('rules.json', {});
-  return rules[signature] || null;
+function speak(entry) {
+  const log = { category: entry.category, kind: entry.kind, title: entry.title, signature: entry.signature, meta: entry.meta };
+  const replies = [];
+  for (const a of entry.actions || []) {
+    replies.push({ label: a.label, op: a.run, undo: a.undo || null, done: a.doneText || null, log: { ...log, actedLabel: a.done || a.label }, confirmOnly: !!a.confirmOnly, match: a.match || [] });
+  }
+  if (entry.apply) replies.push({ label: entry.applyLabel || '好，就这样做', op: entry.apply, undo: entry.applyUndo || null, log });
+  if (entry.link) replies.push({ label: entry.link.label || '带我去看', nav: { to: entry.link.to, state: entry.link.state || null } });
+  if (entry.remind) replies.push({ label: entry.remind.label || '晚点提醒我', remind: { text: entry.remind.text || entry.title, minutes: entry.remind.minutes || 240, nav: entry.link ? { to: entry.link.to, state: entry.link.state || null } : null, navLabel: entry.link ? entry.link.label : null } });
+  if (!entry.noMute) replies.push({ label: '这类不用告诉我', mute: entry.kind });
+  const text = [entry.say || `${entry.title}。`, entry.advice].filter(Boolean).join('');
+  try {
+    return require('./convo').push({ text, replies, mergeKey: entry.signature || null, topic: entry.kind });
+  } catch (e) {
+    console.warn('[guardian] speak:', e.message);
+    return null;
+  }
 }
 
-function learnRule(signature, patch) {
-  const rules = store.readJson('rules.json', {});
+/** 老版本留下的「待处理」记录：收起（现在需要用户的事在对话里说） */
+function tidy() {
   const now = Date.now();
-  const cur = rules[signature] || { count: 0, firstAt: now };
-  rules[signature] = { ...cur, ...patch, count: (cur.count || 0) + (patch.countDelta || 0), lastAt: now };
-  delete rules[signature].countDelta;
-  store.writeJson('rules.json', rules);
-  return rules[signature];
+  const list = listRecords({ limit: RECORDS_MAX });
+  let n = 0;
+  for (const r of list) {
+    if (r.status !== 'info' && r.status !== 'suggested') continue;
+    r.status = 'resolved';
+    r.resolvedAt = now;
+    r.resolvedNote = '改为在对话里说';
+    n++;
+  }
+  if (n) saveRecords(list);
+  return { ok: true, expired: n };
+}
+
+function dismiss(id) {
+  return !!updateRecord(id, { status: 'dismissed', dismissedAt: Date.now() });
 }
 
 // ── 事件：异步分发，绝不阻塞调用方 ──────────────────────────────────────────
@@ -319,18 +317,9 @@ function emit(type, payload) {
   });
 }
 
-// ── 定期检查（轻量、离线；只看 Token Bank 自己的状态）────────────────────────
-function registerCheck(name, fn, intervalMs) {
-  checks.set(name, { fn, intervalMs, timer: null });
-  if (started) scheduleCheck(name);
-}
-
-function scheduleCheck(name) {
-  const c = checks.get(name);
-  if (!c || !c.intervalMs) return;
-  if (c.timer) clearInterval(c.timer);
-  c.timer = setInterval(() => runCheck(name).catch(() => {}), c.intervalMs);
-  if (c.timer.unref) c.timer.unref();
+// ── 检查：没有定时器。只在事件发生时（启动、应用变化）或用户在对话里要求时跑 ──────────
+function registerCheck(name, fn) {
+  checks.set(name, { fn });
 }
 
 async function runCheck(name) {
@@ -379,16 +368,15 @@ async function runChecks() {
   return out;
 }
 
+/** 启动事件：把上次运行期间可能坏掉的投射看一遍（只这一次，不是定时） */
 function start({ initialDelayMs = 30000 } = {}) {
   if (started) return;
   started = true;
-  for (const name of checks.keys()) scheduleCheck(name);
-  const t = setTimeout(() => runChecks().catch(() => {}), initialDelayMs);
+  const t = setTimeout(() => { if (checks.has('projection')) runCheck('projection').catch(() => {}); }, initialDelayMs);
   if (t.unref) t.unref();
 }
 
 function stop() {
-  for (const c of checks.values()) if (c.timer) clearInterval(c.timer);
   started = false;
 }
 
@@ -405,11 +393,12 @@ module.exports = {
   undo,
   apply,
   act,
+  needsUser,
+  runAction,
+  tidy,
   handle,
   wasUndone,
   dismiss,
-  getRule,
-  learnRule,
   on,
   emit,
   registerCheck,

@@ -1,7 +1,7 @@
 // client/electron/guardian/engine.js
-// 看护的执行引擎：兴趣画像、资产发现、资产安装这几件需要「会用工具的应用」才能做的事，统一由看护在后台交给
-// 一个已纳管的命令行应用（Codex / Claude Code / Cursor / Kimi Code …）去跑。
-// 不再有「画像分析 / 资产发现 / 资产安装」三个系统智能体资产：角色说明写在这里，按任务类型拼进提示，不纳管、不投射。
+// 智能管家的执行引擎：技能安装这类需要「会用工具的应用」才能做的事，由智能管家在后台交给
+// 一个已纳管的命令行应用（Codex / Claude Code / Cursor / Kimi Code …）去跑；智能管家也跑在它上面。
+// 没有单独的系统智能体资产：角色说明写在这里，不纳管、不投射。
 'use strict';
 
 const store = require('./store');
@@ -14,24 +14,8 @@ const RUNTIMES = ['codex', 'claude-code', 'cursor', 'kimi-code', 'workbuddy', 'p
 const LEGACY_ASSISTANTS = ['resource-portrait', 'resource-finder', 'resource-installer'];
 
 const ROLES = {
-  portrait: [
-    '【Token Bank 看护任务：兴趣画像】',
-    '根据用户与各应用的对话摘录，推断稳定身份画像。',
-    '1. 只输出 persona / traits / goals / extensions / needs，刻画「我是谁、长期该配备什么能力」；',
-    '2. 不检索、不推荐、不编造任何具体 Skill / Prompt / Assistant 条目或安装命令；',
-    '3. 严格按要求的 JSON 结构输出，不做与画像无关的长篇解释；',
-    '4. 不执行落盘、安装或其它工具型交付。',
-  ].join('\n'),
-  discover: [
-    '【Token Bank 看护任务：资产发现】',
-    '用户已有画像（或补充诉求），只负责检索并推荐真实存在的 Skill / Prompt / Assistant。',
-    '1. 技能：用 skillhub search --json / find-skill 检索，并参考 https://github.com/affaan-m/ECC/tree/main/skills；只推荐真实存在的 slug / 目录名，禁止编造；',
-    '2. 智能体：优先 Token Bank 社区目录真实条目，可参考 https://github.com/affaan-m/ECC/tree/main/agents；没有合适的可自建完整 soul，并搭配真实存在的技能；',
-    '3. 提示词：可参考公开合集，内容须完整可用；',
-    '4. 不重做画像分析；严格按要求的 JSON 结构输出。',
-  ].join('\n'),
   install: [
-    '【Token Bank 看护任务：资产安装】',
+    '【Token Bank 智能管家任务：资产安装】',
     '用户给出 Skill 安装命令或说明（skillhub install <slug>、npx skills add …、GitHub 地址、技能 slug）。',
     '1. 理解意图，提取要安装的 skill 名称 / slug / 来源；',
     '2. 在本机安装，默认目录 ~/.tokenbank/skills（Windows：%USERPROFILE%\\.tokenbank\\skills）：',
@@ -47,7 +31,7 @@ function label(id) {
   try { return require('../config-loader').appEntityById(id)?.name || id; } catch { return id; }
 }
 
-/** 已纳管、能跑看护任务的应用 */
+/** 已纳管、能跑智能管家任务的应用 */
 function runtimes() {
   let managed = [];
   try { managed = require('../resource-agent-targets').listManagedResourceAgentIds() || []; } catch { /* ignore */ }
@@ -67,7 +51,7 @@ function setRuntime(id) {
   return { ok: true, runtime: id };
 }
 
-/** 跑一个看护任务；返回执行器的 taskId，进度和结果沿用智能体任务的事件与查询 */
+/** 跑一个智能管家任务；返回执行器的 taskId，进度和结果沿用智能体任务的事件与查询 */
 async function run({ kind, prompt, sessionKey } = {}) {
   if (!ROLES[kind]) return { ok: false, error: 'unknown-kind' };
   if (!String(prompt || '').trim()) return { ok: false, error: 'empty-prompt' };
@@ -117,7 +101,7 @@ const STALE_MS = 2 * 60 * 60 * 1000;
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
 /**
- * 正在执行应用里跑的看护任务。先向执行器核对一遍：结束事件万一漏了（或进程重启前留下的），
+ * 正在执行应用里跑的智能管家任务。先向执行器核对一遍：结束事件万一漏了（或进程重启前留下的），
  * 按执行器记录的终态收尾；超过 2 小时还没结束的也不再算「正在执行」，避免小圆点一直转。
  */
 async function runningTasks() {

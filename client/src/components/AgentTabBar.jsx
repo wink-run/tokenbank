@@ -62,7 +62,7 @@ function rentedAppRuntime(agent) {
 
 /** 内置 Agent 和出租的默认应用用品牌 logo；自定义智能体保持文字回退 */
 function AgentBrandIcon({ agent, isCustom }) {
-  // 内置看护：和侧边栏 logo 旁的看护小绿点一致
+  // 内置智能管家：和侧边栏 logo 旁的智能管家小绿点一致
   if (agent?.guardian) return <span className="w-2 h-2 rounded-full bg-emerald-500" aria-hidden />;
   const appRt = rentedAppRuntime(agent);
   if (isCustom && !appRt) {
