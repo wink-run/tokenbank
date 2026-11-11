@@ -999,7 +999,7 @@ async function handleAgentTask(msg, cfg) {
   }
   // 按调用方，再按会话隔离。同一用户的两段对话不共用目录，成品和看图缓存都不会串。
   const consumerKey = resolveConsumerKey(msg);
-  // 看护：别人下发的任务先过安全审查，危险的不执行（规则见 guardian/hire-guard.js）
+  // 智能管家：别人下发的任务先过安全审查，危险的不执行（规则见 guardian/hire-guard.js）
   const hireGuard = require('./guardian/hire-guard');
   let guardVerdict;
   try {
@@ -1142,7 +1142,7 @@ async function handleAgentTask(msg, cfg) {
     });
   }
 
-  // 看护：执行中每一步也审；命中就立即终止这单
+  // 智能管家：执行中每一步也审；命中就立即终止这单
   let guardStopped = null;
   const onStep = (step) => {
     if (!trackedTaskId || !step || step.taskId !== trackedTaskId) return;
@@ -1268,7 +1268,7 @@ async function handleAgentTask(msg, cfg) {
     }
 
     if (guardStopped) {
-      // 被看护终止：不交回任何内容
+      // 被智能管家终止：不交回任何内容
       send({ type: 'agent_task_result', task_id: taskId, status: 'rejected', error: hireGuard.REJECT_MESSAGE, usage: { duration_ms: Date.now() - started } });
       noteRoute(false, 'stopped by owner security policy');
       return;

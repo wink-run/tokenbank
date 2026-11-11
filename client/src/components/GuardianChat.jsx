@@ -12,8 +12,8 @@ function Spark({ className }) {
 }
 
 /**
- * 看护对话页：像管家一样说话，不是表单。
- * 看护主动说的话、简报、用户的话都在一条对话里；只有最后一条看护消息下面有快捷回复（可不用，直接打字）。
+ * 智能管家对话页：像管家一样说话，不是表单。
+ * 智能管家主动说的话、简报、用户的话都在一条对话里；只有最后一条智能管家消息下面有快捷回复（可不用，直接打字）。
  * 桌面版走 preload，Docker 走 webBridge（window.electronAPI.guardian.convo*）。
  */
 export default function GuardianChat() {
@@ -27,7 +27,7 @@ export default function GuardianChat() {
   const endRef = useRef(null);
   const location = useLocation();
 
-  // 从别的页面带着问题过来（比如资产诊断里的「问问看护」）：放进输入框，用户自己发
+  // 从别的页面带着问题过来（比如资产诊断里的「问问智能管家」）：放进输入框，用户自己发
   useEffect(() => {
     const p = location.state?.prompt;
     if (typeof p === 'string' && p.trim()) {
@@ -92,7 +92,7 @@ export default function GuardianChat() {
     await refresh();
   };
 
-  // 只有最后一条、还没回答的看护消息显示快捷回复
+  // 只有最后一条、还没回答的智能管家消息显示快捷回复
   const last = messages[messages.length - 1];
   const cur = runtime && (runtime.runtimes || []).find(r => r.id === runtime.runtime);
 

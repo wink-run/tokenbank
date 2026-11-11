@@ -1,9 +1,9 @@
 // client/electron/guardian/convo.js
-// 看护和用户的对话：看护像管家一样说话，不是待办列表。
+// 智能管家和用户的对话：智能管家像管家一样说话，不是待办列表。
 //  - 推送（push）：只有「需要用户」或「替用户做了个值得知道的决定」才主动说；固定模板，不调模型
 //  - 简报（brief）：静默处理好的事不逐条打扰，用户打开对话时合成一段话
 //  - 快捷回复（replies）：最后一条消息下面的几个选择；点了由程序直接执行，不经过模型
-//  - 打字（say）：先看是不是在回答上一条的问题（由程序识别）；否则交给内置看护智能体（才用模型）
+//  - 打字（say）：先看是不是在回答上一条的问题（由程序识别）；否则交给智能管家（才用模型）
 // 存 ~/.tokenbank/guardian/messages.json，最多 300 条。
 'use strict';
 
@@ -58,7 +58,7 @@ function today() {
 }
 
 /**
- * 看护主动说一句。{ text, replies?, mergeKey?, topic? }
+ * 智能管家主动说一句。{ text, replies?, mergeKey?, topic? }
  * 同一件事（mergeKey）还没读过：更新那一条，不重复说。用户说过「这类不用告诉我」的 topic：不说。
  */
 function push({ text, replies = [], mergeKey = null, topic = null } = {}) {
@@ -118,7 +118,7 @@ function greet() {
   const first = {
     id: newId(), at: list.length ? list[0].at - 1 : Date.now(),
     from: 'guardian', read: true,
-    text: '我是 Token Bank 的看护。平时在后台处理安装、投射和路由的故障，不打扰你；有只有你能决定的事，我会在这里跟你说。搞不清的事随时问我。',
+    text: '我是 Token Bank 的智能管家。平时在后台处理安装、投射和路由的故障，不打扰你；有只有你能决定的事，我会在这里跟你说。搞不清的事随时问我。',
     replies: [{ label: '你最近做了什么', say: '你最近做了什么' }, { label: '你能做什么', say: '你能做什么' }],
   };
   save([first, ...list]);
@@ -138,7 +138,7 @@ function norm(s) {
   return String(s || '').trim().toLowerCase().replace(/[\s。.!！，,、]+/g, '');
 }
 
-/** 最后一条还在等回答的看护消息 */
+/** 最后一条还在等回答的智能管家消息 */
 function awaiting() {
   const list = all();
   for (let i = list.length - 1; i >= 0; i--) {
@@ -201,7 +201,7 @@ async function undoLatest() {
   return { ok: !!r.ok };
 }
 
-/** 交给内置看护智能体（用模型）。后台跑，结果回来后补进对话 */
+/** 交给智能管家（用模型）。后台跑，结果回来后补进对话 */
 function askModel(text) {
   const st = require('./engine').status();
   if (!st.ready) {
@@ -269,8 +269,8 @@ async function say(text) {
   add({ from: 'user', text: t });
   if (UNDO_RE.test(norm(t))) return undoLatest();
   if (/^(换|更换)(一个)?(执行)?应用$|^换个应用$/.test(norm(t))) { chooseRuntime(); return { ok: true }; }
-  if (/^(暂停|停用|关闭)看护$/.test(norm(t))) { guardian().setSettings({ enabled: false }); add({ from: 'guardian', read: true, text: '好，我先停下。想让我继续时说「恢复看护」。' }); return { ok: true }; }
-  if (/^(恢复|开启|打开)看护$/.test(norm(t))) { guardian().setSettings({ enabled: true }); add({ from: 'guardian', read: true, text: '好，我回来了。' }); return { ok: true }; }
+  if (/^(暂停|停用|关闭)(智能管家|管家|看护)$/.test(norm(t))) { guardian().setSettings({ enabled: false }); add({ from: 'guardian', read: true, text: '好，我先停下。想让我继续时说「恢复智能管家」。' }); return { ok: true }; }
+  if (/^(恢复|开启|打开)(智能管家|管家|看护)$/.test(norm(t))) { guardian().setSettings({ enabled: true }); add({ from: 'guardian', read: true, text: '好，我回来了。' }); return { ok: true }; }
   const known = answerFromData(norm(t));
   if (known) { add({ from: 'guardian', read: true, text: known }); return { ok: true }; }
   return askModel(t);

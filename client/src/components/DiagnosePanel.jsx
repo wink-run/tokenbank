@@ -10,7 +10,7 @@ const DOT = {
 };
 
 /**
- * 一键诊断：为什么应用里看不到这个资产。结果逐条列出，能修的给「修复」按钮（看护的 resource:diagnose）。
+ * 一键诊断：为什么应用里看不到这个资产。结果逐条列出，能修的给「修复」按钮（智能管家的 resource:diagnose）。
  */
 export default function DiagnosePanel({ resourceId, resourceName, onChanged }) {
   const { t } = useLang();

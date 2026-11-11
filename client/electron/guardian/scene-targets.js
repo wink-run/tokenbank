@@ -21,7 +21,7 @@ function skillUseByAgent(sinceMs) {
 
 /**
  * 从候选应用里挑出真正在用技能的那些（按使用次数排）。
- * 没有使用记录、或投射看护已关闭时返回 null，调用方按原来的默认应用处理。
+ * 没有使用记录、或投射智能管家已关闭时返回 null，调用方按原来的默认应用处理。
  */
 function preferredTargets({ resourceType, candidates = [] } = {}) {
   if (guardian.modeOf('projection') === 'off') return null;

@@ -1,13 +1,13 @@
 // client/electron/guardian/judgment.js
-// 自我进化：看护学到的规则（数据，不是代码）。误报不用等发版本修。
+// 自我进化：智能管家学到的规则（数据，不是代码）。误报不用等发版本修。
 //
 //  - 冷启动：没有任何学到的规则时，内置规则照样能发现问题
-//  - 随反馈进化：用户说「不是问题 / 误报」，或内置看护智能体排查时发现自己判错了，就学一条规则：
+//  - 随反馈进化：用户说「不是问题 / 误报」，或智能管家排查时发现自己判错了，就学一条规则：
 //    「这类结论在这些条件下不算问题」。以后同类不再提
 //  - 规则只能排除提醒，不能执行任何东西；会排除一整类的宽规则一定等用户确认；都能撤销
 //
-// 每条看护记录下结论时带着「事实」：kind、category、记录 meta 里的简单值，加上检查专门给的 facts。
-// 看护每写一条记录前先照规则判一遍（index.js 的 record()）。
+// 每条智能管家记录下结论时带着「事实」：kind、category、记录 meta 里的简单值，加上检查专门给的 facts。
+// 智能管家每写一条记录前先照规则判一遍（index.js 的 record()）。
 'use strict';
 
 const store = require('./store');
@@ -16,7 +16,7 @@ function guardian() {
   return require('./index');
 }
 
-// 已知结论类型的事实说明（给智能体看；没列在这里的类型，用看护实际见过的事实名）
+// 已知结论类型的事实说明（给智能体看；没列在这里的类型，用智能管家实际见过的事实名）
 const FACTS = {
   'projection-gone': {
     label: '投射：原文件不见了',
@@ -89,7 +89,7 @@ function noteFacts(kind, facts) {
   store.writeJson('judgment-facts.json', all);
 }
 
-/** 这一类结论能用哪些事实：说明表里的 + 看护实际见过的 + kind / category */
+/** 这一类结论能用哪些事实：说明表里的 + 智能管家实际见过的 + kind / category */
 function allowedFacts(kind) {
   const set = new Set(['kind', 'category', ...Object.keys(FACTS[kind]?.facts || {})]);
   for (const f of samples(kind)) Object.keys(f).forEach(k => set.add(k));
@@ -267,7 +267,7 @@ async function adoptConfirmed(raw) {
   return { ok: true, rule, adopted: true, message: r.message };
 }
 
-/** 给内置看护智能体的说明：工作原则 + 怎么写规则 */
+/** 给智能管家的说明：工作原则 + 怎么写规则 */
 function agentGuide() {
   const kinds = knownKinds().map((k) => {
     const doc = FACTS[k]?.facts || {};

@@ -1,5 +1,5 @@
 // client/electron/guardian/health.js
-// 看护的运行状态（设置页顶部的标志）：总开关、模型、执行应用、后台检查、执行应用最近一次任务。
+// 智能管家的运行状态（设置页顶部的标志）：总开关、模型、执行应用、后台检查、执行应用最近一次任务。
 // 只读，不发业务请求；模型状态读本机网关的模型列表。
 'use strict';
 
@@ -36,7 +36,7 @@ async function health() {
   try { unread = require('./convo').unread(); } catch { /* ignore */ }
   if (!s.enabled) return { level: 'off', enabled: false, issues, model, engine: { ...st, last }, checks, busy: [], unread };
   if (model && !model.ok) issues.push({ code: 'no-model', text: '还没有可用的模型', link: { to: '/providers', label: '去添加模型' } });
-  if (model == null) issues.push({ code: 'gateway-down', text: '本机网关没有响应，用到模型的看护功能暂停' });
+  if (model == null) issues.push({ code: 'gateway-down', text: '本机网关没有响应，用到模型的智能管家功能暂停' });
   if (!st.ready) issues.push({ code: 'no-runtime', text: '还没有纳管能执行命令的应用：技能安装和对话提问暂时用不了', link: { to: '/gateway', label: '去纳管应用' } });
   if (last && last.status === 'failed' && Date.now() - last.at < RECENT_MS) {
     issues.push({ code: 'runtime-failed', text: `执行应用最近一次任务失败：${last.error || '未知原因'}` });

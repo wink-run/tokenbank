@@ -55,7 +55,7 @@ test('scene route correction: mixed directions do not become a preference; nothi
 
 test('command parse: management intents, business requests, unknown', async () => {
   const cases = {
-    '看护状态': 'status', '体检一下': 'check', '用 Codex 跑': 'runtime', '清理闲置技能': 'idle',
+    '智能管家状态': 'status', '体检一下': 'check', '用 Codex 跑': 'runtime', '清理闲置技能': 'idle',
     '安装 anthropics/skills': 'install', '为什么 git-commit 不生效': 'diagnose', '把 git-commit 投射到 Codex': 'project',
     '把 git-commit 从 Codex 撤下': 'unproject', '把前端技能整理一下': 'tidy', '帮我写一个登录页面': 'business', '今天天气': 'unknown',
   };
@@ -64,7 +64,7 @@ test('command parse: management intents, business requests, unknown', async () =
   const p = await command.parse('诊断 nothing-here', { allowModel: false });
   assert.equal(p.action, 'unknown');
   assert.match(p.reason, /没找到/);
-  assert.equal((await command.parse('看护状态', { allowModel: false })).readOnly, true);
+  assert.equal((await command.parse('智能管家状态', { allowModel: false })).readOnly, true);
 });
 
 test('command run: install from catalog with undo, project / unproject with undo, business, status', async () => {

@@ -36,7 +36,7 @@ function classify(errorText) {
 function agentName(id) {
   if (require('./chat').isGuardianAgent(id)) {
     const rt = require('./engine').status().runtime;
-    return `内置看护智能体${rt ? `（${agentName(rt)}）` : ''}`;
+    return `智能管家${rt ? `（${agentName(rt)}）` : ''}`;
   }
   try { return require('../config-loader').appEntityById(id)?.name || id; } catch { return id; }
 }
@@ -112,7 +112,7 @@ async function handleFailed(evt = {}) {
   if (guardian.modeOf('gateway') === 'off') return;
   const agentId = evt.agentId || null;
   if (!agentId) return;
-  if (require('./chat').isGuardianAgent(agentId)) return;   // 看护自己的对话失败，对话里已经说了，不再另说一遍
+  if (require('./chat').isGuardianAgent(agentId)) return;   // 智能管家自己的对话失败，对话里已经说了，不再另说一遍
   const error = String(evt.error || evt.result?.error || '');
   const c = classify(error);
   const who = agentName(agentId);
@@ -138,7 +138,7 @@ function attach(executor) {
   attached = true;
   guardian.registerAction('installSkillFor', installSkillFor);
   guardian.registerAction('unprojectSkill', unprojectSkill);
-  // 执行器同步 emit：转成看护的异步事件，不占执行器的时间
+  // 执行器同步 emit：转成智能管家的异步事件，不占执行器的时间
   ex.on('task:failed', (evt) => guardian.emit('task:failed', evt));
   guardian.on('task:failed', handleFailed);
   return true;

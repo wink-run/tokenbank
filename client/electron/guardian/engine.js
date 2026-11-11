@@ -1,6 +1,6 @@
 // client/electron/guardian/engine.js
-// 看护的执行引擎：技能安装这类需要「会用工具的应用」才能做的事，由看护在后台交给
-// 一个已纳管的命令行应用（Codex / Claude Code / Cursor / Kimi Code …）去跑；内置看护智能体也跑在它上面。
+// 智能管家的执行引擎：技能安装这类需要「会用工具的应用」才能做的事，由智能管家在后台交给
+// 一个已纳管的命令行应用（Codex / Claude Code / Cursor / Kimi Code …）去跑；智能管家也跑在它上面。
 // 没有单独的系统智能体资产：角色说明写在这里，不纳管、不投射。
 'use strict';
 
@@ -14,7 +14,7 @@ const LEGACY_ASSISTANTS = ['resource-portrait', 'resource-finder', 'resource-ins
 
 const ROLES = {
   install: [
-    '【Token Bank 看护任务：资产安装】',
+    '【Token Bank 智能管家任务：资产安装】',
     '用户给出 Skill 安装命令或说明（skillhub install <slug>、npx skills add …、GitHub 地址、技能 slug）。',
     '1. 理解意图，提取要安装的 skill 名称 / slug / 来源；',
     '2. 在本机安装，默认目录 ~/.tokenbank/skills（Windows：%USERPROFILE%\\.tokenbank\\skills）：',
@@ -30,7 +30,7 @@ function label(id) {
   try { return require('../config-loader').appEntityById(id)?.name || id; } catch { return id; }
 }
 
-/** 已纳管、能跑看护任务的应用 */
+/** 已纳管、能跑智能管家任务的应用 */
 function runtimes() {
   let managed = [];
   try { managed = require('../resource-agent-targets').listManagedResourceAgentIds() || []; } catch { /* ignore */ }
@@ -50,7 +50,7 @@ function setRuntime(id) {
   return { ok: true, runtime: id };
 }
 
-/** 跑一个看护任务；返回执行器的 taskId，进度和结果沿用智能体任务的事件与查询 */
+/** 跑一个智能管家任务；返回执行器的 taskId，进度和结果沿用智能体任务的事件与查询 */
 async function run({ kind, prompt, sessionKey } = {}) {
   if (!ROLES[kind]) return { ok: false, error: 'unknown-kind' };
   if (!String(prompt || '').trim()) return { ok: false, error: 'empty-prompt' };
@@ -100,7 +100,7 @@ const STALE_MS = 2 * 60 * 60 * 1000;
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
 /**
- * 正在执行应用里跑的看护任务。先向执行器核对一遍：结束事件万一漏了（或进程重启前留下的），
+ * 正在执行应用里跑的智能管家任务。先向执行器核对一遍：结束事件万一漏了（或进程重启前留下的），
  * 按执行器记录的终态收尾；超过 2 小时还没结束的也不再算「正在执行」，避免小圆点一直转。
  */
 async function runningTasks() {

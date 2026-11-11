@@ -31,14 +31,14 @@ function saveTuning(t) {
 
 const off = () => guardian.modeOf('gateway') === 'off';
 
-/** 主 Agent 每次启动时读：派发偏好（看护关掉或没有时为空） */
+/** 主 Agent 每次启动时读：派发偏好（智能管家关掉或没有时为空） */
 function orchestratorHints() {
   if (off()) return [];
   const t = tuning();
   const lines = [];
   const prefs = Object.entries(t.prefs);
   if (prefs.length) {
-    lines.push('【派发偏好（Token Bank 看护根据用户的改派习惯总结，list 里有该智能体时优先）】');
+    lines.push('【派发偏好（Token Bank 智能管家根据用户的改派习惯总结，list 里有该智能体时优先）】');
     for (const [topic, p] of prefs) lines.push(`- 「${p.label || topic}」这类子任务优先派给 ${agentName(p.agentId)}（${p.agentId}）。`);
   }
   return lines;

@@ -1,5 +1,5 @@
 // client/electron/guardian/model-call.js
-// 看护自己的模型请求：走本机网关，带 X-TokenBank-Guardian 标记，返回正文和用量，失败返回 ok:false 不抛错。
+// 智能管家自己的模型请求：走本机网关，带 X-TokenBank-Guardian 标记，返回正文和用量，失败返回 ok:false 不抛错。
 // 只给离线的自省 / 用户点击的修复用，不在任何业务请求链路上。
 // 固定的调用方 Key（tb-guardian）让这些请求在用量记录里能被认出来，自省复盘时不把自己的试跑算进去。
 'use strict';
@@ -54,7 +54,7 @@ function estimateTokens(text) {
   return cjk + Math.ceil((s.length - cjk) / 4);
 }
 
-/** 本机网关有没有可用的对话模型（看护的「模型」是否就绪）；网关没起来返回 null */
+/** 本机网关有没有可用的对话模型（智能管家的「模型」是否就绪）；网关没起来返回 null */
 function modelStatus({ timeoutMs = 5000 } = {}) {
   const { host, port } = gatewayAddr();
   return new Promise((resolve) => {

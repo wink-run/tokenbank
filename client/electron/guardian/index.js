@@ -1,5 +1,5 @@
 // client/electron/guardian/index.js
-// Token Bank 内置看护（看不见的智能层）核心：桌面版 main.js 与 Docker（cli/gateway.js）共用。
+// Token Bank 内置智能管家（看不见的智能层）核心：桌面版 main.js 与 Docker（cli/gateway.js）共用。
 //
 // 原则（见方案文档）：
 //  - 不在业务链路上：模型分发、智能体调用照常运行；这里只接收「已经发生」的失败事件，异步处理
@@ -54,7 +54,7 @@ function setSettings(patch = {}) {
   return next;
 }
 
-/** 看护开着就直接处理（'auto'），关了就什么都不做（'off'）。不再有「只给建议」 */
+/** 智能管家开着就直接处理（'auto'），关了就什么都不做（'off'）。不再有「只给建议」 */
 function modeOf() {
   return getSettings().enabled ? 'auto' : 'off';
 }
@@ -93,7 +93,7 @@ function record(entry) {
   }
   entry = { ...entry };
   delete entry._judged;
-  // 没有「待处理」：需要用户的事由看护在对话里说一句；只是告诉一声的不说；记录里只留做过的事
+  // 没有「待处理」：需要用户的事由智能管家在对话里说一句；只是告诉一声的不说；记录里只留做过的事
   if (entry.status === 'info' || entry.status === 'suggested') {
     if (needsUser(entry)) speak(entry);
     return null;

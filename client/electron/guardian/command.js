@@ -51,7 +51,7 @@ function parseRules(text) {
   const s = String(text || '').trim();
   if (!s) return { action: 'unknown' };
   let m;
-  if (/^(看护|看护状态|运行情况|状态|现在怎么样|health|status)[?？]?$/i.test(s) || /看护.*(怎么样|正常吗|状态)/.test(s)) return { action: 'status' };
+  if (/^(智能管家|智能管家状态|运行情况|状态|现在怎么样|health|status)[?？]?$/i.test(s) || /智能管家.*(怎么样|正常吗|状态)/.test(s)) return { action: 'status' };
   if ((m = s.match(/(?:用|换成?|改用|切到)\s*(Claude\s*Code|Codex|Cursor|Kimi(?:\s*Code)?|WorkBuddy)\s*(?:来)?(?:跑|执行|运行)?/i)) && !/(安装|装|启用|投射|停用)/.test(s)) {
     return { action: 'runtime', agent: findAgent(m[1]) };
   }
@@ -81,7 +81,7 @@ function parseRules(text) {
 async function parseModel(text) {
   const prompt = [
     '把下面这句话归到 Token Bank 的一个管理动作上，只输出 JSON，不要解释。',
-    '可选 action：status（看看护状态）、check（体检）、install（安装技能，target=名称/地址/命令）、',
+    '可选 action：status（看智能管家状态）、check（体检）、install（安装技能，target=名称/地址/命令）、',
     'project（把资产启用到应用，name=资产名，agent=应用名）、unproject（从应用撤下，name, agent）、diagnose（name）、',
     'runtime（切换执行应用，agent）、idle（看闲置技能）、tidy（整理某类技能，keyword）、business（这是要做事的业务请求，不是管理）、unknown。',
     '格式：{"action":"...","name":"","agent":"","target":"","keyword":""}',
@@ -129,7 +129,7 @@ function describe(p) {
   const who = p.agent ? agentLabel(p.agent) : '已纳管的应用';
   switch (p.action) {
     case 'status': return '查看自我进化的运行情况';
-    case 'check': return '立即跑一遍看护检查（资产体检、投射自愈、配置提醒等）';
+    case 'check': return '立即跑一遍智能管家检查（资产体检、投射自愈、配置提醒等）';
     case 'install': return `安装「${p.target}」`;
     case 'project': return `把「${p.resourceName}」启用到 ${who}`;
     case 'unproject': return `把「${p.resourceName}」从 ${p.agent ? who : '所有应用'} 撤下（不删除，可再启用）`;
@@ -153,18 +153,18 @@ async function run(plan = {}) {
     case 'status': {
       const h = await require('./health').health();
       const msg = h.level === 'ok' ? '运行正常' : h.level === 'off' ? '自我进化已关闭' : `需要注意：${h.issues.map(i => i.text).join('；')}`;
-      return { ok: true, message: msg, link: { to: '/guardian', label: '看护页' } };
+      return { ok: true, message: msg, link: { to: '/guardian', label: '智能管家页' } };
     }
     case 'check': {
       const r = await guardian.runChecks();
       const bad = Object.entries(r).filter(([, v]) => v && v.ok === false).length;
-      return { ok: true, message: bad ? `检查完成，${bad} 项出错` : '检查完成，结果在看护页的自动处理记录里', link: { to: '/guardian', label: '看护页' } };
+      return { ok: true, message: bad ? `检查完成，${bad} 项出错` : '检查完成，结果在智能管家页的自动处理记录里', link: { to: '/guardian', label: '智能管家页' } };
     }
     case 'runtime': {
       const prev = require('./engine').status().runtime;
       const r = require('./engine').setRuntime(plan.agent);
       if (!r.ok) return { ok: false, error: r.error };
-      note(`已改用 ${agentLabel(plan.agent)} 跑看护任务`, plan.text, prev ? { type: 'commandSetRuntime', data: { agent: prev } } : null);
+      note(`已改用 ${agentLabel(plan.agent)} 跑智能管家任务`, plan.text, prev ? { type: 'commandSetRuntime', data: { agent: prev } } : null);
       return { ok: true, message: `以后用 ${agentLabel(plan.agent)} 跑兴趣画像、资产发现、技能安装` };
     }
     case 'install': {
@@ -189,7 +189,7 @@ async function run(plan = {}) {
       if (hit) return { ok: false, error: '这是付费的社区条目，请到资产页的发现里确认后再装' };
       const r = await require('./engine').run({ kind: 'install', prompt: `请安装：${target}`, sessionKey: 'resource-install' });
       if (!r.ok) return { ok: false, error: r.error === 'no-runtime' ? '没有可用的执行应用，先到网关页纳管 Codex / Claude Code 等' : r.error };
-      return { ok: true, message: `已交给 ${agentLabel(r.runtime)} 在后台安装「${target}」，进度看侧边栏的看护小圆点`, link: { to: '/guardian', label: '看护页' } };
+      return { ok: true, message: `已交给 ${agentLabel(r.runtime)} 在后台安装「${target}」，进度看侧边栏的智能管家小圆点`, link: { to: '/guardian', label: '智能管家页' } };
     }
     case 'project': {
       const r = m.getResource(plan.resourceId);

@@ -14,7 +14,7 @@ function cooldown() {
   try { return require('../gateway-cooldown'); } catch { return null; }
 }
 
-/** 这一对（供给源 + 模型）用户已经让看护下沉过了：不用再提 */
+/** 这一对（供给源 + 模型）用户已经让智能管家下沉过了：不用再提 */
 function isDemoted(provider, model) {
   const c = cooldown();
   return !!(c && c.entryOf(c.demoteKey(provider, model)));
@@ -98,7 +98,7 @@ async function reviewRoutes({ sinceSec }) {
         link: { to: '/gateway', label: '查看路由' },
         meta: { model, provider: r.provider, calls: r.calls, fails: r.fails, better: better?.provider || null },
       });
-      items.push({ title, advice: rec?.status === 'done' ? `已自动下沉，可在看护里撤销。${advice}` : advice, recordId: rec?.id || null });
+      items.push({ title, advice: rec?.status === 'done' ? `已自动下沉，可在智能管家里撤销。${advice}` : advice, recordId: rec?.id || null });
     }
 
     const healthy = list.filter(x => x.calls >= MIN_CALLS && x.fails / x.calls <= GOOD_FAIL_RATE && x.avgLatency > 0);

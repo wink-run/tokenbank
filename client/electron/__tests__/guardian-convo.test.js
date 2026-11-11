@@ -1,5 +1,5 @@
 'use strict';
-// 看护的两种工作方式：事件触发（静默处理，只在需要用户时开口）+ 用户主动对话
+// 智能管家的两种工作方式：事件触发（静默处理，只在需要用户时开口）+ 用户主动对话
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -46,7 +46,7 @@ test('opening the page: greeting, a brief of what was handled silently, and unre
   const r = convo.open();
   assert.equal(convo.unread(), 0);
   const texts = r.messages.map(m => m.text).join('\n');
-  assert.match(texts, /我是 Token Bank 的看护/);
+  assert.match(texts, /我是 Token Bank 的智能管家/);
   assert.match(texts, /有 2 件事我处理好了，你不用管：.*huashu-nuwa.*Codex 安装失败/s);
   // 再打开一次：没有新处理的事就不重复汇报
   const n = msgs().length;
@@ -201,10 +201,10 @@ test('there are no timers: registering a check does not schedule anything, and t
   await new Promise(r => setTimeout(r, 60));
   assert.equal(ran, 0);
   assert.equal((await guardian.runCheck('t-check')).ok, true, 'still runnable on demand (from the conversation)');
-  await convo.say('暂停看护');
+  await convo.say('暂停智能管家');
   assert.equal(guardian.getSettings().enabled, false);
   assert.equal(guardian.modeOf('gateway'), 'off');
-  await convo.say('恢复看护');
+  await convo.say('恢复智能管家');
   assert.equal(guardian.getSettings().enabled, true);
 });
 

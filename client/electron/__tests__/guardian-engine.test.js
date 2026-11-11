@@ -1,5 +1,5 @@
 'use strict';
-// 看护执行引擎：画像 / 发现 / 安装不再是三个系统智能体，由看护交给一个已纳管的应用在后台跑
+// 智能管家执行引擎：画像 / 发现 / 安装不再是三个系统智能体，由智能管家交给一个已纳管的应用在后台跑
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -69,7 +69,7 @@ test('run hands the role + prompt to the chosen app', async () => {
     const r = await engine.run({ kind: 'install', prompt: '装一下 owner/repo', sessionKey: 'resource-install' });
     assert.deepEqual(r, { ok: true, taskId: 't-1', runtime: 'codex' });
     assert.equal(calls[0].agentId, 'codex');
-    assert.match(calls[0].prompt, /看护任务：资产安装[\s\S]*装一下 owner\/repo/);
+    assert.match(calls[0].prompt, /智能管家任务：资产安装[\s\S]*装一下 owner\/repo/);
     assert.equal(calls[0].options.sessionKey, 'resource-install');
     assert.equal((await engine.run({ kind: 'bogus', prompt: 'x' })).error, 'unknown-kind');
     targets.listManagedResourceAgentIds = () => [];

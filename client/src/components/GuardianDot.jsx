@@ -21,8 +21,8 @@ function SparkIcon({ className }) {
 }
 
 /**
- * 侧边栏 Logo 旁的 AI 火花：正在被看护（金）/ 需要注意（深金）/ 看护已关闭（灰）。
- * 悬停看原因，点击跳到设置页的「自我进化」。看护不可用（老版本 / 无接口）时不显示。
+ * 侧边栏 Logo 旁的 AI 火花：正在被智能管家（金）/ 需要注意（深金）/ 智能管家已关闭（灰）。
+ * 悬停看原因，点击跳到设置页的「自我进化」。智能管家不可用（老版本 / 无接口）时不显示。
  */
 export default function GuardianDot() {
   const { t } = useLang();
@@ -70,10 +70,10 @@ export default function GuardianDot() {
       aria-label={label}
       className="electron-no-drag relative inline-flex items-center justify-center w-4 h-4 shrink-0 rounded-full hover:bg-black/5 dark:hover:bg-white/10"
     >
-      {/* 看护开着时只做轻微缩放，不把颜色呼吸淡掉。正在执行时更快 */}
+      {/* 智能管家开着时只做轻微缩放，不把颜色呼吸淡掉。正在执行时更快 */}
       <style>{'@keyframes tb-spark-breathe{0%,100%{transform:scale(.94)}50%{transform:scale(1.06)}}.tb-spark-breathe{animation:tb-spark-breathe 2.8s ease-in-out infinite;transform-origin:center}.tb-spark-breathe-busy{animation-duration:1.5s}@media (prefers-reduced-motion:reduce){.tb-spark-breathe{animation:none}}'}</style>
       <SparkIcon className={`relative w-4 h-4 origin-center ${TONE[lv]} ${lv === 'off' ? '' : `tb-spark-breathe${busy ? ' tb-spark-breathe-busy' : ''}`}`} />
-      {/* 看护有话要说：未读标记，打开对话页后清除 */}
+      {/* 智能管家有话要说：未读标记，打开对话页后清除 */}
       {unread > 0 && (
         <span className="absolute -top-1.5 -right-2 min-w-[14px] h-[14px] px-[3px] rounded-full bg-red-600 text-white text-[9px] font-semibold leading-[14px] text-center" aria-hidden>
           {unread > 9 ? '9+' : unread}

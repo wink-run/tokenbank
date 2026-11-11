@@ -1,5 +1,5 @@
 'use strict';
-// 内置看护：记录 / 撤销 / 模式、报错解读、安装修复、投射自愈、诊断
+// 内置智能管家：记录 / 撤销 / 模式、报错解读、安装修复、投射自愈、诊断
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');

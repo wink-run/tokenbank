@@ -730,10 +730,10 @@ class AgentExecutor extends EventEmitter {
       }
     }
     let guardianEntry = null;
-    try { guardianEntry = require('./guardian/chat').listEntry(launchableCliIds, AGENT_CLI); } catch { /* 看护不可用 */ }
+    try { guardianEntry = require('./guardian/chat').listEntry(launchableCliIds, AGENT_CLI); } catch { /* 智能管家不可用 */ }
     const agents = [
       ...cliAgents,
-      // 内置看护智能体：排在各应用（运行时）下面、自定义智能体前面
+      // 智能管家：排在各应用（运行时）下面、自定义智能体前面
       ...(guardianEntry ? [guardianEntry] : []),
       ...this._listCustomAssistants(launchableCliIds),
       // 已雇佣的社区武将（远程执行，无正文）
@@ -846,7 +846,7 @@ class AgentExecutor extends EventEmitter {
     const guardianChat = require('./guardian/chat');
     if (guardianChat.isGuardianAgent(agentId)) {
       const st = require('./guardian/engine').status();
-      if (!st.ready || !AGENT_CLI[st.runtime]) throw new Error('看护还没有执行应用：到看护页设置一个');
+      if (!st.ready || !AGENT_CLI[st.runtime]) throw new Error('智能管家还没有执行应用：到智能管家页设置一个');
       const launch = buildAssistantLaunch(st.runtime, guardianChat.systemText(), '');
       return { agentId: st.runtime, assistant: { virtualId: agentId, resource: null, config: {}, launch } };
     }

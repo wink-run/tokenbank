@@ -1,8 +1,8 @@
 // client/electron/guardian/agent-api.js
-// 内置看护智能体（游乐场里的「内置看护智能体」）就是看护本身：对话里能做看护页上能做的一切。
-// 它跑在一个应用（Claude Code / Codex …）里，靠这里的本机接口操作看护：
+// 智能管家（游乐场里的「智能管家」）就是智能管家本身：对话里能做智能管家页上能做的一切。
+// 它跑在一个应用（Claude Code / Codex …）里，靠这里的本机接口操作智能管家：
 //   - 只监听 127.0.0.1、随机端口、带令牌；端点写在 ~/.tokenbank/guardian/agent-api.json（只有本机这个用户能读）
-//   - 只暴露看护已有的能力（和看护页按钮一一对应），没有任意执行
+//   - 只暴露智能管家已有的能力（和智能管家页按钮一一对应），没有任意执行
 //   - 附带一个小脚本 ~/.tokenbank/guardian/tb-guardian.js，智能体用 `node <脚本> <操作> '<JSON>'` 调用
 // 桌面版与 Docker 共用（startGuardian 里启动）。
 'use strict';
@@ -128,7 +128,7 @@ async function handle(op, args) {
 }
 
 const HELPER = `#!/usr/bin/env node
-// Token Bank 看护的本机接口（内置看护智能体用）。用法：node tb-guardian.js <操作> '<JSON 参数>'
+// Token Bank 智能管家的本机接口（智能管家用）。用法：node tb-guardian.js <操作> '<JSON 参数>'
 const fs = require('fs'); const http = require('http'); const path = require('path');
 const info = JSON.parse(fs.readFileSync(path.join(__dirname, 'agent-api.json'), 'utf8'));
 const [op = 'help', raw = '{}'] = process.argv.slice(2);
@@ -137,7 +137,7 @@ const u = new URL(info.url + '/op');
 const req = http.request({ host: u.hostname, port: u.port, path: u.pathname, method: 'POST',
   headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Authorization: 'Bearer ' + info.token } },
   (res) => { let b = ''; res.on('data', c => { b += c; }); res.on('end', () => { process.stdout.write(b + '\\n'); process.exitCode = res.statusCode < 400 ? 0 : 1; }); });
-req.on('error', (e) => { console.error('看护接口连不上（Token Bank 没在运行？）', e.message); process.exitCode = 1; });
+req.on('error', (e) => { console.error('智能管家接口连不上（Token Bank 没在运行？）', e.message); process.exitCode = 1; });
 req.end(body);
 `;
 
@@ -172,10 +172,10 @@ function stop() {
   if (server) { server.close(); server = null; }
 }
 
-/** 给内置看护智能体的说明：怎么在对话里操作看护 */
+/** 给智能管家的说明：怎么在对话里操作智能管家 */
 function agentGuide() {
   return [
-    '你在对话里能做看护页上能做的一切，用这个命令（Token Bank 在运行时可用）：',
+    '你在对话里能做智能管家页上能做的一切，用这个命令（Token Bank 在运行时可用）：',
     `  node "${helperPath()}" <操作> '<JSON 参数>'`,
     '操作：',
     ...Object.entries(OPS).map(([k, v]) => `- ${k}：${v.desc}`),

@@ -864,17 +864,17 @@ function coolKey(provider, model, sharer) {
 //    和个人源同一套 noteFailure（有 reset 就冷到点、reset 远才落盘；key 稳定按 sharer，落盘也合法）。
 //  - 社区源·未钉选的池路由：worker 由服务端动态挑、客户端左右不了，池的 reset 是单 worker 的不代表池 →
 //    noteTransient（忽略 reset，只 45s 短兜底防连续空跑）。
-// 内置看护：只接收「已经发生」的失败，异步处理，绝不影响本次请求（见 electron/guardian）
+// 内置智能管家：只接收「已经发生」的失败，异步处理，绝不影响本次请求（见 electron/guardian）
 let _guardianListener = null;
 function setGuardianListener(fn) { _guardianListener = typeof fn === 'function' ? fn : null; }
 function notifyGuardian(type, info) {
   const fn = _guardianListener;
   if (!fn) return;
-  setImmediate(() => { try { fn(type, info); } catch { /* 看护出错不影响网关 */ } });
+  setImmediate(() => { try { fn(type, info); } catch { /* 智能管家出错不影响网关 */ } });
 }
 
 function noteCooldown(provider, model, err, sharer) {
-  // 每一次失败的尝试都告诉看护（即使后面换源成功了）：它据此数「连续失败」
+  // 每一次失败的尝试都告诉智能管家（即使后面换源成功了）：它据此数「连续失败」
   notifyGuardian('attempt-failed', {
     providerId: provider && provider.id,
     providerLabel: provider && (provider.label || provider.name),
@@ -4250,7 +4250,7 @@ function pushLog(entry) {
       message: entry.error || '',
     });
   } else if (entry && (entry.via || entry.provider_id)) {
-    // 成功一次：看护据此把这一对的「连续失败」清零
+    // 成功一次：智能管家据此把这一对的「连续失败」清零
     notifyGuardian('request-ok', { providerId: entry.via || entry.provider_id, model: entry.model || entry.requested_model });
   }
   const place = routePlace(entry);

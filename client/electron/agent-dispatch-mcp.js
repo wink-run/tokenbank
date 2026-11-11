@@ -105,7 +105,7 @@ async function handleToolCall(name, args = {}) {
     const agents = await dispatchClient.listAgents();
     // 本地智能体优先，其次已雇佣社区，最后本机 CLI。未雇佣的在线目录不在这份列表里。
     const rank = (t) => (t === 'assistant' ? 0 : t === 'community' ? 1 : 2);
-    // 内置看护只在游乐场里回答 Token Bank 自己的问题，不接派发的业务子任务
+    // 内置智能管家只在游乐场里回答 Token Bank 自己的问题，不接派发的业务子任务
     const sorted = [...(agents || [])].filter((a) => a && a.id && !a.guardian).sort((a, b) =>
       rank(a.type) - rank(b.type) || String(a.name || '').localeCompare(String(b.name || '')),
     );

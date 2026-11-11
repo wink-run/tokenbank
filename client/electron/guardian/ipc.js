@@ -1,5 +1,5 @@
 // client/electron/guardian/ipc.js
-// 看护的 IPC：桌面版 main.js 注册；Docker 经 cli/ipc-bridge.js 以 HTTP 暴露（同一组 handler）。
+// 智能管家的 IPC：桌面版 main.js 注册；Docker 经 cli/ipc-bridge.js 以 HTTP 暴露（同一组 handler）。
 'use strict';
 
 const { ipcMain } = require('electron');
@@ -59,7 +59,7 @@ function registerGuardianHandlers() {
 
   // 运行状态：设置页顶部的标志
   ipcMain.handle('guardian:health', safe(async () => ({ success: true, ...(await require('./health').health()) })));
-  // 看护执行引擎：兴趣画像 / 资产发现 / 资产安装交给一个已纳管的应用在后台跑
+  // 智能管家执行引擎：兴趣画像 / 资产发现 / 资产安装交给一个已纳管的应用在后台跑
   ipcMain.handle('guardian:engineStatus', safe(() => ({ success: true, ...require('./engine').status() })));
   ipcMain.handle('guardian:engineSetRuntime', safe((id) => {
     const r = require('./engine').setRuntime(id);
@@ -77,7 +77,7 @@ function registerGuardianHandlers() {
   ipcMain.handle('resource:fixDiagnosis', safe(({ resourceId, type } = {}) => require('./diagnose').fixResource(resourceId, type)));
 }
 
-/** 启动看护：登记各项检查、挂网关失败事件、开定时。gatewayModule 为 electron/local-gateway */
+/** 启动智能管家：登记各项检查、挂网关失败事件、开定时。gatewayModule 为 electron/local-gateway */
 function startGuardian({ gateway, initialDelayMs } = {}) {
   if (startedOnce) return;
   startedOnce = true;
