@@ -99,6 +99,10 @@ const EMPTY_CUSTOM_FORM = {
   args: '-y mcp-fetch-server',
   url: '',
   headersText: '{}',
+  envText: '{}',
+  cwd: '',
+  timeoutSec: '30',
+  body: '',
 };
 
 /** 已存工具的种类。旧数据没有 tool_kind，一律视为 MCP。 */
@@ -148,6 +152,8 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
   const [catalogGroups, setCatalogGroups] = useState([]);
   const [catalogFilter, setCatalogFilter] = useState('');
   const [mcpViewTab, setMcpViewTab] = useState(() => readMcpViewTab());
+  // 已纳管列表按种类分开看：all / mcp / api / cli
+  const [toolKindFilter, setToolKindFilter] = useState('all');
   const [servers, setServers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -391,7 +397,7 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
 
   /** 可勾选同步的第三方 MCP（内置项默认同步，不进这批勾选） */
   const syncSelectableServers = servers.filter(
-    s => s.status === 'active' && !s.builtin && !isRelaySelfServer(s),
+    s => s.status === 'active' && !s.builtin && !isRelaySelfServer(s) && toolKindOf(s) === 'mcp',
   );
   const selectedSyncableIds = selectedServerIds.filter(id =>
     syncSelectableServers.some(s => s.id === id),
@@ -859,12 +865,37 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
       }
     }
     const args = customForm.args.split(/\s+/).filter(Boolean);
+    let env = {};
+    if (kind === 'cli' && customForm.envText.trim()) {
+      try {
+        env = JSON.parse(customForm.envText);
+        if (!env || typeof env !== 'object' || Array.isArray(env)) {
+          alert(t('providers.mcp.envObjectRequired'));
+          return;
+        }
+      } catch (e) {
+        alert(t('providers.mcp.envJsonInvalid', { msg: e.message }));
+        return;
+      }
+    }
     const metadata = {
       category: 'custom',
       tool_kind: kind,
       description: customForm.description.trim() || (kind === 'mcp' ? t('providers.mcp.customServerDesc') : ''),
     };
-    if (kind === 'api') metadata.method = customForm.method || 'POST';
+    if (kind === 'api') {
+      metadata.method = customForm.method || 'POST';
+      const sec = Number(customForm.timeoutSec);
+      if (customForm.timeoutSec.trim()) {
+        if (!Number.isFinite(sec) || sec < 1 || sec > 120) {
+          alert(t('providers.mcp.timeoutInvalid'));
+          return;
+        }
+        metadata.timeout_ms = Math.round(sec * 1000);
+      }
+      if (customForm.body.trim()) metadata.body = customForm.body;
+    }
+    if (kind === 'cli' && customForm.cwd.trim()) metadata.cwd = customForm.cwd.trim();
     if (isUrl && Object.keys(headers).length) metadata.headers = headers;
     setBusy('custom');
     const res = await window.electronAPI.mcp.saveServer({
@@ -876,6 +907,7 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
       command: isUrl ? '' : customForm.command.trim(),
       args: isUrl ? [] : args,
       url: isUrl ? customForm.url.trim() : null,
+      env: kind === 'cli' ? env : {},
       metadata,
     });
     setBusy('');
@@ -893,9 +925,88 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
   /** 列表上的接入摘要：API 显示方法，CLI 显示命令，MCP 显示 URL / CLI */
 function toolAccessLabel(s, t) {
   const kind = toolKindOf(s);
-  if (kind === 'api') return s.metadata?.method || 'POST';
-  if (kind === 'cli') return t('providers.mcp.kind.cli');
+  if (kind === 'api') return `${s.metadata?.method || 'POST'} ${s.url || ''}`.trim();
+  if (kind === 'cli') {
+    const args = Array.isArray(s.args) ? s.args : String(s.args || '').split(/\s+/).filter(Boolean);
+    return [s.command, ...args].filter(Boolean).join(' ') || t('providers.mcp.kind.cli');
+  }
   return isMcpUrlServer(s) ? t('providers.mcp.typeUrl') : t('providers.mcp.typeCli');
+}
+
+/** 切到 API / CLI 时清掉 MCP 默认命令，避免把 npx mcp 存成本地工具 */
+function formForKind(prev, id) {
+  const next = {
+    ...prev,
+    tool_kind: id,
+    type: id === 'cli' ? 'stdio' : (id === 'api' ? 'http' : prev.type),
+  };
+  if (id === 'cli' && (prev.command === 'npx' || !prev.command)) {
+    next.command = '';
+    if (String(prev.args || '').includes('mcp-fetch-server')) next.args = '';
+  }
+  if (id === 'mcp' && !next.command) {
+    next.command = 'npx';
+    next.args = next.args || '-y mcp-fetch-server';
+  }
+  return next;
+}
+
+const FIELD_CLS = 'w-full text-sm px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800';
+
+/** HTTP API 专用：方法、地址、请求头、超时、请求体 */
+function renderApiFields(form, patch) {
+  return (
+    <>
+      <label className="block space-y-1">
+        <span className="text-[10px] text-zinc-500">{t('providers.mcp.method')}</span>
+        <select value={form.method || 'POST'} onChange={e => patch({ method: e.target.value })} className={FIELD_CLS}>
+          {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </label>
+      <label className="block space-y-1">
+        <span className="text-[10px] text-zinc-500">URL</span>
+        <input value={form.url || ''} onChange={e => patch({ url: e.target.value })} placeholder={t('providers.mcp.apiUrlPh')} className={`${FIELD_CLS} font-mono`} />
+      </label>
+      <label className="block space-y-1">
+        <span className="text-[10px] text-zinc-500">{t('providers.mcp.headersJson')}</span>
+        <textarea value={form.headersText || ''} onChange={e => patch({ headersText: e.target.value })} rows={3} spellCheck={false} className={`${FIELD_CLS} text-xs font-mono`} />
+      </label>
+      <label className="block space-y-1">
+        <span className="text-[10px] text-zinc-500">{t('providers.mcp.timeoutSec')}</span>
+        <input value={form.timeoutSec || ''} onChange={e => patch({ timeoutSec: e.target.value })} placeholder="30" className={FIELD_CLS} />
+      </label>
+      {(form.method || 'POST') !== 'GET' && (
+        <label className="block space-y-1">
+          <span className="text-[10px] text-zinc-500">{t('providers.mcp.bodyTpl')}</span>
+          <textarea value={form.body || ''} onChange={e => patch({ body: e.target.value })} rows={3} placeholder={t('providers.mcp.bodyPh')} spellCheck={false} className={`${FIELD_CLS} text-xs font-mono`} />
+        </label>
+      )}
+    </>
+  );
+}
+
+/** 本地 CLI 专用：命令、参数、工作目录、环境变量 */
+function renderCliFields(form, patch) {
+  return (
+    <>
+      <label className="block space-y-1">
+        <span className="text-[10px] text-zinc-500">{t('providers.mcp.col.command')}</span>
+        <input value={form.command || ''} onChange={e => patch({ command: e.target.value })} placeholder={t('providers.mcp.cliCommandPh')} className={`${FIELD_CLS} font-mono`} />
+      </label>
+      <label className="block space-y-1">
+        <span className="text-[10px] text-zinc-500">{t('providers.mcp.argsHint')}</span>
+        <input value={form.args || ''} onChange={e => patch({ args: e.target.value })} placeholder={t('providers.mcp.cliArgsPh')} className={`${FIELD_CLS} font-mono`} />
+      </label>
+      <label className="block space-y-1">
+        <span className="text-[10px] text-zinc-500">{t('providers.mcp.cwd')}</span>
+        <input value={form.cwd || ''} onChange={e => patch({ cwd: e.target.value })} placeholder={t('providers.mcp.cwdPh')} className={`${FIELD_CLS} font-mono`} />
+      </label>
+      <label className="block space-y-1">
+        <span className="text-[10px] text-zinc-500">{t('providers.mcp.envJson')}</span>
+        <textarea value={form.envText || ''} onChange={e => patch({ envText: e.target.value })} rows={3} spellCheck={false} className={`${FIELD_CLS} text-xs font-mono`} />
+      </label>
+    </>
+  );
 }
 
 /** 工具种类：MCP / API / 本地 CLI */
@@ -987,6 +1098,9 @@ function renderToolKindToggle(kind, onChange) {
       envText: JSON.stringify(envObj, null, 2),
       headersText: JSON.stringify(headers, null, 2),
       description: server.metadata?.description || '',
+      cwd: server.metadata?.cwd || '',
+      timeoutSec: server.metadata?.timeout_ms ? String(Math.round(Number(server.metadata.timeout_ms) / 1000)) : '',
+      body: server.metadata?.body || '',
       metadata: server.metadata || {},
       syncToAgents: true,
       editMode: 'form', // form | json
@@ -1122,7 +1236,23 @@ function renderToolKindToggle(kind, onChange) {
       tool_kind: toolKindOf(form),
       description: form.description.trim(),
     };
-    if (metadata.tool_kind === 'api') metadata.method = form.method || 'POST';
+    if (metadata.tool_kind === 'api') {
+      metadata.method = form.method || 'POST';
+      const sec = Number(form.timeoutSec);
+      if (String(form.timeoutSec || '').trim()) {
+        if (!Number.isFinite(sec) || sec < 1 || sec > 120) {
+          alert(t('providers.mcp.timeoutInvalid'));
+          return;
+        }
+        metadata.timeout_ms = Math.round(sec * 1000);
+      } else delete metadata.timeout_ms;
+      if (String(form.body || '').trim()) metadata.body = form.body;
+      else delete metadata.body;
+    }
+    if (metadata.tool_kind === 'cli') {
+      if (String(form.cwd || '').trim()) metadata.cwd = form.cwd.trim();
+      else delete metadata.cwd;
+    }
     if (Object.keys(headers).length) metadata.headers = headers;
     else delete metadata.headers;
 
@@ -1352,7 +1482,7 @@ function renderToolKindToggle(kind, onChange) {
   function renderManagedListRow(s) {
     const key = `m:${s.id}`;
     const sel = selectedKey === key;
-    const canSelect = s.status === 'active';
+    const canSelect = s.status === 'active' && toolKindOf(s) === 'mcp';
     const checked = selectedServerIds.includes(s.id);
     const origin = managedOriginSource(s);
     const menu = serverMenuItems(s);
@@ -1447,6 +1577,38 @@ function renderToolKindToggle(kind, onChange) {
           </>
         ) : null}
       >
+        {toolKindOf(s) === 'api' && (
+          <>
+            <InspectorSection title={t('providers.mcp.requestLine')}>
+              <code className="block text-[11px] font-mono text-zinc-600 dark:text-zinc-300 break-all">{`${s.metadata?.method || 'POST'} ${s.url || ''}`}</code>
+              {s.metadata?.timeout_ms ? (
+                <p className="mt-1 text-[10px] text-zinc-400">{t('providers.mcp.timeoutSec')}: {Math.round(Number(s.metadata.timeout_ms) / 1000)}s</p>
+              ) : null}
+            </InspectorSection>
+            <InspectorSection title={t('providers.mcp.headersJson')}>
+              <pre className="text-[11px] font-mono text-zinc-500 whitespace-pre-wrap break-all">{JSON.stringify(s.metadata?.headers || {}, null, 2)}</pre>
+            </InspectorSection>
+            {s.metadata?.body ? (
+              <InspectorSection title={t('providers.mcp.bodyTpl')}>
+                <pre className="text-[11px] font-mono text-zinc-500 whitespace-pre-wrap break-all">{s.metadata.body}</pre>
+              </InspectorSection>
+            ) : null}
+          </>
+        )}
+        {toolKindOf(s) === 'cli' && (
+          <>
+            <InspectorSection title={t('providers.mcp.col.command')}>
+              <code className="block text-[11px] font-mono text-zinc-600 dark:text-zinc-300 break-all">{toolAccessLabel(s, t)}</code>
+            </InspectorSection>
+            <InspectorSection title={t('providers.mcp.cwd')}>
+              <code className="block text-[11px] font-mono text-zinc-500 break-all">{s.metadata?.cwd || '—'}</code>
+            </InspectorSection>
+            <InspectorSection title={t('providers.mcp.envJson')}>
+              <pre className="text-[11px] font-mono text-zinc-500 whitespace-pre-wrap break-all">{JSON.stringify(s.env || {}, null, 2)}</pre>
+            </InspectorSection>
+          </>
+        )}
+        {toolKindOf(s) === 'mcp' && (
         <InspectorSection title={t('resources.col.apps')}>
             <div className="space-y-2">
               {apps.length === 0 ? (
@@ -1483,7 +1645,8 @@ function renderToolKindToggle(kind, onChange) {
               {renderServerActions(s, { block: true })}
             </div>
           </InspectorSection>
-        {tools.length > 0 && (
+        )}
+        {toolKindOf(s) === 'mcp' && tools.length > 0 && (
           <InspectorSection title={t('resources.mcp.tools', { n: tools.length })}>
             <div className="flex flex-wrap gap-1">
               {tools.map(tool => (
@@ -1492,7 +1655,7 @@ function renderToolKindToggle(kind, onChange) {
             </div>
           </InspectorSection>
         )}
-        {(s.command || s.url) && (
+        {toolKindOf(s) === 'mcp' && (s.command || s.url) && (
           <InspectorSection title={t('resources.mcp.launch')}>
             <code className="block text-[11px] font-mono text-zinc-500 break-all">
               {s.url || [s.command, ...(Array.isArray(s.args) ? s.args : [])].join(' ')}
@@ -1878,10 +2041,125 @@ function renderToolKindToggle(kind, onChange) {
     return <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1.5">{t('resources.mcp.builtinMissingNote')}</p>;
   }
 
+  /** API / CLI 不用「投射到应用」列，单独展示请求或命令 */
+  function renderPlainToolRow(s) {
+    const kind = toolKindOf(s);
+    const key = `m:${s.id}`;
+    const sel = selectedKey === key;
+    const menu = serverMenuItems(s);
+    const mid = kind === 'api'
+      ? (s.metadata?.method || 'POST')
+      : (s.metadata?.cwd || '—');
+    const detail = kind === 'api' ? (s.url || '') : toolAccessLabel(s, t);
+    return (
+      <li
+        key={s.id}
+        role="option"
+        aria-selected={sel}
+        onClick={() => setSelectedKey(sel ? null : key)}
+        className={`${libRowCls(sel)} grid-cols-1 md:grid-cols-[minmax(0,1fr)_4.5rem_minmax(0,1.2fr)_4.5rem_5.5rem]`}
+      >
+        <LibraryRowTitle
+          logo={<McpLogo icon={kind === 'api' ? '🌐' : '⌘'} />}
+          name={s.display_name || s.name}
+          sub={serverDesc(s)}
+        />
+        <span className="text-[11px] font-mono text-zinc-500 truncate">{mid}</span>
+        <span className="text-[11px] font-mono text-zinc-600 dark:text-zinc-300 truncate" title={detail}>{detail || '—'}</span>
+        <span className="flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300">
+          <span className={`w-1.5 h-1.5 rounded-full ${serverStatusDot(s)}`} aria-hidden />
+          {s.status === 'active' ? t('providers.mcp.enabled') : t('providers.mcp.disabled')}
+        </span>
+        <div className="flex items-center justify-end" onClick={e => e.stopPropagation()}>
+          {menu.length > 0 && <AssetMoreMenu label={t('resources.moreActions')} items={menu} />}
+        </div>
+      </li>
+    );
+  }
+
+  function openCustom(kind) {
+    const id = kind === 'api' || kind === 'cli' ? kind : (toolKindFilter === 'api' || toolKindFilter === 'cli' ? toolKindFilter : 'mcp');
+    setCustomForm(formForKind({ ...EMPTY_CUSTOM_FORM }, id));
+    setShowCustom(true);
+  }
+
+  function renderKindEmpty(kind) {
+    const text = kind === 'api'
+      ? t('providers.mcp.noApi')
+      : kind === 'cli'
+        ? t('providers.mcp.noCli')
+        : (agentTab && activeAgent
+          ? t('providers.mcp.noManagedOnAgent', { agent: activeAgent.label })
+          : t('providers.mcp.noManaged'));
+    return (
+      <div className={`${LIB_LIST_CLS} p-6 text-center space-y-2`}>
+        <p className="text-xs text-zinc-400">{text}</p>
+        {kind === 'mcp' && agentTab ? (
+          <button type="button" onClick={() => selectAgentTab('')} className="text-xs text-blue-600 hover:underline">
+            {t('resources.clearAppFilter')}
+          </button>
+        ) : (
+          <button type="button" onClick={() => (kind === 'mcp' && !controlledView ? selectMcpViewTab('catalog') : openCustom(kind))} className="text-xs text-blue-600 hover:underline">
+            {kind === 'mcp' ? t('providers.mcp.goCatalog') : t(kind === 'api' ? 'providers.mcp.addApi' : 'providers.mcp.addCli')}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  function renderKindSection(kind, items) {
+    const title = t(`providers.mcp.kind.${kind}`);
+    const plain = kind !== 'mcp';
+    return (
+      <section key={kind} className="space-y-2">
+        <LibrarySectionHead title={title} count={items.length} />
+        {items.length === 0 ? renderKindEmpty(kind) : (
+          <div className={LIB_LIST_CLS}>
+            {plain ? (
+              <div className="hidden md:grid md:grid-cols-[minmax(0,1fr)_4.5rem_minmax(0,1.2fr)_4.5rem_5.5rem] gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]">
+                <span>{t('resources.col.name')}</span>
+                <span>{kind === 'api' ? t('providers.mcp.method') : t('providers.mcp.cwd')}</span>
+                <span>{kind === 'api' ? 'URL' : t('providers.mcp.col.command')}</span>
+                <span>{t('resources.col.status')}</span>
+                <span />
+              </div>
+            ) : (
+              <div className={`hidden md:grid ${MCP_HEAD_GRID} gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]`}>
+                <span className="w-4 flex justify-center">
+                  {syncSelectableServers.length > 0 && (
+                    <input
+                      type="checkbox"
+                      checked={allSyncSelectableChecked}
+                      onChange={toggleSelectAllServers}
+                      title={t('providers.mcp.selectAll')}
+                      className="rounded border-zinc-300 dark:border-zinc-600"
+                    />
+                  )}
+                </span>
+                <span>{t('resources.col.name')}</span>
+                <span>{t('resources.col.apps')}</span>
+                <span>{t('providers.mcp.type')}</span>
+                <span>{t('resources.col.status')}</span>
+                <span />
+              </div>
+            )}
+            <ul role="listbox" aria-label={title}>
+              {items.map(plain ? renderPlainToolRow : renderManagedListRow)}
+            </ul>
+          </div>
+        )}
+      </section>
+    );
+  }
+
   function renderManagedView() {
     const selected = selectedKey?.startsWith('m:') ? servers.find(x => `m:${x.id}` === selectedKey) : null;
     const selectedApp = selectedKey?.startsWith('app:') ? addTargets().find((tg) => `app:${tg.id}` === selectedKey) : null;
     const listServers = filteredManagedServers.filter((s) => !s.builtin && !isRelaySelfServer(s));
+    const counts = { mcp: 0, api: 0, cli: 0 };
+    for (const s of listServers) counts[toolKindOf(s)] += 1;
+    const kinds = toolKindFilter === 'all' ? ['mcp', 'api', 'cli'] : [toolKindFilter];
+    const showEmptyAll = toolKindFilter === 'all' && listServers.length === 0;
     return (
       <>
         {renderBuiltinCard()}
@@ -1890,50 +2168,33 @@ function renderToolKindToggle(kind, onChange) {
         )}
         <div className="flex gap-4 items-start">
           <div className="flex-1 min-w-0 space-y-3">
-            <LibrarySectionHead title={t('resources.mcp.thirdParty')} count={listServers.length} />
-            {listServers.length === 0 ? (
+            <div className="flex flex-wrap items-center gap-1">
+              {[['all', t('providers.mcp.filterAll'), listServers.length], ['mcp', t('providers.mcp.kind.mcp'), counts.mcp], ['api', t('providers.mcp.kind.api'), counts.api], ['cli', t('providers.mcp.kind.cli'), counts.cli]].map(([id, label, n]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setToolKindFilter(id)}
+                  className={`text-[11px] px-2.5 py-1 rounded-full border ${
+                    toolKindFilter === id
+                      ? 'border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-200'
+                      : 'border-zinc-200 text-zinc-500 dark:border-zinc-700'
+                  }`}
+                >
+                  {label} {n}
+                </button>
+              ))}
+            </div>
+            {showEmptyAll ? (
               <div className={`${LIB_LIST_CLS} p-6 text-center space-y-2`}>
-                <p className="text-xs text-zinc-400">
-                  {agentTab && activeAgent
-                    ? t('providers.mcp.noManagedOnAgent', { agent: activeAgent.label })
-                    : t('providers.mcp.noManaged')}
-                </p>
-                {agentTab ? (
-                  <button type="button" onClick={() => selectAgentTab('')} className="text-xs text-blue-600 hover:underline">
-                    {t('resources.clearAppFilter')}
-                  </button>
-                ) : !controlledView && (
-                  <button type="button" onClick={() => selectMcpViewTab('catalog')} className="text-xs text-blue-600 hover:underline">
-                    {t('providers.mcp.goCatalog')}
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className={LIB_LIST_CLS}>
-                <div className={`hidden md:grid ${MCP_HEAD_GRID} gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]`}>
-                  <span className="w-4 flex justify-center">
-                    {syncSelectableServers.length > 0 && (
-                      <input
-                        type="checkbox"
-                        checked={allSyncSelectableChecked}
-                        onChange={toggleSelectAllServers}
-                        title={t('providers.mcp.selectAll')}
-                        className="rounded border-zinc-300 dark:border-zinc-600"
-                      />
-                    )}
-                  </span>
-                  <span>{t('resources.col.name')}</span>
-                  <span>{t('resources.col.apps')}</span>
-                  <span>{t('resources.mcp.kind')}</span>
-                  <span>{t('resources.col.status')}</span>
-                  <span />
+                <p className="text-xs text-zinc-400">{t('providers.mcp.noTools')}</p>
+                <div className="flex flex-wrap justify-center gap-3">
+                  <button type="button" onClick={() => openCustom('mcp')} className="text-xs text-blue-600 hover:underline">{t('providers.mcp.addMcp')}</button>
+                  <button type="button" onClick={() => openCustom('api')} className="text-xs text-blue-600 hover:underline">{t('providers.mcp.addApi')}</button>
+                  <button type="button" onClick={() => openCustom('cli')} className="text-xs text-blue-600 hover:underline">{t('providers.mcp.addCli')}</button>
                 </div>
-                <ul role="listbox" aria-label="MCP">
-                  {listServers.map(renderManagedListRow)}
-                </ul>
               </div>
-            )}
-            <p className="text-[11px] text-zinc-400 px-1">{t('resources.mcp.accessHint')}</p>
+            ) : kinds.filter((k) => toolKindFilter !== 'all' || counts[k] > 0).map((k) => renderKindSection(k, listServers.filter((s) => toolKindOf(s) === k)))}
+            {counts.mcp > 0 && <p className="text-[11px] text-zinc-400 px-1">{t('resources.mcp.accessHint')}</p>}
           </div>
           {selected && renderServerInspector(selected)}
           {selectedApp && renderAppInspector(selectedApp)}
@@ -2096,7 +2357,7 @@ function renderToolKindToggle(kind, onChange) {
                 {t('providers.mcp.refresh')}
               </button>
               {effView === 'managed' && !controlledView && (
-                <button type="button" onClick={() => setShowCustom(true)} className={`${ASSET_BTN_GHOST} !rounded-lg !px-3 !py-1`}>
+                <button type="button" onClick={() => openCustom(toolKindFilter)} className={`${ASSET_BTN_GHOST} !rounded-lg !px-3 !py-1`}>
                   {t('providers.mcp.customMcp')}
                 </button>
               )}
@@ -2144,8 +2405,8 @@ function renderToolKindToggle(kind, onChange) {
           >
             <div className="flex items-center justify-between gap-2">
               <div>
-                <h3 className="text-sm font-semibold">{t('providers.mcp.editTitle')}</h3>
-                <p className="text-[10px] text-zinc-400 mt-0.5">{t('providers.mcp.editHint')}</p>
+                <h3 className="text-sm font-semibold">{t(`providers.mcp.editTitleKind.${toolKindOf(editServer)}`)}</h3>
+                <p className="text-[10px] text-zinc-400 mt-0.5">{toolKindOf(editServer) === 'mcp' ? t('providers.mcp.editHint') : t('providers.mcp.editHintPlain')}</p>
               </div>
               <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden text-[10px] shrink-0">
                 <button
@@ -2210,19 +2471,9 @@ function renderToolKindToggle(kind, onChange) {
                 type: urlMode ? (f.type === 'sse' ? 'sse' : 'http') : 'stdio',
               }));
             })}
-            {toolKindOf(editServer) === 'api' && (
-              <label className="block space-y-1">
-                <span className="text-[10px] text-zinc-500">{t('providers.mcp.method')}</span>
-                <select
-                  value={editServer.method || 'POST'}
-                  onChange={e => setEditServer(f => ({ ...f, method: e.target.value }))}
-                  className="w-full text-sm px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
-                >
-                  {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </label>
-            )}
-            {isMcpUrlServer(editServer) ? (
+            {toolKindOf(editServer) === 'api' && renderApiFields(editServer, (patch) => setEditServer(f => ({ ...f, ...patch })))}
+            {toolKindOf(editServer) === 'cli' && renderCliFields(editServer, (patch) => setEditServer(f => ({ ...f, ...patch })))}
+            {toolKindOf(editServer) === 'mcp' && (isMcpUrlServer(editServer) ? (
               <>
                 <label className="block space-y-1">
                   <span className="text-[10px] text-zinc-500">URL</span>
@@ -2271,7 +2522,7 @@ function renderToolKindToggle(kind, onChange) {
                   />
                 </label>
               </>
-            )}
+            ))}
             <label className="block space-y-1">
               <span className="text-[10px] text-zinc-500">{t('providers.mcp.description')}</span>
               <input
@@ -2317,7 +2568,7 @@ function renderToolKindToggle(kind, onChange) {
       {showCustom && createPortal(
         <div className="electron-no-drag fixed inset-0 z-[9998] flex items-center justify-center bg-black/40 p-4">
           <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-700 w-full max-w-md p-5 space-y-3 shadow-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <h3 className="text-sm font-semibold">{t('providers.mcp.addCustomTitle')}</h3>
+            <h3 className="text-sm font-semibold">{t(`providers.mcp.addTitle.${toolKindOf(customForm)}`)}</h3>
             <input
               placeholder={t('providers.mcp.namePh')}
               value={customForm.name}
@@ -2331,11 +2582,7 @@ function renderToolKindToggle(kind, onChange) {
               className="w-full text-sm px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
             />
             {renderToolKindToggle(toolKindOf(customForm), (id) => {
-              setCustomForm((f) => ({
-                ...f,
-                tool_kind: id,
-                type: id === 'cli' ? 'stdio' : (id === 'api' ? 'http' : f.type),
-              }));
+              setCustomForm((f) => formForKind(f, id));
             })}
             <input
               placeholder={t('providers.mcp.descPh')}
@@ -2346,16 +2593,9 @@ function renderToolKindToggle(kind, onChange) {
             {toolKindOf(customForm) === 'mcp' && renderTypeModeToggle(isMcpUrlServer(customForm), (urlMode) => {
               setCustomForm((f) => ({ ...f, type: urlMode ? 'http' : 'stdio' }));
             })}
-            {toolKindOf(customForm) === 'api' && (
-              <select
-                value={customForm.method}
-                onChange={e => setCustomForm(f => ({ ...f, method: e.target.value }))}
-                className="w-full text-sm px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800"
-              >
-                {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
-            )}
-            {(toolKindOf(customForm) === 'api' || (toolKindOf(customForm) === 'mcp' && isMcpUrlServer(customForm))) ? (
+            {toolKindOf(customForm) === 'api' && renderApiFields(customForm, (patch) => setCustomForm(f => ({ ...f, ...patch })))}
+            {toolKindOf(customForm) === 'cli' && renderCliFields(customForm, (patch) => setCustomForm(f => ({ ...f, ...patch })))}
+            {toolKindOf(customForm) === 'mcp' && (isMcpUrlServer(customForm) ? (
               <>
                 <input
                   placeholder={t('providers.mcp.urlPh')}
@@ -2388,7 +2628,7 @@ function renderToolKindToggle(kind, onChange) {
                   className="w-full text-sm px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 font-mono"
                 />
               </>
-            )}
+            ))}
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => { setShowCustom(false); setCustomForm({ ...EMPTY_CUSTOM_FORM }); }} className="text-xs px-3 py-1.5 rounded-lg border">{t('providers.mcp.cancel')}</button>
               <button
