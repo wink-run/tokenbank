@@ -49,11 +49,15 @@ test('status and runtime choice follow managed apps', () => {
     targets.listManagedResourceAgentIds = () => ['pi', 'claude-code', 'codex'];
     const st = engine.status();
     assert.equal(st.ready, true);
-    assert.deepEqual(st.runtimes.map(r => r.id), ['codex', 'claude-code'], 'only apps that can run tools, in preferred order');
+    assert.deepEqual(st.runtimes.map(r => r.id), ['codex', 'claude-code', 'pi'], 'tool-capable apps, preferred order; Pi last');
     assert.equal(st.runtime, 'codex');
-    assert.equal(engine.setRuntime('pi').ok, false);
+    assert.equal(engine.setRuntime('pi').ok, true);
+    assert.equal(engine.status().runtime, 'pi');
     assert.equal(engine.setRuntime('claude-code').ok, true);
     assert.equal(engine.status().runtime, 'claude-code');
+    targets.listManagedResourceAgentIds = () => ['pi'];
+    assert.equal(engine.status().ready, true);
+    assert.equal(engine.status().runtime, 'pi');
   } finally {
     targets.listManagedResourceAgentIds = orig;
   }
@@ -125,3 +129,15 @@ test('health.busy lists what is running right now, and clears when it ends', asy
   }
 });
 
+test('butler in the playground: runs on Pi when Pi is the only managed runner, and prefers Codex when both are there', () => {
+  const chat = require('../guardian/chat');
+  const orig = targets.listManagedResourceAgentIds;
+  try {
+    targets.listManagedResourceAgentIds = () => ['pi'];
+    assert.equal(chat.listEntry(new Set(['pi']), { pi: { name: 'Pi', capabilities: ['chat'] } }).runtimeAgentId, 'pi');
+    targets.listManagedResourceAgentIds = () => ['pi', 'codex'];
+    assert.equal(chat.listEntry(new Set(['pi', 'codex']), { codex: { name: 'Codex', capabilities: ['code'] } }).runtimeAgentId, 'codex');
+  } finally {
+    targets.listManagedResourceAgentIds = orig;
+  }
+});

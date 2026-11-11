@@ -1500,6 +1500,13 @@ class AgentExecutor extends EventEmitter {
             cliSessionId,
             model: String(options.model || '').trim(),
           })];
+        } else if (effectiveAgentId === 'pi') {
+          // 与直调同一套 --mode json，编排说明已在 execPrompt 前缀里
+          args = [...launch.argPrefix, ...cfg.buildArgs(execPrompt, {
+            continueSession,
+            cliSessionId,
+            model: String(options.model || '').trim(),
+          })];
         } else {
           args = [...launch.argPrefix, ...orch.extraArgs, execPrompt];
         }
@@ -2253,7 +2260,7 @@ class AgentExecutor extends EventEmitter {
   }
 
   /**
-   * 列出进行中的任务（切换页面后恢复 UI 用）
+   * 列出进行中的任务（刷新页面只恢复界面，不取消进程）
    */
   async listActiveTasks() {
     const db = this._getDb();
@@ -2382,6 +2389,7 @@ class AgentExecutor extends EventEmitter {
 }
 
 module.exports = new AgentExecutor();
+module.exports.AGENT_CLI = AGENT_CLI;
 module.exports.canonicalBuiltinAgentId = canonicalBuiltinAgentId;
 module.exports.invalidateAgentListCache = invalidateAgentListCache;
 module.exports.buildClaudeCodeArgs = buildClaudeCodeArgs;

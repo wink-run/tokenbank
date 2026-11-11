@@ -11,12 +11,12 @@ const DEFAULT_RUNTIME_AGENT = 'claude-code';
  * 与 resource_project（runtime 能力）配合；WorkBuddy 仅标记启用。
  */
 const ASSISTANT_ENABLE_AGENT_IDS = new Set([
-  'claude-code', 'codex', 'cursor', 'kimi-code', 'workbuddy',
+  'claude-code', 'codex', 'cursor', 'kimi-code', 'workbuddy', 'pi',
 ]);
 
 /** Debug 实际可 spawn 的运行时 CLI（须同时具备 resource_project 才可作为贡献/游乐场 runtime） */
 const ASSISTANT_RUNTIME_IDS = new Set([
-  'claude-code', 'codex', 'cursor', 'kimi-code',
+  'claude-code', 'codex', 'cursor', 'kimi-code', 'pi',
 ]);
 
 /** 当前可作为游乐场/贡献 runtime 的已安装应用 */
@@ -38,6 +38,7 @@ const ASSISTANT_ENABLE_LABELS = {
   cursor: 'Cursor',
   'kimi-code': 'Kimi Code',
   workbuddy: 'WorkBuddy',
+  pi: 'Pi',
 };
 
 /** 是否已投射到可启用 Debug 的目标（含 resource_project runtime） */
@@ -197,6 +198,15 @@ function buildAssistantLaunch(runtimeAgentId, systemText, model, opts = {}) {
 
   if (runtimeAgentId === 'kimi-code') {
     // Kimi 无 append-system-prompt：soul 作前缀；模型经 -m
+    return {
+      runtimeAgentId,
+      promptPrefix: system ? `${system}\n\n` : '',
+      model: mdl || undefined,
+    };
+  }
+
+  if (runtimeAgentId === 'pi') {
+    // Pi 无系统提示参数：soul 作前缀；模型经 --model
     return {
       runtimeAgentId,
       promptPrefix: system ? `${system}\n\n` : '',

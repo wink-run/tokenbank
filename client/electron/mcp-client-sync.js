@@ -614,6 +614,9 @@ function getServerSyncClients(server) {
 function filterServersForClient(servers, clientId) {
   return (servers || []).filter(s => {
     if (s.status !== 'active' || s.source === 'client') return false;
+    // 普通 API / 本地 CLI 只在工具页配置，不写进应用的 MCP 配置
+    const kind = s.tool_kind || s.metadata?.tool_kind;
+    if (kind === 'api' || kind === 'cli') return false;
 
     // prompts：显式 sync_clients 按下发名单；未配置则懒下发（仅已有 prompt 投射的 Agent）
     if (s.id === BUILTIN_PROMPTS_ID) {

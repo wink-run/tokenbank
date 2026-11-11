@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { login, register, getProfile, joinCircle, formatApiError, forgotPassword, resetPassword } from '../api/client';
+import { login, register, joinCircle, formatApiError, forgotPassword, resetPassword } from '../api/client';
 import { useAuth } from '../store/index';
 import logo from '../assets/logo.svg';
 import { useLang } from '../store/lang';
@@ -84,17 +84,12 @@ export default function Login() {
     bootstrapServerUrl().then((url) => { if (url) setServerUrl(url); });
   }, []);
 
-  async function afterAuth(token, circleResult = null) {
+  function afterAuth(token, circleResult = null) {
     localStorage.setItem('token', token);
-    const base = normalizeServerBase(localStorage.getItem('serverUrl') || '');
-    await syncCloudConfigUrl(base);
-    const profileRes = await getProfile();
-    loginSuccess(token, profileRes.data);
-    if (isElectron()) {
-      const current = (await window.electronAPI.config.read()) || {};
-      const wsUrl = serverUrl.replace(/^https?/, (m) => (m === 'https' ? 'wss' : 'ws')) + '/ws/worker';
-      await window.electronAPI.config.write({ ...current, server_url: wsUrl, worker_key: profileRes.data.worker_key || '' });
-    }
+    const base = normalizeServerBase(localStorage.getItem('serverUrl') || serverUrl || '');
+    // 服务地址、个人资料、贡献 WebSocket 都在 loginSuccess 里后台做
+    syncCloudConfigUrl(base).catch(() => {});
+    loginSuccess(token, { email: email.trim() });
     // 有邀请圈子结果时跳转到圈子页并传递提示
     if (circleResult) {
       navigate('/contribute', { replace: true, state: { tradeTab: 'circles', circleResult } });

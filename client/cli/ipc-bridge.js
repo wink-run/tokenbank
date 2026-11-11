@@ -18,7 +18,7 @@ const https = require('https');
 const path = require('path');
 
 const STUB_PATH = path.join(__dirname, 'electron-stub.js');
-const ALLOWED_PREFIXES = ['resource:', 'agent:', 'community:', 'guardian:', 'mcp:'];
+const ALLOWED_PREFIXES = ['resource:', 'agent:', 'community:', 'guardian:', 'mcp:', 'sessions:'];
 const LOCAL_ONLY_CHANNELS = new Set(['llm:fetch']);
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
@@ -77,6 +77,91 @@ function llmFetch(_event, { url, method = 'GET', headers = {}, body, timeoutMs }
   });
 }
 
+/** 会话管理。扫盘失败时返回空列表，不拖垮整座 bridge。 */
+function registerSessionHandlers(target) {
+  const fs = require('fs');
+  const os = require('os');
+  let knowledgeJob = { status: 'idle', ok: false, content: '', model: null, scanned: 0, error: null, projectPaths: {}, finishedAt: 0 };
+
+  function deps() {
+    return {
+      sessionBrowser: require('../electron/session-browser'),
+      localStats: require('../electron/local-stats'),
+    };
+  }
+
+  target.__handlers.set('sessions:listAll', async (_e, opts = {}) => {
+    try {
+      return await require('../electron/session-manager').getSessionsAsync(deps(), opts || {});
+    } catch (e) {
+      console.error('[sessions:listAll]', e.message);
+      return [];
+    }
+  });
+
+  target.__handlers.set('sessions:setMeta', (_e, payload = {}) => {
+    try {
+      const sessionManager = require('../electron/session-manager');
+      const r = deps().localStats.setSessionMeta(payload);
+      try { sessionManager.invalidateSessionsCache(); } catch { /* ignore */ }
+      return r;
+    } catch (e) {
+      console.error('[sessions:setMeta]', e.message);
+      return null;
+    }
+  });
+
+  target.__handlers.set('sessions:export', (_e, payload = {}) => {
+    try { return require('../electron/session-manager').exportSession(deps(), payload || {}); }
+    catch (e) { console.error('[sessions:export]', e.message); return { error: 'export_failed' }; }
+  });
+
+  target.__handlers.set('sessions:continue', async (_e, payload = {}) => {
+    try { return await require('../electron/session-manager').continueSession(deps(), payload || {}); }
+    catch (e) { console.error('[sessions:continue]', e.message); return { error: 'continue_failed' }; }
+  });
+
+  target.__handlers.set('sessions:knowledgeStart', (_e, { model } = {}) => {
+    if (knowledgeJob.status === 'running') return { status: knowledgeJob.status };
+    knowledgeJob = { status: 'running', ok: false, content: '', model: null, scanned: 0, error: null, projectPaths: {}, finishedAt: 0 };
+    require('../electron/session-manager').synthesizeKnowledge(deps(), model ? { model } : {})
+      .then((r) => {
+        knowledgeJob = {
+          status: 'ready', ok: !!r.ok, content: r.content || '', model: r.model || null,
+          scanned: r.scanned || 0, error: r.error || null, projectPaths: r.projectPaths || {}, finishedAt: Date.now(),
+        };
+      })
+      .catch((e) => {
+        console.error('[knowledgeJob]', e.message);
+        knowledgeJob = { status: 'error', ok: false, content: '', model: null, scanned: 0, error: 'mine_failed', projectPaths: {}, finishedAt: Date.now() };
+      });
+    return { status: knowledgeJob.status };
+  });
+
+  target.__handlers.set('sessions:knowledgeResult', () => ({ ...knowledgeJob }));
+
+  // 没有系统保存框：写到调用方给的路径，且必须落在家目录或挂载的项目目录里
+  target.__handlers.set('sessions:saveAgentsMd', (_e, { content, defaultPath } = {}) => {
+    try {
+      const text = typeof content === 'string' ? content : '';
+      const fallback = path.join(os.homedir(), 'AGENTS.md');
+      const abs = path.resolve(typeof defaultPath === 'string' && defaultPath.trim() ? defaultPath.trim() : fallback);
+      const roots = [os.homedir(), process.env.TOKENBANK_WORKDIR || '/workspace'].map((r) => path.resolve(r));
+      const allowed = roots.some((root) => abs === root || abs.startsWith(root + path.sep));
+      if (!allowed) return { error: 'save_failed' };
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, text, 'utf8');
+      return { ok: true, file: abs };
+    } catch (e) {
+      console.error('[sessions:saveAgentsMd]', e.message);
+      return { error: 'save_failed' };
+    }
+  });
+
+  // 容器里没有桌面应用可拉起；交接文档已复制，由用户贴进目标对话
+  target.__handlers.set('sessions:launch', () => ({ error: 'launch_unsupported_platform' }));
+}
+
 /** 加载并注册与桌面版相同的 handler；失败不影响网关其它功能 */
 function init() {
   if (_ready || _initError) return _ready;
@@ -87,6 +172,8 @@ function init() {
     require('../electron/guardian/ipc').registerGuardianHandlers();
     // MCP 管理与桌面版同一套 handler；写到容器内的用户目录（HOME=/data）
     require('../electron/ipc-handlers-mcp').registerMcpHandlers();
+    // 会话管理：列表、收藏、导出、交接。容器里没有系统保存框，AGENTS.md 直接写到给定路径。
+    registerSessionHandlers(stub);
     stub.__handlers.set('llm:fetch', llmFetch);
     // 没有系统文件对话框：选工作目录 = 校验 Web 界面填写的路径，默认 /workspace（挂载的项目目录）
     stub.__handlers.set('agent:pickWorkingDir', async (_event, opts = {}) => {

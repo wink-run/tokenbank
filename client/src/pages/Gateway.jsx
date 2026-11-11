@@ -2338,7 +2338,8 @@ function SessionManager() {
 
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => {
-    window.electronAPI?.apps?.handoffTargets?.()
+    // 桌面走 IPC，Docker 走 /api/apps/handoff-targets
+    Promise.resolve(getApps().handoffTargets?.())
       .then(r => setHandoffTargets(Array.isArray(r) ? r : []))
       .catch(() => setHandoffTargets([]));
   }, []);
@@ -2588,6 +2589,7 @@ function ContinueModal({ source, target, handoffTargets = [], onClose }) {
     });
     if (r?.ok) setNotice(t('gateway.sessions.appOpened').replace('{app}', targetLabel));
     else if (r?.error === 'app_not_found') setNotice(t('gateway.sessions.appNotFound').replace('{app}', targetLabel));
+    else if (r?.error === 'launch_unsupported_platform') setNotice(t('gateway.sessions.pasteHint').replace('{target}', targetLabel));
     else setNotice(t('gateway.sessions.continueFailed'));
   };
 

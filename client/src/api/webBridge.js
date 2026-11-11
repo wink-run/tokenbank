@@ -1,7 +1,7 @@
 // client/src/api/webBridge.js
 // Docker / CLI 的 Web 界面没有 Electron preload。admin-api 通过 /api/bridge 暴露与桌面版相同的
 // 资产管理（resource:*）和命令行智能体（agent:* / community:*）IPC handler，这里按 preload.js 的同名方法
-// 拼出 window.electronAPI.{resource, agent, llm, mcp}，让资产页、智能体和 MCP 页不改调用方式即可工作。
+// 拼出 window.electronAPI.{resource, agent, llm, mcp, sessions}，让资产页、智能体、MCP 和会话管理不改调用方式即可工作。
 // 标记 __web: true —— isElectron() 据此仍判为非桌面，其余桌面专属能力（网关、配置等）照旧走 HTTP 适配。
 
 const ADMIN_BASE = import.meta.env?.VITE_ADMIN_BASE ?? '';
@@ -169,6 +169,18 @@ const mcp = {
   getGatewayInfo: call0('mcp:getGatewayInfo'),
 };
 
+// 与 electron/preload.js 的 sessions 段一一对应
+const sessions = {
+  listAll: (opts) => invoke('sessions:listAll', opts || {}),
+  setMeta: (payload) => invoke('sessions:setMeta', payload),
+  export: (payload) => invoke('sessions:export', payload),
+  continue: (payload) => invoke('sessions:continue', payload),
+  launch: (payload) => invoke('sessions:launch', payload),
+  knowledgeStart: (opts) => invoke('sessions:knowledgeStart', opts || {}),
+  knowledgeResult: () => invoke('sessions:knowledgeResult'),
+  saveAgentsMd: (payload) => invoke('sessions:saveAgentsMd', payload),
+};
+
 // 只能访问容器内本机网关（服务端限制）
 const llm = {
   fetch: (url, options) => invoke('llm:fetch', { url, ...(options || {}) }),
@@ -184,7 +196,7 @@ export async function installWebBridge({ timeoutMs = 1500 } = {}) {
     if (!res.ok) return false;
     const body = await res.json().catch(() => null);
     if (!body || !body.ok) return false;
-    window.electronAPI = { __web: true, resource, agent, llm, guardian, mcp };
+    window.electronAPI = { __web: true, resource, agent, llm, guardian, mcp, sessions };
     return true;
   } catch {
     return false;

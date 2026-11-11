@@ -18,6 +18,7 @@ test('defaultUserCapabilities enables resource_project when handler declares it'
   assert.equal(defaultUserCapabilities(doc.handlers['hermes-cli']).resource_project, true);
   assert.equal(defaultUserCapabilities(doc.handlers['openclaw-api']).resource_project, true);
   assert.equal(defaultUserCapabilities(doc.handlers['workbuddy-stats']).resource_project, false);
+  assert.equal(defaultUserCapabilities(doc.handlers['pi-cli']).resource_project, true);
 });
 
 test('expandEntity exposes resource_project from vars/handler defaults', () => {
@@ -53,7 +54,7 @@ test('default_entities projectable set matches product defaults', () => {
       .filter(e => e.resource_project)
       .map(e => e.id),
   );
-  for (const id of ['claude-code', 'codex', 'cursor', 'kimi-code', 'opencode', 'hermes', 'openclaw']) {
+  for (const id of ['claude-code', 'codex', 'cursor', 'kimi-code', 'opencode', 'hermes', 'openclaw', 'pi']) {
     assert.ok(allowed.has(id), `expected ${id} as runtime-capable (resource_project)`);
     assert.ok(AGENT_RESOURCE_TARGETS[id], `expected skill target for ${id}`);
   }

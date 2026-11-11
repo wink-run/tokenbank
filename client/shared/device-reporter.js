@@ -175,23 +175,22 @@ async function init(options) {
     device_id : localDeviceId,
   };
 
-  // 未登录时不向云端注册
+  // 未登录不注册。已登录也只在后台注册：云端慢或不可达时，启动方继续用本机 device_id。
   if (!_config.userJwt) return;
-  // re-registers if it was previously a local-only fallback ID, and creates
-  // a new ID if we have none. The server reuses the existing ID if it already
-  // belongs to this user.
-  const registeredId = await _register();
-  // 桌面版：服务端若按名字并到另一台，忽略那个 id，继续用本机文件里的。
-  // CLI / Docker：容器重建会换一个新 id，服务端指回已有的那台时要写回本机文件。
-  if (registeredId && registeredId !== localDeviceId && deviceKind !== 'cli') {
-    _config.device_id = localDeviceId;
-  } else if (registeredId) {
-    _config.device_id = registeredId;
-  }
-  if (_config.device_id) writeDeviceId(_config.device_id, deviceKind);
-  const cfg = readAgentConfig() || {};
-  cfg.device_id = _config.device_id;
-  try { writeAgentConfig(cfg); } catch (_) {}
+  _register().then((registeredId) => {
+    if (!_config) return;
+    // 桌面版：服务端若按名字并到另一台，忽略那个 id，继续用本机文件里的。
+    // CLI / Docker：容器重建会换一个新 id，服务端指回已有的那台时要写回本机文件。
+    if (registeredId && registeredId !== localDeviceId && deviceKind !== 'cli') {
+      _config.device_id = localDeviceId;
+    } else if (registeredId) {
+      _config.device_id = registeredId;
+    }
+    if (_config.device_id) writeDeviceId(_config.device_id, deviceKind);
+    const cfg = readAgentConfig() || {};
+    cfg.device_id = _config.device_id;
+    try { writeAgentConfig(cfg); } catch (_) {}
+  }).catch(() => {});
 }
 
 /**

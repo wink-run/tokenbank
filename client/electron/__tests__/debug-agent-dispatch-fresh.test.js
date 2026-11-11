@@ -60,6 +60,27 @@ test('已完成的派发：新会话后切回标签，不应回填旧对话', as
   assert.equal(S.isFreshAgentSession(sess), true, '仍应保持 fresh，避免 recoverSessionHistory 回填');
 });
 
+test('刷新后恢复进行中任务会接上原来的会话实例', () => {
+  const key = 'refresh-hub';
+  assert.equal(S.getStoreSession(key).sessionInstanceId, '');
+  assert.equal(S.eventMatchesSession(key, 'sess_old'), true);
+
+  S.mergeTaskIntoStore({
+    id: 'task_refresh',
+    agent_id: 'pi',
+    prompt: '画一幅',
+    status: 'running',
+    context: { sessionKey: key, sessionInstanceId: 'sess_old', mode: 'orchestrator' },
+    steps: [],
+  });
+
+  const sess = S.getStoreSession(key);
+  assert.equal(sess.executing, true);
+  assert.equal(sess.sessionInstanceId, 'sess_old');
+  assert.equal(S.eventMatchesSession(key, 'sess_old'), true);
+  assert.equal(S.eventMatchesSession(key, 'sess_other'), false);
+});
+
 test('已完成的派发：mergeTaskIntoStore 不污染 fresh 子标签', async () => {
   const child = 'assistant:res-poem3';
   S.clearSessionTaskState(child);
