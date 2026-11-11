@@ -98,6 +98,12 @@ function scan(text, { rules, sandbox = hasSandbox() } = {}) {
   return hits;
 }
 
+function userRule({ consumer, text, hits }) {
+  try {
+    return require('./rules').decide('hire-task', { consumer: consumer || '', text: String(text || '').slice(0, 20000), hits: (hits || []).map(h => h.id).join(',') });
+  } catch { return null; }
+}
+
 function refused() {
   const r = store.readJson('hire-refused.json', {});
   const now = Date.now();
@@ -183,7 +189,15 @@ function screenTask({ prompt, files, consumer } = {}) {
     noteBroken();
     return { ok: false, message: REJECT_MESSAGE, hits: [{ id: 'rules-broken', label: '审查规则文件损坏' }], silent: true };
   }
-  const hits = scan(`${prompt || ''}\n${textOfFiles(files)}`, { rules });
+  const text = `${prompt || ''}\n${textOfFiles(files)}`;
+  let hits = scan(text, { rules });
+  // 用户教的规矩：多拦一类（block / refuse），或亲口确认过的放行（allow）
+  const d = userRule({ consumer, text, hits });
+  if (d && d.action === 'allow') return { ok: true, allowedBy: d.rule.id };
+  if (d && (d.action === 'block' || d.action === 'refuse')) {
+    hits = [...hits, { id: 'user-rule', label: `你定的规矩（${d.rule.reason}）` }];
+    if (d.action === 'refuse' && consumer) refuseHirer({ consumer, reason: d.rule.reason });
+  }
   if (!hits.length) return { ok: true };
   try { noteBlock({ consumer, hits, prompt, phase: 'before' }); } catch (e) { console.warn('[guardian] hire block note:', e.message); }
   return { ok: false, message: REJECT_MESSAGE, hits };
@@ -209,7 +223,10 @@ function screenStep(step, { consumer, prompt } = {}) {
   if (!rules) return [{ id: 'rules-broken', label: '审查规则文件损坏' }];
   let payload = '';
   try { payload = [step.tool_name, typeof step.content === 'string' ? step.content : JSON.stringify(step.content || ''), JSON.stringify(step.tool_input || step.input || step.args || '')].join('\n'); } catch { payload = String(step.content || ''); }
-  const hits = scan(payload, { rules });
+  let hits = scan(payload, { rules });
+  const d = userRule({ consumer, text: payload, hits });
+  if (d && d.action === 'allow') return null;
+  if (d && (d.action === 'block' || d.action === 'refuse')) hits = [...hits, { id: 'user-rule', label: `你定的规矩（${d.rule.reason}）` }];
   if (!hits.length) return null;
   try { noteBlock({ consumer, hits, prompt, phase: 'running' }); } catch (e) { console.warn('[guardian] hire block note:', e.message); }
   return hits;

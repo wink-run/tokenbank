@@ -31,7 +31,11 @@ function noteStreak(info) {
   const k = streakKey(info);
   const n = (streaks.get(k) || 0) + 1;
   streaks.set(k, n);
-  if (n !== threshold(info)) return;
+  const facts = { provider: info.providerId, model: info.model, streak: n, hour: new Date().getHours(), status: Number(info.status) || 0 };
+  let d = null;
+  try { d = require('./rules').decide('route-failed', facts); } catch { /* ignore */ }
+  if (d && d.action === 'ignore') return;                      // 用户说过这种情况别动
+  if (!(d && d.action === 'demote') && n !== threshold(info)) return;   // 用户说过这种情况立刻下沉；否则到阈值才动
   const review = require('./review-usage');
   if (review.isDemoted(info.providerId, info.model)) return;
   const who = info.providerLabel || info.providerId;
@@ -44,7 +48,7 @@ function noteStreak(info) {
     title: `${info.model} 在「${who}」上连续失败 ${n} 次，我把它排到了后面（其他来源都不行时仍会用它）`,
     signature: sig,
     undo: { type: 'undemoteRoute', data: { provider: info.providerId, model: info.model } },
-    facts: { provider: info.providerId, model: info.model, streak: n },
+    facts, caseEvent: 'route-failed', ...(d ? { byRule: d.rule.id } : {}),
     meta: { provider: info.providerId, model: info.model },
   });
 }
@@ -68,6 +72,7 @@ async function handleFailure(type, info = {}) {
       .filter(Boolean).join(' · '),
     signature: explain.signatureOf(info, base.kind),
     link: { to: '/providers', label: base.kind === 'quota' ? '带我去看额度' : '带我去换 Key' },
+    remind: { label: '晚点提醒我', text: base.kind === 'quota' ? `「${who}」的额度用完了，还没处理` : `「${who}」的 Key 失效了，还没换`, minutes: 240 },
     meta: { providerId: info.providerId, model: info.model, kind: base.kind, event: type, until: info.until || null },
   });
 }

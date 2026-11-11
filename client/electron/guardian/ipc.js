@@ -87,6 +87,10 @@ function startGuardian({ gateway, initialDelayMs } = {}) {
   try { require('./command').register(); } catch (e) { console.warn('[guardian] command:', e.message); }
   try { guardian.tidy(); } catch (e) { console.warn('[guardian] tidy:', e.message); }
   try { require('./agent-api').start(); } catch (e) { console.warn('[guardian] agent-api:', e.message); }
+  try { require('./rules').register(); } catch (e) { console.warn('[guardian] rules:', e.message); }
+  try { require('./skills').register(); } catch (e) { console.warn('[guardian] skills:', e.message); }
+  try { require('./events').attach(); } catch (e) { console.warn('[guardian] events:', e.message); }
+  try { require('./convo').armReminders(); } catch (e) { console.warn('[guardian] reminders:', e.message); }
   try { require('./hire-guard').register(); } catch (e) { console.warn('[guardian] hire-guard:', e.message); }
   try { require('./judgment').register(); } catch (e) { console.warn('[guardian] judgment:', e.message); }
   try { require('./review-usage').register(); } catch (e) { console.warn('[guardian] review-usage:', e.message); }

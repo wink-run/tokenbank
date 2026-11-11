@@ -72,7 +72,20 @@ async function check() {
     if (!(r.projections || []).length) continue;
     let v;
     try { v = m.verifyProjections(r.id); } catch { continue; }
-    const bad = (v.projections || []).filter(p => p.health && !p.health.healthy);
+    let bad = (v.projections || []).filter(p => p.health && !p.health.healthy);
+    // 用户教的规矩：这种情况别动 / 直接撤下
+    bad = bad.filter((p) => {
+      let d = null;
+      try { d = require('./rules').decide('projection-broken', { resourceId: r.id, name: r.name, agentId: p.agentId, reason: p.health.reason }); } catch { /* ignore */ }
+      if (!d || d.action === 'repair') return true;
+      if (d.action === 'unproject') {
+        try {
+          m.unproject({ resourceId: r.id, agentId: p.agentId });
+          guardian.record({ category: 'projection', kind: 'projection-removed', status: 'done', title: `按你定的规矩，把「${skillName(r)}」从 ${agentName(p.agentId)} 撤下了`, undo: { type: 'commandProject', data: { resourceId: r.id, agentIds: [p.agentId] } }, byRule: d.rule.id });
+        } catch { /* 已撤下 */ }
+      }
+      return false;
+    });
     if (!bad.length) continue;
     broken += bad.length;
     const repairable = bad.filter(p => p.health.repairable);

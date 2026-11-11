@@ -148,8 +148,13 @@ test('hired task review: steps are watched while it runs; a broken rules file bl
   const hits = hire.screenStep({ stepType: 'tool_call', tool_name: 'Bash', tool_input: { command: 'cat ~/.ssh/id_ed25519' } }, { consumer: 'u_s' });
   assert.ok(hits.some(h => h.id === 'secrets'));
   assert.equal(hire.screenStep({ stepType: 'tool_result', content: 'mentions .ssh in output' }, {}), null, 'output is not judged, only what it is about to do');
-  // 一天说得太多会并成一条「还有几件事」，不会吞掉
-  assert.ok(msgs().some(x => x.mergeKey === '__more__' && /今天还有 \d+ 件事/.test(x.text)));
+  // 一天说得太多：只是告诉一声的并成一条「还有几件事」（不会吞掉）；带选择的照常单独说
+  convo._internal.setState({ pushUsed: 99 });
+  convo.push({ text: '只是告诉你一声 A', mergeKey: 'fyi-a' });
+  convo.push({ text: '只是告诉你一声 B', mergeKey: 'fyi-b' });
+  assert.match(msgs().find(x => x.mergeKey === '__more__').text, /今天还有 2 件事：\n只是告诉你一声 A\n只是告诉你一声 B/);
+  const withChoice = convo.push({ text: '这个要你定', mergeKey: 'choice-x', replies: [{ label: '去看看', nav: { to: '/gateway' } }] });
+  assert.equal(withChoice.replies.length, 1, 'actionable messages are never folded away');
   convo._internal.setState({ pushUsed: 0 });
   // 规则文件是技能，用户能改；改坏了 → 一律拦截
   assert.match(fs.readFileSync(hire.skillFile(), 'utf8'), /name: hire-task-review/);

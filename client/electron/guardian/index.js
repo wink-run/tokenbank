@@ -169,7 +169,15 @@ async function undo(id) {
   if (!rec) return { ok: false, error: 'not-found' };
   if (rec.status !== 'done' || !rec.undo) return { ok: false, error: 'not-undoable' };
   const r = await runAction(rec.undo);
-  if (r.ok) updateRecord(id, { status: 'undone', undoneAt: Date.now() });
+  if (r.ok) {
+    updateRecord(id, { status: 'undone', undoneAt: Date.now() });
+    // 进化：撤销就是「这次处理错了」。记成案例；是按规矩做的，就给那条规矩记一笔
+    try {
+      const rules = require('./rules');
+      if (rec.byRule) rules.noteUndo(rec.byRule);
+      if (rec.caseEvent && rec.facts) rules.addCase({ event: rec.caseEvent, facts: rec.facts, expect: 'ignore', note: `用户撤销了：${rec.title}` });
+    } catch { /* ignore */ }
+  }
   return r;
 }
 
@@ -258,6 +266,7 @@ function speak(entry) {
   }
   if (entry.apply) replies.push({ label: entry.applyLabel || '好，就这样做', op: entry.apply, undo: entry.applyUndo || null, log });
   if (entry.link) replies.push({ label: entry.link.label || '带我去看', nav: { to: entry.link.to, state: entry.link.state || null } });
+  if (entry.remind) replies.push({ label: entry.remind.label || '晚点提醒我', remind: { text: entry.remind.text || entry.title, minutes: entry.remind.minutes || 240, nav: entry.link ? { to: entry.link.to, state: entry.link.state || null } : null, navLabel: entry.link ? entry.link.label : null } });
   if (!entry.noMute) replies.push({ label: '这类不用告诉我', mute: entry.kind });
   const text = [entry.say || `${entry.title}。`, entry.advice].filter(Boolean).join('');
   try {

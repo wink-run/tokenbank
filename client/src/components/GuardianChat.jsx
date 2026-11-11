@@ -92,8 +92,10 @@ export default function GuardianChat() {
     await refresh();
   };
 
-  // 只有最后一条、还没回答的智能管家消息显示快捷回复
+  // 你还没回答的问题都留着它的选择（可能被后来的消息压到上面）；你说过话之后，更早的就不再显示
   const last = messages[messages.length - 1];
+  let lastUserIdx = -1;
+  messages.forEach((m, i) => { if (m.from === 'user') lastUserIdx = i; });
   const cur = runtime && (runtime.runtimes || []).find(r => r.id === runtime.runtime);
 
   return (
@@ -107,7 +109,7 @@ export default function GuardianChat() {
       </header>
 
       <div className="flex-1 min-h-0 overflow-y-auto space-y-5 pb-4" role="log" aria-live="polite">
-        {messages.map((m) => (m.from === 'user' ? (
+        {messages.map((m, idx) => (m.from === 'user' ? (
           <div key={m.id} className="flex justify-end">
             <div className="max-w-[78%] rounded-2xl bg-blue-600 text-white px-4 py-2 text-[15px] leading-relaxed whitespace-pre-wrap">{m.text}</div>
           </div>
@@ -122,7 +124,7 @@ export default function GuardianChat() {
               ) : (
                 <RichText text={m.text} />
               )}
-              {m === last && !m.answered && (m.replies || []).length > 0 && (
+              {!m.answered && (m.replies || []).length > 0 && (m === last || idx > lastUserIdx) && (
                 <div className="flex flex-wrap gap-2 pt-0.5">
                   {m.replies.map((r, i) => (
                     <button key={i} type="button" disabled={sending} onClick={() => pick(m, i)}

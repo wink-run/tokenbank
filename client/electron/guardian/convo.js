@@ -73,7 +73,9 @@ function push({ text, replies = [], mergeKey = null, topic = null } = {}) {
   // 一天说太多就不再单独开口，留到下次简报
   const day = today();
   const used = st.pushDay === day ? (st.pushUsed || 0) : 0;
-  if (used >= DAILY_PUSH_CAP) {
+  // 带着可执行选择的消息（要用户定的事）不并掉：并掉就没法点了。只是告诉一声的才受每日上限约束
+  const actionable = replies.some(r => r.op || r.nav || r.remind || r.confirmOnly);
+  if (used >= DAILY_PUSH_CAP && !actionable) {
     // 今天说得够多了：不再一条条开口，并进同一条「还有几件事」（仍然算未读，不会被吞掉）
     const more = [...list].reverse().find(m => m.from === 'guardian' && m.mergeKey === '__more__' && !m.read);
     const items = [...((more && more.items) || []), text].slice(-10);
@@ -163,6 +165,11 @@ async function runReply(msg, reply) {
     setState({ muted: [...new Set([...(st.muted || []), reply.mute])] });
     add({ from: 'guardian', read: true, text: '好，这类事以后不单独告诉你了。想恢复的话说一声。' });
     return { ok: true };
+  }
+  if (reply.remind) {
+    const r = remind(reply.remind);
+    add({ from: 'guardian', read: true, text: r.ok ? r.message : `没记成：${r.error}` });
+    return { ok: !!r.ok };
   }
   if (reply.nav) {
     add({ from: 'guardian', read: true, text: reply.navNote || '带你过去了。' });
@@ -260,17 +267,19 @@ async function say(text) {
   const t = String(text || '').trim();
   if (!t) return { ok: false, error: 'empty' };
   // 在回答上一条的问题：由程序识别，不经过模型（「确认放宽」这类也在这里核对）
-  const waiting = awaiting();
-  if (waiting) {
+  // 先看最后一条；再看最近一天里还没回答的（它问的问题可能被后来的推送压到上面去了）
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const open = [awaiting(), ...all().filter(m => m.from === 'guardian' && !m.answered && (m.replies || []).length && m.at > dayAgo).reverse()].filter(Boolean);
+  for (const waiting of open) {
     const hit = waiting.replies.find(r => norm(r.label) === norm(t) || (r.match || []).some(x => norm(x) === norm(t)));
     if (hit) return runReply(waiting, hit);
-    if (waiting.replies.some(r => r.confirmOnly)) patch(waiting.id, { answered: '（没有确认）' });
   }
   add({ from: 'user', text: t });
   if (UNDO_RE.test(norm(t))) return undoLatest();
   if (/^(换|更换)(一个)?(执行)?应用$|^换个应用$/.test(norm(t))) { chooseRuntime(); return { ok: true }; }
   if (/^(暂停|停用|关闭)(智能管家|管家|看护)$/.test(norm(t))) { guardian().setSettings({ enabled: false }); add({ from: 'guardian', read: true, text: '好，我先停下。想让我继续时说「恢复智能管家」。' }); return { ok: true }; }
   if (/^(恢复|开启|打开)(智能管家|管家|看护)$/.test(norm(t))) { guardian().setSettings({ enabled: true }); add({ from: 'guardian', read: true, text: '好，我回来了。' }); return { ok: true }; }
+  if (/^(不用|别|不要)(再)?提醒(我)?了?$/.test(norm(t))) { cancelReminders(); add({ from: 'guardian', read: true, text: '好，不提醒了。' }); return { ok: true }; }
   const known = answerFromData(norm(t));
   if (known) { add({ from: 'guardian', read: true, text: known }); return { ok: true }; }
   return askModel(t);
@@ -294,9 +303,10 @@ function answerFromData(q) {
   }
   if (/(有|定过|记了|学了)?(哪些|什么|啥)(规则|规矩)/.test(q) || /^(规则|规矩)$/.test(q)) {
     let rules = [];
-    try { rules = require('./judgment').list(); } catch { /* ignore */ }
+    try { rules = require('./rules').list().filter(r => r.enabled !== false).map(r => ({ text: r.text, reason: r.reason, hits: r.hits })); } catch { /* ignore */ }
+    try { rules = [...rules, ...require('./judgment').list()]; } catch { /* ignore */ }
     if (!rules.length) return '你还没有给我定过规矩。遇到我处理得不对的，直接告诉我以后该怎么做。';
-    return `现在记着 ${rules.length} 条：\n${rules.map(r => `- ${r.text}（${r.reason}；用过 ${r.hits || 0} 次）`).join('\n')}\n\n哪条不合适了，告诉我改成什么。`;
+    return `现在记着 ${rules.length} 条：\n${rules.map(r => `- ${r.text}。用过 ${r.hits || 0} 次`).join('\n')}\n\n哪条不合适了，告诉我改成什么。`;
   }
   if (/(请求|来源|路由|模型).{0,6}(情况|统计|怎么样|稳不稳|失败)/.test(q)) {
     let rows = [];
@@ -323,8 +333,50 @@ function answerFromData(q) {
   return null;
 }
 
+// ── 跟进提醒：只限管家在对话里说过「到时候再提醒你」的事。到点说一次，用户说不用就取消 ───────────
+let remindTimer = null;
+
+function reminders() {
+  const r = store.readJson('reminders.json', []);
+  return Array.isArray(r) ? r : [];
+}
+
+function armReminders() {
+  if (remindTimer) { clearTimeout(remindTimer); remindTimer = null; }
+  const list = reminders();
+  if (!list.length) return;
+  const due = Math.min(...list.map(r => r.at));
+  remindTimer = setTimeout(fireReminders, Math.max(1000, Math.min(due - Date.now(), 24 * 60 * 60 * 1000)));
+  if (remindTimer.unref) remindTimer.unref();
+}
+
+function fireReminders() {
+  const now = Date.now();
+  const list = reminders();
+  const due = list.filter(r => r.at <= now);
+  store.writeJson('reminders.json', list.filter(r => r.at > now));
+  for (const r of due) push({ text: `之前说好提醒你的：${r.text}`, mergeKey: `remind|${r.id}`, topic: 'reminder', replies: r.nav ? [{ label: r.navLabel || '带我去', nav: r.nav }] : [] });
+  armReminders();
+}
+
+/** 记一个跟进提醒。{ text, minutes, nav?, navLabel? }；最短 1 分钟，最长 7 天 */
+function remind({ text, minutes = 240, nav = null, navLabel = null } = {}) {
+  if (!text) return { ok: false, error: '要说清楚提醒什么' };
+  const mins = Math.min(7 * 24 * 60, Math.max(1, Number(minutes) || 240));
+  const r = { id: newId(), text: String(text).slice(0, 200), at: Date.now() + mins * 60 * 1000, nav, navLabel };
+  store.writeJson('reminders.json', [...reminders(), r].slice(-20));
+  armReminders();
+  return { ok: true, at: r.at, message: `好，${mins >= 60 ? `${Math.round(mins / 60)} 小时` : `${mins} 分钟`}后提醒你。` };
+}
+
+function cancelReminders() {
+  store.writeJson('reminders.json', []);
+  armReminders();
+  return { ok: true };
+}
+
 function list({ limit = 80 } = {}) {
   return all().slice(-limit);
 }
 
-module.exports = { push, open, list, say, quick, unread, brief, chooseRuntime, add, _internal: { all, state, setState, awaiting, OPEN } };
+module.exports = { push, open, list, say, quick, unread, brief, chooseRuntime, add, remind, cancelReminders, armReminders, _internal: { all, state, setState, awaiting, OPEN } };

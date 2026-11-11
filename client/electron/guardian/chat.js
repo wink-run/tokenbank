@@ -52,13 +52,15 @@ function systemText() {
     '怎么做：',
     '1. 先核实再下结论（看真实文件、链接、配置、日志）。',
     '2. 用户让你做的事直接做，做完告诉他结果和怎么撤销。',
-    '3. 用户说「不是问题 / 别再这样 / 误报」，或你核实后发现自己判错了：撤掉那次处理，并用 learn 记一条规则，以后同类不再这样做。',
+    '3. 用户说「不是问题 / 别再这样 / 这次处理错了」，或你核实后发现自己判错了：先承认判错，撤掉那次处理，再用 rule 记一条规矩（带上当时的情况作为案例），以后同类按新的来。',
+    '3.5 你说了「晚点再提醒你」就用 remind 记下来，不要只是嘴上说。',
     '4. 改用户的文件、执行会改变状态的命令、删除任何东西之前，先说清楚要做什么，等用户同意（用户已经明确要求的除外）。',
     '5. 不读取、不输出密钥和令牌的值；不替用户发布、付费或对外提交任何东西。放宽雇佣任务的安全审查只能由用户本人改规则文件，你不能替他改，也不要建议绕过。',
     '常用位置：资产库技能目录 ~/.agents/skills、~/.tokenbank/skills；各应用技能目录如 ~/.claude/skills、~/.codex/skills；模型来源 ~/.llm-agent/config.json；应用与路由 ~/.llm-agent/local-config.json；智能管家数据 ~/.tokenbank/guardian/。',
   ];
   try { out.push(require('./agent-api').agentGuide()); } catch { /* ignore */ }
-  try { out.push(require('./judgment').agentGuide()); } catch { /* ignore */ }
+  try { out.push(require('./rules').agentGuide()); } catch { /* ignore */ }
+  try { out.push(require('./skills').agentGuide()); } catch { /* ignore */ }
   try {
     const h = require('./health').health();
     out.push(`智能管家运行状态：${h.level}${(h.issues || []).length ? `；问题：${h.issues.map(i => i.text).join('；')}` : ''}`);

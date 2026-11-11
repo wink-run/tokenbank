@@ -116,6 +116,7 @@ async function handleFailed(evt = {}) {
   const error = String(evt.error || evt.result?.error || '');
   const c = classify(error);
   const who = agentName(agentId);
+  try { if (require('./rules').decide('task-failed', { agentId, kind: c.kind })?.action === 'ignore') return; } catch { /* ignore */ }
   guardian.record({
     category: 'gateway', kind: 'task-failed', status: 'info',
     title: `派给 ${who} 的任务失败：${c.title}`,

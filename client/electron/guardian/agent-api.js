@@ -99,8 +99,48 @@ const OPS = {
       return ok({ blocks: store.readJson('hire-blocks.json', []).slice(0, 20), refused: h._internal.refused(), rulesFile: h.skillFile(), sandbox: h.hasSandbox() });
     },
   },
+  rule: {
+    desc: '用户教的规矩（事件 + 条件 + 处理）。看全部：{}；加一条：{"add":{...}}（格式见下）；删：{"remove":"er-…"}',
+    run: ({ add, remove } = {}) => {
+      const r = require('./rules');
+      if (add) return r.add(add);
+      if (remove) return ok(r.remove({ id: remove }));
+      return ok({ rules: r.list() });
+    },
+  },
+  threshold: {
+    desc: '连续失败几次才把来源排到后面（默认 5）。{"provider":"来源 id","model":"模型","value":10}；不带 provider 就是改默认值。范围 2~50',
+    run: ({ provider, model, value } = {}) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 2 || v > 50) return { ok: false, error: 'value 要在 2 到 50 之间' };
+      const t = store.readJson('thresholds.json', {});
+      t[provider && model ? `${provider}::${model}` : 'default'] = Math.round(v);
+      store.writeJson('thresholds.json', t);
+      return ok({ thresholds: t });
+    },
+  },
+  pattern: {
+    desc: '记一个报错识别模式，下次能直接认出原因。{"match":"报错里的一段文字或正则","kind":"auth|quota|rate|context|model|network|upstream"}',
+    run: (args = {}) => require('./explain').learnPattern(args),
+  },
+  skill: {
+    desc: '装给你的技能。看全部：{}；提出装一个：{"propose":"技能名","auto":true}（会在对话里请用户确认）；移除：{"detach":"资产 id"}',
+    run: ({ propose, auto, perDay, detach } = {}) => {
+      const s = require('./skills');
+      if (propose) return s.propose({ name: propose, auto: !!auto, perDay });
+      if (detach) return ok(s.detach({ resourceId: detach }));
+      return ok({ skills: s.list() });
+    },
+  },
+  remind: {
+    desc: '你说了「到时候再提醒你」就必须记下来。{"text":"提醒什么","minutes":240}；取消全部：{"cancel":true}',
+    run: ({ text, minutes, cancel } = {}) => {
+      const c = require('./convo');
+      return cancel ? ok(c.cancelReminders()) : c.remind({ text, minutes });
+    },
+  },
   rules: {
-    desc: '学到的规则列表',
+    desc: '「这种情况不算问题」的规则列表（老的那一套；新规矩用 rule）',
     run: () => ok({ rules: require('./judgment').list() }),
   },
   learn: {

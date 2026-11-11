@@ -964,6 +964,7 @@ class ResourceManager {
       now,
       now,
     );
+    if (item.type === 'skill') { try { require('./guardian').emit('skill:installed', { resourceId: id, name: item.name, source: String(source || 'catalog') }); } catch { /* 管家不可用不影响安装 */ } }
 
     if (item.type === 'skill') this._ensureSkillOnDisk(id);
     let installedDependencies = [];
@@ -1130,6 +1131,7 @@ class ResourceManager {
         now,
         now,
       );
+      if (type === 'skill') { try { require('./guardian').emit('skill:installed', { resourceId: id, name, source: String(data.source || 'local') }); } catch { /* 管家不可用不影响保存 */ } }
     }
 
     const saved = this.getResource(id);
