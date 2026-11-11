@@ -3025,6 +3025,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
   const { fmtCost } = useCurrency();
   const [rowAgents, setRowAgents] = useState([]);     // 投射在各应用上的智能体（游乐场同一份列表）
   const [blockedAgents, setBlockedAgents] = useState([]); // 投射了但跑不起来的（应用不可用 / 技能不在了）
+  const [assetsByApp, setAssetsByApp] = useState({}); // 应用 agent_id → { skill, mcp, prompt } 启用到它上面的资产数
   const [agentTaskStats, setAgentTaskStats] = useState({});   // 智能体 id → 今天的任务数 / 成功数
   const [providerIssues, setProviderIssues] = useState({});   // 来源 id → 要用户处理的问题（Key 失效、额度用完）
   const [rentIds, setRentIds] = useState(() => new Set());    // 出租中的智能体资产 id
@@ -3111,6 +3112,23 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
     try {
       const r = await api?.agent?.listBlocked?.();
       if (r?.success) setBlockedAgents(r.agents || []);
+    } catch { /* ignore */ }
+    try {
+      const r = await api?.resource?.listResources?.({});
+      const list = Array.isArray(r) ? r : (r?.resources || r?.items || []);
+      const m = {};
+      for (const res of list) {
+        if (!['skill', 'mcp', 'prompt'].includes(res.type)) continue;
+        const seen = new Set();
+        for (const p of res.projections || []) {
+          const id = p?.agentId || p?.agent_id;
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          const row = m[id] || (m[id] = { skill: 0, mcp: 0, prompt: 0 });
+          row[res.type] += 1;
+        }
+      }
+      setAssetsByApp(m);
     } catch { /* ignore */ }
     try {
       const r = await api?.guardian?.providerIssues?.();
@@ -3727,11 +3745,8 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
       <div className="px-2.5 py-3 min-w-0">
             {/* 操作栏 */}
             <div className="flex items-center gap-2 mb-3 flex-wrap">
-              <button onClick={() => manualDraft ? cancelManualDraft() : addCustom()}
-                className="text-xs px-3 py-1.5 rounded-xl bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:hover:bg-[#4a73a8] active:bg-blue-700 text-white transition-colors font-medium shadow-sm shadow-blue-500/20">
-                {t('gateway.apps.new')}
-              </button>
-              <span className="text-xs text-zinc-400 dark:text-zinc-500">{t('gateway.apps.newHint')}</span>
+              <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100 m-0">{t('gateway.apps.sectionTitle')}</h2>
+              <span className="text-[11px] text-zinc-500 dark:text-zinc-400 min-w-0 flex-1">{t('gateway.apps.sectionHint')}</span>
               <button type="button" onClick={() => setSessionsFor('all')}
                 className="text-xs px-2.5 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800">
                 {t('gateway.sessions.allButton')}
@@ -3744,19 +3759,23 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                 refreshKey={toolboxRefresh}
                 syncError={toolboxSyncError}
               />
+              <button onClick={() => manualDraft ? cancelManualDraft() : addCustom()} title={t('gateway.apps.newHint')}
+                className="text-xs px-3 py-1.5 rounded-xl bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:hover:bg-[#4a73a8] active:bg-blue-700 text-white transition-colors font-medium shadow-sm shadow-blue-500/20">
+                {t('gateway.apps.new')}
+              </button>
             </div>
 
-            {/* Docker：命令行智能体装在容器里，首次使用要在容器里登录 */}
+            {/* Docker：命令行智能体装在容器里，首次使用要在容器里登录。默认收起，只占一行 */}
             {isWebBridge() && (
-              <div className="mb-3 min-w-0 rounded-xl border border-sky-200/80 dark:border-sky-900/50 bg-sky-50/70 dark:bg-sky-950/20 px-3 py-2 text-[11px] text-sky-800 dark:text-sky-200 space-y-1 break-words">
-                <p className="font-medium">{t('gateway.docker.agentsTitle')}</p>
+              <details className="mb-3 min-w-0 rounded-xl border border-sky-200/80 dark:border-sky-900/50 bg-sky-50/70 dark:bg-sky-950/20 px-3 py-2 text-[11px] text-sky-800 dark:text-sky-200 break-words [&[open]>*+*]:mt-1">
+                <summary className="font-medium cursor-pointer">{t('gateway.docker.agentsTitle')}</summary>
                 <p className="text-sky-700/90 dark:text-sky-300/80">{t('gateway.docker.agentsInstall')}</p>
                 <p className="text-sky-700/90 dark:text-sky-300/80">
                   {t('gateway.docker.agentsLogin')}{' '}
                   <code className="mt-1 block font-mono px-1.5 py-1 rounded bg-white/80 dark:bg-zinc-900/60 select-all break-all">docker exec -it -u node {'<容器名>'} claude</code>
                 </p>
                 <p className="text-sky-700/90 dark:text-sky-300/80">{t('gateway.docker.agentsWorkspace')}</p>
-              </div>
+              </details>
             )}
 
             {/* 手工添加 → 弹层（ManualAddPanel，portal 到 body，避免被应用列表卡片裁切）*/}
@@ -4053,7 +4072,15 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                     {(app.api_key || isDirectOnly) && testState[app.id]?.ok === false && !testState[app.id]?.busy && (
                       <AppTestErrorFloat error={testState[app.id].error} />
                     )}
-                    {app.agent_id && (!isChild || entry.lastChild) && agentsByRuntime[app.agent_id]?.length > 0 && (
+                    {isManaged && !isChild && (
+                      <AppAgentsUnder appKey={app.agent_id || app.id} app={app}
+                        assets={app.agent_id ? assetsByApp[app.agent_id] : null}
+                        onSessions={() => setSessionsFor(app.agent_id || 'all')}
+                        onUsage={() => setDetailApp(app)}
+                        agents={app.agent_id ? (agentsByRuntime[app.agent_id] || []) : []}
+                        stats={agentStatsFor(agentsByRuntime[app.agent_id])} rentIds={rentIds} />
+                    )}
+                    {isChild && entry.lastChild && app.agent_id && agentsByRuntime[app.agent_id]?.length > 0 && (
                       <AppAgentsUnder appKey={app.agent_id} agents={agentsByRuntime[app.agent_id]}
                         stats={agentStatsFor(agentsByRuntime[app.agent_id])} rentIds={rentIds} />
                     )}

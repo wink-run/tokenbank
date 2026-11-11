@@ -1110,11 +1110,14 @@ export default function Resources() {
     const selectKey = location.state?.selectKey;
     const wantTab = location.state?.viewTab;
     const wantQuery = location.state?.query;
-    if (!want && !selectKey && !wantTab && wantQuery == null) return;
+    const wantApp = location.state?.app;
+    if (!want && !selectKey && !wantTab && wantQuery == null && !wantApp) return;
     // 看护「能力缺口」跳来：打开发现页，并按推荐条目名搜索
     if (wantTab === 'recommend' || wantTab === 'managed') changeViewTab(wantTab);
     if (typeof wantQuery === 'string') setQuery(wantQuery);
     if (want && TYPE_OPTIONS.some(o => o.id === want)) changeTypeFilter(want);
+    // 从网关某个应用的「调整」跳来：只看启用到这个应用的
+    if (wantApp) { changeViewTab('managed'); changeAppFilter(wantApp); }
     // 从供给源「谁在用它」跳来：打开资产库并选中该条
     if (selectKey) { changeViewTab('managed'); setSelectedKey(selectKey); }
     navigate(location.pathname, { replace: true, state: null });
