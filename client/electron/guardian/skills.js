@@ -144,7 +144,7 @@ function runOnEvent(event, facts) {
             replies: [{ label: '先撤下', op: { type: 'disableSkill', data: { resourceId: target.id } }, log: { category: 'assets', kind: 'skill-disabled', title: `把「${target.name}」从应用里撤下了` }, done: '撤下了，资产还在。' }, { label: '留着' , done: '好，留着。' }],
             mergeKey: `skill-review|${target.id}`, topic: 'skill-review',
           });
-        } else {
+        } else if (/结论[:：]\s*没问题/.test(text)) {   // 没跑成（应用没登录、超时）就什么都不记，不能说成「没发现问题」
           guardian().record({ category: 'assets', kind: 'skill-reviewed', status: 'done', title: `用「${skill.name}」检查了新装的技能「${target.name}」，没发现问题` });
         }
       })

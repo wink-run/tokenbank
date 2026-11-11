@@ -1007,6 +1007,8 @@ async function handleAgentTask(msg, cfg) {
   } catch (e) {
     guardVerdict = { ok: false, message: hireGuard.REJECT_MESSAGE, hits: [{ id: 'error', label: e.message }] };   // 审查出错一律拦截
   }
+  // 规则没拦的：再过扫描工具和模型判断（智能兜底）。这两层只会加拦，自己出错不影响任务
+  try { guardVerdict = await hireGuard.reviewTask({ prompt, files: msg.files, consumer: consumerKey }, guardVerdict); } catch { /* 按规则的结论走 */ }
   if (!guardVerdict.ok) {
     log(`[agent] agent_task ${taskId} blocked by guardian: ${(guardVerdict.hits || []).map((h) => h.id).join(',')}`);
     noteRoute(false, 'blocked by owner security policy');

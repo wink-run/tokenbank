@@ -265,6 +265,7 @@ function list() {
 function agentGuide() {
   const evs = Object.entries(EVENTS).map(([k, v]) => `- ${k}（${v.label}）事实：${Object.entries(v.facts).map(([f, d]) => `${f}=${d}`).join('；')}。能用的处理：${v.actions.join('、')}`).join('\n');
   return [
+    '事件发生时的顺序：先照规矩办（内置的和用户教的），规矩没覆盖到的，程序会让模型看具体情况判断一次（只能从该事件的处理里选）。所以不是每件事都要记成规矩：用户明确说了「以后都这样」才记；只是指出某一次处理错了，记成案例就够，以后的判断会参考它。',
     '用户告诉你「以后遇到某种情况就这样处理」，或指出你某次处理错了：用 rule 操作记成一条规矩，以后事件发生时程序照着做（不经过你，也不花 token）。',
     '格式：{"add":{"event":"skill-installed","when":{"all":[]},"action":{"type":"project","data":{"agentIds":["claude-code","codex"]}},"reason":"用户要新技能自动启用到这两个应用"}}',
     '是在纠正某次处理时，带上当时的情况作为案例："source":"correction","example":{...当时的事实...}。',

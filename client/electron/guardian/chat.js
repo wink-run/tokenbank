@@ -61,6 +61,7 @@ function systemText() {
   try { out.push(require('./agent-api').agentGuide()); } catch { /* ignore */ }
   try { out.push(require('./rules').agentGuide()); } catch { /* ignore */ }
   try { out.push(require('./skills').agentGuide()); } catch { /* ignore */ }
+  try { out.push(require('./spector').agentGuide()); } catch { /* ignore */ }
   try {
     const h = require('./health').health();
     out.push(`智能管家运行状态：${h.level}${(h.issues || []).length ? `；问题：${h.issues.map(i => i.text).join('；')}` : ''}`);

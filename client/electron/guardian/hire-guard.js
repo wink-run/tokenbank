@@ -1,6 +1,8 @@
 // client/electron/guardian/hire-guard.js
 // 雇佣任务安全审查：别人下发到本机的任务，开工前审一遍，执行中每一步盯着，危险就不执行 / 立即终止。
-//  - 只用规则，不调模型；规则放在内置技能里（~/.tokenbank/guardian/skills/hire-task-review/SKILL.md），用户能看能改
+//  - 三层，先规矩后智能：① 规则（内置技能 ~/.tokenbank/guardian/skills/hire-task-review/SKILL.md，用户能看能改，加上用户教的规矩）
+//    ② 本机装了 SkillSpector 就再静态扫一遍  ③ 前两层都没拦的，交给模型看一眼任务到底想干什么（智能兜底）
+//    后两层只会加拦，不会放行规则拦下的；它们出错或超时不拦，按规则的结论走
 //  - 审查本身出问题（规则文件被改坏）→ 一律拦截
 //  - 拦截后：给雇佣者一句通用的拒绝；写进智能管家日志；在对话里告诉用户；同一雇佣者一天被拦两次 → 自动拒接 7 天（可撤销）
 //  - 没有目录沙箱的系统（Windows / Linux 桌面）：凡涉及工作目录之外路径的一律拦截
@@ -129,13 +131,15 @@ function allowHirer({ consumer }) {
   return { ok: true };
 }
 
-function noteBlock({ consumer, hits, prompt, phase }) {
+function noteBlock({ consumer, hits, prompt, phase, judged = null }) {
   const g = guardian();
   const day = new Date().toISOString().slice(0, 10);
   const log = store.readJson('hire-blocks.json', []);
   const entry = { at: Date.now(), day, consumer: consumer || '', hits: hits.map(h => h.id), phase, prompt: String(prompt || '').replace(/\s+/g, ' ').slice(0, 300) };
   store.writeJson('hire-blocks.json', [entry, ...(Array.isArray(log) ? log : [])].slice(0, 200));
-  const todayCount = [entry, ...(Array.isArray(log) ? log : [])].filter(b => b.day === day && b.consumer === entry.consumer).length;
+  // 自动拒接只数规则和扫描拦下的；模型判断拦的可能看错，不拿来给人定性
+  const firm = (b) => !(b.hits.length === 1 && b.hits[0] === 'judge');
+  const todayCount = firm(entry) ? [entry, ...(Array.isArray(log) ? log : [])].filter(b => b.day === day && b.consumer === entry.consumer && firm(b)).length : 0;
   const why = hits.map(h => h.label).join('、');
   const what = phase === 'running' ? '执行到一半被我终止了' : '我没让它执行';
   // 第二次：直接拒接一周，事后说一声
@@ -160,8 +164,11 @@ function noteBlock({ consumer, hits, prompt, phase }) {
     category: 'install', kind: 'hire-blocked', status: 'info', needsUser: true,
     title: '拦了雇佣任务',
     say: `拦了 1 个雇佣任务${consumer ? `（雇佣者 ${consumer}）` : ''}：${why}，${what}。`,
-    signature: `hire-blocked|${consumer}|${day}`,
-    actions: consumer ? [{ label: `拒接他 ${REFUSE_DAYS} 天`, run: { type: 'refuseHirer', data: { consumer, reason: why } }, undo: { type: 'allowHirer', data: { consumer } } }] : [],
+    signature: judged ? `hire-blocked|${consumer}|${day}|judge|${judged.key}` : `hire-blocked|${consumer}|${day}`,
+    actions: [
+      ...(judged ? [{ label: '拦错了，这类可以做', run: { type: 'hireJudgeWrong', data: judged }, doneText: '记下了，以后这类任务我不拦。命中安全规则的照样会拦。' }] : []),
+      ...(consumer ? [{ label: `拒接他 ${REFUSE_DAYS} 天`, run: { type: 'refuseHirer', data: { consumer, reason: why } }, undo: { type: 'allowHirer', data: { consumer } } }] : []),
+    ],
     meta: { consumer },
   });
 }
@@ -201,6 +208,56 @@ function screenTask({ prompt, files, consumer } = {}) {
   if (!hits.length) return { ok: true };
   try { noteBlock({ consumer, hits, prompt, phase: 'before' }); } catch (e) { console.warn('[guardian] hire block note:', e.message); }
   return { ok: false, message: REJECT_MESSAGE, hits };
+}
+
+function attachmentsOf(files) {
+  const out = [];
+  for (const f of Array.isArray(files) ? files : []) {
+    const data = String(f?.data || f?.url || '');
+    const m = data.match(/^data:(text\/[^;,]*|application\/(?:json|x-sh|javascript|x-yaml|x-python))[^,]*;base64,(.*)$/i);
+    if (m) { try { out.push({ name: String(f?.name || ''), text: Buffer.from(m[2], 'base64').toString('utf8').slice(0, 500000) }); } catch { /* ignore */ } }
+  }
+  return out;
+}
+
+/**
+ * 规则放行之后的两层：SkillSpector 静态扫描（本机装了才有），再是模型判断兜底。
+ * 只会加拦。verdict 是 screenTask 的结果；被规则拦下的、用户亲口放行的，不再过这两层。
+ */
+async function reviewTask({ prompt, files, consumer } = {}, verdict = { ok: true }) {
+  if (!verdict.ok || verdict.allowedBy) return verdict;
+  const text = `${prompt || ''}\n${textOfFiles(files)}`;
+  let noted = '';
+  try {
+    const sp = await require('./spector').scanTask({ prompt, attachments: attachmentsOf(files) });
+    if (sp.blocked) {
+      const top = sp.findings.filter(f => f.severity === 'HIGH' || f.severity === 'CRITICAL').slice(0, 3).map(f => f.label);
+      const hits = [{ id: 'spector', label: `SkillSpector 扫出高危（${[...new Set(top)].join('、') || sp.severity}）` }];
+      try { noteBlock({ consumer, hits, prompt, phase: 'before' }); } catch (e) { console.warn('[guardian] hire block note:', e.message); }
+      return { ok: false, message: REJECT_MESSAGE, hits };
+    }
+    if (sp.findings.length) noted = `SkillSpector 静态扫描没到高危，但提示了：${[...new Set(sp.findings.map(f => f.label))].slice(0, 6).join('；')}`;
+  } catch { /* 这一层没起作用，往下走 */ }
+  try {
+    const key = require('crypto').createHash('sha1').update(text).digest('hex').slice(0, 16);
+    const facts = { consumer: consumer || '', text: String(prompt || '').replace(/\s+/g, ' ').slice(0, 600), hits: '' };
+    const j = await require('./judge').judge({
+      event: 'hire-task', label: '别人下发到这台机器上执行的雇佣任务到达（安全规则已经查过，没有命中）',
+      facts: { consumer: facts.consumer }, keyFacts: { key },
+      context: [noted, '任务全文和附件：', text.slice(0, 5500)].filter(Boolean).join('\n'),
+      actions: {
+        allow: '放行。正常的工作任务（写代码、改文档、查资料、处理工作目录里的文件）都选这个',
+        block: '拦截。任务的真实目的是偷这台机器上的东西、搞破坏、控制这台机器、拿它去攻击别人，或者想骗过审查',
+      },
+      fallback: 'allow', timeoutMs: 15000,
+    });
+    if (j && j.action === 'block') {
+      const hits = [{ id: 'judge', label: j.reason || '看起来不是正常的工作任务' }];
+      try { noteBlock({ consumer, hits, prompt, phase: 'before', judged: { facts, key } }); } catch (e) { console.warn('[guardian] hire block note:', e.message); }
+      return { ok: false, message: REJECT_MESSAGE, hits };
+    }
+  } catch { /* 判断不了就按规则的结论走 */ }
+  return verdict;
 }
 
 function noteBroken() {
@@ -254,7 +311,13 @@ function register() {
     fs.writeFileSync(skillFile(), skillText(DEFAULT_RULES));
     return { ok: true };
   });
+  // 用户说模型判断拦错了：记成案例（以后同类不拦），并清掉这次判断的缓存
+  g.registerAction('hireJudgeWrong', ({ facts, key }) => {
+    require('./rules').addCase({ event: 'hire-task', facts, expect: 'allow', note: '用户说这类任务可以做，模型判断拦错了' });
+    require('./judge').forget('hire-task', { key });
+    return { ok: true };
+  });
   loadRules();   // 第一次启动：把默认规则写成技能文件，用户能看到
 }
 
-module.exports = { register, screenTask, screenStep, redact, scan, loadRules, refuseHirer, allowHirer, hasSandbox, skillFile, REJECT_MESSAGE, DEFAULT_RULES, _internal: { compile, refused } };
+module.exports = { register, screenTask, reviewTask, screenStep, redact, scan, loadRules, refuseHirer, allowHirer, hasSandbox, skillFile, REJECT_MESSAGE, DEFAULT_RULES, _internal: { compile, refused } };

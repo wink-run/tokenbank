@@ -117,6 +117,33 @@ async function handleFailed(evt = {}) {
   const c = classify(error);
   const who = agentName(agentId);
   try { if (require('./rules').decide('task-failed', { agentId, kind: c.kind })?.action === 'ignore') return; } catch { /* ignore */ }
+  // 智能兜底：规则认不出原因的失败，让模型看报错，判断用户要不要知道、能做什么
+  if (c.kind === 'unknown' && error.trim()) {
+    let j = null;
+    try {
+      j = await require('./judge').judge({
+        event: 'task-failed', label: '用户在游乐场派给某个应用的任务失败了，现有规则认不出原因',
+        facts: { agentId, app: who }, keyFacts: { agentId, err: error.replace(/[0-9a-f]{8,}|\d+/gi, '#').slice(0, 160) },
+        context: `报错：${error.slice(0, 1500)}\n任务开头：${taskPrompt(evt.taskId).slice(0, 300)}`,
+        actions: {
+          tell: '用户自己动手才能解决（要登录、装东西、改配置、换应用或模型）。tell 里用一两句大白话写清原因和该怎么做',
+          ignore: '不用打扰用户：任务本身的问题、偶发失败，或者从报错看不出用户能做什么',
+        },
+        fallback: 'ignore',
+      });
+    } catch { j = null; }
+    if (j && j.action === 'tell' && j.tell) {
+      guardian.record({
+        category: 'gateway', kind: 'task-failed', status: 'info', needsUser: true,
+        title: `派给 ${who} 的任务失败了`,
+        say: `派给 ${who} 的任务失败了。${j.tell}`,
+        detail: error.slice(0, 300),
+        signature: `task-fail|${agentId}|judge|${j.tell.slice(0, 40)}`,
+        meta: { agentId, kind: 'unknown', taskId: evt.taskId || null, byJudge: true },
+      });
+    }
+    return;
+  }
   guardian.record({
     category: 'gateway', kind: 'task-failed', status: 'info',
     title: `派给 ${who} 的任务失败：${c.title}`,

@@ -175,6 +175,7 @@ async function undo(id) {
     try {
       const rules = require('./rules');
       if (rec.byRule) rules.noteUndo(rec.byRule);
+      if (rec.byJudge && rec.caseEvent) { try { require('./judge').forgetEvent(rec.caseEvent); } catch { /* ignore */ } }
       if (rec.caseEvent && rec.facts) rules.addCase({ event: rec.caseEvent, facts: rec.facts, expect: 'ignore', note: `用户撤销了：${rec.title}` });
     } catch { /* ignore */ }
   }
