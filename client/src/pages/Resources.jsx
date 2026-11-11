@@ -66,6 +66,9 @@ const SCAN_CUSTOM_DIR_KEY = 'tokenbank.resources.scanCustomDir';
 const APP_FILTER_KEY = 'tokenbank.resources.appFilter';
 const IDLE_DAYS_KEY = 'tokenbank.resources.idleDays';
 const LAYER_FILTER_KEY = 'tokenbank.resources.layerFilter';
+// 状态只说三种：在用、没在用（启用了没用过 / 闲置 / 没启用到应用）、有问题（管家体检）
+const IDLE_LAYERS = new Set(['pending', 'dormant', 'cold', 'shelf']);
+const STATE_DOT = { active: 'bg-emerald-500', idle: 'bg-zinc-400', issue: 'bg-rose-500' };
 const LIST_SORT_KEY = 'tokenbank.resources.listSort';
 const DEFAULT_IDLE_DAYS = 60;
 /** 资产库列表列宽：名称 | 投射到 | 使用 | 状态 | 操作 */
@@ -576,7 +579,8 @@ export default function Resources() {
   const [layerFilter, setLayerFilter] = useState(() => {
     try {
       const v = localStorage.getItem(LAYER_FILTER_KEY) || '';
-      if (['', 'active', 'pending', 'dormant', 'cold', 'shelf'].includes(v)) return v;
+      if (['', 'active', 'idle', 'issue'].includes(v)) return v;
+      if (['pending', 'dormant', 'cold', 'shelf'].includes(v)) return 'idle';   // 旧版本存下的细分状态
     } catch { /* ignore */ }
     return '';
   });
@@ -928,6 +932,7 @@ export default function Resources() {
 
   // 看护资产体检的小标签（质量 / 安全 / 重复 / 新版本），按资产 id 索引
   const [assetFlags, setAssetFlags] = useState({});
+  const [addMenuOpen, setAddMenuOpen] = useState(false);   // 右上角「添加」菜单
   const loadAssetFlags = useCallback(async () => {
     try {
       const r = await window.electronAPI?.guardian?.assetFlags?.();
@@ -2587,15 +2592,22 @@ export default function Resources() {
   }
 
   // 分层计数：空层不占筛选位（Simplicity）
+  // 管家体检里要用户处理的：有风险、需完善、有新版本
+  const hasAssetIssue = useCallback((id) => {
+    const f = id && assetFlags[id];
+    return !!(f && (f.security === 'high' || f.quality === 'warn' || f.updateAvailable));
+  }, [assetFlags]);
   const layerCounts = useMemo(() => {
-    const counts = { active: 0, pending: 0, dormant: 0, cold: 0, shelf: 0 };
+    const counts = { active: 0, pending: 0, dormant: 0, cold: 0, shelf: 0, idle: 0, issue: 0 };
     for (const r of resourcesInType) {
+      if (hasAssetIssue(r.id)) counts.issue += 1;
       if (isLifecycleExempt(r)) continue;
       const layer = classifyLifecycle(r).layer;
       if (counts[layer] != null) counts[layer] += 1;
+      if (IDLE_LAYERS.has(layer)) counts.idle += 1;
     }
     return counts;
-  }, [resourcesInType]);
+  }, [resourcesInType, hasAssetIssue]);
 
   const changeLayerFilter = useCallback((next) => {
     setLayerFilter(next);
@@ -3058,8 +3070,10 @@ export default function Resources() {
       if (!layerFilter) return true;
       const linked = item?.resourceId ? resourcesById.get(item.resourceId) : null;
       const probe = linked || item;
+      if (layerFilter === 'issue') return hasAssetIssue(probe?.id);
       const life = classifyLifecycle(probe);
       if (life.layer === 'exempt') return false;
+      if (layerFilter === 'idle') return IDLE_LAYERS.has(life.layer);
       return life.layer === layerFilter;
     };
     // 提示词/智能体：按 typeFilter 收窄；全部时排除 skill（技能走扫描行）
@@ -3816,37 +3830,54 @@ export default function Resources() {
               const busyEdit = busy === 'editor' || busy === 'cleanup';
               const primaryCls = 'tb-press text-xs font-medium px-3.5 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 shadow-sm shadow-blue-600/20 disabled:opacity-50 whitespace-nowrap';
               const ghostCls = 'tb-press text-xs px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/70 dark:bg-zinc-900/50 text-zinc-700 dark:text-zinc-200 hover:bg-white dark:hover:bg-zinc-800 disabled:opacity-50 whitespace-nowrap';
-              if (isMcp) {
-                return (
-                  <>
-                    <button type="button" className={ghostCls} onClick={() => changeViewTab('recommend')} title={t('resources.mcp.browseCatalogHint')}>{t('resources.mcp.browseCatalog')}</button>
-                    <button type="button" className={primaryCls} onClick={() => setMcpCreateSignal(n => n + 1)}>＋ {t('resources.mcp.add')}</button>
-                  </>
-                );
-              }
               const typed = ['prompt', 'skill', 'assistant'].includes(typeFilter);
+              // 所有「加东西」的入口收进一个「添加」，不再随类型换按钮
+              const items = [
+                { key: 'catalog', label: t('resources.add.catalog'), hint: t('resources.add.catalogHint'), run: () => changeViewTab('recommend') },
+                { key: 'install', label: t('resources.add.install'), hint: t('resources.menu.installHint'), run: () => setSkillInstallOpen(true) },
+                { key: 'scan', label: t('resources.scanShort'), hint: t('resources.menu.scanHint'), run: () => {
+                  if (!showSkillTabs) changeTypeFilter('skill', 'managed');
+                  if (viewTab !== 'managed') changeViewTab('managed');
+                  setScanExpanded(true);
+                } },
+                !isWebBridge() && { key: 'import', label: t('resources.add.import'), hint: t('resources.menu.importHint'), disabled: busy === 'import' || busyEdit, run: handleImportFile },
+                { key: 'create', label: typed ? t('resources.createOf', { type: t(`resources.tabType.${typeFilter}`) }) : t('resources.add.create'), hint: t('resources.menu.createHint'), disabled: busyEdit,
+                  run: () => { if (viewTab !== 'managed') changeViewTab('managed'); openCreateEditor(typed ? typeFilter : '', !typed); } },
+                { key: 'tool', label: t('resources.add.tool'), hint: t('resources.add.toolHint'), run: () => {
+                  if (viewTab !== 'managed') changeViewTab('managed');
+                  if (!isMcp) changeTypeFilter('mcp', 'managed');
+                  setTimeout(() => setMcpCreateSignal(n => n + 1), isMcp ? 0 : 150);
+                } },
+              ].filter(Boolean);
               return (
                 <>
-                  {showSkillTabs && (
-                    <button type="button" className={ghostCls} onClick={() => setScanExpanded(v => !v)} title={t('resources.menu.scanHint')}>{t('resources.scanShort')}</button>
-                  )}
-                  {typeFilter === 'skill' && (
+                  {typeFilter === 'skill' && viewTab === 'managed' && (
                     <button type="button" className={ghostCls} disabled={busy === 'cleanup' || idleLoading} onClick={openSkillCleanup} title={t('resources.cleanupTitle')}>
                       {idleLoading ? t('resources.cleanupScanning') : t('resources.cleanup')}
                     </button>
                   )}
-                  {/* Docker / Web 版没有本机文件对话框，不提供从文件导入 */}
-                  {!isWebBridge() && (
-                  <button type="button" className={ghostCls} disabled={busy === 'import' || busyEdit} onClick={handleImportFile} title={t('resources.menu.importHint')}>
-                    {busy === 'import' ? t('resources.busy') : t('resources.importShort')}
-                  </button>
-                  )}
-                  {showSkillTabs && (
-                    <button type="button" className={ghostCls} onClick={() => setSkillInstallOpen(true)} title={t('resources.menu.installHint')}>{t('resources.skillInstallShort')}</button>
-                  )}
-                  <button type="button" className={primaryCls} disabled={busyEdit} onClick={() => openCreateEditor(typed ? typeFilter : '', !typed)}>
-                    ＋ {typed ? t('resources.createOf', { type: t(`resources.tabType.${typeFilter}`) }) : t('resources.create')}
-                  </button>
+                  <div className="relative">
+                    <button type="button" className={primaryCls} aria-haspopup="menu" aria-expanded={addMenuOpen}
+                      onClick={() => setAddMenuOpen(v => !v)}>
+                      ＋ {t('resources.add.button')}
+                    </button>
+                    {addMenuOpen && (
+                      <>
+                        <div className="fixed inset-0 z-[60]" onClick={() => setAddMenuOpen(false)} aria-hidden="true" />
+                        <div role="menu" className="absolute right-0 top-full mt-1.5 z-[61] w-72 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg p-1"
+                          onKeyDown={(e) => { if (e.key === 'Escape') setAddMenuOpen(false); }}>
+                          {items.map(it => (
+                            <button key={it.key} type="button" role="menuitem" disabled={it.disabled}
+                              onClick={() => { setAddMenuOpen(false); it.run(); }}
+                              className="block w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-700/60 disabled:opacity-40">
+                              <span className="block text-xs font-medium text-zinc-800 dark:text-zinc-100">{it.label}</span>
+                              <span className="block text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">{it.hint}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </>
               );
             })()}
@@ -3855,7 +3886,7 @@ export default function Resources() {
         {/* 主导航：资产类型直接作为一级 Tab（带数量），「发现」与之以竖线分隔 */}
         <div className="mt-4 flex flex-wrap items-end gap-x-6 gap-y-1 border-b border-zinc-200/80 dark:border-white/[0.08]" role="tablist">
           {TYPE_OPTIONS.filter(o => o.id).map(opt => {
-            const active = viewTab === 'managed' && typeFilter === opt.id;
+            const active = viewTab !== 'recommend' && typeFilter === opt.id;
             const n = typeCounts[opt.id || 'all'];
             return (
               <button
@@ -3879,20 +3910,6 @@ export default function Resources() {
               </button>
             );
           })}
-          <span className="self-center mb-2.5 w-px h-4 bg-zinc-200 dark:bg-zinc-700" aria-hidden />
-          <button
-            type="button"
-            role="tab"
-            aria-selected={viewTab === 'recommend'}
-            onClick={() => changeViewTab('recommend')}
-            className={`-mb-px pb-2.5 text-[13px] border-b-2 transition-colors ${
-              viewTab === 'recommend'
-                ? 'border-zinc-900 dark:border-zinc-100 text-zinc-900 dark:text-zinc-50 font-semibold'
-                : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-            }`}
-          >
-            <span className="text-violet-500 mr-1" aria-hidden>✦</span>{t('resources.tab.discover')}
-          </button>
           <div className="relative ml-auto mb-1.5 w-64 max-w-[40vw] self-center">
             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" aria-hidden>
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3.5 h-3.5"><circle cx="9" cy="9" r="5.5" /><path d="M13.5 13.5 17 17" strokeLinecap="round" /></svg>
@@ -3929,6 +3946,16 @@ export default function Resources() {
       </header>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3">
+        {viewTab === 'recommend' && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">{t('resources.add.catalog')}</span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">{t('resources.add.catalogHint')}</span>
+            <button type="button" onClick={() => changeViewTab('managed')}
+              className="ml-auto text-xs px-2.5 py-1 rounded-lg text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20">
+              {t('resources.add.back')}
+            </button>
+          </div>
+        )}
         {/* 筛选栏：类型分段 + 下拉筛选（用途 / 应用 / 状态）+ 排序 */}
         <div className="flex flex-wrap items-center gap-2">
           {viewTab === 'recommend' && (
@@ -3995,9 +4022,9 @@ export default function Resources() {
               value={layerFilter}
               allLabel={t('resources.layer.filterAll')}
               onChange={changeLayerFilter}
-              options={['active', 'pending', 'dormant', 'cold', 'shelf']
+              options={['active', 'idle', 'issue']
                 .filter(id => layerCounts[id] > 0 || layerFilter === id)
-                .map(id => ({ value: id, label: t(`resources.layer.${id}`), count: layerCounts[id], dot: LIFE_DOT[id] }))}
+                .map(id => ({ value: id, label: t(`resources.state.${id}`), count: layerCounts[id], dot: STATE_DOT[id] }))}
             />
           )}
           {!isMcp && viewTab === 'managed' && (
@@ -4275,15 +4302,6 @@ export default function Resources() {
           </div>
         ) : null}
 
-        {!isMcp && <p className="text-[11px] text-zinc-400 pt-2">
-          {t(
-            typeFilter === 'prompt'
-              ? 'resources.footerHint.prompt'
-              : typeFilter === 'assistant'
-                ? 'resources.footerHint.assistant'
-                : 'resources.footerHint',
-          )}
-        </p>}
       </div>
 
       {renderProjectMenu()}
