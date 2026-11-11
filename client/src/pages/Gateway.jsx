@@ -5357,6 +5357,229 @@ function RouteLogDetailModal({ entry, onClose }) {
   );
 }
 
+// ── 自定义路由（原「场景路由」）：放在模型页。列表、编辑器、健康度都在这里 ─────────────────
+/** 模型页「自定义路由」：按规则或模型链组合出的路由，在应用的路由选择里直接选 */
+export function CustomRoutesPanel() {
+  const { t } = useLang();
+  const { user } = useAuth();
+  const here = useLocation();
+  const [routes, setRoutes] = useState([]);
+  const [expandedRoute, setExpandedRoute] = useState(null);
+  const [newRoute, setNewRoute] = useState(null);
+  const [availableModels, setAvailableModels] = useState([]);
+  const [sources, setSources] = useState([]);
+  const [network, setNetwork] = useState(null);
+  const [logEntries, setLog] = useState([]);
+
+  const loadRoutes = useCallback(async () => {
+    try { setRoutes((await getLocalConfig().get())?.scene_routes || []); }
+    catch (e) { console.error('loadRoutes', e); }
+  }, []);
+  const loadAvailableModels = useCallback(async () => {
+    try { setAvailableModels(await loadGatewayAvailableModels({ includeCommunity: !!user })); }
+    catch (e) { console.error('loadAvailableModels', e); }
+    try {
+      const cfg = await getConfig().read();
+      setSources((cfg?.providers || []).filter(p => p.enabled && p.base_url));
+    } catch { /* ignore */ }
+  }, [user]);
+  const loadLog = useCallback(async () => {
+    try { setLog(((await getGateway().getLog()) || []).slice(0, 50)); } catch { /* 网关没起来 */ }
+  }, []);
+  const loadNetwork = useCallback(async () => {
+    if (!user) { setNetwork(null); return; }
+    try { setNetwork(normalizeNetworkPayload(await getNetwork())); } catch { /* 离线 */ }
+  }, [user]);
+
+  // 页面被缓存：只在模型页可见时加载和轮询
+  useEffect(() => {
+    if (here.pathname !== '/providers') return undefined;
+    loadRoutes(); loadAvailableModels(); loadLog(); loadNetwork();
+    const logId = setInterval(loadLog, 15000);
+    const modelsId = setInterval(loadAvailableModels, 60000);
+    return () => { clearInterval(logId); clearInterval(modelsId); };
+  }, [here.pathname, loadRoutes, loadAvailableModels, loadLog, loadNetwork]);
+
+  // 每条路由最近一次请求的结果（健康点、降级中、首字耗时）
+  const routeHealth = useMemo(() => {
+    const map = {};
+    for (const key of routes.map(r => r.model_key).filter(Boolean)) {
+      const entries = logEntries.filter(e => e.requested_model === key);
+      if (!entries.length) { map[key] = { status: null, activeStep: null, triedSteps: [], degraded: false }; continue; }
+      const last = entries[0];
+      map[key] = {
+        status: last.status,
+        activeStep: last.status === 'ok' ? last.model : null,
+        triedSteps: Array.isArray(last.tried) ? last.tried : [],
+        degraded: last.status === 'ok' && Array.isArray(last.tried) && last.tried.length > 0,
+        first_token_ms: last.first_token_ms ?? null,
+      };
+    }
+    return map;
+  }, [logEntries, routes]);
+
+  const saveRoute = async (route) => {
+    try {
+      const body = {
+        scene_name: route.scene_name, icon: route.icon, steps: route.steps, rules: route.rules, classifier: route.classifier,
+        flow: route.flow, caveman_level: route.caveman_level, scope: route.scope, tier: route.tier,
+      };
+      if (route.id) await getLocalConfig().updateSceneRoute({ id: route.id, ...body });
+      else await getLocalConfig().createSceneRoute(body);
+      setNewRoute(null);
+      setExpandedRoute(null);
+      await loadRoutes();
+    } catch (e) {
+      alert(t('gateway.common.saveFailed', { msg: e.message }));
+    }
+  };
+  const removeRoute = async (id) => {
+    if (!confirm(t('gateway.route.confirmDelete'))) return;
+    try { await getLocalConfig().deleteSceneRoute(id); await loadRoutes(); }
+    catch { alert(t('gateway.common.deleteFailed')); }
+  };
+  // 降级链在模型列表里调整，不进这里
+  const sceneRouteRows = useMemo(() => (routes || []).filter(route => !route.list_route), [routes]);
+
+  return (
+    <div className="tb-soft-panel rounded-2xl overflow-hidden min-w-0">
+        <div>
+        {/* 操作栏：新建（蓝色，最左）｜说明｜在线同步（最右）——布局与应用列表一致 */}
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-white/40 dark:border-white/[0.06] flex-wrap">
+          <button
+            onClick={() => { if (newRoute) { setNewRoute(null); } else { setExpandedRoute(null); setNewRoute({ scene_name: '', icon: 'icon:shuffle', steps: [] }); } }}
+            className="text-xs px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:hover:bg-[#4a73a8] text-white transition-colors"
+          >{t('gateway.route.new')}</button>
+          <span className="text-xs text-zinc-400 dark:text-zinc-500">{t('gateway.route.hint')}</span>
+          <div className="ml-auto">
+            <ImportConfigButton onImported={() => { loadRoutes(); loadAvailableModels(); }} endpoint="/api/config/scenes" />
+          </div>
+        </div>
+        <div className="space-y-2 px-3 pb-3">
+          {/* 新建路由编辑器：放在列表最上面 */}
+          {newRoute && (
+            <SceneRouteEditor key="new-route-editor" route={newRoute} availableModels={availableModels} network={network} sources={sources} onSave={saveRoute} onCancel={() => setNewRoute(null)} />
+          )}
+          {sceneRouteRows.map(route => {
+            const health = routeHealth[route.model_key] ?? { status: null, activeStep: null, degraded: false };
+            const ftMs = health.first_token_ms;
+            // 本地供给源是否缺少该路由用到的模型（缺则名称前的点也标红）
+            const availSet = new Set(availableModels.map(m => m.id));
+            const _allSteps = [...(route.steps || []), ...(route.rules || []).flatMap(r => r.steps || [])];
+            // strategy-only 步无 model，不参与"模型缺失"判定
+            const routeMissing = _allSteps.some(s => (s.model || s.label) && !availSet.has(s.model || s.label));
+            const healthDot = speedDotClass(statusDotBucket({
+              ms: ftMs,
+              failed: routeMissing || health.status === 'error',
+              ok: health.status === 'ok',
+            }));
+            const ftLabel = ftMs != null ? t('gateway.route.firstToken', { s: (ftMs / 1000).toFixed(1) }) : null;
+            const healthTitle =
+              routeMissing ? t('gateway.route.missingModels') :
+              health.status === 'error' ? t('gateway.route.recentFailed') :
+              health.status === 'ok'
+                ? [health.degraded ? t('gateway.route.degradedShort') : t('gateway.route.runningOk'), ftLabel].filter(Boolean).join(' · ')
+                : t('gateway.route.noRequests');
+            // 任一步配置了识图增强 → 列表显示标识，方便一眼辨认
+            const hasVisionAssist = _allSteps.some(s => s?.vision_assist?.model);
+            return (
+            <div key={route.id}>
+              <div
+                className="tb-soft-tile flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer"
+                onClick={() => setExpandedRoute(expandedRoute === route.id ? null : route.id)}
+                title={t('gateway.common.edit')}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+                  className={`w-3.5 h-3.5 shrink-0 text-zinc-400 transition-transform ${expandedRoute === route.id ? 'rotate-90' : ''}`}>
+                  <path d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                </svg>
+                {isAppIcon(route.icon)
+                  ? appIconSvg(route.icon, 'w-5 h-5 shrink-0')
+                  : String(route.icon || '').startsWith('icon:')
+                    ? appIconSvg('icon:shuffle', 'w-5 h-5 shrink-0')
+                    : <span className="text-base shrink-0">{route.icon}</span>}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span title={healthTitle} className={`w-2 h-2 rounded-full shrink-0 ${healthDot}`} />
+                    <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200">{route.scene_name}</span>
+                    {hasVisionAssist && (
+                      <span
+                        title={t('gateway.route.visionAssistBadgeHint')}
+                        className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-900/25 border border-sky-200/80 dark:border-sky-800/50 text-sky-600 dark:text-sky-400 shrink-0"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 shrink-0" aria-hidden>
+                          <path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                          <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                        </svg>
+                        {t('gateway.route.visionAssistBadge')}
+                      </span>
+                    )}
+                    {route.caveman_level && (
+                      <span
+                        title={t('gateway.route.compressBadgeHint')}
+                        className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded bg-violet-50 dark:bg-violet-900/25 border border-violet-200/80 dark:border-violet-800/50 text-violet-600 dark:text-violet-400 shrink-0"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 shrink-0" aria-hidden>
+                          <path d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" />
+                        </svg>
+                        {{
+                          lite: t('gateway.route.compressBadgeLite'),
+                          full: t('gateway.route.compressBadgeFull'),
+                          ultra: t('gateway.route.compressBadgeUltra'),
+                        }[route.caveman_level] || t('gateway.route.compressBadge')}
+                      </span>
+                    )}
+                    {route.model_key && (
+                      <>
+                        <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-zinc-100/70 dark:bg-zinc-800/60 text-zinc-400 dark:text-zinc-500 shrink-0">
+                          {route.model_key}
+                        </span>
+                        <span onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(route.model_key); }}
+                          className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 cursor-pointer transition-colors shrink-0">{t('gateway.common.copy')}</span>
+                      </>
+                    )}
+                    {routeMissing && (
+                      <span title={t('gateway.route.missingModels')} className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 text-amber-600 dark:text-amber-400 shrink-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 shrink-0">
+                          <path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                        </svg>
+                        {t('gateway.route.needReset')}
+                      </span>
+                    )}
+                    {health.degraded && (
+                      <span className="text-xs px-1 py-0.5 rounded bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800/40 text-rose-600 dark:text-rose-400 shrink-0">
+                        {t('gateway.route.degraded')}
+                      </span>
+                    )}
+                    {route.rules?.length > 0 && (
+                      <span title={t('gateway.route.rulesTitle')} className="text-xs px-1 py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/40 text-indigo-600 dark:text-indigo-400 shrink-0">
+                        {t('gateway.route.rulesCount', { n: route.rules.length })}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                  <button onClick={() => removeRoute(route.id)}
+                    className="text-xs px-2 py-1 rounded-lg border border-red-200 dark:border-red-800/60 text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                    {t('gateway.common.delete')}
+                  </button>
+                </div>
+              </div>
+              {expandedRoute === route.id && (
+                <SceneRouteEditor key={'editor-' + route.id} route={route} availableModels={availableModels} network={network} sources={sources} onSave={saveRoute} onCancel={() => setExpandedRoute(null)} />
+              )}
+            </div>
+            );
+          })}
+          {sceneRouteRows.length === 0 && !newRoute && (
+            <div className="px-5 py-8 text-xs text-zinc-400 text-center">{t('gateway.route.empty')}</div>
+          )}
+        </div>
+        </div>
+    </div>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function Gateway() {
@@ -5369,7 +5592,7 @@ export default function Gateway() {
   const [network, setNetwork]   = useState(null);   // /public/network 快照：路由日志把 worker_id join 成分享者
   const [selectedLog, setSelectedLog] = useState(null);
   const [restarting, setRestarting] = useState(false);
-  const [mainTab, setMainTab]   = useState(0);   // 0=应用列表 1=场景路由 2=会话
+  const [mainTab, setMainTab]   = useState(0);   // 0=应用列表 2=会话（自定义路由搬到了模型页）
   const routeLogRef = useRef(null);
   const pendingRouteLogScroll = useRef(false);
   // 其它页跳转到场景路由：navigate('/gateway', { state: { gatewayTab: 'routes' } })
@@ -5378,30 +5601,26 @@ export default function Gateway() {
   useEffect(() => {
     const want = gwLocation.state?.gatewayTab;
     if (!want) return;
-    if (want === 'routes') setMainTab(1);
-    else if (want === 'apps') setMainTab(0);
+    if (want === 'routes') { gwNavigate('/providers', { replace: true, state: { focus: 'customRoutes' } }); return; }
+    if (want === 'apps') setMainTab(0);
     gwNavigate(gwLocation.pathname, { replace: true, state: null });
   }, [gwLocation.state]); // eslint-disable-line react-hooks/exhaustive-deps
-  // 顶部「请求 / 任务」点进来：先切到场景路由（明细只挂在这个 Tab），再滚到列表。
+  // 顶部「请求 / 任务」点进来：展开请求明细并滚过去
+  const [showLog, setShowLog] = useState(false);
   const jumpToRouteLog = () => {
-    if (mainTab === 1) {
-      routeLogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
-    }
+    if (showLog) { routeLogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     pendingRouteLogScroll.current = true;
-    setMainTab(1);
+    setShowLog(true);
   };
   useEffect(() => {
-    if (mainTab !== 1 || !pendingRouteLogScroll.current) return;
+    if (!showLog || !pendingRouteLogScroll.current) return;
     pendingRouteLogScroll.current = false;
     routeLogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [mainTab]);
+  }, [showLog]);
   const [sessionsMounted, setSessionsMounted] = useState(false); // 首次进入会话 Tab 后保持挂载
 
   // Scene routing
   const [routes, setRoutes]               = useState([]);
-  const [expandedRoute, setExpandedRoute] = useState(null);
-  const [newRoute, setNewRoute]           = useState(null);
   const [availableModels, setAvailableModels] = useState([]);
   const [sources, setSources] = useState([]);   // 已启用供给源（路由里"某模型下锁具体源"用）
   // 应用列表汇总（与表格「今日请求/Token」列求和一致）
@@ -5543,37 +5762,6 @@ export default function Gateway() {
     return map;
   }, [logEntries, routes, keysScene]);
 
-  // ── Scene route actions ────────────────────────────────────────────────────
-
-  const saveRoute = async (route) => {
-    try {
-      if (route.id) {
-        await getLocalConfig().updateSceneRoute({
-          id: route.id, scene_name: route.scene_name, icon: route.icon, steps: route.steps, rules: route.rules, classifier: route.classifier,
-          flow: route.flow, caveman_level: route.caveman_level, scope: route.scope, tier: route.tier,
-        });
-      } else {
-        await getLocalConfig().createSceneRoute({
-          scene_name: route.scene_name, icon: route.icon, steps: route.steps, rules: route.rules, classifier: route.classifier,
-          flow: route.flow, caveman_level: route.caveman_level, scope: route.scope, tier: route.tier,
-        });
-      }
-      setNewRoute(null);
-      setExpandedRoute(null);
-      await loadSceneData();
-    } catch (e) {
-      alert(t('gateway.common.saveFailed', { msg: e.message }));
-    }
-  };
-
-  const removeRoute = async (id) => {
-    if (!confirm(t('gateway.route.confirmDelete'))) return;
-    try { await getLocalConfig().deleteSceneRoute(id); await loadSceneData(); }
-    catch (e) { alert(t('gateway.common.deleteFailed')); }
-  };
-
-  // ── App key actions ────────────────────────────────────────────────────────
-
   async function handleCreateAppKey() {
     if (!appNote.trim()) return;
     setAppBusy(true);
@@ -5600,11 +5788,6 @@ export default function Gateway() {
     catch (e) { alert(t('gateway.common.deleteFailed')); }
   }
 
-  // 降级链在模型列表里调整，不进场景路由。
-  const sceneRouteRows = useMemo(
-    () => (routes || []).filter(route => !route.list_route),
-    [routes],
-  );
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -5689,22 +5872,17 @@ export default function Gateway() {
         <div className="flex items-center gap-3 px-2.5 py-2 border-b border-white/40 dark:border-white/[0.06] overflow-x-auto">
           <div className="tb-glass-chip inline-flex items-center gap-0.5 p-0.5 rounded-[10px] shrink-0">
           {[
-            { label: t('gateway.tab.apps'), icon: (
+            { id: 0, label: t('gateway.tab.apps'), icon: (
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="w-[15px] h-[15px] shrink-0">
                 <path d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
               </svg>
             )},
-            { label: t('gateway.tab.routes'), icon: (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="w-[15px] h-[15px] shrink-0">
-                <path d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-              </svg>
-            )},
-            { label: t('gateway.tab.sessions'), icon: (
+            { id: 2, label: t('gateway.tab.sessions'), icon: (
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="w-[15px] h-[15px] shrink-0">
                 <path d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
               </svg>
             )},
-          ].map(({ label, icon }, i) => (
+          ].map(({ id: i, label, icon }) => (
             <button key={i} onClick={() => {
               setMainTab(i);
               if (i === 2) setSessionsMounted(true);
@@ -5724,143 +5902,6 @@ export default function Gateway() {
           <AppManager externalRoutes={routes} availableModels={availableModels} onActivity={refresh} />
         )}
 
-        {/* Tab1: 场景路由 */}
-        {mainTab === 1 && (
-        <div>
-        {/* 操作栏：新建（蓝色，最左）｜说明｜在线同步（最右）——布局与应用列表一致 */}
-        <div className="flex items-center gap-2 px-5 py-3 border-b border-white/40 dark:border-white/[0.06] flex-wrap">
-          <button
-            onClick={() => { if (newRoute) { setNewRoute(null); } else { setExpandedRoute(null); setNewRoute({ scene_name: '', icon: 'icon:shuffle', steps: [] }); } }}
-            className="text-xs px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:hover:bg-[#4a73a8] text-white transition-colors"
-          >{t('gateway.route.new')}</button>
-          <span className="text-xs text-zinc-400 dark:text-zinc-500">{t('gateway.route.hint')}</span>
-          <div className="ml-auto">
-            <ImportConfigButton onImported={() => { refresh(); loadSceneData(); loadAvailableModels(); }} endpoint="/api/config/scenes" />
-          </div>
-        </div>
-        <div className="space-y-2 px-3 pb-3">
-          {/* 新建路由编辑器：放在列表最上面 */}
-          {newRoute && (
-            <SceneRouteEditor key="new-route-editor" route={newRoute} availableModels={availableModels} network={network} sources={sources} onSave={saveRoute} onCancel={() => setNewRoute(null)} />
-          )}
-          {sceneRouteRows.map(route => {
-            const health = routeHealth[route.model_key] ?? { status: null, activeStep: null, degraded: false };
-            const ftMs = health.first_token_ms;
-            // 本地供给源是否缺少该路由用到的模型（缺则名称前的点也标红）
-            const availSet = new Set(availableModels.map(m => m.id));
-            const _allSteps = [...(route.steps || []), ...(route.rules || []).flatMap(r => r.steps || [])];
-            // strategy-only 步无 model，不参与"模型缺失"判定
-            const routeMissing = _allSteps.some(s => (s.model || s.label) && !availSet.has(s.model || s.label));
-            const healthDot = speedDotClass(statusDotBucket({
-              ms: ftMs,
-              failed: routeMissing || health.status === 'error',
-              ok: health.status === 'ok',
-            }));
-            const ftLabel = ftMs != null ? t('gateway.route.firstToken', { s: (ftMs / 1000).toFixed(1) }) : null;
-            const healthTitle =
-              routeMissing ? t('gateway.route.missingModels') :
-              health.status === 'error' ? t('gateway.route.recentFailed') :
-              health.status === 'ok'
-                ? [health.degraded ? t('gateway.route.degradedShort') : t('gateway.route.runningOk'), ftLabel].filter(Boolean).join(' · ')
-                : t('gateway.route.noRequests');
-            // 任一步配置了识图增强 → 列表显示标识，方便一眼辨认
-            const hasVisionAssist = _allSteps.some(s => s?.vision_assist?.model);
-            return (
-            <div key={route.id}>
-              <div
-                className="tb-soft-tile flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer"
-                onClick={() => setExpandedRoute(expandedRoute === route.id ? null : route.id)}
-                title={t('gateway.common.edit')}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
-                  className={`w-3.5 h-3.5 shrink-0 text-zinc-400 transition-transform ${expandedRoute === route.id ? 'rotate-90' : ''}`}>
-                  <path d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-                </svg>
-                {isAppIcon(route.icon)
-                  ? appIconSvg(route.icon, 'w-5 h-5 shrink-0')
-                  : String(route.icon || '').startsWith('icon:')
-                    ? appIconSvg('icon:shuffle', 'w-5 h-5 shrink-0')
-                    : <span className="text-base shrink-0">{route.icon}</span>}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span title={healthTitle} className={`w-2 h-2 rounded-full shrink-0 ${healthDot}`} />
-                    <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200">{route.scene_name}</span>
-                    {hasVisionAssist && (
-                      <span
-                        title={t('gateway.route.visionAssistBadgeHint')}
-                        className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-900/25 border border-sky-200/80 dark:border-sky-800/50 text-sky-600 dark:text-sky-400 shrink-0"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 shrink-0" aria-hidden>
-                          <path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                          <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                        </svg>
-                        {t('gateway.route.visionAssistBadge')}
-                      </span>
-                    )}
-                    {route.caveman_level && (
-                      <span
-                        title={t('gateway.route.compressBadgeHint')}
-                        className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded bg-violet-50 dark:bg-violet-900/25 border border-violet-200/80 dark:border-violet-800/50 text-violet-600 dark:text-violet-400 shrink-0"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 shrink-0" aria-hidden>
-                          <path d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" />
-                        </svg>
-                        {{
-                          lite: t('gateway.route.compressBadgeLite'),
-                          full: t('gateway.route.compressBadgeFull'),
-                          ultra: t('gateway.route.compressBadgeUltra'),
-                        }[route.caveman_level] || t('gateway.route.compressBadge')}
-                      </span>
-                    )}
-                    {route.model_key && (
-                      <>
-                        <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-zinc-100/70 dark:bg-zinc-800/60 text-zinc-400 dark:text-zinc-500 shrink-0">
-                          {route.model_key}
-                        </span>
-                        <span onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(route.model_key); }}
-                          className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 cursor-pointer transition-colors shrink-0">{t('gateway.common.copy')}</span>
-                      </>
-                    )}
-                    {routeMissing && (
-                      <span title={t('gateway.route.missingModels')} className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 text-amber-600 dark:text-amber-400 shrink-0">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 shrink-0">
-                          <path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-                        </svg>
-                        {t('gateway.route.needReset')}
-                      </span>
-                    )}
-                    {health.degraded && (
-                      <span className="text-xs px-1 py-0.5 rounded bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800/40 text-rose-600 dark:text-rose-400 shrink-0">
-                        {t('gateway.route.degraded')}
-                      </span>
-                    )}
-                    {route.rules?.length > 0 && (
-                      <span title={t('gateway.route.rulesTitle')} className="text-xs px-1 py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/40 text-indigo-600 dark:text-indigo-400 shrink-0">
-                        {t('gateway.route.rulesCount', { n: route.rules.length })}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
-                  <button onClick={() => removeRoute(route.id)}
-                    className="text-xs px-2 py-1 rounded-lg border border-red-200 dark:border-red-800/60 text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-                    {t('gateway.common.delete')}
-                  </button>
-                </div>
-              </div>
-              {expandedRoute === route.id && (
-                <SceneRouteEditor key={'editor-' + route.id} route={route} availableModels={availableModels} network={network} sources={sources} onSave={saveRoute} onCancel={() => setExpandedRoute(null)} />
-              )}
-            </div>
-            );
-          })}
-          {sceneRouteRows.length === 0 && !newRoute && (
-            <div className="px-5 py-8 text-xs text-zinc-400 text-center">{t('gateway.route.empty')}</div>
-          )}
-        </div>
-        </div>
-        )}
-
         {/* Tab2: 会话管理 — 首次进入后保持挂载，避免切 Tab 反复扫盘 */}
         {sessionsMounted && (
           <div className={mainTab === 2 ? '' : 'hidden'}>
@@ -5869,8 +5910,14 @@ export default function Gateway() {
         )}
       </div>
 
-      {/* 路由明细 — 仅在「场景路由」Tab 显示，应用列表 Tab 不显示 */}
-      {mainTab === 1 && (
+      {/* 请求明细：默认收起；点顶部「请求 / 任务」或这里展开 */}
+      <div className="flex justify-end -mt-1">
+        <button type="button" onClick={() => setShowLog(v => !v)} aria-expanded={showLog}
+          className="text-xs px-2 py-1 rounded-lg text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-white/60 dark:hover:bg-white/5">
+          {showLog ? t('gateway.log.hide') : t('gateway.log.show')}
+        </button>
+      </div>
+      {showLog && (
       <div ref={routeLogRef} tabIndex={-1} className="tb-soft-card rounded-2xl p-5 scroll-mt-3 outline-none">
         <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-3">{t('gateway.log.title')}</h2>
         {logEntries.length === 0 ? (

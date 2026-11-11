@@ -28,6 +28,7 @@ import {
 import { alignSyncAccountSecretsFromCloud } from '../lib/sync-account-secrets';
 import { formatDeviceSubtitle, formatDeviceTitle } from '../lib/device-display';
 import UsageMeter, { UsageInline, usageProviderForDirect } from '../components/UsageMeter';
+import { CustomRoutesPanel } from './Gateway';
 
 /** Ollama 本地实例不校验 API Key。与 shared/provider-test.js 一致，不引 CJS，避免渲染进程白屏。 */
 function isOllamaProvider(provider) {
@@ -4565,6 +4566,11 @@ export default function Providers() {
   /** 「谁在用它」：场景路由 + 绑定了模型的智能体（打开详情时加载） */
   const [dependents, setDependents] = useState({ routes: [], assistants: [] });
   const provLocation = useLocation();
+  // 其它页带 focus: 'customRoutes' 过来：滚到「自定义路由」
+  useEffect(() => {
+    if (provLocation.state?.focus !== 'customRoutes') return;
+    setTimeout(() => document.getElementById('custom-routes')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
+  }, [provLocation.state]); // eslint-disable-line react-hooks/exhaustive-deps
   const [personalLatencyMap, setPersonalLatencyMap] = useState({});
 
   // 从设置页返回后刷新「同步账户密钥」（页面被 KeepAlive 挂住，不会重新挂载）
@@ -5246,7 +5252,7 @@ export default function Providers() {
           <div className="flex flex-wrap gap-1.5">
             {routes.map(r => (
               <button key={`r-${r.id || r.model_key}`} type="button"
-                onClick={() => navigate('/gateway', { state: { gatewayTab: 'routes' } })}
+                onClick={() => { setSelectedSourceKey(null); document.getElementById('custom-routes')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
                 title={t('providers.link.routeHint')}
                 className="text-[11px] px-2 py-0.5 rounded-md bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 hover:underline">
                 {t('providers.link.route')} · {r.scene_name || r.model_key || r.id}
@@ -5474,6 +5480,12 @@ export default function Providers() {
         </>
         )}
         </div>
+      </section>
+
+      {/* 自定义路由（原网关页「场景路由」）：按规则或模型链组合出的路由 */}
+      <section id="custom-routes" className="space-y-3 pt-4 scroll-mt-3">
+        <SourceSectionHeader dot="bg-sky-500" title={t('providers.customRoutes.title')} />
+        <CustomRoutesPanel />
       </section>
 
       {/* 社区源：未登录可浏览，启用/配置 Key 需登录 */}
