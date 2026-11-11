@@ -207,6 +207,15 @@ function registerAgentHandlers() {
     }
   });
 
+  ipcMain.handle('agent:listBlocked', async () => {
+    try {
+      if (!agentExecutor._launchableCliIds) await agentExecutor.listAvailableAgents({});
+      return { success: true, agents: agentExecutor.listBlockedAssistants() };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('agent:taskStats', async () => {
     try {
       return { success: true, stats: agentExecutor.todayTaskStats() };

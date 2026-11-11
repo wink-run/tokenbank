@@ -59,3 +59,38 @@ test('a source with a bad key is remembered for the app list until it succeeds a
   assert.equal(gw.providerIssues().deepseek, undefined);
   assert.ok(gw.providerIssues().silicon);
 });
+
+test("agents projected onto an app that can't run are listed with the reason", () => {
+  const rm = require('../resource-manager');
+  rm.init();
+  const orig = rm.listResources.bind(rm);
+  rm.listResources = ({ type } = {}) => {
+    if (type === 'skill') return [{ id: 'res-skill-weekly', name: 'weekly-digest' }];
+    if (type === 'assistant') return [
+      { id: 'a-ok', name: 'ok', projections: [{ agentId: 'codex' }], content: JSON.stringify({ skills: ['weekly-digest'], runtime_agent: 'codex' }) },
+      { id: 'a-lost', name: 'db-check', projections: [{ agentId: 'codex' }], content: JSON.stringify({ skills: ['weekly-digest', 'sql-check'], runtime_agent: 'codex' }) },
+      { id: 'a-noapp', name: 'reviewer', projections: [{ agentId: 'claude-code' }], content: JSON.stringify({ runtime_agent: 'claude-code' }) },
+      { id: 'a-none', name: 'not-projected', projections: [], content: '{}' },
+    ];
+    return [];
+  };
+  try {
+    executor._launchableCliIds = new Set(['codex']);
+    const out = executor.listBlockedAssistants();
+    const byId = Object.fromEntries(out.map(x => [x.resourceId, x]));
+    assert.equal(byId['a-ok'], undefined);
+    assert.equal(byId['a-none'], undefined);
+    assert.equal(byId['a-lost'].reason, 'skills');
+    assert.deepEqual(byId['a-lost'].missing, ['sql-check']);
+    assert.equal(byId['a-lost'].runtimeAgentId, 'codex');
+    // 投射的应用没装，但还有别的能跑的命令行：会换到那个上面跑，不算跑不起来
+    assert.equal(byId['a-noapp'], undefined);
+    executor._launchableCliIds = new Set();
+    const none = Object.fromEntries(executor.listBlockedAssistants().map(x => [x.resourceId, x]));
+    assert.equal(none['a-noapp'].reason, 'runtime');
+    assert.equal(none['a-noapp'].runtimeAgentId, 'claude-code');
+    assert.equal(none['a-lost'].reason, 'runtime');
+  } finally {
+    rm.listResources = orig;
+  }
+});

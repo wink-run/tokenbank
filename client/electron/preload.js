@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listActiveTasks: () => ipcRenderer.invoke('agent:listActiveTasks'),
     listRecentTasks: (opts) => ipcRenderer.invoke('agent:listRecentTasks', opts),
     taskStats: () => ipcRenderer.invoke('agent:taskStats'),
+    listBlocked: () => ipcRenderer.invoke('agent:listBlocked'),
     pickWorkingDir: (opts) => ipcRenderer.invoke('agent:pickWorkingDir', opts),
     pickFiles: (opts) => ipcRenderer.invoke('agent:pickFiles', opts),
     // 兼容旧调用

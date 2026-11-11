@@ -3024,6 +3024,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
   const navigate = useNavigate();
   const { fmtCost } = useCurrency();
   const [rowAgents, setRowAgents] = useState([]);     // 投射在各应用上的智能体（游乐场同一份列表）
+  const [blockedAgents, setBlockedAgents] = useState([]); // 投射了但跑不起来的（应用不可用 / 技能不在了）
   const [agentTaskStats, setAgentTaskStats] = useState({});   // 智能体 id → 今天的任务数 / 成功数
   const [providerIssues, setProviderIssues] = useState({});   // 来源 id → 要用户处理的问题（Key 失效、额度用完）
   const [rentIds, setRentIds] = useState(() => new Set());    // 出租中的智能体资产 id
@@ -3106,6 +3107,10 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
     try {
       const r = await api?.agent?.taskStats?.();
       if (r?.success) setAgentTaskStats(r.stats?.by_agent || {});
+    } catch { /* ignore */ }
+    try {
+      const r = await api?.agent?.listBlocked?.();
+      if (r?.success) setBlockedAgents(r.agents || []);
     } catch { /* ignore */ }
     try {
       const r = await api?.guardian?.providerIssues?.();
@@ -3637,8 +3642,14 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
   // 投射的智能体按它跑在哪个应用上分组（应用 agent_id = 智能体运行时）
   const agentsByRuntime = (() => {
     const m = {};
+    const blockedById = new Map(blockedAgents.map(b => [b.id, b]));
     for (const a of rowAgents) {
-      (m[a.runtimeAgentId] = m[a.runtimeAgentId] || []).push({ ...a, builtin: a.id === 'assistant:tb-guardian' });
+      const b = blockedById.get(a.id);
+      (m[a.runtimeAgentId] = m[a.runtimeAgentId] || []).push({ ...a, builtin: a.id === 'assistant:tb-guardian', blocked: b || null });
+      blockedById.delete(a.id);
+    }
+    for (const b of blockedById.values()) {
+      (m[b.runtimeAgentId] = m[b.runtimeAgentId] || []).push({ id: b.id, name: b.name, resourceId: b.resourceId, runtimeAgentId: b.runtimeAgentId, blocked: b });
     }
     return m;
   })();

@@ -729,6 +729,7 @@ class AgentExecutor extends EventEmitter {
         launchableCliIds.add(a.id);
       }
     }
+    this._launchableCliIds = launchableCliIds;
     let guardianEntry = null;
     try { guardianEntry = require('./guardian/chat').listEntry(launchableCliIds, AGENT_CLI); } catch { /* 智能管家不可用 */ }
     const agents = [
@@ -795,6 +796,35 @@ class AgentExecutor extends EventEmitter {
     AGENT_LIST_CACHE.agents = next;
     AGENT_LIST_CACHE.at = Date.now();
     if (changed) this.emit('list:updated', next);
+  }
+
+  /**
+   * 投射到了应用、但现在跑不起来的智能体：运行它的应用不可用，或它要用的技能已经不在资产里。
+   * 网关页挂在应用下显示「跑不起来」；游乐场列表不受影响。
+   * @returns {{ id, resourceId, name, runtimeAgentId, reason: 'runtime'|'skills', missing: string[] }[]}
+   */
+  listBlockedAssistants() {
+    const resourceManager = require('./resource-manager');
+    resourceManager.init();
+    const launchable = this._launchableCliIds || new Set();
+    const skills = resourceManager.listResources({ type: 'skill' });
+    const known = new Set();
+    for (const r of skills) { known.add(r.id); known.add(String(r.name)); if (r.display_name) known.add(String(r.display_name)); }
+    const out = [];
+    for (const resource of resourceManager.listResources({ type: 'assistant' })) {
+      const targets = [...new Set((resource.projections || []).map(p => p?.agentId || p?.agent_id).filter(id => AGENT_CLI[id]))];
+      if (!targets.length) continue;
+      const config = parseAssistantConfig(resource.content);
+      const base = { id: `${ASSISTANT_ID_PREFIX}${resource.id}`, resourceId: resource.id, name: resource.display_name || resource.name };
+      const runtime = resolveAssistantRuntimeAgent(config, resource.projections || [], launchable);
+      if (!runtime || !launchable.has(runtime)) {
+        out.push({ ...base, runtimeAgentId: targets[0], reason: 'runtime', missing: targets.map(id => AGENT_CLI[id]?.name || id) });
+        continue;
+      }
+      const lost = (config.skills || []).filter(s => !known.has(String(s)));
+      if (lost.length) out.push({ ...base, runtimeAgentId: runtime, reason: 'skills', missing: lost });
+    }
+    return out;
   }
 
   /** 已纳管 Assistant → Debug 自定义 Agent */

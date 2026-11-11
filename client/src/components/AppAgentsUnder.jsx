@@ -26,8 +26,10 @@ export default function AppAgentsUnder({ appKey, agents, stats = {}, rentIds = n
   if (!agents?.length) return null;
 
   const statOf = (a) => stats[a.id] || { tasks: 0, ok: 0 };
+  const blockedN = agents.filter(a => a.blocked).length;
   const renting = (a) => !!a.resourceId && rentIds.has(a.resourceId);
-  const sorted = [...agents].sort((a, b) => statOf(b).tasks - statOf(a).tasks || String(a.name).localeCompare(String(b.name)));
+  // 跑不起来的在前，其次按今天的任务数
+  const sorted = [...agents].sort((a, b) => (!!b.blocked - !!a.blocked) || statOf(b).tasks - statOf(a).tasks || String(a.name).localeCompare(String(b.name)));
   const rentN = sorted.filter(renting).length;
   const taskN = sorted.reduce((s, a) => s + statOf(a).tasks, 0);
   const shown = all ? sorted : sorted.slice(0, SHOW_FIRST);
@@ -48,6 +50,11 @@ export default function AppAgentsUnder({ appKey, agents, stats = {}, rentIds = n
           {!open && rentN > 0 ? t('gateway.apps.agents.summaryRent', { n: rentN }) : ''}
           {!open && taskN > 0 ? t('gateway.apps.agents.summaryTasks', { n: taskN }) : ''}
         </span>
+        {!open && blockedN > 0 && (
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+            {t('gateway.apps.agents.blockedCount', { n: blockedN })}
+          </span>
+        )}
         <button type="button" onClick={toggle} aria-expanded={open}
           className="ml-auto px-2 py-1 rounded-md text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20">
           {open ? t('gateway.apps.agents.collapse') : t('gateway.apps.agents.expand')}
@@ -57,6 +64,25 @@ export default function AppAgentsUnder({ appKey, agents, stats = {}, rentIds = n
         <ul className="list-none m-0 p-0">
           {shown.map(a => {
             const st = statOf(a);
+            if (a.blocked) {
+              const why = a.blocked.reason === 'runtime'
+                ? t('gateway.apps.agents.blockedRuntime', { apps: a.blocked.missing.join('、') })
+                : t('gateway.apps.agents.blockedSkills', { skills: a.blocked.missing.join('、') });
+              return (
+                <li key={a.id} className="flex flex-wrap items-center gap-x-4 gap-y-0.5 py-1.5 border-t border-zinc-100 dark:border-zinc-800 text-[11px]">
+                  <span className="flex-[2_1_10rem] min-w-0 truncate font-medium text-zinc-800 dark:text-zinc-100" title={a.name}>{a.name}</span>
+                  <span className="flex-[6_1_18rem] min-w-0 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300">{t('gateway.apps.agents.blocked')}</span>
+                    <span className="text-zinc-600 dark:text-zinc-300">{why}</span>
+                  </span>
+                  <button type="button"
+                    onClick={() => navigate('/resources', { state: { resourceType: a.blocked.reason === 'skills' ? 'skill' : 'assistant', selectKey: a.blocked.reason === 'skills' ? undefined : `r-${a.resourceId}` } })}
+                    className="shrink-0 px-1.5 py-1 rounded-md font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20">
+                    {t('gateway.apps.agents.fix')}
+                  </button>
+                </li>
+              );
+            }
             return (
               <li key={a.id} className="flex flex-wrap items-center gap-x-4 gap-y-0.5 py-1.5 border-t border-zinc-100 dark:border-zinc-800 text-[11px]">
                 <span className="flex-[2_1_10rem] min-w-0 truncate font-medium text-zinc-800 dark:text-zinc-100" title={a.name}>{a.name}</span>

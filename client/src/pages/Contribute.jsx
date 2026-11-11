@@ -132,7 +132,7 @@ function collectContributeAvailableModels(saved, accounts, localCfg) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function ContributionConfigCard({ onStart, onStop, running, agentError, onAgentsRefresh, circles: circlesProp = null, onManageCircles }) {
+function ContributionConfigCard({ onStart, onStop, running, agentError, onAgentsRefresh, circles: circlesProp = null, onManageCircles, liveStats = null }) {
   const { t } = useLang();
   const location = useLocation();
   const pageActive = location.pathname === '/contribute';
@@ -458,6 +458,11 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
                   : t('contribute.heroCircles', { n: selectedCircleIds.size }),
               })}
             </p>
+            {running && liveStats && (
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 tabular-nums">
+                {t('contribute.money.live', { rate: liveStats.contribute_req_per_min ?? 0, active: liveStats.active_requests ?? 0, nodes: liveStats.active_workers ?? 0 })}
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {savedMsg && <span className="text-xs text-green-600 dark:text-green-400">{savedMsg}</span>}
@@ -899,41 +904,54 @@ function EarningsView({ settlements, summary, stats, logs, logRef }) {
   const max = Math.max(1, ...chron.map(r => Number(r.credits_awarded) || 0));
   const lastWhen = last ? settlementWhen(last.period_end, t) : null;
 
-  // 累计收益（原交易页头部数据带）作为收益页的首行
-  const tiles = [
+  // 赚的：上架被用了换来的积分和供给量；花的：自己用社区算力用了多少、比刊例价省了多少
+  const groups = [
     {
-      k: 'credits', label: t('contribute.earnedCredits'), tone: 'text-green-600 dark:text-green-400',
-      value: summary ? `+${(summary.contrib_credits ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}` : '—',
-      sub: summary ? t('contribute.approxCny', { amount: fmtCreditCny(summary.contrib_cny) }) : '',
+      key: 'earn', title: t('contribute.money.earn'), tiles: [
+        {
+          k: 'credits', label: t('contribute.earnedCredits'), tone: 'text-green-600 dark:text-green-400',
+          value: summary ? `+${(summary.contrib_credits ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}` : '—',
+          sub: summary ? t('contribute.approxCny', { amount: fmtCreditCny(summary.contrib_cny) }) : '',
+        },
+        {
+          k: 'tokens', label: t('contribute.totalTokens'),
+          value: summary ? fmtContribTokens(summary.contrib_tokens) : '—',
+          sub: summary?.period_tokens > 0 ? t('contribute.periodTokens', { n: fmtContribTokens(summary.period_tokens) }) : t('contribute.totalTokensHint'),
+        },
+      ],
     },
     {
-      k: 'tokens', label: t('contribute.totalTokens'),
-      value: summary ? fmtContribTokens(summary.contrib_tokens) : '—',
-      sub: summary?.period_tokens > 0 ? t('contribute.periodTokens', { n: fmtContribTokens(summary.period_tokens) }) : t('contribute.totalTokensHint'),
-    },
-    {
-      k: 'saved', label: t('contribute.savedMoney'), tone: 'text-emerald-600 dark:text-emerald-400',
-      value: summary ? fmtCreditCny(summary.saved_cny) : '—',
-      sub: summary?.p2p_tokens > 0 ? t('contribute.p2pTokensUsed', { n: fmtContribTokens(summary.p2p_tokens) }) : t('contribute.savedHint'),
-    },
-    {
-      k: 'rate', label: t('contribute.rate'), unit: 'req/min',
-      value: stats ? `${stats.contribute_req_per_min ?? 0}` : '—',
-      sub: stats ? t('contribute.liveSub', { active: stats.active_requests ?? 0, nodes: stats.active_workers ?? 0 }) : '',
+      key: 'spend', title: t('contribute.money.spend'), tiles: [
+        {
+          k: 'used', label: t('contribute.money.used'),
+          value: summary ? fmtContribTokens(summary.p2p_tokens ?? 0) : '—',
+          sub: t('contribute.money.usedHint'),
+        },
+        {
+          k: 'saved', label: t('contribute.savedMoney'), tone: 'text-emerald-600 dark:text-emerald-400',
+          value: summary ? fmtCreditCny(summary.saved_cny) : '—',
+          sub: t('contribute.savedHint'),
+        },
+      ],
     },
   ];
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-        {tiles.map(m => (
-          <div key={m.k} className={`${LIB_LIST_CLS} px-4 py-3`}>
-            <div className="text-[11px] text-zinc-500 dark:text-zinc-400">{m.label}</div>
-            <div className={`mt-1 text-lg font-semibold tabular-nums tracking-tight ${m.tone || 'text-zinc-900 dark:text-zinc-50'}`}>
-              {m.value}{m.unit && <span className="ml-1 text-[11px] font-normal text-zinc-400">{m.unit}</span>}
+      <div className="grid gap-4 md:grid-cols-2">
+        {groups.map(g => (
+          <section key={g.key} className="space-y-2">
+            <h3 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100">{g.title}</h3>
+            <div className="grid grid-cols-2 gap-2.5">
+              {g.tiles.map(m => (
+                <div key={m.k} className={`${LIB_LIST_CLS} px-4 py-3`}>
+                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">{m.label}</div>
+                  <div className={`mt-1 text-lg font-semibold tabular-nums tracking-tight ${m.tone || 'text-zinc-900 dark:text-zinc-50'}`}>{m.value}</div>
+                  <div className="text-[11px] truncate mt-0.5 text-zinc-400">{m.sub || '\u00a0'}</div>
+                </div>
+              ))}
             </div>
-            <div className="text-[11px] truncate mt-0.5 text-zinc-400">{m.sub || ' '}</div>
-          </div>
+          </section>
         ))}
       </div>
 
@@ -2116,6 +2134,7 @@ export default function Contribute() {
             onAgentsRefresh={bumpAgentsRefresh}
             circles={myCircles}
             onManageCircles={() => setCirclesOpen(true)}
+            liveStats={stats}
           />
         </div>
 

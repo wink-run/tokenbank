@@ -127,6 +127,7 @@ const agent = {
   listActiveTasks: call0('agent:listActiveTasks'),
   listRecentTasks: (opts) => invoke('agent:listRecentTasks', opts),
   taskStats: call0('agent:taskStats'),
+  listBlocked: call0('agent:listBlocked'),
   pickWorkingDir: (opts) => invoke('agent:pickWorkingDir', opts),
   pickFiles: (opts) => invoke('agent:pickFiles', opts),
   installCursorCli: call0('agent:installCursorCli'),
