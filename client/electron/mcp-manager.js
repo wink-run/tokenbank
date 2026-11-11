@@ -818,7 +818,7 @@ class MCPManager {
     nextMeta.tool_kind = toolKind;
     if (toolKind === 'api') {
       const method = String(data.method || data.metadata?.method || prevMeta.method || 'POST').toUpperCase();
-      if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].includes(method)) {
         throw new Error('不支持的 HTTP 方法');
       }
       nextMeta.method = method;
@@ -868,8 +868,15 @@ class MCPManager {
     let sync = null;
     const plainTool = toolKind === 'api' || toolKind === 'cli';
     if (plainTool) {
-      // 刷新或保存都不把普通 API / CLI 投成 MCP
-      sync = { success: true, skipped: true, reason: 'not_mcp' };
+      // 与 MCP 同一套投射名单（gateway_clients）。不写应用 MCP 配置，也不进 MCP 协议中转。
+      if (!existing && !Array.isArray(prevMeta.gateway_clients)) {
+        const clientIds = this._listManagedRelayClientIds();
+        sync = clientIds.length
+          ? this.setServerGatewayRouted(id, true, clientIds)
+          : { success: true, skipped: true, reason: 'no_apps' };
+      } else {
+        sync = { success: true, skipped: true, reason: 'not_mcp' };
+      }
     } else if (!data.skipAutoSync) {
       if (data.syncInstalled) {
         // 仅推送到已分配 / 已安装的 Agent
@@ -1019,10 +1026,7 @@ class MCPManager {
     const db = this._getDb();
     const row = db.prepare('SELECT id, type, command, url, metadata FROM mcp_servers WHERE id = ?').get(serverId);
     if (!row) throw new Error('Server not found');
-    const rowMeta = this._parseJson(row.metadata, {});
-    if (rowMeta.tool_kind === 'api' || rowMeta.tool_kind === 'cli') {
-      throw new Error('API 与本地 CLI 不是 MCP，不能投射到应用');
-    }
+    // API / CLI 与 MCP 共用这份应用名单，但只决定资源可见性，不进入 MCP 协议中转。
 
     // 中转：stdio 需 command；远程 HTTP/SSE 需 url。通用档仍仅内置 MCP。
     const isUrl = !!(String(row.url || '').trim()) || row.type === 'sse' || row.type === 'http';
@@ -1433,6 +1437,52 @@ class MCPManager {
   }
 
   /**
+   * 已投射到该应用的 HTTP API / 本地 CLI。名单与 MCP 相同（gateway_clients），
+   * 但不进入 MCP 协议中转。
+   */
+  listConfiguredPlainTools(clientId) {
+    this.init();
+    const db = this._getDb();
+    return db.prepare(`
+      SELECT id, name, display_name, type, command, args, url, env, builtin, status, metadata
+      FROM mcp_servers WHERE status = 'active'
+    `).all().map((row) => this._formatServerRow(row)).flatMap((s) => {
+      const kind = s?.metadata?.tool_kind;
+      if (kind !== 'api' && kind !== 'cli') return [];
+      if (!this._clientMatchesRelay(s.gateway_clients, clientId)) return [];
+      return [this._summarizePlainTool(s, kind)];
+    });
+  }
+
+  _summarizePlainTool(s, kind) {
+    const name = s.name || s.id;
+    const base = {
+      id: s.id,
+      type: kind,
+      name,
+      display_name: s.display_name || name,
+      description: s.metadata?.description || '',
+    };
+    if (kind === 'api') {
+      return {
+        ...base,
+        method: s.metadata?.method || 'POST',
+        url: s.url || '',
+        headers: s.metadata?.headers && typeof s.metadata.headers === 'object' ? s.metadata.headers : {},
+        body: s.metadata?.body || '',
+        timeout_ms: s.metadata?.timeout_ms || null,
+      };
+    }
+    return {
+      ...base,
+      command: s.command || '',
+      args: Array.isArray(s.args) ? s.args : [],
+      cwd: s.metadata?.cwd || '',
+      env: s.env && typeof s.env === 'object' ? s.env : {},
+    };
+  }
+
+  /**
    * 当前应用已中转的第三方 MCP（不含内置 prompts/models/resources/Bridge）。
    * 供 tb_capabilities / tb_list_resources(type=mcp)：Agent 工具列表里看不到这些服务时据此发现。
    */
@@ -1446,6 +1496,8 @@ class MCPManager {
     const out = [];
     for (const s of rows) {
       if (!s || s.id === BUILTIN_BRIDGE_ID || isTokenbankBuiltinRelayId(s.id)) continue;
+      // API / CLI 走资源列表，不伪装成可 tb_call_mcp 的中转 MCP
+      if (s.metadata?.tool_kind === 'api' || s.metadata?.tool_kind === 'cli') continue;
       if (!this._clientMatchesRelay(s.gateway_clients, clientId)) continue;
       out.push(this._summarizeRelayedServer(s));
     }

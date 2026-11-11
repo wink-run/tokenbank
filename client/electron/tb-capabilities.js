@@ -74,7 +74,7 @@ function formatCapabilitiesOverview() {
   lines.push('1. tb_capabilities → 了解全貌');
   lines.push('2. 任务需模型 → tb_list_models / tb_resolve_model（勿假设 skill 里的模型名一定存在）');
   lines.push('3. 点将（日常直连会话）→ tb_list_resources(type=agent) → tb_get_resource(type=agent) 取全文 → 当前会话按正文执行');
-  lines.push('4. 兵器：skill → tb_list_resources/tb_get_resource；提示词 → tb_get_prompt / tb_list_prompts；MCP → tb_list_resources(type=mcp) / tb_get_resource(type=mcp) / tb_call_mcp');
+  lines.push('4. 兵器：skill → tb_list_resources/tb_get_resource；提示词 → tb_get_prompt / tb_list_prompts；MCP → tb_list_resources(type=mcp) / tb_get_resource(type=mcp) / tb_call_mcp；HTTP API / 本地 CLI → tb_list_resources(type=api|cli) / tb_get_resource');
   lines.push('5. 社区未安装项 → tb_list_catalog（安装/启用请用户在 Token Bank UI 操作）');
   lines.push('6. 仅编排/游乐场才派发 → tb_list_agents / tb_dispatch_agent');
   lines.push('7. 直连网关 API → tb_list_gateway 查路径，base = ' + base);
@@ -118,12 +118,40 @@ function formatRelayedMcpSection(servers) {
   return lines.join('\n');
 }
 
+/** 用户在「资产 → 工具」登记的 HTTP API / 本地 CLI（不是 MCP） */
+function formatConfiguredToolsSection(tools) {
+  const lines = [
+    '## 已配置的 HTTP API 与本地 CLI',
+    '',
+    '这些工具写在 Token Bank「资产 → 工具」里，投射方式与 MCP 相同。',
+    '下面只列出已投射到当前应用的。调用：tb_call_mcp(server=名称, tool="call", arguments={字段:实际值})。传入的字段会覆盖请求体模板。',
+    '',
+  ];
+  const list = Array.isArray(tools) ? tools : [];
+  if (!list.length) {
+    lines.push('当前没有已启用的 HTTP API 或本地 CLI。');
+    return lines.join('\n');
+  }
+  for (const s of list) {
+    const title = s.display_name && s.display_name !== s.name
+      ? `${s.display_name}（${s.name}）`
+      : (s.display_name || s.name || s.id);
+    lines.push(`### ${title} [${s.type}]`);
+    if (s.description) lines.push(`- 说明: ${s.description}`);
+    if (s.type === 'api') lines.push(`- 请求: ${s.method || 'POST'} ${s.url || ''}`);
+    else lines.push(`- 命令: ${[s.command, ...(s.args || [])].filter(Boolean).join(' ')}`);
+    lines.push(`- 详情: tb_get_resource(type="${s.type}", name="${s.name || s.id}")`);
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
 /** 编排层系统提示中的精简能力指引 */
 function formatOrchestratorCapabilityHint() {
   return [
     '- 不确定本软件能力时先 tb_capabilities；模型用 tb_list_models / tb_resolve_model；',
     '  点将：tb_list_resources(type=agent)→tb_get_resource；提示词用 tb_list_prompts / tb_get_prompt；',
-    '  MCP 是资源：tb_list_resources(type=mcp) / tb_call_mcp；编排派发才用 tb_dispatch_agent。',
+    '  MCP 是资源：tb_list_resources(type=mcp) / tb_call_mcp；HTTP API 与本地 CLI 用 tb_list_resources(type=api|cli)；编排派发才用 tb_dispatch_agent。',
   ].join('\n');
 }
 
@@ -133,5 +161,6 @@ module.exports = {
   gatewayBaseUrl,
   formatCapabilitiesOverview,
   formatRelayedMcpSection,
+  formatConfiguredToolsSection,
   formatOrchestratorCapabilityHint,
 };

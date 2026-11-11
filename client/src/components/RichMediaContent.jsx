@@ -55,6 +55,7 @@ export function StreamMarkdownContent({
   className = '',
   theme = 'default',
   preferPlainWhileLive = false,
+  density = 'default',
 }) {
   const stable = useStableStreamText(content, { live });
   const display = live ? softenStreamingMarkdown(stable) : String(stable || '');
@@ -63,14 +64,17 @@ export function StreamMarkdownContent({
   if (!display) return null;
 
   if (usePlain) {
+    const plainCls = density === 'reading'
+      ? 'whitespace-pre-wrap break-words text-[14px] leading-normal font-sans m-0'
+      : 'whitespace-pre-wrap break-words text-xs leading-relaxed font-sans m-0';
     return (
-      <pre className={`whitespace-pre-wrap break-words text-xs leading-relaxed font-sans m-0 ${className}`}>
+      <pre className={`${plainCls} ${className}`}>
         {display}
       </pre>
     );
   }
 
-  return <MarkdownContent content={display} className={className} theme={theme} />;
+  return <MarkdownContent content={display} className={className} theme={theme} density={density} />;
 }
 
 /** 可点击本地路径（用 code/span，避免嵌套 button；中性字色，少网页蓝链感） */
@@ -140,7 +144,7 @@ function renderTextWithPaths(text, keyPrefix, pathClassName) {
 }
 
 /** 行内 Markdown */
-function renderInline(text, codeClassName = 'bg-gray-100 dark:bg-gray-800') {
+function renderInline(text, codeClassName = 'bg-gray-100 dark:bg-gray-800', codeSize = 'text-[0.9em]') {
   if (!text) return null;
   // `_` 强调要求两侧不是词字符/路径符，避免 `a_b_c.png` 这类文件名被拆成斜体
   const re = /(\*\*[^*]+\*\*|(?<![\w/.\u4e00-\u9fff])__[^_]+__(?![\w\u4e00-\u9fff])|\*[^*\s][^*]*\*|(?<![\w/.\u4e00-\u9fff])_[^_\s][^_]*_(?![\w\u4e00-\u9fff])|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
@@ -175,8 +179,8 @@ function renderInline(text, codeClassName = 'bg-gray-100 dark:bg-gray-800') {
 
   return parts.map((p, i) => {
     // 粗体 / 斜体内部继续解析（如 **文件：`/path/a.png`** 里的路径仍可点）
-    if (p.type === 'bold') return <strong key={i} className="font-semibold">{renderInline(p.value, codeClassName)}</strong>;
-    if (p.type === 'italic') return <em key={i}>{renderInline(p.value, codeClassName)}</em>;
+    if (p.type === 'bold') return <strong key={i} className="font-semibold">{renderInline(p.value, codeClassName, codeSize)}</strong>;
+    if (p.type === 'italic') return <em key={i}>{renderInline(p.value, codeClassName, codeSize)}</em>;
     if (p.type === 'code') {
       const trimmed = p.value.trim();
       // 整段已是合法路径时直接可点；折行后的路径先拼回再识别
@@ -194,7 +198,7 @@ function renderInline(text, codeClassName = 'bg-gray-100 dark:bg-gray-800') {
         );
       }
       return (
-        <code key={i} className={`px-1 py-0.5 rounded text-[0.9em] font-mono ${codeClassName}`}>
+        <code key={i} className={`px-1 py-0.5 rounded ${codeSize} font-mono ${codeClassName}`}>
           {p.value}
         </code>
       );
@@ -345,15 +349,24 @@ function parseMarkdownBlocks(text) {
   return blocks;
 }
 
-function renderTextBlock(text, keyPrefix, theme = 'default') {
+function renderTextBlock(text, keyPrefix, theme = 'default', density = 'default') {
   const blocks = parseMarkdownBlocks(text);
   const isInv = theme === 'inverted';
-  const headingCls = {
-    1: `text-lg font-bold mt-1 ${isInv ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`,
-    2: `text-base font-bold mt-1 ${isInv ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`,
-    3: `text-sm font-semibold mt-1 ${isInv ? 'text-white' : 'text-gray-800 dark:text-gray-200'}`,
-    4: `text-sm font-medium mt-0.5 ${isInv ? 'text-white/90' : 'text-gray-700 dark:text-gray-300'}`,
-  };
+  // reading：比智能管家正文小一号，14px / 行高 1.5；代码和表格再小一档
+  const reading = density === 'reading';
+  const headingCls = reading
+    ? {
+      1: `text-[14px] font-semibold mt-1 ${isInv ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`,
+      2: `text-[14px] font-semibold mt-1 ${isInv ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`,
+      3: `text-[14px] font-semibold mt-1 ${isInv ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`,
+      4: `text-[14px] font-medium mt-0.5 ${isInv ? 'text-white/90' : 'text-zinc-800 dark:text-zinc-200'}`,
+    }
+    : {
+      1: `text-lg font-bold mt-1 ${isInv ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`,
+      2: `text-base font-bold mt-1 ${isInv ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`,
+      3: `text-sm font-semibold mt-1 ${isInv ? 'text-white' : 'text-gray-800 dark:text-gray-200'}`,
+      4: `text-sm font-medium mt-0.5 ${isInv ? 'text-white/90' : 'text-gray-700 dark:text-gray-300'}`,
+    };
   const bodyCls = isInv ? 'text-white/95' : 'text-gray-800 dark:text-gray-200';
   const quoteCls = isInv
     ? 'border-white/40 text-white/80'
@@ -362,12 +375,17 @@ function renderTextBlock(text, keyPrefix, theme = 'default') {
   const codeInlineCls = isInv
     ? 'bg-white/15 text-white'
     : 'bg-gray-100 dark:bg-gray-800';
+  const codeSize = reading ? 'text-[12px]' : 'text-[0.9em]';
+  const bodySize = reading ? 'text-[14px] leading-normal' : 'text-sm';
+  const codeBlockSize = reading ? 'text-[11px] leading-relaxed' : 'text-xs';
+  const tableSize = reading ? 'text-[12px] leading-relaxed' : 'text-xs';
+  const inline = (value) => renderInline(value, codeInlineCls, codeSize);
 
   return blocks.map((b, i) => {
     const key = `${keyPrefix}-${i}`;
     if (b.type === 'heading') {
       const cls = headingCls[b.level] || headingCls[3];
-      return <div key={key} className={cls}>{renderInline(b.text, codeInlineCls)}</div>;
+      return <div key={key} className={cls}>{inline(b.text)}</div>;
     }
     if (b.type === 'code') {
       const trimmedCode = String(b.text || '').trim();
@@ -382,7 +400,7 @@ function renderTextBlock(text, keyPrefix, theme = 'default') {
             role="link"
             tabIndex={0}
             title="点击打开本地路径"
-            className="text-xs font-mono overflow-x-auto rounded-lg bg-zinc-900 dark:bg-zinc-950 text-zinc-200 px-3 py-2 my-1 max-h-80 overflow-y-auto whitespace-pre-wrap break-words cursor-pointer hover:bg-zinc-800"
+            className={`${codeBlockSize} font-mono overflow-x-auto rounded-lg bg-zinc-900 dark:bg-zinc-950 text-zinc-200 px-3 py-2 my-1 max-h-80 overflow-y-auto whitespace-pre-wrap break-words cursor-pointer hover:bg-zinc-800`}
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); openLocalPath(codePath); }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
@@ -397,7 +415,7 @@ function renderTextBlock(text, keyPrefix, theme = 'default') {
       }
       return (
         <pre key={key}
-          className="text-xs font-mono overflow-x-auto rounded-lg bg-zinc-900 dark:bg-zinc-950 text-zinc-100 px-3 py-2 my-1 max-h-80 overflow-y-auto whitespace-pre-wrap break-words">
+          className={`${codeBlockSize} font-mono overflow-x-auto rounded-lg bg-zinc-900 dark:bg-zinc-950 text-zinc-100 px-3 py-2 my-1 max-h-80 overflow-y-auto whitespace-pre-wrap break-words`}>
           {b.text}
         </pre>
       );
@@ -408,22 +426,22 @@ function renderTextBlock(text, keyPrefix, theme = 'default') {
     if (b.type === 'quote') {
       return (
         <blockquote key={key}
-          className={`border-l-2 pl-3 text-sm italic ${quoteCls}`}>
-          {renderInline(b.text, codeInlineCls)}
+          className={`border-l-2 pl-3 ${bodySize} italic ${quoteCls}`}>
+          {inline(b.text)}
         </blockquote>
       );
     }
     if (b.type === 'ul') {
       return (
-        <ul key={key} className={`list-disc list-outside pl-5 text-sm space-y-0.5 ${bodyCls}`}>
-          {b.items.map((item, j) => <li key={j} className="pl-0.5">{renderInline(item, codeInlineCls)}</li>)}
+        <ul key={key} className={`list-disc list-outside pl-5 ${bodySize} space-y-0.5 ${bodyCls}`}>
+          {b.items.map((item, j) => <li key={j} className="pl-0.5">{inline(item)}</li>)}
         </ul>
       );
     }
     if (b.type === 'ol') {
       return (
-        <ol key={key} className={`list-decimal list-outside pl-5 text-sm space-y-0.5 ${bodyCls}`}>
-          {b.items.map((item, j) => <li key={j} className="pl-0.5">{renderInline(item, codeInlineCls)}</li>)}
+        <ol key={key} className={`list-decimal list-outside pl-5 ${bodySize} space-y-0.5 ${bodyCls}`}>
+          {b.items.map((item, j) => <li key={j} className="pl-0.5">{inline(item)}</li>)}
         </ol>
       );
     }
@@ -437,13 +455,13 @@ function renderTextBlock(text, keyPrefix, theme = 'default') {
         : `${cellCls} text-left font-semibold bg-zinc-50 dark:bg-zinc-800/60`;
       return (
         <div key={key} className="overflow-x-auto my-1">
-          <table className={`text-xs border-collapse w-full min-w-[12rem] ${bodyCls}`}>
+          <table className={`${tableSize} border-collapse w-full min-w-[12rem] ${bodyCls}`}>
             {header && (
               <thead>
                 <tr>
                   {header.map((c, j) => (
                     <th key={j} className={`border ${thCls}`}>
-                      {renderInline(c, codeInlineCls)}
+                      {inline(c)}
                     </th>
                   ))}
                 </tr>
@@ -455,7 +473,7 @@ function renderTextBlock(text, keyPrefix, theme = 'default') {
                   <tr key={ri}>
                     {row.map((c, j) => (
                       <td key={j} className={`border ${cellCls} align-top`}>
-                        {renderInline(c, codeInlineCls)}
+                        {inline(c)}
                       </td>
                     ))}
                   </tr>
@@ -467,19 +485,20 @@ function renderTextBlock(text, keyPrefix, theme = 'default') {
       );
     }
     return (
-      <p key={key} className={`whitespace-pre-wrap text-sm ${bodyCls}`}>
-        {renderInline(b.text, codeInlineCls)}
+      <p key={key} className={`whitespace-pre-wrap ${bodySize} ${bodyCls}`}>
+        {inline(b.text)}
       </p>
     );
   });
 }
 
 /** 轻量 Markdown 渲染（标题/列表/表格/引用/代码块/行内样式） */
-export function MarkdownContent({ content, className = '', theme = 'default' }) {
+export function MarkdownContent({ content, className = '', theme = 'default', density = 'default' }) {
   if (!content) return null;
+  const reading = density === 'reading';
   return (
-    <div className={`space-y-1.5 leading-relaxed break-words ${className}`}>
-      {renderTextBlock(content, 'md', theme)}
+    <div className={`${reading ? 'space-y-1.5 leading-normal' : 'space-y-1.5 leading-relaxed'} break-words ${className}`}>
+      {renderTextBlock(content, 'md', theme, density)}
     </div>
   );
 }

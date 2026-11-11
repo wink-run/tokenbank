@@ -368,9 +368,13 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
     saveMcpAgentTab('');
   }, [agentTab, gatewayApps, gatewayApiApps]);
 
-  /** 可加入网关代理：已启用的 MCP（普通 API / 本地 CLI 不投射） */
+  /** 可投射到应用：MCP、HTTP API、本地 CLI 共用这份名单 */
   function canRouteViaGateway(s) {
-    if (!s || s.status !== 'active' || toolKindOf(s) !== 'mcp') return false;
+    if (!s || s.status !== 'active') return false;
+    const kind = toolKindOf(s);
+    if (kind === 'api') return !!String(s.url || '').trim();
+    if (kind === 'cli') return !!String(s.command || '').trim();
+    if (kind !== 'mcp') return false;
     if (isMcpUrlServer(s)) return true;
     return !!s.command;
   }
@@ -953,14 +957,198 @@ function formForKind(prev, id) {
 
 const FIELD_CLS = 'w-full text-sm px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800';
 
+/** 把 curl 命令拆成带引号的参数。支持换行续行、单引号、双引号和 $'...' */
+function tokenizeCurl(input) {
+  const s = String(input || '').replace(/^\s*\$\s*/, '').replace(/\\\r?\n/g, ' ');
+  const tokens = [];
+  let i = 0;
+  while (i < s.length) {
+    while (i < s.length && /\s/.test(s[i])) i += 1;
+    if (i >= s.length) break;
+    if (s[i] === '$' && s[i + 1] === "'") {
+      i += 2;
+      let buf = '';
+      while (i < s.length && s[i] !== "'") {
+        if (s[i] === '\\') {
+          const n = s[i + 1];
+          if (n === 'n') buf += '\n';
+          else if (n === 't') buf += '\t';
+          else if (n === 'r') buf += '\r';
+          else buf += n || '';
+          i += 2;
+          continue;
+        }
+        buf += s[i];
+        i += 1;
+      }
+      i += 1;
+      tokens.push(buf);
+      continue;
+    }
+    const q = s[i];
+    if (q === '"' || q === "'") {
+      i += 1;
+      let buf = '';
+      while (i < s.length && s[i] !== q) {
+        if (q === '"' && s[i] === '\\') {
+          const n = s[i + 1];
+          if (n === 'n') buf += '\n';
+          else if (n === 't') buf += '\t';
+          else buf += n || '';
+          i += 2;
+          continue;
+        }
+        buf += s[i];
+        i += 1;
+      }
+      i += 1;
+      tokens.push(buf);
+      continue;
+    }
+    let buf = '';
+    while (i < s.length && !/\s/.test(s[i])) {
+      buf += s[i];
+      i += 1;
+    }
+    tokens.push(buf);
+  }
+  return tokens;
+}
+
+/**
+ * 解析 curl demo。成功时返回 { method, url, headers, body, timeoutSec }，认不出地址则返回 null。
+ * -d / --data-raw 没有 -X 时按 POST；-G 把数据放到查询串并改成 GET。
+ * --max-time 60 这类带参数的开关会吃掉后面的数字，避免把 60 当成地址。
+ */
+function isCurlUrl(tok) {
+  return /^https?:\/\//i.test(String(tok || ''));
+}
+
+function parseCurlDemo(input) {
+  const tokens = tokenizeCurl(input);
+  if (!tokens.length) return null;
+  let i = 0;
+  if (/^curl(\.exe)?$/i.test(tokens[0])) i = 1;
+  let method = '';
+  let url = '';
+  let timeoutSec = '';
+  let getQuery = false;
+  const headers = {};
+  const dataParts = [];
+  const take = () => {
+    const v = tokens[i] || '';
+    i += 1;
+    return v;
+  };
+  const splitFlag = (tok, name) => (tok.startsWith(name) ? tok.slice(name.length) : '');
+  const readTimeout = (raw) => {
+    const n = Number(String(raw || '').trim());
+    if (Number.isFinite(n) && n >= 1) timeoutSec = String(Math.min(120, Math.round(n)));
+  };
+  while (i < tokens.length) {
+    const tok = tokens[i];
+    i += 1;
+    if (tok === '-G' || tok === '--get') { getQuery = true; continue; }
+    if (tok === '-I' || tok === '--head') { method = method || 'HEAD'; continue; }
+    if (tok === '-X' || tok === '--request') { method = take().toUpperCase(); continue; }
+    const xArg = splitFlag(tok, '-X') || splitFlag(tok, '--request');
+    if (xArg && tok !== '-X' && tok !== '--request') { method = xArg.replace(/^=/, '').toUpperCase(); continue; }
+    if (tok === '-H' || tok === '--header') { applyCurlHeader(headers, take()); continue; }
+    const hArg = splitFlag(tok, '-H') || splitFlag(tok, '--header');
+    if (hArg) { applyCurlHeader(headers, hArg.replace(/^=/, '')); continue; }
+    if (tok === '--max-time' || tok === '-m') { readTimeout(take()); continue; }
+    if (tok.startsWith('--max-time=')) { readTimeout(tok.slice('--max-time='.length)); continue; }
+    if (/^-m\d/.test(tok)) { readTimeout(tok.slice(2)); continue; }
+    if (tok === '-d' || tok === '--data' || tok === '--data-raw' || tok === '--data-binary' || tok === '--data-ascii' || tok === '--data-urlencode') {
+      dataParts.push(take());
+      continue;
+    }
+    if (tok.startsWith('--data-urlencode=')) { dataParts.push(tok.slice('--data-urlencode='.length)); continue; }
+    const dArg = splitFlag(tok, '-d') || splitFlag(tok, '--data-raw') || splitFlag(tok, '--data');
+    if (dArg && !tok.startsWith('--data-urlencode')) { dataParts.push(dArg.replace(/^=/, '')); continue; }
+    if (tok === '--url') { url = take(); continue; }
+    if (tok.startsWith('--url=')) { url = tok.slice(6); continue; }
+    if (tok === '-A' || tok === '--user-agent') { headers['User-Agent'] = take(); continue; }
+    if (tok === '-e' || tok === '--referer') { headers.Referer = take(); continue; }
+    if (tok === '-b' || tok === '--cookie') { headers.Cookie = take(); continue; }
+    if (tok === '-u' || tok === '--user') { applyCurlUser(headers, take()); continue; }
+    if (tok.startsWith('-u') && tok.length > 2) { applyCurlUser(headers, tok.slice(2)); continue; }
+    // 不认识的开关若后面跟着普通参数（如 --connect-timeout 10），吃掉它，别当成地址
+    if (tok.startsWith('-')) {
+      const next = tokens[i];
+      if (next && !next.startsWith('-') && !isCurlUrl(next)) i += 1;
+      continue;
+    }
+    if (!url && isCurlUrl(tok)) url = tok;
+  }
+  if (!/^https?:\/\//i.test(url)) return null;
+  let body = dataParts.join('&');
+  if (getQuery && body) {
+    const join = url.includes('?') ? '&' : '?';
+    url += join + body;
+    body = '';
+    method = method || 'GET';
+  }
+  if (!method) method = body ? 'POST' : 'GET';
+  return { method, url, headers, body, timeoutSec };
+}
+
+function applyCurlHeader(headers, raw) {
+  const text = String(raw || '').replace(/\s+/g, ' ').trim();
+  const cut = text.indexOf(':');
+  if (cut <= 0) return;
+  headers[text.slice(0, cut).trim()] = text.slice(cut + 1).trim();
+}
+
+function applyCurlUser(headers, raw) {
+  try {
+    headers.Authorization = `Basic ${btoa(String(raw || ''))}`;
+  } catch { /* 非拉丁字符时跳过，其余字段仍可填 */ }
+}
+
+/** 粘贴 curl 后回填方法、地址、请求头、请求体。认不出时保留已填内容。 */
+function applyCurlToForm(text, patch) {
+  const trimmed = String(text || '');
+  if (!trimmed.trim()) {
+    patch({ curlDemo: '', curlError: false });
+    return;
+  }
+  const parsed = parseCurlDemo(trimmed);
+  if (!parsed) {
+    patch({ curlDemo: trimmed, curlError: /curl/i.test(trimmed) });
+    return;
+  }
+  patch({
+    curlDemo: trimmed,
+    curlError: false,
+    method: parsed.method,
+    url: parsed.url,
+    headersText: JSON.stringify(parsed.headers, null, 2),
+    body: parsed.body || '',
+    ...(parsed.timeoutSec ? { timeoutSec: parsed.timeoutSec } : {}),
+  });
+}
+
 /** HTTP API 专用：方法、地址、请求头、超时、请求体 */
 function renderApiFields(form, patch) {
   return (
     <>
       <label className="block space-y-1">
+        <span className="text-[10px] text-zinc-500">{t('providers.mcp.curlImport')}</span>
+        <textarea
+          value={form.curlDemo || ''}
+          onChange={e => applyCurlToForm(e.target.value, patch)}
+          rows={4}
+          spellCheck={false}
+          placeholder={t('providers.mcp.curlImportPh')}
+          className={`${FIELD_CLS} text-xs font-mono`}
+        />
+        {form.curlError ? <p className="text-[10px] text-amber-600">{t('providers.mcp.curlImportInvalid')}</p> : null}
+      </label>
+      <label className="block space-y-1">
         <span className="text-[10px] text-zinc-500">{t('providers.mcp.method')}</span>
         <select value={form.method || 'POST'} onChange={e => patch({ method: e.target.value })} className={FIELD_CLS}>
-          {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map(m => <option key={m} value={m}>{m}</option>)}
+          {['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].map(m => <option key={m} value={m}>{m}</option>)}
         </select>
       </label>
       <label className="block space-y-1">
@@ -975,7 +1163,7 @@ function renderApiFields(form, patch) {
         <span className="text-[10px] text-zinc-500">{t('providers.mcp.timeoutSec')}</span>
         <input value={form.timeoutSec || ''} onChange={e => patch({ timeoutSec: e.target.value })} placeholder="30" className={FIELD_CLS} />
       </label>
-      {(form.method || 'POST') !== 'GET' && (
+      {!['GET', 'HEAD'].includes(form.method || 'POST') && (
         <label className="block space-y-1">
           <span className="text-[10px] text-zinc-500">{t('providers.mcp.bodyTpl')}</span>
           <textarea value={form.body || ''} onChange={e => patch({ body: e.target.value })} rows={3} placeholder={t('providers.mcp.bodyPh')} spellCheck={false} className={`${FIELD_CLS} text-xs font-mono`} />
@@ -1608,7 +1796,6 @@ function renderToolKindToggle(kind, onChange) {
             </InspectorSection>
           </>
         )}
-        {toolKindOf(s) === 'mcp' && (
         <InspectorSection title={t('resources.col.apps')}>
             <div className="space-y-2">
               {apps.length === 0 ? (
@@ -1640,12 +1827,13 @@ function renderToolKindToggle(kind, onChange) {
                 </ul>
               )}
               <p className="text-[10px] text-zinc-400 leading-relaxed">
-                {s.builtin ? t('resources.mcp.builtinLockedHint') : t('resources.mcp.accessHint')}
+                {s.builtin
+                  ? t('resources.mcp.builtinLockedHint')
+                  : t('resources.mcp.accessHint')}
               </p>
               {renderServerActions(s, { block: true })}
             </div>
           </InspectorSection>
-        )}
         {toolKindOf(s) === 'mcp' && tools.length > 0 && (
           <InspectorSection title={t('resources.mcp.tools', { n: tools.length })}>
             <div className="flex flex-wrap gap-1">
@@ -2041,7 +2229,7 @@ function renderToolKindToggle(kind, onChange) {
     return <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1.5">{t('resources.mcp.builtinMissingNote')}</p>;
   }
 
-  /** API / CLI 不用「投射到应用」列，单独展示请求或命令 */
+  /** API / CLI 保留请求或命令列，投射按钮和已投射应用与 MCP 相同 */
   function renderPlainToolRow(s) {
     const kind = toolKindOf(s);
     const key = `m:${s.id}`;
@@ -2057,7 +2245,7 @@ function renderToolKindToggle(kind, onChange) {
         role="option"
         aria-selected={sel}
         onClick={() => setSelectedKey(sel ? null : key)}
-        className={`${libRowCls(sel)} grid-cols-1 md:grid-cols-[minmax(0,1fr)_4.5rem_minmax(0,1.2fr)_4.5rem_5.5rem]`}
+        className={`${libRowCls(sel)} grid-cols-1 md:grid-cols-[minmax(0,1fr)_4.5rem_minmax(0,1.1fr)_minmax(0,5.5rem)_4.5rem_6.5rem]`}
       >
         <LibraryRowTitle
           logo={<McpLogo icon={kind === 'api' ? '🌐' : '⌘'} />}
@@ -2066,11 +2254,15 @@ function renderToolKindToggle(kind, onChange) {
         />
         <span className="text-[11px] font-mono text-zinc-500 truncate">{mid}</span>
         <span className="text-[11px] font-mono text-zinc-600 dark:text-zinc-300 truncate" title={detail}>{detail || '—'}</span>
+        <div className="hidden md:flex items-center gap-1.5 min-w-0">
+          <AppIconStack apps={connectedApps(s)} emptyLabel="—" />
+        </div>
         <span className="flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300">
           <span className={`w-1.5 h-1.5 rounded-full ${serverStatusDot(s)}`} aria-hidden />
           {s.status === 'active' ? t('providers.mcp.enabled') : t('providers.mcp.disabled')}
         </span>
-        <div className="flex items-center justify-end" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
+          {renderServerActions(s)}
           {menu.length > 0 && <AssetMoreMenu label={t('resources.moreActions')} items={menu} />}
         </div>
       </li>
@@ -2116,10 +2308,11 @@ function renderToolKindToggle(kind, onChange) {
         {items.length === 0 ? renderKindEmpty(kind) : (
           <div className={LIB_LIST_CLS}>
             {plain ? (
-              <div className="hidden md:grid md:grid-cols-[minmax(0,1fr)_4.5rem_minmax(0,1.2fr)_4.5rem_5.5rem] gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]">
+              <div className="hidden md:grid md:grid-cols-[minmax(0,1fr)_4.5rem_minmax(0,1.1fr)_minmax(0,5.5rem)_4.5rem_6.5rem] gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]">
                 <span>{t('resources.col.name')}</span>
                 <span>{kind === 'api' ? t('providers.mcp.method') : t('providers.mcp.cwd')}</span>
                 <span>{kind === 'api' ? 'URL' : t('providers.mcp.col.command')}</span>
+                <span>{t('resources.col.apps')}</span>
                 <span>{t('resources.col.status')}</span>
                 <span />
               </div>
@@ -2194,7 +2387,9 @@ function renderToolKindToggle(kind, onChange) {
                 </div>
               </div>
             ) : kinds.filter((k) => toolKindFilter !== 'all' || counts[k] > 0).map((k) => renderKindSection(k, listServers.filter((s) => toolKindOf(s) === k)))}
-            {counts.mcp > 0 && <p className="text-[11px] text-zinc-400 px-1">{t('resources.mcp.accessHint')}</p>}
+            {(counts.mcp > 0 || counts.api > 0 || counts.cli > 0) && (
+              <p className="text-[11px] text-zinc-400 px-1">{t('resources.mcp.accessHint')}</p>
+            )}
           </div>
           {selected && renderServerInspector(selected)}
           {selectedApp && renderAppInspector(selectedApp)}

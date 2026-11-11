@@ -88,7 +88,7 @@ test('saveServer 新建自定义 MCP：默认中转到已纳管应用', () => {
   });
 });
 
-test('saveServer API 与本地 CLI 不进入 MCP 中转', () => {
+test('saveServer API 与本地 CLI 按应用投射，但不进入 MCP 协议中转', () => {
   withDb(() => {
     stubManagedApps([
       { agent_id: 'codex', hosted: true, link_method: 'shim', draft: false },
@@ -106,7 +106,7 @@ test('saveServer API 与本地 CLI 不进入 MCP 中转', () => {
     assert.equal(api.success, true);
     assert.equal(api.server.metadata.tool_kind, 'api');
     assert.equal(api.server.metadata.method, 'GET');
-    assert.equal((api.server.gateway_clients || []).length, 0);
+    assert.deepEqual(api.server.gateway_clients, ['codex']);
 
     const cli = mcpManager.saveServer({
       id: 'tool-cli-demo',
@@ -119,7 +119,13 @@ test('saveServer API 与本地 CLI 不进入 MCP 中转', () => {
     });
     assert.equal(cli.success, true);
     assert.equal(cli.server.metadata.tool_kind, 'cli');
-    assert.equal((cli.server.gateway_clients || []).length, 0);
+    assert.deepEqual(cli.server.gateway_clients, ['codex']);
+
+    const routed = mcpManager.listGatewayRoutedServers().map((s) => s.id);
+    assert.ok(!routed.includes('tool-api-demo'));
+    assert.ok(!routed.includes('tool-cli-demo'));
+    assert.ok(mcpManager.listConfiguredPlainTools('codex').some((s) => s.id === 'tool-api-demo'));
+    assert.equal(mcpManager.listConfiguredPlainTools('cursor').length, 0);
   });
 });
 

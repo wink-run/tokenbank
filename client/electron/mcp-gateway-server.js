@@ -10,6 +10,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const readline = require('readline');
+const { plainToolCallName, plainToolSchema, callPlainTool } = require('./plain-tool-call');
 
 const TB_DIR = path.join(os.homedir(), '.tokenbank');
 const INFO_PATH = path.join(TB_DIR, 'mcp-gateway.json');
@@ -565,6 +566,15 @@ function getBuiltinBackend(row, cid) {
   return b;
 }
 
+/** 已投射到该应用的 HTTP API / 本地 CLI。不拉起 MCP 进程，只挂到同一份工具列表。 */
+function projectedPlainTools(clientId) {
+  try {
+    return require('./mcp-manager').listConfiguredPlainTools(clientId) || [];
+  } catch {
+    return [];
+  }
+}
+
 async function aggregateTools(clientId = '') {
   const list = backendsForClient(clientId);
   const tools = [];
@@ -584,6 +594,10 @@ async function aggregateTools(clientId = '') {
       description: `MCP 网关后端暂不可用：${errors.join('; ')}`,
       inputSchema: { type: 'object', properties: {} },
     });
+  }
+  // 已投射的 HTTP API / 本地 CLI 跟 MCP 出现在同一份工具列表里
+  for (const tool of projectedPlainTools(clientId)) {
+    tools.push(plainToolSchema(tool));
   }
   return tools;
 }
@@ -611,6 +625,12 @@ async function routeToolCall(prefixedName, args, clientId = '') {
         }, null, 2),
       }],
     };
+  }
+  const plain = projectedPlainTools(clientId)
+    .find((tool) => prefixedName === plainToolCallName(tool));
+  if (plain) {
+    const text = await callPlainTool(plain, args);
+    return { content: [{ type: 'text', text: String(text) }] };
   }
   throw new Error(`Unknown tool: ${prefixedName}`);
 }

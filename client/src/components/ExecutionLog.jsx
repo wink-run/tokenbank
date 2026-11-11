@@ -744,8 +744,8 @@ function TaskCompletionCard({ result, task }) {
             <span className="text-zinc-400">{summaryOpen ? '▾' : '▸'}</span>
           </button>
           {summaryOpen && (
-            <div className="text-xs leading-relaxed max-h-96 overflow-y-auto rounded-lg tb-soft-field px-3 py-2 text-zinc-700 dark:text-zinc-300">
-              <MarkdownContent content={displaySummary} />
+            <div className="text-[14px] leading-normal max-h-96 overflow-y-auto rounded-lg tb-soft-field px-3 py-2 text-zinc-700 dark:text-zinc-300">
+              <MarkdownContent content={displaySummary} density="reading" />
             </div>
           )}
         </div>
@@ -1405,11 +1405,12 @@ function ThinkingGroupCard({ item, live = false }) {
           <span className="text-xs text-zinc-400 shrink-0">{open ? '▾' : '▸'}</span>
         </button>
         {open && (
-          <div className="px-3 pb-2.5 text-xs max-h-80 overflow-y-auto text-zinc-700 dark:text-zinc-300 border-t border-zinc-200/50 dark:border-white/[0.06]">
+          <div className="px-3 pb-2.5 text-[14px] leading-normal max-h-80 overflow-y-auto text-zinc-700 dark:text-zinc-300 border-t border-zinc-200/50 dark:border-white/[0.06]">
             <StreamMarkdownContent
               content={raw}
               live={live}
               preferPlainWhileLive
+              density="reading"
             />
             {live && (
               <span className="inline-block animate-pulse text-zinc-400 ml-0.5">▊</span>
@@ -1453,7 +1454,7 @@ function LiveProgressPanel({ agentName, timeline }) {
           </span>
         )}
       </div>
-      <p className="px-3 pb-2.5 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+      <p className="px-3 pb-2.5 text-[14px] leading-normal text-zinc-500 dark:text-zinc-400">
         {statusDetail}
       </p>
     </div>
@@ -1513,9 +1514,9 @@ function DelegationCard({ item }) {
           <div className="px-3 pb-3 space-y-2">
             {/* 派发任务描述（start 阶段保留的 prompt） */}
             {item.content && (isStart || item.completeContent) && (
-              <div className="text-xs border-l-2 border-indigo-300 dark:border-indigo-700 pl-2 text-zinc-600 dark:text-zinc-400">
+              <div className="text-[14px] leading-normal border-l-2 border-indigo-300 dark:border-indigo-700 pl-2 text-zinc-600 dark:text-zinc-400">
                 <span className="text-zinc-400">{t('debug.log.taskColon')}</span>
-                <MarkdownContent content={normalizeDisplayText(item.content)} />
+                <MarkdownContent content={normalizeDisplayText(item.content)} density="reading" />
               </div>
             )}
 
@@ -1547,10 +1548,11 @@ function DelegationCard({ item }) {
                   }
                   if (ns.kind === 'output' || ns.stepType === 'output') {
                     return (
-                      <div key={idx} className="text-xs text-zinc-700 dark:text-zinc-300">
+                      <div key={idx} className="text-[14px] leading-normal text-zinc-700 dark:text-zinc-300">
                         <StreamMarkdownContent
                           content={normalizeDisplayText(ns.content)}
                           live={running}
+                          density="reading"
                         />
                       </div>
                     );
@@ -1563,9 +1565,9 @@ function DelegationCard({ item }) {
             )}
 
             {isComplete && resultContent && (
-              <div className="text-xs max-h-48 overflow-y-auto text-zinc-700 dark:text-zinc-300">
+              <div className="text-[14px] leading-normal max-h-48 overflow-y-auto text-zinc-700 dark:text-zinc-300">
                 <span className="text-zinc-400 block mb-1">{t('debug.log.resultSummary')}</span>
-                <MarkdownContent content={normalizeDisplayText(resultContent)} />
+                <MarkdownContent content={normalizeDisplayText(resultContent)} density="reading" />
               </div>
             )}
 
@@ -1670,10 +1672,10 @@ export default function ExecutionLog({
   if (empty) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center text-zinc-400 dark:text-zinc-500 select-none">
-        <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-1">
+        <p className="text-[14px] leading-normal font-medium text-zinc-500 dark:text-zinc-400 mb-1">
           {agentName || t('debug.modeAgent')}
         </p>
-        <p className="text-sm max-w-sm">
+        <p className="text-[14px] leading-normal max-w-sm">
           {agentName
             ? t('debug.log.emptyNamed', { name: agentName })
             : t('debug.log.empty')}
@@ -1692,7 +1694,7 @@ export default function ExecutionLog({
             <div key={`u-${i}`} className="flex justify-end">
               <div className="flex max-w-[80%] flex-col items-end">
               <div
-                className="relative group max-w-full rounded-xl px-4 py-2.5 text-sm bg-blue-600 text-white select-text"
+                className="relative group max-w-full rounded-xl px-4 py-2.5 text-[14px] leading-normal bg-blue-600 text-white select-text"
                 onCopy={onMessageCopy}
               >
                 <CopyMessageButton text={text} images={imgs} tone="onBlue" />
@@ -1727,7 +1729,7 @@ export default function ExecutionLog({
                   </div>
                 )}
                 {text ? (
-                  <MarkdownContent content={text} theme="inverted" />
+                  <MarkdownContent content={text} theme="inverted" density="reading" />
                 ) : null}
               </div>
               {item.timestamp ? (
@@ -1745,7 +1747,7 @@ export default function ExecutionLog({
             <div key={`a-${i}`} className="flex justify-start">
               <div className="flex max-w-[80%] flex-col items-start">
               <div
-                className="relative group max-w-full rounded-xl px-4 py-2.5 text-sm tb-soft-bubble text-zinc-900 dark:text-zinc-100 select-text"
+                className="relative group max-w-full rounded-xl px-4 py-2.5 text-[14px] leading-normal tb-soft-bubble text-zinc-900 dark:text-zinc-100 select-text"
                 onCopy={onMessageCopy}
               >
                 {!isLive && (
@@ -1757,6 +1759,7 @@ export default function ExecutionLog({
                 <StreamMarkdownContent
                   content={normalizeDisplayText(item.content)}
                   live={isLive}
+                  density="reading"
                 />
                 <RemoteArtifacts artifacts={item.artifacts} />
                 {isLive && (
@@ -1816,9 +1819,9 @@ export default function ExecutionLog({
       {/* 本轮尚无回复/推理气泡：新开一条空回复放呼吸光标，不粘在历史消息上 */}
       {waitingForReply && (
         <div className="flex justify-start">
-          <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-sm tb-soft-bubble border-blue-200/60 dark:border-blue-800/40 text-zinc-900 dark:text-zinc-100 min-h-[2.25rem] flex items-center gap-2">
+          <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-[14px] leading-normal tb-soft-bubble border-blue-200/60 dark:border-blue-800/40 text-zinc-900 dark:text-zinc-100 min-h-[2.25rem] flex items-center gap-2">
             <span className="inline-block h-2.5 w-14 rounded bg-blue-200 dark:bg-blue-800 animate-pulse shrink-0" />
-            <span className="text-xs text-blue-600/90 dark:text-blue-300/90 animate-pulse">{t('debug.log.executing')}</span>
+            <span className="text-[14px] leading-normal text-blue-600/90 dark:text-blue-300/90 animate-pulse">{t('debug.log.executing')}</span>
             <span className="inline-block animate-pulse text-blue-500 dark:text-blue-400">▊</span>
           </div>
         </div>
@@ -1833,7 +1836,7 @@ export default function ExecutionLog({
       )}
 
       {status === 'failed' && task?.error && (
-        <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-600 dark:text-red-400 whitespace-pre-wrap">
+        <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-[14px] leading-normal text-red-600 dark:text-red-400 whitespace-pre-wrap">
           {task.error}
         </div>
       )}

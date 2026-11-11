@@ -187,7 +187,7 @@ export default function AgentTabBar({
     return (
       <div className={shellCls} style={{ width }}>
         <aside className="w-full border-r border-white/40 dark:border-white/[0.06] bg-white/25 dark:bg-zinc-950/40 backdrop-blur-xl p-3">
-          <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+          <p className="text-[12px] leading-relaxed text-zinc-500 dark:text-zinc-400">
             {t('debug.tabs.noAgents')}
           </p>
         </aside>
@@ -217,17 +217,17 @@ export default function AgentTabBar({
           aria-expanded={!hideList}
           className="shrink-0 w-full flex flex-nowrap items-center gap-2 px-3 py-2.5 text-left"
         >
-          <span className="text-[10px] font-semibold tracking-[0.04em] text-zinc-500 dark:text-zinc-400">
+          <span className="text-[11px] font-semibold tracking-[0.04em] text-zinc-500 dark:text-zinc-400">
             {t('debug.tabs.agents')}
           </span>
-          <span className="min-w-0 flex-1 truncate text-[12px] text-zinc-700 dark:text-zinc-200">{currentName}</span>
+          <span className="min-w-0 flex-1 truncate text-[13px] text-zinc-700 dark:text-zinc-200">{currentName}</span>
           <span className="shrink-0 text-[10px] text-zinc-400">
             {hideList ? t('debug.tabs.expandAgents') : t('debug.tabs.collapseAgents')}
           </span>
         </button>
       ) : (
         <div className="shrink-0 px-3 pt-4 pb-2">
-          <p className="text-[10px] font-semibold tracking-[0.04em] text-zinc-500 dark:text-zinc-400">
+          <p className="text-[11px] font-semibold tracking-[0.04em] text-zinc-500 dark:text-zinc-400">
             {t('debug.tabs.agents')}
           </p>
         </div>
@@ -244,7 +244,7 @@ export default function AgentTabBar({
           type="button"
           onClick={() => onSelect(null)}
           className={`
-            w-full flex items-center gap-1.5 text-left px-2.5 py-1.5 text-[12px] rounded-lg ${pressCls}
+            w-full flex items-center gap-1.5 text-left px-2.5 py-1.5 text-[13px] rounded-lg ${pressCls}
             ${hubActive
               ? 'tb-soft-bubble text-zinc-900 dark:text-zinc-100 font-medium'
               : 'text-zinc-800 dark:text-zinc-200 font-medium hover:bg-black/[0.05] dark:hover:bg-white/[0.06]'
@@ -255,7 +255,7 @@ export default function AgentTabBar({
           {running.has('__hub__') && <RunningDot label={t('debug.tabs.orchestrating')} />}
         </button>
         {mainAgent && hubActive && (
-          <p className="px-2.5 pt-1 pb-2 text-[10px] text-zinc-500 dark:text-zinc-400 leading-snug">
+          <p className="px-2.5 pt-1 pb-2 text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug">
             {t('debug.tabs.mainDispatch', { name: mainAgent.name })}
           </p>
         )}
@@ -277,6 +277,9 @@ export default function AgentTabBar({
           const installing = cursorNeedCli && !!installingCursorCli;
           const loggingIn = cursorNeedLogin && !!loggingInCursorCli;
           const dimmed = (missing && !cursorNeedCli) || cursorNeedLogin;
+          const versionLabel = !missing && !cursorNeedLogin && !isCommunity && !isCustom && agent.version
+            ? `v${agent.version}`
+            : '';
           const subLine = missing
             ? (cursorNeedCli ? t('debug.tabs.cursorNeedCli') : t('debug.tabs.notInstalled'))
             : cursorNeedLogin
@@ -285,7 +288,7 @@ export default function AgentTabBar({
               ? t('debug.tabs.communityRemote')
               : (isCustom && agent.runtimeName)
                 ? `→ ${agent.runtimeName}`
-                : (!isCustom && agent.version ? `v${agent.version}` : '');
+                : '';
           return (
             <div key={agent.id} className={`relative group ${dimmed && !cursorNeedCli && !cursorNeedLogin ? 'opacity-45' : cursorNeedLogin ? 'opacity-70' : ''}`}>
               <button
@@ -307,7 +310,7 @@ export default function AgentTabBar({
                     : agent.description
                 }
                 className={`
-                  w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] rounded-lg ${pressCls}
+                  w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[13px] rounded-lg ${pressCls}
                   ${missing || cursorNeedLogin ? 'grayscale' : ''}
                   ${active
                     ? 'tb-soft-bubble text-zinc-900 dark:text-zinc-100 font-medium'
@@ -322,7 +325,7 @@ export default function AgentTabBar({
                   <span className="flex items-center gap-1 min-w-0 leading-tight">
                     <span className="truncate">{agent.guardian ? t('debug.tabs.guardian') : agent.name}</span>
                     {isCommunity && (
-                      <span className="shrink-0 text-[10px] px-1 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+                      <span className="shrink-0 text-[11px] px-1 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
                         {t('debug.tabs.communityBadge')}
                       </span>
                     )}
@@ -331,12 +334,19 @@ export default function AgentTabBar({
                     )}
                   </span>
                   {subLine ? (
-                    <span className={`block text-[10px] font-normal truncate mt-0.5 leading-tight ${
+                    <span className={`block text-[11px] font-normal truncate mt-0.5 leading-tight ${
                       missing || cursorNeedLogin
                         ? 'text-zinc-400 dark:text-zinc-500'
                         : active ? 'text-zinc-500 dark:text-zinc-400' : 'text-zinc-400 dark:text-zinc-500'
                     }`}>
                       {subLine}
+                    </span>
+                  ) : null}
+                  {versionLabel ? (
+                    <span className={`block text-[10px] font-normal truncate mt-0.5 leading-tight ${
+                      active ? 'text-zinc-500 dark:text-zinc-400' : 'text-zinc-400 dark:text-zinc-500'
+                    }`}>
+                      {versionLabel}
                     </span>
                   ) : null}
                 </span>
@@ -392,7 +402,7 @@ export default function AgentTabBar({
           );
         })}
         {narrow && mainAgent && selectedAgent && (
-          <p className="px-2.5 pt-2 pb-1 text-[10px] text-zinc-500 dark:text-zinc-400 leading-snug">
+          <p className="px-2.5 pt-2 pb-1 text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug">
             {t('debug.tabs.mainFooter', { name: mainAgent.name })}
           </p>
         )}
@@ -401,7 +411,7 @@ export default function AgentTabBar({
 
       {/* 底栏：结构区轻提示，无抢戏。窄屏已放进浮层 */}
       {!narrow && !hideList && mainAgent && selectedAgent && (
-        <div className="shrink-0 px-3 py-2.5 border-t border-zinc-200/90 dark:border-zinc-800 text-[10px] text-zinc-500 dark:text-zinc-400 leading-snug">
+        <div className="shrink-0 px-3 py-2.5 border-t border-zinc-200/90 dark:border-zinc-800 text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug">
           {t('debug.tabs.mainFooter', { name: mainAgent.name })}
         </div>
       )}

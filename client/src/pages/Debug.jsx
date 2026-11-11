@@ -3270,7 +3270,7 @@ export default function Debug() {
   const chromeBottom = 'shrink-0 border-t border-white/40 dark:border-white/[0.06] bg-white/40 dark:bg-zinc-900/45 backdrop-blur-xl backdrop-saturate-150 electron-no-drag relative z-40';
   const fieldCls = 'tb-soft-field rounded-lg text-xs text-zinc-900 dark:text-zinc-100';
   const ghostBtn = 'tb-soft-tile shrink-0 px-2.5 py-1.5 text-xs rounded-lg text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 disabled:opacity-40';
-  const composerField = 'tb-soft-field flex-1 rounded-xl px-3 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 overflow-y-auto disabled:opacity-50';
+  const composerField = 'tb-soft-field flex-1 rounded-xl px-3 py-2.5 text-[14px] leading-normal text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 overflow-y-auto disabled:opacity-50';
 
   const modeSwitcher = (
     <div className={segTrack}>
@@ -3429,8 +3429,8 @@ export default function Debug() {
           <>
         {conversation.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center text-zinc-400 dark:text-zinc-500 select-none">
-            <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-1">{imageMode ? t('debug.modeImage') : t('debug.modeChat')}</p>
-            <p className="text-sm max-w-sm">{imageMode ? t('debug.emptyImage') : t('debug.emptyChat')}</p>
+            <p className="text-[14px] leading-normal font-medium text-zinc-500 dark:text-zinc-400 mb-1">{imageMode ? t('debug.modeImage') : t('debug.modeChat')}</p>
+            <p className="text-[14px] leading-normal max-w-sm">{imageMode ? t('debug.emptyImage') : t('debug.emptyChat')}</p>
           </div>
         )}
 
@@ -3438,7 +3438,7 @@ export default function Debug() {
           <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className="max-w-[75%]">
               {msg.error ? (
-                <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-xl px-4 py-2.5 text-sm text-red-600 dark:text-red-400">{msg.error}</div>
+                <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-xl px-4 py-2.5 text-[14px] leading-normal text-red-600 dark:text-red-400">{msg.error}</div>
               ) : msg.role === 'assistant' && msg.images !== undefined ? (
                 <div className="rounded-xl overflow-hidden tb-soft-bubble">
                   {msg.generating ? (
@@ -3470,7 +3470,7 @@ export default function Debug() {
                 </div>
               ) : (
                 <div
-                  className={`relative group rounded-xl px-4 py-2.5 text-sm select-text ${
+                  className={`relative group rounded-xl px-4 py-2.5 text-[14px] leading-normal select-text ${
                     msg.role === 'user'
                       ? 'bg-blue-600 text-white whitespace-pre-wrap'
                       : 'tb-soft-bubble text-zinc-900 dark:text-zinc-100'
@@ -3489,7 +3489,8 @@ export default function Debug() {
                       <StreamMarkdownContent
                         content={msg.content || ''}
                         live={!!msg.streaming}
-                        className="text-sm leading-relaxed"
+                        density="reading"
+                        className="text-[14px] leading-normal"
                       />
                       {msg.streaming && (
                         <span className="animate-pulse text-blue-400 dark:text-blue-400 ml-0.5">▊</span>
@@ -3537,14 +3538,14 @@ export default function Debug() {
                   <div className="flex-1" />
                 ) : (
                   <div className="flex-1 flex items-center justify-center text-center text-zinc-400 dark:text-zinc-500">
-                    <p className="text-sm">{t('debug.agent.noAgents')}</p>
+                    <p className="text-[14px] leading-normal">{t('debug.agent.noAgents')}</p>
                   </div>
                 )
               ) : !conversationTurns.length && !currentUserPrompt && !currentUserImages.length && !taskSteps.length && !executing ? (
                 <div className="flex-1 flex items-center justify-center text-center text-zinc-400 dark:text-zinc-500 px-6">
                   <div className="max-w-md">
-                    <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">{t('debug.tabs.hub')}</p>
-                    <p className="text-sm mb-4">{t('debug.agent.hubEmpty')}</p>
+                    <p className="text-[14px] leading-normal font-medium text-zinc-500 dark:text-zinc-400 mb-2">{t('debug.tabs.hub')}</p>
+                    <p className="text-[14px] leading-normal mb-4">{t('debug.agent.hubEmpty')}</p>
                     <div className="flex items-center justify-center gap-2 text-sm">
                       <span className="text-zinc-500">{t('debug.agent.mainAgentColon')}</span>
                       <select
@@ -3585,10 +3586,10 @@ export default function Debug() {
               /* Cursor 缺 Agent CLI：默认展示一键安装引导 */
               <div className="flex-1 flex items-center justify-center text-center px-6">
                 <div className="max-w-md space-y-3">
-                  <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                  <p className="text-[14px] leading-normal font-medium text-zinc-700 dark:text-zinc-200">
                     {t('debug.agent.cursorInstallTitle')}
                   </p>
-                  <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                  <p className="text-[14px] leading-normal text-zinc-500 dark:text-zinc-400">
                     {t('debug.agent.cursorInstallBody')}
                   </p>
                   {selectedAgent.idePresent && (
@@ -3619,10 +3620,10 @@ export default function Debug() {
               /* CLI 已装但未登录：IDE 登录不能替代 */
               <div className="flex-1 flex items-center justify-center text-center px-6">
                 <div className="max-w-md space-y-3">
-                  <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                  <p className="text-[14px] leading-normal font-medium text-zinc-700 dark:text-zinc-200">
                     {t('debug.agent.cursorNeedLoginTitle')}
                   </p>
-                  <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                  <p className="text-[14px] leading-normal text-zinc-500 dark:text-zinc-400">
                     {t('debug.agent.cursorNeedLoginBody')}
                   </p>
                   <button

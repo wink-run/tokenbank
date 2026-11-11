@@ -373,6 +373,176 @@ test('tb_call_mcp 经网关调用中转工具', async () => {
   }
 });
 
+const PLAIN = [
+  {
+    id: 'tool-api-search',
+    type: 'api',
+    name: 'deepseek-search',
+    display_name: 'DeepSeek搜索',
+    description: '按 query 搜索网页',
+    method: 'POST',
+    url: 'https://api.deepseek.com/v1/tools/search',
+    headers: { Authorization: 'Bearer sk-test' },
+    body: '{"query":""}',
+    timeout_ms: 60000,
+  },
+  {
+    id: 'tool-cli-echo',
+    type: 'cli',
+    name: 'echo-hi',
+    display_name: '回声',
+    description: '打印一行',
+    command: 'echo',
+    args: ['hi'],
+    cwd: '/tmp',
+    env: {},
+  },
+];
+
+test('tb_list_resources 把 HTTP API 和本地 CLI 暴露给智能体', async () => {
+  mcp.setResourceManager(mockRm());
+  mcp.setPlainToolLister(() => PLAIN);
+  try {
+    const all = await mcp.handleToolCall('tb_list_resources', {});
+    assert.ok(all.content[0].text.includes('[api] deepseek-search'));
+    assert.ok(all.content[0].text.includes('[cli] echo-hi'));
+    assert.ok(all.content[0].text.includes('api=1'));
+
+    const apis = await mcp.handleToolCall('tb_list_resources', { type: 'api' });
+    assert.ok(apis.content[0].text.includes('DeepSeek搜索'));
+    assert.ok(!apis.content[0].text.includes('[cli]'));
+
+    const detail = await mcp.handleToolCall('tb_get_resource', { type: 'api', name: 'DeepSeek搜索' });
+    assert.equal(detail.isError, false);
+    assert.ok(detail.content[0].text.includes('https://api.deepseek.com/v1/tools/search'));
+    assert.ok(detail.content[0].text.includes('Bearer sk-test'));
+    assert.ok(detail.content[0].text.includes('tb_call_mcp'));
+
+    const caps = await mcp.handleToolCall('tb_capabilities', {});
+    assert.ok(caps.content[0].text.includes('DeepSeek搜索'));
+    assert.ok(caps.content[0].text.includes('type=api'));
+  } finally {
+    mcp.setPlainToolLister(null);
+    mcp.setResourceManager(null);
+  }
+});
+
+test('tb_call_mcp 直接调用已投射的 HTTP API', async () => {
+  mcp.setPlainToolLister(() => PLAIN);
+  const orig = global.fetch;
+  global.fetch = async (url, init) => {
+    assert.equal(String(url), 'https://api.deepseek.com/v1/tools/search?q=jobs');
+    assert.equal(init.method, 'POST');
+    assert.equal(init.headers.Authorization, 'Bearer sk-test');
+    assert.equal(init.body, '{"query":"jobs"}');
+    return { status: 200, text: async () => '{"ok":true}' };
+  };
+  try {
+    const r = await mcp.handleToolCall('tb_call_mcp', {
+      server: 'DeepSeek搜索',
+      tool: 'call',
+      arguments: { query: { q: 'jobs' }, body: { query: 'jobs' } },
+    });
+    assert.equal(r.isError, false);
+    assert.ok(r.content[0].text.includes('HTTP 200'));
+    assert.ok(r.content[0].text.includes('"ok":true'));
+  } finally {
+    global.fetch = orig;
+    mcp.setPlainToolLister(null);
+  }
+});
+
+test('tb_call_mcp 用调用参数覆盖 HTTP 模板，避免每次打到示例地址', async () => {
+  const fetchTool = {
+    id: 'tool-api-fetch',
+    type: 'api',
+    name: 'deepseek_fetch',
+    display_name: 'DeepSeek抓取',
+    description: '抓取网页',
+    method: 'POST',
+    url: 'https://api.deepseek.com/v1/tools/fetch',
+    headers: { Authorization: 'Bearer sk-test' },
+    body: '{"url":"https://api-docs.deepseek.com"}',
+  };
+  mcp.setPlainToolLister(() => [fetchTool]);
+  const seen = [];
+  const orig = global.fetch;
+  global.fetch = async (_url, init) => {
+    seen.push(init.body);
+    return { status: 200, text: async () => init.body };
+  };
+  try {
+    const first = await mcp.handleToolCall('tb_call_mcp', {
+      server: 'deepseek_fetch',
+      tool: 'call',
+      arguments: { url: 'https://example.com' },
+    });
+    const second = await mcp.handleToolCall('tb_call_mcp', {
+      server: 'deepseek_fetch',
+      tool: 'call',
+      arguments: { url: 'https://en.wikipedia.org/wiki/URL' },
+    });
+    assert.equal(first.isError, false);
+    assert.equal(seen[0], '{"url":"https://example.com"}');
+    assert.equal(seen[1], '{"url":"https://en.wikipedia.org/wiki/URL"}');
+    assert.ok(!second.content[0].text.includes('api-docs.deepseek.com'));
+  } finally {
+    global.fetch = orig;
+    mcp.setPlainToolLister(null);
+  }
+});
+
+test('tb_call_mcp 表单和地址上的示例值也会被调用参数替换', async () => {
+  const formTool = {
+    id: 'tool-api-form',
+    type: 'api',
+    name: 'form_fetch',
+    display_name: '表单抓取',
+    method: 'POST',
+    url: 'https://ex.test/fetch',
+    headers: {},
+    body: 'url=https://api-docs.deepseek.com',
+  };
+  const queryTool = {
+    id: 'tool-api-query',
+    type: 'api',
+    name: 'query_fetch',
+    display_name: '查询抓取',
+    method: 'POST',
+    url: 'https://ex.test/fetch?url=https://api-docs.deepseek.com',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  };
+  const seen = [];
+  const orig = global.fetch;
+  global.fetch = async (url, init) => {
+    seen.push({ url: String(url), body: init.body, type: init.headers['Content-Type'] });
+    return { status: 200, text: async () => 'ok' };
+  };
+  try {
+    mcp.setPlainToolLister(() => [formTool]);
+    await mcp.handleToolCall('tb_call_mcp', {
+      server: 'form_fetch',
+      tool: 'call',
+      arguments: { url: 'https://example.com' },
+    });
+    mcp.setPlainToolLister(() => [queryTool]);
+    await mcp.handleToolCall('tb_call_mcp', {
+      server: 'query_fetch',
+      tool: 'call',
+      arguments: { url: 'https://example.com' },
+    });
+    assert.equal(seen[0].body, 'url=https%3A%2F%2Fexample.com');
+    assert.equal(seen[0].type, 'application/x-www-form-urlencoded');
+    assert.ok(seen[1].url.includes('url=https%3A%2F%2Fexample.com') || seen[1].url.includes('url=https://example.com'));
+    assert.ok(!seen[1].url.includes('api-docs.deepseek.com'));
+    assert.ok(!String(seen[1].body).includes('api-docs.deepseek.com'));
+  } finally {
+    global.fetch = orig;
+    mcp.setPlainToolLister(null);
+  }
+});
+
 test('tb_call_mcp 未中转时给出提示', async () => {
   mcp.setRelayedMcpLister(() => PIPEWORX);
   try {
