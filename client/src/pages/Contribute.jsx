@@ -1,9 +1,9 @@
 // client/src/pages/Contribute.jsx
 import React, { useCallback, useEffect, useState, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { getStats, getSettlements, getContributeSummary, listJoinedCircles, listMyCircles, listCommunityAgents, listPublicCommunityAgents } from '../api/client';
-import { getConfig, getGateway, getLocalConfig } from '../api/adapter';
-import { resolveLocalGatewayBase } from '../api/gatewayModels';
+import { getConfig, getGateway, getLocalConfig, getOauth } from '../api/adapter';
+import { resolveLocalGatewayBase, loadGatewayAvailableModels } from '../api/gatewayModels';
 import { loadUserAccounts } from '../api/userAccounts';
 import { collectPersonalAvailableModels, mergeAccountsForGateway } from '../lib/personalAvailableModels';
 import {
@@ -11,7 +11,6 @@ import {
   subscribeAgentEvents, useAgentPolling,
 } from '../api/agentControl';
 import Circles from './Circles';
-import Network from './Network';
 import { SessionTraceModal } from './Gateway';
 import TruncTip from '../components/TruncTip';
 import CommunityEarningsCard from '../components/CommunityEarningsCard';
@@ -24,7 +23,7 @@ import {
 } from '../components/LibraryControls';
 import ServiceIcon from '../components/ServiceIcon';
 import { resolveBrandIcon } from '../lib/brandIcons';
-import { getServerUrl } from '../config';
+import { getServerUrl, getSyncServerBase } from '../config';
 import { copyText } from '../lib/resource-enable';
 function multiplierToStars(m) {
   const n = m >= 1.3 ? 5 : m >= 1.1 ? 4 : m >= 0.9 ? 3 : m >= 0.7 ? 2 : 1;
@@ -148,6 +147,8 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
   const [autoStart,       setAutoStart]       = useState(false);
   const [saving,          setSaving]          = useState(false);
   const [savedMsg,        setSavedMsg]        = useState('');
+  const [savedSnap,       setSavedSnap]       = useState(null);   // 上次保存（或载入）时的上架内容
+  const snapPending = useRef(false);
   const [localGw,         setLocalGw]         = useState(() => resolveLocalGatewayBase());
   const [circles,         setCircles]         = useState([]);         // 可分享的圈子
   // 交易页「圈子」页签里新建 / 加入后同步到这里
@@ -253,8 +254,21 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
       );
       setSelectedAssistantIds(prevAsst);
       assistantsHydratedRef.current = true;
+      snapPending.current = true;
     });
   }, []);
+
+  // 当前上架内容的指纹：和保存时一样就没有要生效的改动
+  const snapNow = JSON.stringify([
+    [...selectedNames].sort(), [...selectedAssistantIds].sort(), circleScope,
+    [...selectedCircleIds].sort(), nodeName, autoStart,
+  ]);
+  useEffect(() => {
+    if (!snapPending.current) return;
+    snapPending.current = false;
+    setSavedSnap(snapNow);
+  }, [snapNow]);
+  const dirty = savedSnap != null && snapNow !== savedSnap;
 
   /** 已安装的本机应用，名片 id 用 app:<cli>，和智能体走同一份上架名单 */
   const refreshApps = useCallback(async () => {
@@ -384,6 +398,7 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
         contribute_circle_ids: circleIds,
         contribute_circle_id: circleIds[0] ?? null,
       });
+      setSavedSnap(snapNow);
       // 保存后立即启动贡献节点
       const started = onStart ? await onStart() : true;
       setSavedMsg(started ? t('contribute.savedAndStarted') : t('common.saved'));
@@ -424,29 +439,34 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
               })}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {savedMsg && <span className="text-xs text-green-600 dark:text-green-400">{savedMsg}</span>}
-            {running && (
-              <button
-                type="button"
-                onClick={() => {
-                  // 停止会下线算力，二次确认避免误触
-                  if (typeof window !== 'undefined' && !window.confirm(t('contribute.stopConfirm'))) return;
-                  onStop?.();
-                }}
-                className="text-xs px-3.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/70 dark:bg-zinc-900/40 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30"
-              >
-                {t('contribute.stop')}
+            {running && dirty && (
+              <button type="button" onClick={save} disabled={saving}
+                className="tb-press text-xs font-medium px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50">
+                {saving ? t('contribute.applying') : t('contribute.applyChanges')}
               </button>
             )}
-            <button
-              type="button"
-              onClick={save}
-              disabled={saving || (selectedNames.size === 0 && selectedAssistantIds.size === 0)}
-              className="tb-press text-xs font-medium px-4 py-1.5 rounded-lg bg-blue-600 text-white shadow-sm shadow-blue-600/25 hover:bg-blue-500 disabled:opacity-50"
-            >
-              {saving ? t('contribute.savingAndStarting') : (running ? t('contribute.saveAndApply') : t('contribute.saveAndStart'))}
-            </button>
+            {(() => {
+              const empty = selectedNames.size === 0 && selectedAssistantIds.size === 0;
+              const toggle = () => {
+                if (running) {
+                  if (typeof window !== 'undefined' && !window.confirm(t('contribute.stopConfirm'))) return;
+                  onStop?.();
+                } else {
+                  save();
+                }
+              };
+              return (
+                <label className={`inline-flex items-center gap-2 text-[13px] font-medium ${(!running && empty) ? 'opacity-50' : ''}`}>
+                  <button type="button" role="switch" aria-checked={running} disabled={saving || (!running && empty)} onClick={toggle}
+                    className={`relative shrink-0 w-10 h-6 rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${running ? 'bg-green-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}>
+                    <span className={`absolute top-[3px] left-0 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform duration-200 ${running ? 'translate-x-[19px]' : 'translate-x-[3px]'}`} />
+                  </button>
+                  <span className="text-zinc-800 dark:text-zinc-100">{saving && !running ? t('contribute.savingAndStarting') : t('contribute.accepting')}</span>
+                </label>
+              );
+            })()}
           </div>
         </div>
         {agentError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{agentError}</p>}
@@ -454,7 +474,7 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
 
       {/* ① 上架什么 */}
       <section className={`${LIB_LIST_CLS} p-5 space-y-4`}>
-        <SupplySectionHead n="1" title={t('contribute.secWhat')} hint={t('contribute.secWhatHint')} />
+        <SupplySectionHead title={t('contribute.secWhat')} hint={t('contribute.secWhatHint')} />
       {/* 贡献模型：默认只展示已选；点 + 从候选里添加，避免占满整页 */}
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
@@ -724,7 +744,7 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
 
       {/* ② 给谁用：圈子即交易范围 */}
       <section className={`${LIB_LIST_CLS} p-5 space-y-3`}>
-        <SupplySectionHead n="2" title={t('contribute.secWho')} hint={t('contribute.secWhoHint')} />
+        <SupplySectionHead title={t('contribute.secWho')} hint={t('contribute.secWhoHint')} />
         <div role="radiogroup" aria-label={t('contribute.scope')} className="grid gap-2.5 sm:grid-cols-2">
           {[
             ['public', '🌐', t('contribute.scopePublicTitle'), t('contribute.scopePublicDesc')],
@@ -791,9 +811,10 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
         )}
       </section>
 
-      {/* ③ 节点设置 */}
-      <section className={`${LIB_LIST_CLS} p-5 space-y-3`}>
-        <SupplySectionHead n="3" title={t('contribute.secNode')} />
+      {/* 高级：节点名称、转发地址、开机自动接单——默认收起 */}
+      <details className={`${LIB_LIST_CLS} px-5 py-3 [&[open]]:pb-5 [&[open]>summary]:mb-3`}>
+        <summary className="cursor-pointer min-h-[32px] flex items-center text-[13px] font-semibold text-zinc-900 dark:text-zinc-50">{t('contribute.advanced')}</summary>
+        <div className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div>
             <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1.5">{t('contribute.nodeName')}</label>
@@ -827,7 +848,8 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
             }`} />
           </button>
         </div>
-      </section>
+        </div>
+      </details>
     </div>
   );
 }
@@ -1015,12 +1037,52 @@ function EarningsView({ settlements, summary, stats, logs, logRef }) {
 function SupplySectionHead({ n, title, hint }) {
   return (
     <div className="flex items-start gap-2.5">
-      <span className="mt-px w-5 h-5 rounded-full bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-[10px] font-semibold flex items-center justify-center shrink-0">{n}</span>
+      {n && <span className="mt-px w-5 h-5 rounded-full bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-[10px] font-semibold flex items-center justify-center shrink-0">{n}</span>}
       <div className="min-w-0">
         <h3 className="text-[13px] font-semibold text-zinc-900 dark:text-zinc-50">{title}</h3>
         {hint && <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">{hint}</p>}
       </div>
     </div>
+  );
+}
+
+/** 买：社区里在供给的模型。用积分，不标价；选用就是在应用的路由里选它 */
+function CommunityModelsCard() {
+  const { t } = useLang();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [models, setModels] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!user) { setModels([]); return undefined; }
+    loadGatewayAvailableModels({ includeCommunity: true })
+      .then(list => { if (!cancelled) setModels((list || []).filter(m => m.tier === 'p2p')); })
+      .catch(() => { if (!cancelled) setModels([]); });
+    return () => { cancelled = true; };
+  }, [user]);
+  if (!models) return null;
+  const seen = new Set();
+  const rows = models.filter(m => (seen.has(m.id) ? false : (seen.add(m.id), true)));
+  return (
+    <section className={`${LIB_LIST_CLS} p-5 space-y-3 mt-4`}>
+      <SupplySectionHead title={t('contribute.buyModels')} hint={t('contribute.buyModelsHint')} />
+      {rows.length === 0 ? (
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('contribute.buyModelsEmpty')}</p>
+      ) : (
+        <ul className="divide-y divide-zinc-100 dark:divide-white/[0.06]">
+          {rows.slice(0, 30).map(m => (
+            <li key={m.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2">
+              <span className="flex-[2_1_12rem] min-w-0 truncate text-[13px] font-medium text-zinc-800 dark:text-zinc-100">{m.id}</span>
+              <span className="flex-[1_1_6rem] text-xs text-zinc-500 dark:text-zinc-400">{t('contribute.byCredits')}</span>
+              <button type="button" onClick={() => navigate('/gateway')}
+                className="shrink-0 text-xs px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                {t('contribute.useInApp')}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -1782,7 +1844,10 @@ export default function Contribute() {
   const location = useLocation();
   const pageActive = location.pathname === '/contribute';
   const [tab, setTab] = useState(() => {
-    try { return localStorage.getItem('tokenbank.trade.tab') || 'hire'; } catch { return 'hire'; }
+    try {
+      const v = localStorage.getItem('tokenbank.trade.tab') || 'hire';
+      return ['hire', 'supply', 'earnings'].includes(v) ? v : 'hire';
+    } catch { return 'hire'; }
   });
   // 圈子 = 交易范围：共享给雇佣筛选、上架范围、圈子管理
   const [myCircles, setMyCircles] = useState(null);
@@ -1791,6 +1856,17 @@ export default function Contribute() {
   const [circlesView, setCirclesView] = useState('mine');
   const [circleResult, setCircleResult] = useState(null);
   const [liveTaskCount, setLiveTaskCount] = useState(0);
+  const [circlesOpen, setCirclesOpen] = useState(false);   // 圈子不再是标签：从「管理圈子」打开
+  useEffect(() => {
+    if (!circlesOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setCirclesOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [circlesOpen]);
+  async function openNetwork() {
+    const base = String((await getSyncServerBase().catch(() => '')) || getServerUrl() || '').replace(/\/$/, '');
+    if (base) getOauth().openExternal(`${base}/network`);
+  }
 
   useEffect(() => {
     Promise.all([listMyCircles(), listJoinedCircles()])
@@ -1802,7 +1878,9 @@ export default function Contribute() {
   useEffect(() => {
     if (location.pathname !== '/contribute') return;
     const st = location.state || {};
-    if (st.tradeTab) changeTab(st.tradeTab);
+    if (st.tradeTab === 'circles') setCirclesOpen(true);
+    else if (st.tradeTab === 'network') openNetwork();
+    else if (st.tradeTab) changeTab(st.tradeTab);
     if (st.scope != null) setScope(st.scope);
     if (st.focusAgent) setFocusAgent({ id: st.focusAgent, at: Date.now() });
     if (st.agentQuery) setFocusAgent({ query: st.agentQuery, at: Date.now() });
@@ -1928,11 +2006,9 @@ export default function Contribute() {
 
 
   const TABS = [
-    { id: 'hire', label: t('contribute.tab.hire') },
-    { id: 'supply', label: t('contribute.tab.supply'), count: liveTaskCount || null },
-    { id: 'circles', label: t('contribute.tab.circles'), count: myCircles?.length || null },
-    { id: 'earnings', label: t('contribute.tab.earnings'), count: settlements.length || null },
-    { id: 'network', label: t('contribute.tab.network'), icon: '🌐' },
+    { id: 'hire', label: t('contribute.tab.buy') },
+    { id: 'supply', label: t('contribute.tab.sell'), count: liveTaskCount || null },
+    { id: 'earnings', label: t('contribute.tab.money'), count: settlements.length || null },
   ];
 
   return (
@@ -1945,6 +2021,14 @@ export default function Contribute() {
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">{t('contribute.subtitle')}</p>
           </div>
           <div className="electron-no-drag relative z-50 flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => setCirclesOpen(true)}
+              className="text-xs px-2.5 py-1.5 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-white/60 dark:hover:bg-white/5">
+              {t('contribute.manageCircles')}{myCircles?.length ? ` · ${myCircles.length}` : ''}
+            </button>
+            <button type="button" onClick={openNetwork}
+              className="text-xs px-2.5 py-1.5 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-white/60 dark:hover:bg-white/5">
+              {t('contribute.networkCloud')} ↗
+            </button>
             {/* 累计积分：点击看收益记录（明细数据都在该页签） */}
             {summary && (
               <button type="button" onClick={() => changeTab('earnings')}
@@ -1998,6 +2082,7 @@ export default function Contribute() {
             onScopeChange={setScope}
             focusAgent={focusAgent}
           />
+          <CommunityModelsCard />
         </div>
 
         <div className={tab === 'supply' ? 'space-y-2' : 'hidden'}>
@@ -2009,16 +2094,24 @@ export default function Contribute() {
             agentError={agentError}
             onAgentsRefresh={bumpAgentsRefresh}
             circles={myCircles}
-            onManageCircles={() => changeTab('circles')}
+            onManageCircles={() => setCirclesOpen(true)}
           />
         </div>
 
-        <div className={tab === 'circles' ? '' : 'hidden'}>
-          <Circles view={circlesView} circleResult={circleResult} onChanged={setMyCircles} />
+        {/* 圈子：交易范围。从「管理圈子」打开，不占标签 */}
+        <div className={circlesOpen ? 'electron-no-drag fixed inset-0 z-[80] flex items-start justify-center bg-black/40 p-4 overflow-y-auto' : 'hidden'}
+          onClick={() => setCirclesOpen(false)}>
+          <div role="dialog" aria-modal="true" aria-label={t('contribute.manageCircles')}
+            className="relative w-full max-w-4xl my-8 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-2xl p-4"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-3">
+              <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">{t('contribute.manageCircles')}</h2>
+              <button type="button" onClick={() => setCirclesOpen(false)} aria-label={t('gateway.common.close')}
+                className="ml-auto w-8 h-8 rounded-lg text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800">✕</button>
+            </div>
+            <Circles view={circlesView} circleResult={circleResult} onChanged={setMyCircles} />
+          </div>
         </div>
-
-        {/* 社区网络：全网概览，仅在打开时挂载（避免后台轮询） */}
-        {tab === 'network' && <Network embedded />}
 
         <div className={tab === 'earnings' ? '' : 'hidden'}>
           <CommunityEarningsCard />
