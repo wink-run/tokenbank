@@ -1571,6 +1571,8 @@ export default {
   "contribute.buyKindAll": "All",
   "contribute.buyKindAgents": "Agents",
   "contribute.buyKindModels": "Models",
+  "contribute.suppliers": "{n} supplying",
+  "contribute.onlineNow": "Online",
   'contribute.models': 'Models to list',
   'contribute.modelsSelected': '{n} selected',
   'contribute.addModel': 'Add models to list',

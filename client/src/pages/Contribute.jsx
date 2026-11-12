@@ -1,7 +1,8 @@
 // client/src/pages/Contribute.jsx
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { getStats, getSettlements, getContributeSummary, listJoinedCircles, listMyCircles, listCommunityAgents, listPublicCommunityAgents } from '../api/client';
+import { getStats, getSettlements, getContributeSummary, listJoinedCircles, listMyCircles, listCommunityAgents, listPublicCommunityAgents, getNetwork } from '../api/client';
+import { normalizeNetworkPayload, workerModelNames } from '../lib/networkModelStats';
 import { getConfig, getGateway, getLocalConfig, getOauth } from '../api/adapter';
 import { resolveLocalGatewayBase, loadGatewayAvailableModels } from '../api/gatewayModels';
 import { loadUserAccounts } from '../api/userAccounts';
@@ -963,15 +964,32 @@ function CommunityModelsCard() {
   const [models, setModels] = useState(null);
   useEffect(() => {
     let cancelled = false;
-    if (!user) { setModels([]); return undefined; }
-    loadGatewayAvailableModels({ includeCommunity: true })
-      .then(list => { if (!cancelled) setModels((list || []).filter(m => m.tier === 'p2p')); })
-      .catch(() => { if (!cancelled) setModels([]); });
+    // 两处合起来：本机网关拉到的社区模型（要登录），和公开网络里此刻在线的节点上的模型（不用登录也能看）
+    const fromGateway = user
+      ? loadGatewayAvailableModels({ includeCommunity: true }).then(list => (list || []).filter(m => m.tier === 'p2p').map(m => m.id)).catch(() => [])
+      : Promise.resolve([]);
+    const fromNetwork = getNetwork()
+      .then(r => {
+        const net = normalizeNetworkPayload(r.data);
+        const count = {};
+        for (const w of net?.workers || []) {
+          if (w.status === 'offline') continue;
+          for (const name of workerModelNames(w)) count[name] = (count[name] || 0) + 1;
+        }
+        return count;
+      })
+      .catch(() => ({}));
+    Promise.all([fromGateway, fromNetwork]).then(([gw, count]) => {
+      if (cancelled) return;
+      const all = new Map();
+      for (const [id, n] of Object.entries(count)) all.set(id, { id, suppliers: n });
+      for (const id of gw) if (!all.has(id)) all.set(id, { id, suppliers: 0 });
+      setModels([...all.values()].sort((a, b) => (b.suppliers - a.suppliers) || a.id.localeCompare(b.id)));
+    });
     return () => { cancelled = true; };
   }, [user]);
   if (!models) return null;
-  const seen = new Set();
-  const rows = models.filter(m => (seen.has(m.id) ? false : (seen.add(m.id), true)));
+  const rows = models;
   return (
     <section className={`${LIB_LIST_CLS} p-5 space-y-3 mt-4`}>
       <SupplySectionHead title={t('contribute.buyModels')} hint={t('contribute.buyModelsHint')} />
@@ -982,6 +1000,7 @@ function CommunityModelsCard() {
           {rows.slice(0, 30).map(m => (
             <li key={m.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2">
               <span className="flex-[2_1_12rem] min-w-0 truncate text-[13px] font-medium text-zinc-800 dark:text-zinc-100">{m.id}</span>
+              <span className="flex-[1_1_6rem] text-xs text-zinc-500 dark:text-zinc-400">{m.suppliers > 0 ? t('contribute.suppliers', { n: m.suppliers }) : t('contribute.onlineNow')}</span>
               <span className="flex-[1_1_6rem] text-xs text-zinc-500 dark:text-zinc-400">{t('contribute.byCredits')}</span>
               <button type="button" onClick={() => navigate('/gateway')}
                 className="shrink-0 text-xs px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800">

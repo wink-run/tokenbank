@@ -1615,6 +1615,8 @@ export default {
   "contribute.buyKindAll": "全部",
   "contribute.buyKindAgents": "智能体",
   "contribute.buyKindModels": "模型",
+  "contribute.suppliers": "{n} 人在供给",
+  "contribute.onlineNow": "在线",
   'contribute.models': '上架模型',
   'contribute.modelsSelected': '已选 {n} 个',
   'contribute.addModel': '添加要上架的模型',
