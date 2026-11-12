@@ -31,8 +31,6 @@ import UsageMeter, { UsageInline, usageProviderForDirect } from '../components/U
 import { CustomRoutesPanel } from './Gateway';
 import { useCurrency } from '../store/currency';
 
-// 来源列表的列：名称 | 类型 | 模型数 | 今天 | 状态 | 操作
-const SOURCE_GRID = 'md:grid-cols-[minmax(0,1fr)_8rem_3.5rem_8rem_7rem_4.5rem]';
 
 /** Ollama 本地实例不校验 API Key。与 shared/provider-test.js 一致，不引 CJS，避免渲染进程白屏。 */
 function isOllamaProvider(provider) {
@@ -3722,6 +3720,15 @@ export default function Providers() {
   const [todayStats, setTodayStats] = useState(null);           // 今天各来源的请求数、花费
   const [sourceIssues, setSourceIssues] = useState({});         // 管家记下的来源问题（Key 失效、额度用完）
   const [gatewayPort, setGatewayPort] = useState(null);
+  const [rentedNames, setRentedNames] = useState(() => new Set()); // 上架出租的模型名（交易 · 卖）
+  const [appList, setAppList] = useState([]);                      // 应用：看哪条降级链 / 路由在被谁用
+  const [p2pOpen, setP2pOpen] = useState(false);                   // 社区网络设置弹层
+  useEffect(() => {
+    if (!p2pOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setP2pOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [p2pOpen]);
   const [sceneRoutes, setSceneRoutes] = useState([]);            // 用户调整过的模型降级链
   const [refreshingModels, setRefreshingModels] = useState(false);
   const [accountSyncing, setAccountSyncing] = useState(false);
@@ -4947,6 +4954,12 @@ export default function Providers() {
     Promise.resolve(window.electronAPI?.guardian?.providerIssues?.())
       .then(r => { if (alive && r?.success) setSourceIssues(r.issues || {}); }).catch(() => {});
     Promise.resolve(getGateway().status?.()).then(s => { if (alive && s?.port) setGatewayPort(s.port); }).catch(() => {});
+    Promise.resolve(getConfig().read()).then(cfg => {
+      if (!alive) return;
+      const names = (cfg?.model_groups || []).flatMap(g => g.models || []).map(m => (typeof m === 'string' ? m : m?.name)).filter(Boolean);
+      setRentedNames(new Set(names));
+    }).catch(() => {});
+    Promise.resolve(getApps().list?.()).then(list => { if (alive && Array.isArray(list)) setAppList(list.filter(a => !a.draft && !a._virtual_apikey)); }).catch(() => {});
     return () => { alive = false; };
   }, []);
 
@@ -5198,7 +5211,7 @@ export default function Providers() {
       return {
         key: `x:${p.id}`, row, name: m.label || p.label || p.id,
         iconProps: { id: p.id, icon: m.icon, baseUrl: p.base_url },
-        tag: getPersonalSourceTag(p, meta, userPayg, userSubscriptions),
+        tag: getPersonalSourceTag(p, meta, userPayg, userSubscriptions), tier: p.type,
         enabled: p.enabled !== false, models: (p.models || []).length,
         cooldown: cooldownFor(p.id, inst?.gateway_id, inst?.source_id), verified: p.test_verified === true,
         gwIds: [p.id], modelNames: modelNameList(p.models),
@@ -5216,7 +5229,7 @@ export default function Providers() {
     return {
       key: `i:${inst.id}`, row, name: inst.name || inst.label || gw || inst.id,
       iconProps: { id: inst.source_id || inst.provider_id || gw, icon: inst.icon, baseUrl: prov?.base_url },
-      tag: inst.tag,
+      tag: inst.tag, tier: prov?.type || (inst.tag === 'payg' ? 'paid' : null),
       enabled: direct ? true : prov?.enabled !== false,
       models: models.length,
       cooldown: direct ? cooldownFor(direct.agent_id, direct.source_id, direct.id) : cooldownFor(gw, prov?.id, inst.source_id),
@@ -5322,67 +5335,101 @@ export default function Providers() {
     return { dot: 'bg-sky-400', label: t('providers.list.enabled') };
   }
 
+  /** 某个来源最近的平均首字时间（按调用数加权） */
+  function sourceLatencyMs(sm) {
+    const ids = new Set(sm.gwIds || []);
+    let sum = 0; let n = 0;
+    for (const byProv of Object.values(todayStats?.model_provider_latency || {})) {
+      for (const [pid, v] of Object.entries(byProv || {})) {
+        if (!ids.has(pid) || !(v?.avg_ttft_ms > 0)) continue;
+        const w = v.calls || 1;
+        sum += v.avg_ttft_ms * w; n += w;
+      }
+    }
+    return n ? sum / n : null;
+  }
+
+  /** 哪些应用在用这条路由 / 这个模型（应用绑的路由 id 等于它，或是「层:模型」） */
+  function appsUsing(ids) {
+    const want = new Set(ids.filter(Boolean));
+    return appList.filter(a => {
+      const rs = Array.isArray(a.route_ids) && a.route_ids.length ? a.route_ids : (a.route_id ? [a.route_id] : []);
+      return rs.some(r => want.has(r) || want.has(String(r).replace(/^(free|paid|p2p):/, '')));
+    });
+  }
+  function usedByText(apps, empty) {
+    if (!apps.length) return empty;
+    const names = apps.map(a => String(a.name || '').split(' · ')[0] || a.name);
+    return names.length > 2 ? t('providers.usedByMany', { names: names.slice(0, 2).join('、'), n: names.length }) : t('providers.usedBy', { names: names.join('、') });
+  }
+
+  // 来源一行：名称（类型 · 层 · 模型数）｜状态｜今天｜出租｜主操作 + ⋯
+  const SRC_ROW = 'grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.7fr)_minmax(0,1fr)_minmax(0,0.8fr)_8.5rem] gap-x-4 gap-y-1 items-center';
   function renderSourceRow(sm, sel) {
     const st = sourceStatus(sm);
+    const td = sourceToday(sm);
+    const ms = sourceLatencyMs(sm);
+    const renting = (sm.modelNames || []).some(n => rentedNames.has(n));
+    const typeLabel = t(`providers.filter.${(PERSONAL_TYPE_BADGE[sm.tag] || PERSONAL_TYPE_BADGE.payg).filterKey}`);
+    const tierLabel = sm.tier === 'free' ? t('providers.row.tierFree') : sm.tier === 'paid' ? t('providers.row.tierPaid') : '';
+    const sub = [typeLabel, tierLabel, sm.models ? t('providers.row.models', { n: sm.models }) : ''].filter(Boolean).join(' · ');
+    const subBilled = sm.tag === 'app_sub' || sm.tag === 'api_sub' || sm.tag === 'sub_to_api';
+    const todayText = td.calls > 0
+      ? t('providers.row.today', { n: td.calls.toLocaleString(), cost: td.cost > 0 ? fmtCost(td.cost) : (subBilled ? t('providers.row.inSub') : t('providers.row.noCost')) })
+      : t('providers.list.todayNone');
+    const btn = 'text-[11px] px-2.5 py-1 rounded-lg';
     return (
       <li
         key={sm.key}
         role="option"
         aria-selected={sel}
         onClick={() => setSelectedSourceKey(sel ? null : sm.key)}
-        className={`${libRowCls(sel)} grid-cols-[minmax(0,1fr)_auto] ${SOURCE_GRID}`}
+        className={`${libRowCls(sel)} ${SRC_ROW}`}
       >
         <LibraryRowTitle
           logo={(
-            <ServiceIcon
-              id={sm.iconProps.id}
-              name={sm.name}
-              icon={sm.iconProps.icon}
-              baseUrl={sm.iconProps.baseUrl}
-              boxClass="w-9 h-9 !bg-zinc-100/80 dark:!bg-zinc-800/80 !rounded-xl"
-              imgClass="w-5 h-5"
-            />
+            <ServiceIcon id={sm.iconProps.id} name={sm.name} icon={sm.iconProps.icon} baseUrl={sm.iconProps.baseUrl}
+              boxClass="w-9 h-9 !bg-zinc-100/80 dark:!bg-zinc-800/80 !rounded-xl" imgClass="w-5 h-5" />
           )}
           name={sm.name}
-          chips={!sm.cooldown && sm.usageProvider && sm.enabled ? (
-            <span className="ml-1.5 shrink-0 text-[11px] text-zinc-500 dark:text-zinc-400 empty:hidden">
-              <UsageInline provider={sm.usageProvider} />
-            </span>
-          ) : undefined}
-          sub={sm.cooldown ? t('providers.list.coolingHint') : undefined}
-          subClass="text-amber-600 dark:text-amber-400"
+          sub={sub}
         />
-        <div className="hidden md:flex items-center gap-1.5 min-w-0 text-[11px] text-zinc-600 dark:text-zinc-300">
-          <PersonalTypeIcon tag={sm.tag} />
-          <span className="truncate">{t(`providers.filter.${(PERSONAL_TYPE_BADGE[sm.tag] || PERSONAL_TYPE_BADGE.payg).filterKey}`)}</span>
-        </div>
-        <span className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{sm.models || '—'}</span>
-        {(() => {
-          const td = sourceToday(sm);
-          return (
-            <span className="hidden md:block text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300 truncate">
-              {td.calls > 0
-                ? (td.cost > 0 ? t('providers.list.todayCost', { n: td.calls.toLocaleString(), cost: fmtCost(td.cost) }) : t('providers.list.todayCalls', { n: td.calls.toLocaleString() }))
-                : t('providers.list.todayNone')}
-            </span>
-          );
-        })()}
-        <span className={`flex items-center gap-1.5 text-[11px] ${st.issue ? 'font-medium text-red-700 dark:text-red-300' : 'text-zinc-600 dark:text-zinc-300'}`} title={st.issue?.text}>
-          <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} aria-hidden />
-          {st.label}
-        </span>
-        <span className="hidden md:flex justify-end">
+        <span className="hidden md:flex items-center gap-1.5 min-w-0 text-[11px] text-zinc-600 dark:text-zinc-300" title={st.issue?.text}>
           {st.issue ? (
-            <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedSourceKey(sm.key); }}
-              className="text-[11px] font-medium px-2 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-500">
+            <>
+              <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300">{st.label}</span>
+              <span className="truncate">{t('providers.row.issueFallback')}</span>
+            </>
+          ) : sm.cooldown ? (
+            <span className="truncate text-amber-700 dark:text-amber-300">{t('providers.list.coolingHint')}</span>
+          ) : !sm.enabled ? (
+            <span className="text-zinc-400">{t('providers.list.disabled')}</span>
+          ) : (
+            <span className="truncate">{ms ? t('providers.row.okLatency', { s: Math.max(0.1, ms / 1000).toFixed(1) }) : t('providers.row.ok')}</span>
+          )}
+        </span>
+        <span className="hidden md:block text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300 truncate">{todayText}</span>
+        <span className={`hidden md:block text-[11px] truncate ${renting ? 'font-medium text-emerald-700 dark:text-emerald-300' : 'text-zinc-500 dark:text-zinc-400'}`}>
+          {renting ? t('providers.row.renting') : t('providers.row.selfOnly')}
+        </span>
+        <span className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
+          {st.issue ? (
+            <button type="button" onClick={() => setSelectedSourceKey(sm.key)} className={`${btn} font-medium bg-blue-600 text-white hover:bg-blue-500`}>
               {st.issue.kind === 'quota' ? t('providers.list.fixQuota') : t('providers.list.fixKey')}
             </button>
+          ) : renting ? (
+            <button type="button" onClick={() => navigate('/contribute', { state: { tradeTab: 'supply' } })}
+              className={`${btn} border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800`}>
+              {t('providers.row.manageRent')}
+            </button>
           ) : sm.modelNames?.length > 0 && sm.enabled ? (
-            <button type="button" onClick={(e) => { e.stopPropagation(); navigate('/contribute', { state: { tradeTab: 'supply', offerModels: sm.modelNames } }); }}
-              className="text-[11px] px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20">
+            <button type="button" onClick={() => navigate('/contribute', { state: { tradeTab: 'supply', offerModels: sm.modelNames } })}
+              className={`${btn} font-medium bg-blue-600 text-white hover:bg-blue-500`}>
               {t('providers.rent.button')}
             </button>
           ) : null}
+          <button type="button" aria-label={t('providers.row.more', { name: sm.name })} onClick={() => setSelectedSourceKey(sel ? null : sm.key)}
+            className="w-7 h-7 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-[13px] leading-none">⋯</button>
         </span>
       </li>
     );
@@ -5427,46 +5474,6 @@ export default function Providers() {
     return null;
   }
 
-  /** 社区分享网络：和自己的来源同一种行，点开在右边看设置 */
-  function renderCommunityRow(p, sel) {
-    const key = `p2p:${p.id}`;
-    const on = p.enabled !== false;
-    const td = sourceToday({ gwIds: [p.id] });
-    const modelN = (p.models || []).length;
-    return (
-      <li
-        key={key}
-        role="option"
-        aria-selected={sel}
-        onClick={() => setSelectedSourceKey(sel ? null : key)}
-        className={`${libRowCls(sel)} grid-cols-[minmax(0,1fr)_auto] ${SOURCE_GRID}`}
-      >
-        <LibraryRowTitle
-          logo={<span className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-base" aria-hidden>🌐</span>}
-          name={t('providers.list.community')}
-          sub={t('providers.list.communityHint')}
-        />
-        <div className="hidden md:flex items-center gap-1.5 min-w-0 text-[11px] text-zinc-600 dark:text-zinc-300">
-          <span className="truncate">{t('providers.list.communityType')}</span>
-        </div>
-        <span className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{modelN || '—'}</span>
-        <span className="hidden md:block text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300 truncate">
-          {td.calls > 0 ? t('providers.list.todayCalls', { n: td.calls.toLocaleString() }) : t('providers.list.todayNone')}
-        </span>
-        <span className="flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300">
-          <span className={`w-1.5 h-1.5 rounded-full ${on ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} aria-hidden />
-          {on ? t('providers.list.communityOn') : t('providers.list.disabled')}
-        </span>
-        <span className="hidden md:flex justify-end">
-          <button type="button" onClick={(e) => { e.stopPropagation(); navigate('/contribute', { state: { tradeTab: 'hire' } }); }}
-            className="text-[11px] px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20">
-            {t('providers.list.rentMoreShort')}
-          </button>
-        </span>
-      </li>
-    );
-  }
-
   return (
     <div className="px-4 py-4 space-y-5">
 
@@ -5502,57 +5509,36 @@ export default function Providers() {
       </div>
 
       <>
-      {/* 来源：自己的 Key / 订阅 / 本机，和社区网络放在同一张表里；点一行在右边看设置 */}
+      {/* 我的来源：每个来源一行（类型 · 层 · 模型数｜状态｜今天｜出租｜操作）；点 ⋯ 在右边看设置 */}
       <section className="space-y-3">
-        <SourceSectionHeader dot={tierConfig.local.dot} title={t('providers.sec.sources')} hint={t('providers.sec.sourcesHint')} />
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-x-3 gap-y-2 min-w-0 flex-wrap">
-            <PersonalFilterBar value={personalFilter} onChange={setPersonalFilter} t={t} />
-            <button type="button" onClick={refreshModelsFromServer} disabled={refreshingModels}
-              className="tb-press shrink-0 text-xs px-2.5 py-1 rounded-lg border border-zinc-300/80 dark:border-zinc-700 bg-white/50 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-400 hover:bg-white/80 dark:hover:bg-zinc-700/80 transition-colors disabled:opacity-50">
-              {refreshingModels ? '…' : t('providers.billing.refreshModels')}
-            </button>
-          </div>
-          {accountsData && (
-            <SyncDiffBanner syncDiff={accountsData.sync_diff} t={t}
-              onAdoptServer={adoptServerTemplate} onDismissDrift={adoptServerTemplate} />
-          )}
-          {accountSyncHint && <p className="text-xs text-zinc-500">{accountSyncHint}</p>}
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 m-0">{t('providers.sec.mine')}</h2>
+          <button type="button" onClick={refreshModelsFromServer} disabled={refreshingModels}
+            className="ml-auto text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 disabled:opacity-50">
+            {refreshingModels ? '…' : t('providers.billing.refreshModels')}
+          </button>
+        </div>
+        {accountsData && (
+          <SyncDiffBanner syncDiff={accountsData.sync_diff} t={t}
+            onAdoptServer={adoptServerTemplate} onDismissDrift={adoptServerTemplate} />
+        )}
+        {accountSyncHint && <p className="text-xs text-zinc-500">{accountSyncHint}</p>}
         {(() => {
           const summaries = personalSourceRows.map(sourceSummary);
           const sel = summaries.find(x => x.key === selectedSourceKey);
-          const p2pList = providers.filter(p => p.type === 'p2p');
-          const selP2p = p2pList.find(p => `p2p:${p.id}` === selectedSourceKey);
           return (
             <div className="flex gap-4 items-start">
               <div className="flex-1 min-w-0">
-                {summaries.length === 0 && p2pList.length === 0 ? (
+                {summaries.length === 0 ? (
                   <div className={`${LIB_LIST_CLS} text-xs text-zinc-400 text-center py-8`}>{t('providers.filter.empty')}</div>
                 ) : (
                   <div className={LIB_LIST_CLS}>
-                    <div className={`hidden md:grid ${SOURCE_GRID} gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]`}>
-                      <span>{t('providers.list.name')}</span>
-                      <span>{t('providers.list.type')}</span>
-                      <span className="text-right">{t('providers.list.models')}</span>
-                      <span>{t('providers.list.today')}</span>
-                      <span>{t('providers.list.status')}</span>
-                      <span className="text-right">{t('providers.list.actions')}</span>
-                    </div>
                     <ul role="listbox" aria-label={tierConfig.local.label}>
                       {summaries.map(sm => renderSourceRow(sm, sm.key === selectedSourceKey))}
-                      {p2pList.map(p => renderCommunityRow(p, `p2p:${p.id}` === selectedSourceKey))}
                     </ul>
                   </div>
                 )}
               </div>
-              {selP2p && (
-                <LibraryPanel title={t('providers.list.detail')} closeLabel={t('providers.list.close')} onClose={() => setSelectedSourceKey(null)}>
-                  <P2PNetworkCard provider={selP2p} onUpdate={updateProvider} onPersistEnabled={persistProviderEnabled}
-                    cooldowns={cooldowns} onRetryCooldown={handleRetryCooldown} />
-                  <button type="button" onClick={() => navigate('/contribute', { state: { tradeTab: 'hire' } })}
-                    className="mt-3 text-[11px] text-blue-600 dark:text-blue-400 hover:underline">{t('providers.community.rentMore')}</button>
-                </LibraryPanel>
-              )}
               {sel && (
                 <LibraryPanel title={t('providers.list.detail')} closeLabel={t('providers.list.close')} onClose={() => setSelectedSourceKey(null)}>
                   {sel.modelNames?.length > 0 && (
@@ -5571,36 +5557,137 @@ export default function Providers() {
             </div>
           );
         })()}
-          {(pickerOpen || personalSourceRows.length === 0) && renderAddSourcePicker()}
-        </div>
+        {(pickerOpen || personalSourceRows.length === 0) && renderAddSourcePicker()}
       </section>
 
-      {/* 模型：每个模型挂在哪些来源上、按什么顺序降级，在这里看和调 */}
-      <section id="model-chains" className="space-y-3 pt-4 scroll-mt-3">
-        <SourceSectionHeader dot="bg-violet-500" title={t('providers.sec.models')} hint={t('providers.sec.modelsHint')} />
-          <PersonalSourceModelView
-            instances={modelViewInstances}
-            t={t}
-            modelTypeMap={personalModelTypeMap}
-            latencyMap={personalLatencyMap}
-            onRefreshLatency={loadPersonalLatency}
-            probeTargets={personalProbeTargets}
-            cooldownFor={cooldownFor}
-            sceneRoutes={sceneRoutes}
-            onSaveListRoute={saveListRoute}
-            onDeleteListRoute={deleteListRoute}
-            onEmptyAdd={() => setPickerOpen(true)}
-            onEmptySync={syncAccountsFromOtherDevices}
-            syncing={accountSyncing}
-            syncSecrets={syncAccountSecrets}
-          />
-      </section>
+      {/* 模型降级链：同一个模型挂在几个来源上，前一个不行换下一个。这里只读，顺序在「按模型看」里调 */}
+      {(() => {
+        const nameOf = (m) => (typeof m === 'string' ? m : m?.name);
+        const srcName = (inst) => inst?.name || inst?.label || inst?.gateway_id || inst?.id;
+        const bySource = {};
+        for (const inst of modelViewInstances) {
+          for (const m of (inst.models || []).map(nameOf).filter(Boolean)) {
+            const list = bySource[m] || (bySource[m] = []);
+            if (!list.includes(inst)) list.push(inst);
+          }
+        }
+        const saved = new Map(sceneRoutes.filter(r => r?.list_route && r.model_key).map(r => [r.model_key, r]));
+        const chains = [];
+        for (const [model, insts] of Object.entries(bySource)) {
+          const route = saved.get(model);
+          let order = insts;
+          if (route?.steps?.length) {
+            const byGw = new Map(insts.map(i => [i.gateway_id || i.id, i]));
+            const picked = route.steps.map(s => byGw.get(s.provider)).filter(Boolean);
+            order = [...picked, ...insts.filter(i => !picked.includes(i))];
+          }
+          if (order.length < 2 && !route) continue;
+          const head = order[0];
+          const cooling = head ? !!cooldownFor(head.gateway_id, head.id, head.source_id) : false;
+          const broken = head ? (head.gateway_id && sourceIssues[head.gateway_id]) : null;
+          chains.push({ model, order, degraded: cooling || !!broken, saved: !!route });
+        }
+        chains.sort((a, b) => (b.degraded - a.degraded) || a.model.localeCompare(b.model));
+        return (
+          <section id="model-chains" className="space-y-3 pt-4 scroll-mt-3">
+            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 m-0">{t('providers.chains.title')}</h2>
+            <div className={LIB_LIST_CLS}>
+              {chains.length === 0 && <p className="px-4 py-4 text-xs text-zinc-400">{t('providers.chains.empty')}</p>}
+              <ul className="list-none m-0 p-0">
+                {chains.map(c => (
+                  <li key={c.model} className="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(8rem,14rem)_minmax(0,1fr)_minmax(0,10rem)_auto] gap-x-4 gap-y-1 items-center px-4 py-2.5 border-b last:border-b-0 border-zinc-100 dark:border-white/[0.05]">
+                    <span className="text-xs font-medium text-zinc-800 dark:text-zinc-100 truncate font-mono" title={c.model}>{c.model}</span>
+                    <span className="col-span-2 md:col-span-1 order-3 md:order-none text-[11px] text-zinc-600 dark:text-zinc-300 min-w-0 flex flex-wrap items-center gap-1.5">
+                      <span className="min-w-0">{t('providers.chains.order', { list: c.order.map(srcName).join(' → ') })}</span>
+                      {c.degraded && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">{t('providers.chains.degraded')}</span>
+                      )}
+                    </span>
+                    <span className="hidden md:block text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
+                      {usedByText(appsUsing([c.model]), t('providers.notUsed'))}
+                    </span>
+                    <button type="button"
+                      onClick={() => { const el = document.getElementById('model-view'); if (el) { el.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }}
+                      className="justify-self-end text-[11px] px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                      {t('providers.chains.adjust')}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <details id="model-view" className="group">
+              <summary className="cursor-pointer text-[11px] text-blue-600 dark:text-blue-400 hover:underline px-1">{t('providers.chains.byModel')}</summary>
+              <div className="mt-3">
+'''+modelView.replace("
+          ","
+                ")+'''              </div>
+            </details>
+          </section>
+        );
+      })()}
 
       {/* 自定义路由（原网关页「场景路由」）：按规则或模型链组合出的路由 */}
       <section id="custom-routes" className="space-y-3 pt-4 scroll-mt-3">
-        <SourceSectionHeader dot="bg-sky-500" title={t('providers.customRoutes.title')} />
-        <CustomRoutesPanel />
+        <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 m-0">{t('providers.customRoutes.title')}</h2>
+        <CustomRoutesPanel apps={appList} />
       </section>
+
+      {/* 租来的模型：用社区的模型，按积分算 */}
+      {(() => {
+        const rows = (todayStats?.models || []).filter(m => (m.provider_ids || [m.provider_id]).some(id => providers.find(p => p.id === id)?.type === 'p2p'));
+        const p2p = providers.find(p => p.type === 'p2p');
+        return (
+          <section className="space-y-3 pt-4">
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 m-0">{t('providers.rented.title')}</h2>
+              {p2p && (
+                <button type="button" onClick={() => setP2pOpen(true)} className="text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
+                  {t('providers.rented.network', { state: p2p.enabled !== false ? t('providers.list.communityOn') : t('providers.list.disabled') })}
+                </button>
+              )}
+              <button type="button" onClick={() => navigate('/contribute', { state: { tradeTab: 'hire' } })}
+                className="ml-auto text-[11px] text-blue-600 dark:text-blue-400 hover:underline">{t('providers.community.rentMore')}</button>
+            </div>
+            <div className={LIB_LIST_CLS}>
+              {rows.length === 0 ? (
+                <p className="px-4 py-4 text-xs text-zinc-400">{t('providers.rented.empty')}</p>
+              ) : (
+                <ul className="list-none m-0 p-0">
+                  {rows.map(m => {
+                    const lat = Object.entries(todayStats?.model_provider_latency?.[m.model] || {})
+                      .filter(([id]) => providers.find(p => p.id === id)?.type === 'p2p').map(([, v]) => v?.avg_ttft_ms).filter(x => x > 0)[0];
+                    return (
+                      <li key={m.model} className="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(8rem,14rem)_minmax(0,1fr)_minmax(0,8rem)_minmax(0,8rem)_auto] gap-x-4 gap-y-1 items-center px-4 py-2.5 border-b last:border-b-0 border-zinc-100 dark:border-white/[0.05]">
+                        <span className="text-xs font-medium text-zinc-800 dark:text-zinc-100 truncate font-mono">{m.model}</span>
+                        <span className="hidden md:block text-[11px] text-zinc-600 dark:text-zinc-300">{lat ? t('providers.rented.sharedLatency', { s: (lat / 1000).toFixed(1) }) : t('providers.rented.shared')}</span>
+                        <span className="hidden md:block text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{t('providers.rented.today', { n: m.calls || 0 })}</span>
+                        <span className="hidden md:block text-[11px] font-medium text-violet-700 dark:text-violet-300">{t('providers.rented.credits')}</span>
+                        <button type="button" onClick={() => setP2pOpen(true)}
+                          className="justify-self-end text-[11px] px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                          {t('providers.rented.settings')}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+            {p2pOpen && p2p && createPortal(
+              <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[10vh]" onClick={() => setP2pOpen(false)}>
+                <div className="w-full max-w-xl" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between px-1 pb-2">
+                    <span className="text-sm font-semibold text-white">{t('providers.rented.networkTitle')}</span>
+                    <button type="button" onClick={() => setP2pOpen(false)} className="text-white/80 hover:text-white text-lg leading-none" aria-label={t('providers.list.close')}>×</button>
+                  </div>
+                  <P2PNetworkCard provider={p2p} onUpdate={updateProvider} onPersistEnabled={persistProviderEnabled}
+                    cooldowns={cooldowns} onRetryCooldown={handleRetryCooldown} />
+                </div>
+              </div>,
+              document.body,
+            )}
+          </section>
+        );
+      })()}
 
       </>
 

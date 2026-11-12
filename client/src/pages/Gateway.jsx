@@ -5440,7 +5440,7 @@ function RouteLogDetailModal({ entry, onClose }) {
 
 // ── 自定义路由（原「场景路由」）：放在模型页。列表、编辑器、健康度都在这里 ─────────────────
 /** 模型页「自定义路由」：按规则或模型链组合出的路由，在应用的路由选择里直接选 */
-export function CustomRoutesPanel() {
+export function CustomRoutesPanel({ apps = [] } = {}) {
   const { t } = useLang();
   const { user } = useAuth();
   const here = useLocation();
@@ -5527,16 +5527,14 @@ export function CustomRoutesPanel() {
         <div>
         {/* 操作栏：新建（蓝色，最左）｜说明｜在线同步（最右）——布局与应用列表一致 */}
         <div className="flex items-center gap-2 px-5 py-3 border-b border-white/40 dark:border-white/[0.06] flex-wrap">
+          <span className="text-xs text-zinc-400 dark:text-zinc-500 min-w-0 flex-1">{t('gateway.route.hint')}</span>
+          <ImportConfigButton onImported={() => { loadRoutes(); loadAvailableModels(); }} endpoint="/api/config/scenes" />
           <button
             onClick={() => { if (newRoute) { setNewRoute(null); } else { setExpandedRoute(null); setNewRoute({ scene_name: '', icon: 'icon:shuffle', steps: [] }); } }}
-            className="text-xs px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:hover:bg-[#4a73a8] text-white transition-colors"
+            className="text-xs px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
           >{t('gateway.route.new')}</button>
-          <span className="text-xs text-zinc-400 dark:text-zinc-500">{t('gateway.route.hint')}</span>
-          <div className="ml-auto">
-            <ImportConfigButton onImported={() => { loadRoutes(); loadAvailableModels(); }} endpoint="/api/config/scenes" />
-          </div>
         </div>
-        <div className="space-y-2 px-3 pb-3">
+        <div>
           {/* 新建路由编辑器：放在列表最上面 */}
           {newRoute && (
             <SceneRouteEditor key="new-route-editor" route={newRoute} availableModels={availableModels} network={network} sources={sources} onSave={saveRoute} onCancel={() => setNewRoute(null)} />
@@ -5565,87 +5563,50 @@ export function CustomRoutesPanel() {
             const hasVisionAssist = _allSteps.some(s => s?.vision_assist?.model);
             return (
             <div key={route.id}>
-              <div
-                className="tb-soft-tile flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer"
-                onClick={() => setExpandedRoute(expandedRoute === route.id ? null : route.id)}
-                title={t('gateway.common.edit')}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
-                  className={`w-3.5 h-3.5 shrink-0 text-zinc-400 transition-transform ${expandedRoute === route.id ? 'rotate-90' : ''}`}>
-                  <path d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-                </svg>
-                {isAppIcon(route.icon)
-                  ? appIconSvg(route.icon, 'w-5 h-5 shrink-0')
-                  : String(route.icon || '').startsWith('icon:')
-                    ? appIconSvg('icon:shuffle', 'w-5 h-5 shrink-0')
-                    : <span className="text-base shrink-0">{route.icon}</span>}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
+              {/* 一行：名称（下面是给应用填的模型名）｜去哪｜谁在用｜修改 */}
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(8rem,12rem)_minmax(0,1fr)_minmax(0,10rem)_auto] gap-x-4 gap-y-1 items-center px-4 py-2.5 border-b border-zinc-100 dark:border-white/[0.05]">
+                <span className="min-w-0">
+                  <span className="flex items-center gap-1.5 min-w-0">
                     <span title={healthTitle} className={`w-2 h-2 rounded-full shrink-0 ${healthDot}`} />
-                    <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200">{route.scene_name}</span>
-                    {hasVisionAssist && (
-                      <span
-                        title={t('gateway.route.visionAssistBadgeHint')}
-                        className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-900/25 border border-sky-200/80 dark:border-sky-800/50 text-sky-600 dark:text-sky-400 shrink-0"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 shrink-0" aria-hidden>
-                          <path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                          <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                        </svg>
-                        {t('gateway.route.visionAssistBadge')}
-                      </span>
-                    )}
-                    {route.caveman_level && (
-                      <span
-                        title={t('gateway.route.compressBadgeHint')}
-                        className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded bg-violet-50 dark:bg-violet-900/25 border border-violet-200/80 dark:border-violet-800/50 text-violet-600 dark:text-violet-400 shrink-0"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 shrink-0" aria-hidden>
-                          <path d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" />
-                        </svg>
-                        {{
-                          lite: t('gateway.route.compressBadgeLite'),
-                          full: t('gateway.route.compressBadgeFull'),
-                          ultra: t('gateway.route.compressBadgeUltra'),
-                        }[route.caveman_level] || t('gateway.route.compressBadge')}
-                      </span>
-                    )}
-                    {route.model_key && (
-                      <>
-                        <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-zinc-100/70 dark:bg-zinc-800/60 text-zinc-400 dark:text-zinc-500 shrink-0">
-                          {route.model_key}
-                        </span>
-                        <span onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(route.model_key); }}
-                          className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 cursor-pointer transition-colors shrink-0">{t('gateway.common.copy')}</span>
-                      </>
+                    <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100 truncate">{route.scene_name}</span>
+                    {health.degraded && (
+                      <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">{t('gateway.route.degraded')}</span>
                     )}
                     {routeMissing && (
-                      <span title={t('gateway.route.missingModels')} className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 text-amber-600 dark:text-amber-400 shrink-0">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 shrink-0">
-                          <path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-                        </svg>
-                        {t('gateway.route.needReset')}
-                      </span>
+                      <span title={t('gateway.route.missingModels')} className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">{t('gateway.route.needReset')}</span>
                     )}
-                    {health.degraded && (
-                      <span className="text-xs px-1 py-0.5 rounded bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800/40 text-rose-600 dark:text-rose-400 shrink-0">
-                        {t('gateway.route.degraded')}
-                      </span>
-                    )}
-                    {route.rules?.length > 0 && (
-                      <span title={t('gateway.route.rulesTitle')} className="text-xs px-1 py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/40 text-indigo-600 dark:text-indigo-400 shrink-0">
-                        {t('gateway.route.rulesCount', { n: route.rules.length })}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 truncate" title={routeSummary(route, t)}>{routeSummary(route, t)}</div>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
-                  <button onClick={() => removeRoute(route.id)}
-                    className="text-xs px-2 py-1 rounded-lg border border-red-200 dark:border-red-800/60 text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                  </span>
+                  {route.model_key && (
+                    <button type="button" onClick={() => navigator.clipboard?.writeText(route.model_key)} title={t('gateway.common.copy')}
+                      className="block max-w-full truncate text-[10px] font-mono text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">{route.model_key}</button>
+                  )}
+                </span>
+                <span className="col-span-2 md:col-span-1 order-3 md:order-none text-[11px] text-zinc-600 dark:text-zinc-300 min-w-0 truncate" title={routeSummary(route, t)}>
+                  {routeSummary(route, t)}
+                  {hasVisionAssist ? ` · ${t('gateway.route.visionAssistBadge')}` : ''}
+                  {route.caveman_level ? ` · ${t('gateway.route.compressBadge')}` : ''}
+                </span>
+                {(() => {
+                  const using = apps.filter(a => {
+                    const ids = Array.isArray(a.route_ids) && a.route_ids.length ? a.route_ids : (a.route_id ? [a.route_id] : []);
+                    return ids.some(r => r === route.model_key || r === route.id);
+                  }).map(a => String(a.name || '').split(' · ')[0] || a.name);
+                  return (
+                    <span className="hidden md:block text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
+                      {using.length ? t('gateway.route.usedBy', { names: using.slice(0, 2).join('、') + (using.length > 2 ? t('gateway.route.andMore', { n: using.length }) : '') }) : t('gateway.route.notUsed')}
+                    </span>
+                  );
+                })()}
+                <span className="flex items-center gap-1.5 justify-end">
+                  <button type="button" onClick={() => setExpandedRoute(expandedRoute === route.id ? null : route.id)} aria-expanded={expandedRoute === route.id}
+                    className="text-[11px] px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                    {expandedRoute === route.id ? t('gateway.route.collapseEdit') : t('gateway.route.edit')}
+                  </button>
+                  <button type="button" onClick={() => removeRoute(route.id)} aria-label={t('gateway.common.delete')}
+                    className="text-[11px] px-2 py-1 rounded-lg text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20">
                     {t('gateway.common.delete')}
                   </button>
-                </div>
+                </span>
               </div>
               {expandedRoute === route.id && (
                 <SceneRouteEditor key={'editor-' + route.id} route={route} availableModels={availableModels} network={network} sources={sources} onSave={saveRoute} onCancel={() => setExpandedRoute(null)} />
