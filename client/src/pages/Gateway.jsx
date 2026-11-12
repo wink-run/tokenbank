@@ -11,7 +11,7 @@ import claudeDevModeImg2 from '../assets/claude-devmode-2.webp';
 import { brandIconFor, resolveBrandIcon } from '../lib/brandIcons';
 import { APP_ICONS, isAppIcon, appIconSvg } from '../lib/appIcons';
 import { useLang } from '../store/lang';
-import { AgentsSubTabs, AgentRoutesPanel, AgentApiKey, SubTabBar, MAIN_BUTTON_CLASS } from '../components/GatewayAgents';
+import { AgentsSubTabs, AgentRoutesPanel, SubTabBar, MAIN_BUTTON_CLASS } from '../components/GatewayAgents';
 import { useAuth } from '../store/index';
 import RouteSelect, { tierOptgroups, usableSceneRoutes, formatModelDropdownLabel } from '../components/RouteSelect';
 import {
@@ -3001,6 +3001,22 @@ function AppDetailModal({ app, onClose }) {
   );
 }
 
+/** 页头的地址胶囊：显示 :端口/路径，点一下复制完整地址 */
+function GatewayPill({ label, url, running, t }) {
+  const [copied, setCopied] = useState(false);
+  const short = (() => { try { const u = new URL(url); return `:${u.port || (u.protocol === 'https:' ? 443 : 80)}${u.pathname.replace(/\/$/, '')}`; } catch { return url; } })();
+  return (
+    <button type="button" title={`${label} · ${url} · ${t('gateway.common.copy')}`}
+      onClick={() => { navigator.clipboard?.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); }).catch(() => {}); }}
+      className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-0.5 rounded-full border font-mono transition-colors ${running
+        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border-green-300 dark:border-green-800/50 hover:bg-green-200/70 dark:hover:bg-green-900/50'
+        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 border-zinc-300 dark:border-zinc-700'}`}>
+      <span className="font-sans">{label}</span>
+      <span>{copied ? t('gw2.copied') : short}</span>
+    </button>
+  );
+}
+
 function AppManager({ externalRoutes, availableModels = [], onActivity }) {
   const refresh = typeof onActivity === 'function' ? onActivity : () => {};
   const { t } = useLang();
@@ -5430,23 +5446,22 @@ export default function Gateway() {
   return (
     <div className="px-4 py-4 space-y-3.5">
 
-      {/* 页头：状态、接入地址、网关 Key、今天的量，合在一张卡片里 */}
-      <div className="tb-soft-card rounded-2xl px-4 py-3 min-w-0">
-        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-          <span className="relative flex h-2.5 w-2.5" aria-hidden>
-            <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${status?.running ? 'bg-green-500' : 'bg-zinc-400'}`} />
-          </span>
-          <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">{t('gateway.title')}</h1>
-          {status && (
-            <span className={`text-xs px-2 py-0.5 rounded-full border ${
-              status.running
-                ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 border-green-300 dark:border-green-800/50'
-                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 border-zinc-300 dark:border-zinc-700'
-            }`}>
-              {status.running ? t('gateway.running', { port: status.port }) : t('gateway.stopped')}
-            </span>
-          )}
-          <span className="flex-1" />
+      {/* 页头：网关名字 + 两个地址胶囊（模型 /v1、智能体 /v1/agent，点一下复制）+ 重启。
+          各智能体怎么调用、用哪个 Key，在下面各自那一行里看。 */}
+      <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+        <span className="relative flex h-2.5 w-2.5" aria-hidden>
+          <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${status?.running ? 'bg-green-500' : 'bg-zinc-400'}`} />
+        </span>
+        <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">{t('gateway.title')}</h1>
+        {status && !status.running && (
+          <span className="text-xs px-2 py-0.5 rounded-full border bg-zinc-100 dark:bg-zinc-800 text-zinc-500 border-zinc-300 dark:border-zinc-700">{t('gateway.stopped')}</span>
+        )}
+        {[
+          [t('gateway.surface.gateway'), localBase],
+          [t('gateway.surface.agent'), `${localBase.replace(/\/$/, '')}/agent`],
+        ].map(([label, url]) => (
+          <GatewayPill key={url} label={label} url={url} running={!!status?.running} t={t} />
+        ))}
           <button
             onClick={async () => {
               if (restarting) return;
@@ -5458,7 +5473,7 @@ export default function Gateway() {
             }}
             disabled={restarting}
             title={t('gateway.restartTitle')}
-            className="shrink-0 flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
+            className="ml-auto shrink-0 flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor"
               className={`w-3.5 h-3.5 ${restarting ? 'animate-spin' : ''}`}>
@@ -5466,53 +5481,6 @@ export default function Gateway() {
             </svg>
             {restarting ? t('gateway.restarting') : t('gateway.restart')}
           </button>
-        </div>
-        <div className="mt-3 grid grid-cols-1 md:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,1.25fr)] gap-3 md:gap-0 md:divide-x divide-zinc-200/70 dark:divide-white/[0.06]">
-          {/* 接入地址 */}
-          <div className="min-w-0 md:pr-4 space-y-1">
-            <div className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500">{t('gw2.head.endpoints')}</div>
-            {[
-              [t('gateway.surface.gateway'), localBase],
-              [t('gateway.surface.agent'), `${localBase.replace(/\/$/, '')}/agent`],
-            ].map(([label, url]) => (
-              <div key={label} className="flex items-center gap-2 min-w-0 text-xs">
-                <span className="w-12 shrink-0 whitespace-nowrap text-zinc-500 dark:text-zinc-400">{label}</span>
-                <code className="flex-1 min-w-0 truncate text-[11px] font-mono text-zinc-700 dark:text-zinc-300" title={url}>{url}</code>
-                <CopyButton text={url} label={t('gateway.common.copy')} className="py-0.5 text-xs shrink-0" />
-              </div>
-            ))}
-          </div>
-          {/* 网关 Key：模型、智能体通用 */}
-          <div className="min-w-0 md:px-4 space-y-1">
-            <div className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500">{t('gw2.head.key')}</div>
-            <AgentApiKey inline bare />
-            <div className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('gw2.head.keyHint')}</div>
-          </div>
-          {/* 今天 */}
-          <div className="min-w-0 md:pl-4 space-y-1">
-            <div className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500">{t('gw2.head.today')}</div>
-            <div className="flex items-baseline gap-x-3 gap-y-0.5 flex-wrap text-xs text-zinc-500 dark:text-zinc-400">
-              <span className="w-12 shrink-0 whitespace-nowrap">{t('gateway.surface.gateway')}</span>
-              <button type="button" onClick={jumpToRouteLog} title={t('gateway.log.jump')}
-                className="hover:text-zinc-800 dark:hover:text-zinc-200 underline-offset-2 hover:underline">
-                <b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{stats ? headerCalls.toLocaleString() : '—'}</b> {t('gateway.stat.requests')}
-              </button>
-              <span><b className="text-blue-600 dark:text-blue-400 tabular-nums">{stats ? fmtTokens(headerTokens) : '—'}</b> Token</span>
-              <span><b className="text-violet-600 dark:text-violet-400 tabular-nums">{gatewayRatio !== null ? `${gatewayRatio}%` : '—'}</b> {t('gateway.stat.forward')}</span>
-              <span title={t('gateway.stat.avgLatencyHint')}><b className="text-zinc-700 dark:text-zinc-200 tabular-nums">{avgLatency > 0 ? `${avgLatency}ms` : '—'}</b> {t('gateway.stat.firstToken')}</span>
-            </div>
-            <div className="flex items-baseline gap-x-3 gap-y-0.5 flex-wrap text-xs text-zinc-500 dark:text-zinc-400">
-              <span className="w-12 shrink-0 whitespace-nowrap">{t('gateway.surface.agent')}</span>
-              <button type="button" onClick={jumpToRouteLog} title={t('gateway.log.jump')}
-                className="hover:text-zinc-800 dark:hover:text-zinc-200 underline-offset-2 hover:underline">
-                <b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentStats ? agentStats.tasks : '—'}</b> {t('gateway.stat.agentTasks')}
-              </button>
-              <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentStats ? agentStats.running : '—'}</b> {t('gateway.stat.agentRunning')}</span>
-              <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentStats ? agentStats.failed : '—'}</b> {t('gateway.stat.agentFailed')}</span>
-              <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentDurationLabel(agentStats?.avg_duration_ms, fmtMs)}</b> {t('gateway.stat.agentDuration')}</span>
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* 应用列表 / 场景路由 Tab — 大面板用更透的 soft-panel */}

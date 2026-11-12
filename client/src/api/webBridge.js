@@ -129,6 +129,8 @@ const agent = {
   taskStats: call0('agent:taskStats'),
   listBlocked: call0('agent:listBlocked'),
   taskMessages: (taskIds, opts) => invoke('agent:taskMessages', taskIds, opts),
+  keyGet: (agentId) => invoke('agent:keyGet', agentId),
+  keyRegenerate: (agentId) => invoke('agent:keyRegenerate', agentId),
   setAssistantRuntime: (resourceId, runtimeAgentId) => invoke('agent:setAssistantRuntime', { resourceId, runtimeAgentId }),
   routesList: call0('agent:routesList'),
   routesSave: (route) => invoke('agent:routesSave', route),

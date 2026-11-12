@@ -318,7 +318,9 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
       });
     } catch { /* 明细写入失败不影响任务响应 */ }
   };
-  if (!key || (typeof knownKey === 'function' && !knownKey(key))) {
+  // 智能体自己的 Key：只能调这一个智能体
+  const boundAgent = require('./agent-keys').agentForKey(key);
+  if (!key || (!boundAgent && typeof knownKey === 'function' && !knownKey(key))) {
     report({ ok: false, error: 'invalid api key' });
     sendJson(res, 401, { error: { message: 'invalid api key', type: 'auth_error' } });
     return true;
@@ -331,7 +333,8 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
   let harnessId = '';
   try {
     if (route.op === 'list') {
-      sendJson(res, 200, { object: 'list', data: await listHarnesses() });
+      const all = await listHarnesses();
+      sendJson(res, 200, { object: 'list', data: boundAgent ? all.filter(h => h.id === boundAgent) : all });
       return true;
     }
     if (route.op === 'get') {
@@ -350,6 +353,14 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
     prompt = inputText(body.input);
     harnessId = harnessIdFromBody(body);
     callContext = callContextFromBody(body);
+    if (boundAgent) {
+      if (!harnessId) harnessId = boundAgent;   // 用智能体自己的 Key 可以不写 harness_id
+      if (harnessId !== boundAgent) {
+        report({ ok: false, error: 'this key is for another agent', prompt, harnessId });
+        sendJson(res, 403, { error: { message: `这个 Key 只能调用 ${boundAgent}`, type: 'forbidden' } });
+        return true;
+      }
+    }
     const reportTask = (task, fallbackError) => {
       const failed = task?.status === 'failed' || task?.status === 'cancelled';
       report({

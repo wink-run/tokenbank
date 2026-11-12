@@ -269,6 +269,16 @@ function registerAgentHandlers() {
     } catch (error) { return { success: false, error: error.message }; }
   });
 
+  // 每个智能体自己的接口 Key（专业智能体、外部智能体、智能体路由）
+  ipcMain.handle('agent:keyGet', async (_event, agentId) => {
+    try { return { success: true, key: require('./agent-keys').get(agentId) }; }
+    catch (error) { return { success: false, error: error.message }; }
+  });
+  ipcMain.handle('agent:keyRegenerate', async (_event, agentId) => {
+    try { return { success: true, key: require('./agent-keys').regenerate(agentId) }; }
+    catch (error) { return { success: false, error: error.message }; }
+  });
+
   ipcMain.handle('agent:taskMessages', async (_event, taskIds = [], opts = {}) => {
     try {
       return {
