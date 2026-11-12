@@ -1609,13 +1609,14 @@ export default function ExecutionLog({
   /** 合并历史轮次 + 当前轮次；currentStart 之后才是本轮（呼吸光标只挂这里） */
   const { timeline, currentStart } = useMemo(() => {
     const items = [];
-    const pushedItems = (id) => (id && pushedByTask[id] ? pushedByTask[id] : [])
-      .map(m => ({ kind: 'assistant', content: m.content, timestamp: m.timestamp }));
-    // 别的任务的推送：放在开始时间早于它的最后一轮之后
-    const strays = [...(strayPushes || [])].sort((a, b) => a.timestamp - b.timestamp);
+    // 所有推送（本段对话里某一轮的、别的任务的）都按推送时间插：放在推送之后开始的第一轮之前
+    const strays = [
+      ...Object.values(pushedByTask || {}).flat().map(m => ({ ...m, own: true })),
+      ...(strayPushes || []),
+    ].sort((a, b) => a.timestamp - b.timestamp);
     const strayItem = (m) => ({
       kind: 'assistant',
-      content: `${t('debug.log.pushFrom', { title: m.source || t('debug.log.pushFromOther') })}\n\n${m.content}`,
+      content: m.own ? m.content : `${t('debug.log.pushFrom', { title: m.source || t('debug.log.pushFromOther') })}\n\n${m.content}`,
       timestamp: m.timestamp,
     });
     const turnStart = (tr) => Number(tr?.sentAt || tr?.timestamp || 0);
@@ -1626,7 +1627,6 @@ export default function ExecutionLog({
     };
     conversationTurns.forEach((turn, i) => {
       items.push(...buildTurnTimeline(turn, turn.delegations || {}, agentNames, t));
-      items.push(...pushedItems(turn.taskId));
       const next = conversationTurns[i + 1];
       const nextStart = next ? turnStart(next) : Number(task?.created_at || Infinity);
       items.push(...takeStraysBefore(nextStart || Infinity));
@@ -1649,7 +1649,6 @@ export default function ExecutionLog({
       const withArts = attachTurnArtifacts(items.slice(currentStart), result.artifacts);
       items.splice(currentStart, items.length - currentStart, ...withArts);
     }
-    if (task?.id && !conversationTurns.some(tr => tr.taskId === task.id)) items.push(...pushedItems(task.id));
     items.push(...takeStraysBefore(Infinity));
     return { timeline: items, currentStart };
   }, [conversationTurns, userPrompt, userImages, steps, delegations, agentNames, status, result, task?.id, task?.completed_at, task?.created_at, task?.started_at, pushedByTask, strayPushes, t]);
