@@ -11,7 +11,7 @@ import claudeDevModeImg2 from '../assets/claude-devmode-2.webp';
 import { brandIconFor, resolveBrandIcon } from '../lib/brandIcons';
 import { APP_ICONS, isAppIcon, appIconSvg } from '../lib/appIcons';
 import { useLang } from '../store/lang';
-import { ProfessionalAgents, ExternalAgents, AgentRoutesPanel, AgentApiKey } from '../components/GatewayAgents';
+import { AgentsSubTabs, AgentRoutesPanel, AgentApiKey } from '../components/GatewayAgents';
 import { useAuth } from '../store/index';
 import RouteSelect, { tierOptgroups, usableSceneRoutes, formatModelDropdownLabel } from '../components/RouteSelect';
 import {
@@ -5529,17 +5529,9 @@ export default function Gateway() {
 
         {/* Tab0: 应用列表 & 托管 */}
         {mainTab === 0 && (
-          <div>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3.5 pt-3">
-              <h3 className="m-0 text-sm font-semibold text-zinc-800 dark:text-zinc-100">{t('gw2.generic.title')}</h3>
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">{t('gw2.generic.hint')}</span>
-            </div>
+          <AgentsSubTabs renderApps={() => (
             <AppManager externalRoutes={routes} availableModels={availableModels} onActivity={refresh} />
-            <div className="border-t border-white/40 dark:border-white/[0.06] pt-1">
-              <ProfessionalAgents />
-              <ExternalAgents />
-            </div>
-          </div>
+          )} />
         )}
 
         {/* Tab1: 场景路由 */}

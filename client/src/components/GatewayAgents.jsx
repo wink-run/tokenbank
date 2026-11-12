@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLang } from '../store/lang';
 import { getConfig, getLocalConfig } from '../api/adapter';
+import { resolveBrandIcon } from '../lib/brandIcons';
 
 const agentApi = () => window.electronAPI?.agent || {};
 
@@ -81,11 +82,60 @@ function useAgentData(refreshKey) {
   return { agents, blocked, stats, rentIds };
 }
 
-/** 专业智能体：资产里配好、投射到某个应用上跑的 */
+function gatewayBase() {
+  try { return `${window.location.protocol}//${window.location.hostname}:11430`; } catch { return 'http://127.0.0.1:11430'; }
+}
+
+/** 专业智能体怎么从接口调用：选一个，给出 harness_id 和 curl */
+function ProApiCard({ rows, appName, picked, onPick, open, setOpen, t }) {
+  const cur = rows.find(r => r.id === picked) || rows[0];
+  const gw = gatewayBase();
+  const curl = cur ? `curl ${gw}/v1/agent/responses \\
+  -H "Authorization: Bearer [智能体接口 Key]" \\
+  -H "Content-Type: application/json" \\
+  -d '{"input": "你的任务", "metadata": {"harness_id": "${cur.id}"}}'` : '';
+  return (
+    <div id="gw-pro-api" className="rounded-xl border border-zinc-200/80 dark:border-white/[0.08] bg-white/60 dark:bg-zinc-900/40">
+      <button type="button" className="w-full flex items-center gap-2 px-3 min-h-[44px] md:min-h-[38px] text-left" aria-expanded={open} onClick={() => setOpen(v => !v)}>
+        <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">{t('gw2.proApi.title')}</span>
+        <span className="text-[11px] text-zinc-500 dark:text-zinc-400 hidden md:inline">{t('gw2.proApi.short')}</span>
+        <span className="ml-auto text-xs text-zinc-400">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && cur && (
+        <div className="px-3 pb-3 space-y-2 text-xs text-zinc-600 dark:text-zinc-300">
+          <ol className="m-0 pl-4 space-y-1 leading-relaxed">
+            <li>{t('gw2.proApi.step1')}</li>
+            <li>{t('gw2.proApi.step2')}</li>
+            <li>{t('gw2.proApi.step3')}</li>
+          </ol>
+          <div className="flex flex-col md:flex-row md:items-center gap-2">
+            <label className="flex flex-col md:flex-row md:items-center gap-1.5 text-zinc-500">{t('gw2.proApi.pick')}
+              <select value={cur.id} onChange={e => onPick(e.target.value)}
+                className="min-h-[44px] md:min-h-[30px] px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm md:text-xs text-zinc-900 dark:text-zinc-100">
+                {rows.map(r => <option key={r.id} value={r.id}>{r.name} → {appName(r.runtimeAgentId)}</option>)}
+              </select>
+            </label>
+            <span className="flex items-center gap-2 min-w-0">harness_id <Code>{cur.id}</Code><CopyText text={cur.id} t={t} /></span>
+          </div>
+          <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.proApi.runsOn', { name: cur.name, app: appName(cur.runtimeAgentId) })}</p>
+          <div className="relative">
+            <pre className="m-0 p-3 pr-16 rounded-xl bg-zinc-900 text-zinc-100 text-[11px] leading-relaxed overflow-x-auto">{curl}</pre>
+            <span className="absolute top-2 right-2"><CopyText text={curl} t={t} /></span>
+          </div>
+          <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.proApi.list', { url: `${gw}/v1/agent/harnesses` })}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 专业智能体：资产里配好、投射到某个应用上跑的；按它跑在哪个应用上分组 */
 export function ProfessionalAgents() {
   const { t } = useLang();
   const navigate = useNavigate();
   const { agents, blocked, stats, rentIds } = useAgentData(0);
+  const [picked, setPicked] = useState('');
+  const [apiOpen, setApiOpen] = useState(false);   // 默认收起，点某行的「接口示例」时展开
   const rows = useMemo(() => {
     const list = agents.filter(a => a.type === 'assistant' && !a.guardian && a.id !== 'assistant:tb-guardian');
     const seen = new Set(list.map(a => a.id));
@@ -93,65 +143,147 @@ export function ProfessionalAgents() {
     for (const b of Object.values(blocked)) if (!seen.has(b.id)) list.push({ id: b.id, name: b.name, resourceId: b.resourceId, runtimeAgentId: b.runtimeAgentId, type: 'assistant' });
     return list.sort((a, b) => (!!blocked[b.id] - !!blocked[a.id]) || String(a.name).localeCompare(String(b.name)));
   }, [agents, blocked]);
+  const appOf = (id) => agents.find(a => a.id === id);
+  const appName = (id) => appOf(id)?.name || id || '—';
+  const groups = useMemo(() => {
+    const m = new Map();
+    for (const r of rows) {
+      const k = r.runtimeAgentId || '';
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(r);
+    }
+    // 有跑不起来的组排前面，其余按数量
+    return [...m.entries()].sort((a, b) => (b[1].some(r => blocked[r.id]) - a[1].some(r => blocked[r.id])) || b[1].length - a[1].length);
+  }, [rows, blocked]);
   const brokenN = rows.filter(a => blocked[a.id]).length;
-  const appName = (id) => agents.find(a => a.id === id)?.name || id;
-  const GRID = 'md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_10.5rem]';
+  const showApi = (id) => {
+    setPicked(id);
+    setApiOpen(true);
+    setTimeout(() => { try { document.getElementById('gw-pro-api')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* ignore */ } }, 0);
+  };
+  const GRID = 'md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.8fr)_15rem]';
   return (
-    <section className="space-y-1.5 px-2.5 pb-3">
+    <section className="space-y-2 px-2.5 pb-4">
       <GroupHead title={t('gw2.pro.title', { n: rows.length })} hint={t('gw2.pro.hint')}
         badge={brokenN ? t('gw2.pro.broken', { n: brokenN }) : ''}
         right={<button type="button" className={BTN} onClick={() => navigate('/resources', { state: { resourceType: 'assistant' } })}>{t('gw2.pro.new')}</button>} />
       {rows.length === 0 ? (
         <p className="px-3 py-3 text-xs text-zinc-500 dark:text-zinc-400">{t('gw2.pro.empty')}</p>
       ) : (
-        <div className="space-y-2 md:space-y-0 md:rounded-xl md:border md:border-zinc-100 md:dark:border-white/[0.06]">
-          <div className={`${HEAD} ${GRID}`}>
-            <span>{t('gw2.col.agent')}</span><span>{t('gw2.col.runsOn')}</span><span>{t('gw2.col.state')}</span>
-            <span>{t('gw2.col.today')}</span><span>harness_id</span><span>{t('gw2.col.rent')}</span><span className="text-right">{t('gw2.col.actions')}</span>
-          </div>
-          {rows.map(a => {
-            const b = blocked[a.id];
-            const st = stats[a.id] || {};
-            const renting = a.resourceId && rentIds.has(a.resourceId);
+        <>
+          <ProApiCard rows={rows.filter(r => !blocked[r.id])} appName={appName} picked={picked} onPick={setPicked} open={apiOpen} setOpen={setApiOpen} t={t} />
+          {groups.map(([appId, list]) => {
+            const app = appOf(appId);
+            const appOk = !!app && app.installed !== false;
+            const icon = resolveBrandIcon(`${appId} ${app?.name || ''}`);
             return (
-              <div key={a.id} className={`${ROW} ${GRID} ${b ? 'border border-red-200 dark:border-red-900/50 md:border-0 bg-red-50/60 md:bg-red-50/40 dark:md:bg-red-950/10' : ''}`}>
-                <span className="min-w-0">
-                  <span className="block text-sm md:text-xs font-medium text-zinc-800 dark:text-zinc-100 truncate">{a.name}</span>
-                  <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">{a.skillCount ? t('gw2.pro.skills', { n: a.skillCount }) : t('gw2.pro.noSkills')}</span>
-                </span>
-                <span className="text-xs text-zinc-600 dark:text-zinc-300"><span className="md:hidden text-zinc-400">{t('gw2.col.runsOn')} · </span>{appName(a.runtimeAgentId)}</span>
-                <span className="text-xs min-w-0">
-                  {b ? (
-                    <>
-                      <span className="font-semibold text-red-700 dark:text-red-300">● {t('gw2.pro.cantRun')}</span>
-                      <span className="block text-zinc-600 dark:text-zinc-300">{b.reason === 'skills' ? t('gw2.pro.missing', { s: b.missing.join('、') }) : t('gw2.pro.noApp')}</span>
-                    </>
-                  ) : <span className="text-emerald-700 dark:text-emerald-400">● {t('gw2.pro.ok')}</span>}
-                </span>
-                <span className="text-xs tabular-nums text-zinc-600 dark:text-zinc-300">{st.tasks ? t('gw2.tasks', { n: st.tasks, ok: st.ok || 0 }) : t('gw2.noTasks')}</span>
-                <span className="flex items-center gap-2 min-w-0"><Code>{a.id}</Code><span className="md:hidden"><CopyText text={a.id} t={t} /></span></span>
-                <span className={`text-xs ${renting ? 'text-emerald-700 dark:text-emerald-400 font-medium' : 'text-zinc-500 dark:text-zinc-400'}`}>
-                  {renting ? t('gw2.pro.renting') : t('gw2.pro.selfOnly')}
-                </span>
-                <span className="flex gap-2 md:justify-end [&>*]:flex-1 md:[&>*]:flex-none">
-                  {b ? (
-                    <button type="button" className={BTN_PRIMARY}
-                      onClick={() => navigate('/resources', { state: { resourceType: b.reason === 'skills' ? 'skill' : 'assistant', selectKey: b.reason === 'skills' ? undefined : `r-${a.resourceId}` } })}>
-                      {t('gw2.pro.fix')}
-                    </button>
-                  ) : (
-                    <>
-                      <button type="button" className={BTN} onClick={() => navigate('/debug', { state: { agentId: a.id } })}>{t('gw2.pro.try')}</button>
-                      <button type="button" className={BTN} onClick={() => navigate('/resources', { state: { resourceType: 'assistant', selectKey: a.resourceId ? `r-${a.resourceId}` : undefined } })}>{t('gw2.pro.edit')}</button>
-                    </>
-                  )}
-                </span>
+              <div key={appId || 'none'} className="space-y-2 md:space-y-0 md:rounded-xl md:border md:border-zinc-100 md:dark:border-white/[0.06] overflow-hidden">
+                {/* 组头：它们跑在哪个应用上 */}
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 rounded-xl md:rounded-none bg-zinc-50/90 dark:bg-white/[0.03]">
+                  {icon ? <img src={icon} alt="" className="w-4 h-4 shrink-0" /> : <span className="w-4 h-4 shrink-0 rounded bg-zinc-200 dark:bg-zinc-700" />}
+                  <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">{t('gw2.pro.onApp', { app: appName(appId) })}</span>
+                  <span className="text-[11px] text-zinc-500 dark:text-zinc-400">{t('gw2.pro.groupN', { n: list.length })}</span>
+                  <span className={`text-[11px] ${appOk ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>● {appOk ? t('gw2.pro.appOk') : t('gw2.pro.appMissing')}</span>
+                  <span className="basis-full md:basis-auto md:ml-auto text-[11px] text-zinc-500 dark:text-zinc-400">{t('gw2.pro.groupHint', { app: appName(appId) })}</span>
+                </div>
+                <div className={`${HEAD} ${GRID}`}>
+                  <span>{t('gw2.col.agent')}</span><span>{t('gw2.col.state')}</span><span>{t('gw2.col.today')}</span><span>{t('gw2.col.rent')}</span><span className="text-right">{t('gw2.col.actions')}</span>
+                </div>
+                {list.map(a => {
+                  const b = blocked[a.id];
+                  const st = stats[a.id] || {};
+                  const renting = a.resourceId && rentIds.has(a.resourceId);
+                  return (
+                    <div key={a.id} className={`${ROW} ${GRID} ${b ? 'border border-red-200 dark:border-red-900/50 md:border-0 bg-red-50/60 md:bg-red-50/40 dark:md:bg-red-950/10' : ''}`}>
+                      <span className="min-w-0">
+                        <span className="block text-sm md:text-xs font-medium text-zinc-800 dark:text-zinc-100 truncate" title={a.name}>{a.name}</span>
+                        <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">{a.skillCount ? t('gw2.pro.skills', { n: a.skillCount }) : t('gw2.pro.noSkills')}</span>
+                      </span>
+                      <span className="text-xs min-w-0">
+                        {b ? (
+                          <>
+                            <span className="font-semibold text-red-700 dark:text-red-300">● {t('gw2.pro.cantRun')}</span>
+                            <span className="block text-zinc-600 dark:text-zinc-300">{b.reason === 'skills' ? t('gw2.pro.missing', { s: b.missing.join('、') }) : t('gw2.pro.noApp')}</span>
+                          </>
+                        ) : <span className="text-emerald-700 dark:text-emerald-400">● {t('gw2.pro.ok')}</span>}
+                      </span>
+                      <span className="text-xs tabular-nums text-zinc-600 dark:text-zinc-300">{st.tasks ? t('gw2.tasks', { n: st.tasks, ok: st.ok || 0 }) : t('gw2.noTasks')}</span>
+                      <span className={`text-xs ${renting ? 'text-emerald-700 dark:text-emerald-400 font-medium' : 'text-zinc-500 dark:text-zinc-400'}`}>
+                        {renting ? t('gw2.pro.renting') : t('gw2.pro.selfOnly')}
+                      </span>
+                      <span className="flex gap-2 md:justify-end [&>*]:flex-1 md:[&>*]:flex-none">
+                        {b ? (
+                          <button type="button" className={BTN_PRIMARY}
+                            onClick={() => navigate('/resources', { state: { resourceType: b.reason === 'skills' ? 'skill' : 'assistant', selectKey: b.reason === 'skills' ? undefined : `r-${a.resourceId}` } })}>
+                            {t('gw2.pro.fix')}
+                          </button>
+                        ) : (
+                          <>
+                            <button type="button" className={BTN} onClick={() => navigate('/debug', { state: { agentId: a.id } })}>{t('gw2.pro.try')}</button>
+                            <button type="button" className={BTN} onClick={() => showApi(a.id)}>{t('gw2.pro.api')}</button>
+                            <button type="button" className={BTN} onClick={() => navigate('/resources', { state: { resourceType: 'assistant', selectKey: a.resourceId ? `r-${a.resourceId}` : undefined } })}>{t('gw2.pro.edit')}</button>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
-        </div>
+        </>
       )}
     </section>
+  );
+}
+
+/** 「智能体」标签里的三个分组：一次只看一组，页面不会太长 */
+export function AgentsSubTabs({ renderApps }) {
+  const { t } = useLang();
+  const [tab, setTabRaw] = useState(() => { try { return localStorage.getItem('tb.gw.agentsTab') || 'apps'; } catch { return 'apps'; } });
+  const setTab = (v) => { setTabRaw(v); try { localStorage.setItem('tb.gw.agentsTab', v); } catch { /* 只在本次 */ } };
+  const [counts, setCounts] = useState({ pro: 0, broken: 0, ext: 0, pending: 0 });
+  useEffect(() => {
+    const api = agentApi();
+    Promise.all([
+      Promise.resolve(api.listAgents?.()).catch(() => null),
+      Promise.resolve(api.listBlocked?.()).catch(() => null),
+      Promise.resolve(api.externalList?.()).catch(() => null),
+    ]).then(([l, bl, ex]) => {
+      const blockedIds = new Set((bl?.agents || []).map(a => a.id));
+      const pros = new Set((l?.agents || []).filter(a => a.type === 'assistant' && !a.guardian && a.id !== 'assistant:tb-guardian').map(a => a.id));
+      for (const id of blockedIds) pros.add(id);
+      const ext = ex?.agents || [];
+      setCounts({ pro: pros.size, broken: blockedIds.size, ext: ext.length, pending: ext.filter(a => a.status === 'pending').length });
+    });
+  }, [tab]);
+  const items = [
+    { id: 'apps', label: t('gw2.generic.title'), hint: t('gw2.generic.hint') },
+    { id: 'pro', label: t('gw2.sub.pro', { n: counts.pro }), badge: counts.broken ? t('gw2.pro.broken', { n: counts.broken }) : '', tone: 'red' },
+    { id: 'ext', label: t('gw2.sub.ext', { n: counts.ext }), badge: counts.pending ? t('gw2.ext.pendingN', { n: counts.pending }) : '', tone: 'amber' },
+  ];
+  return (
+    <div>
+      <div role="tablist" className="flex gap-1 px-2.5 pt-2.5 border-b border-zinc-100 dark:border-white/[0.06] overflow-x-auto">
+        {items.map(it => (
+          <button key={it.id} type="button" role="tab" aria-selected={tab === it.id} onClick={() => setTab(it.id)}
+            className={`shrink-0 inline-flex items-center gap-1.5 min-h-[44px] md:min-h-[36px] px-3 -mb-px border-b-2 text-xs font-medium ${tab === it.id
+              ? 'border-blue-500 text-zinc-900 dark:text-white'
+              : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'}`}>
+            {it.label}
+            {it.badge ? <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${it.tone === 'amber' ? 'bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>{it.badge}</span> : null}
+          </button>
+        ))}
+      </div>
+      {tab === 'apps' && (
+        <div>
+          <p className="m-0 px-3.5 pt-2.5 text-xs text-zinc-500 dark:text-zinc-400">{t('gw2.generic.hint')}</p>
+          {renderApps()}
+        </div>
+      )}
+      {tab === 'pro' && <div className="pt-1"><ProfessionalAgents /></div>}
+      {tab === 'ext' && <div className="pt-1"><ExternalAgents /></div>}
+    </div>
   );
 }
 
