@@ -911,6 +911,13 @@ export default function Debug() {
   // Agent 模式状态
   const [agents, setAgents] = useState(() => getCachedAgentsList() || []);
   const [selectedAgent, setSelectedAgent] = useState(null);
+  // 智能管家有自己的对话页，不在游乐场里出现
+  const isGuardianEntry = (a) => !!a && (a.guardian || a.id === 'assistant:tb-guardian');
+  const playAgents = useMemo(() => (agents || []).filter(a => a && !isGuardianEntry(a)), [agents]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 之前选中过智能管家：回到聚合入口
+  useEffect(() => {
+    if (isGuardianEntry(selectedAgent)) switchAgent(null);
+  }, [selectedAgent?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // 当前 Agent 的模型：网关路由，或智能体正文里写死的模型
   const [agentHostedApps, setAgentHostedApps] = useState([]);
   const [agentSceneRoutes, setAgentSceneRoutes] = useState([]);
@@ -2630,7 +2637,7 @@ export default function Debug() {
   const finishedTurn = !executing && !taskCanStop && conversationTurns.length
     ? conversationTurns[conversationTurns.length - 1]
     : null;
-  const reassignTargets = (agents || []).filter((a) => a && a.id !== activeAgent?.id
+  const reassignTargets = playAgents.filter((a) => a && a.id !== activeAgent?.id
     && !(a.type === 'cli' && a.installed === false) && a.type !== 'community');
   function redoLastTurn() {
     if (!finishedTurn?.user) return;
@@ -3423,7 +3430,7 @@ export default function Debug() {
       <div className="tb-debug-body flex flex-nowrap flex-1 min-h-0 min-w-0">
         {(
           <AgentTabBar
-            agents={agents}
+            agents={playAgents}
             selectedAgent={selectedAgent}
             mainAgentId={mainAgentId}
             onSelect={(agent) => { if (mode !== 'agent') setMode('agent'); switchAgent(agent); }}
