@@ -25,6 +25,7 @@ import { normalizeNetworkPayload, workerInfo, workersForModel } from '../lib/net
 import { buildInvokeText, buildMcpInvokeText } from '../lib/resource-enable';
 import { speedDotClass, statusDotBucket } from '../lib/speed';
 import AppAgentsUnder from '../components/AppAgentsUnder';
+import { routeSummary } from '../lib/route-summary';
 import { askGuardian } from '../lib/askGuardian';
 
 // tier:id 作为下拉唯一 value，避免同模型跨层选中错位
@@ -5637,6 +5638,7 @@ export function CustomRoutesPanel() {
                       </span>
                     )}
                   </div>
+                  <div className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 truncate" title={routeSummary(route, t)}>{routeSummary(route, t)}</div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
                   <button onClick={() => removeRoute(route.id)}

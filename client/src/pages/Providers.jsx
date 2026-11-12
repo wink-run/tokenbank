@@ -29,6 +29,10 @@ import { alignSyncAccountSecretsFromCloud } from '../lib/sync-account-secrets';
 import { formatDeviceSubtitle, formatDeviceTitle } from '../lib/device-display';
 import UsageMeter, { UsageInline, usageProviderForDirect } from '../components/UsageMeter';
 import { CustomRoutesPanel } from './Gateway';
+import { useCurrency } from '../store/currency';
+
+// 来源列表的列：名称 | 类型 | 模型数 | 今天 | 状态 | 操作
+const SOURCE_GRID = 'md:grid-cols-[minmax(0,1fr)_8rem_3.5rem_8rem_7rem_4.5rem]';
 
 /** Ollama 本地实例不校验 API Key。与 shared/provider-test.js 一致，不引 CJS，避免渲染进程白屏。 */
 function isOllamaProvider(provider) {
@@ -3696,6 +3700,7 @@ function ProviderCard({ provider, meta, onUpdate, onRemove, onTest, onSilentPers
 
 export default function Providers() {
   const { t } = useLang();
+  const { fmtCost } = useCurrency();
   const navigate = useNavigate();
   const tierConfig = useMemo(() => getTierConfig(t), [t]);
   const oauthById = useMemo(() => getOAuthById(t), [t]);
@@ -3714,7 +3719,17 @@ export default function Providers() {
   const [directInstances, setDirectInstances] = useState([]);   // 直连源实例（仅统计的应用）
   const [directBilling, setDirectBilling] = useState({});        // 直连源计费（按 agent_id）
   const [accountsData, setAccountsData] = useState(null);        // 完整账户快照（统计视图用）
-  const [sourcesView, setSourcesView] = useState('model');       // 个人源视图：model | list（账户）
+  // 个人源视图：list（我的来源，默认）| model（按模型看、整理降级链）。记住上次选的
+  const [sourcesView, setSourcesViewRaw] = useState(() => {
+    try { return localStorage.getItem('tb.models.view') === 'model' ? 'model' : 'list'; } catch { return 'list'; }
+  });
+  const setSourcesView = useCallback((v) => {
+    setSourcesViewRaw(v);
+    try { localStorage.setItem('tb.models.view', v); } catch { /* 存不了就只在本次生效 */ }
+  }, []);
+  const [todayStats, setTodayStats] = useState(null);           // 今天各来源的请求数、花费
+  const [sourceIssues, setSourceIssues] = useState({});         // 管家记下的来源问题（Key 失效、额度用完）
+  const [gatewayPort, setGatewayPort] = useState(null);
   const [sceneRoutes, setSceneRoutes] = useState([]);            // 用户调整过的模型降级链
   const [refreshingModels, setRefreshingModels] = useState(false);
   const [accountSyncing, setAccountSyncing] = useState(false);
@@ -4933,6 +4948,16 @@ export default function Providers() {
   }, []);
   useEffect(() => { loadSceneRoutes(); }, [loadSceneRoutes]);
 
+  // 页头一句话和来源行要的：今天的用量、来源问题、网关端口。拿不到时那几列留空
+  useEffect(() => {
+    let alive = true;
+    Promise.resolve(getGateway().getDailyStats?.(1)).then(d => { if (alive && d) setTodayStats(d); }).catch(() => {});
+    Promise.resolve(window.electronAPI?.guardian?.providerIssues?.())
+      .then(r => { if (alive && r?.success) setSourceIssues(r.issues || {}); }).catch(() => {});
+    Promise.resolve(getGateway().status?.()).then(s => { if (alive && s?.port) setGatewayPort(s.port); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
   // 和场景路由同一种步骤：每步一个模型，多个账户时才写 provider。
   // 不写 provider 时网关按订阅再按量自动换，也不会套进该模型自己的下一级链。
   // flow 用 fallback，保证步骤顺序就是尝试顺序。
@@ -5282,7 +5307,24 @@ export default function Providers() {
     );
   }
 
+  function sourceIssueOf(sm) {
+    for (const id of sm.gwIds || []) if (sourceIssues[id]) return sourceIssues[id];
+    return null;
+  }
+
+  function sourceToday(sm) {
+    const ids = new Set(sm.gwIds || []);
+    let calls = 0; let cost = 0;
+    for (const p of todayStats?.providers || []) {
+      if (!ids.has(p.id)) continue;
+      calls += p.calls || 0; cost += p.cost_usd || 0;
+    }
+    return { calls, cost };
+  }
+
   function sourceStatus(sm) {
+    const issue = sourceIssueOf(sm);
+    if (issue) return { dot: 'bg-red-500', label: issue.kind === 'quota' ? t('providers.list.issueQuota') : t('providers.list.issueAuth'), issue };
     if (sm.cooldown) return { dot: 'bg-amber-400', label: t('providers.list.cooling') };
     if (!sm.enabled) return { dot: 'bg-zinc-300 dark:bg-zinc-600', label: t('providers.list.disabled') };
     if (sm.verified) return { dot: 'bg-emerald-500', label: t('providers.list.ready') };
@@ -5297,7 +5339,7 @@ export default function Providers() {
         role="option"
         aria-selected={sel}
         onClick={() => setSelectedSourceKey(sel ? null : sm.key)}
-        className={`${libRowCls(sel)} grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1fr)_9rem_4rem_6.5rem]`}
+        className={`${libRowCls(sel)} grid-cols-[minmax(0,1fr)_auto] ${SOURCE_GRID}`}
       >
         <LibraryRowTitle
           logo={(
@@ -5324,9 +5366,32 @@ export default function Providers() {
           <span className="truncate">{t(`providers.filter.${(PERSONAL_TYPE_BADGE[sm.tag] || PERSONAL_TYPE_BADGE.payg).filterKey}`)}</span>
         </div>
         <span className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{sm.models || '—'}</span>
-        <span className="flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300">
+        {(() => {
+          const td = sourceToday(sm);
+          return (
+            <span className="hidden md:block text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300 truncate">
+              {td.calls > 0
+                ? (td.cost > 0 ? t('providers.list.todayCost', { n: td.calls.toLocaleString(), cost: fmtCost(td.cost) }) : t('providers.list.todayCalls', { n: td.calls.toLocaleString() }))
+                : t('providers.list.todayNone')}
+            </span>
+          );
+        })()}
+        <span className={`flex items-center gap-1.5 text-[11px] ${st.issue ? 'font-medium text-red-700 dark:text-red-300' : 'text-zinc-600 dark:text-zinc-300'}`} title={st.issue?.text}>
           <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} aria-hidden />
           {st.label}
+        </span>
+        <span className="hidden md:flex justify-end">
+          {st.issue ? (
+            <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedSourceKey(sm.key); }}
+              className="text-[11px] font-medium px-2 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-500">
+              {st.issue.kind === 'quota' ? t('providers.list.fixQuota') : t('providers.list.fixKey')}
+            </button>
+          ) : sm.modelNames?.length > 0 && sm.enabled ? (
+            <button type="button" onClick={(e) => { e.stopPropagation(); navigate('/contribute', { state: { tradeTab: 'supply', offerModels: sm.modelNames } }); }}
+              className="text-[11px] px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20">
+              {t('providers.rent.button')}
+            </button>
+          ) : null}
         </span>
       </li>
     );
@@ -5386,11 +5451,34 @@ export default function Providers() {
     <div className="px-4 py-4 space-y-5">
 
       {/* Header：与资源页同构（标题 + 副标题 + 下划线 Tab） */}
-      <div>
-        <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50 tracking-tight">{t('providers.title')}</h1>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-          {t('providers.subtitle')}
-        </p>
+      <div className="flex items-start gap-3 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50 tracking-tight">{t('providers.title')}</h1>
+          {(() => {
+            // 一句话：几个来源、几个模型、今天用了多少；再给出模型接口地址
+            const modelSet = new Set(modelViewInstances.flatMap(i => (i.models || []).map(m => (typeof m === 'string' ? m : m?.name)).filter(Boolean)));
+            const calls = todayStats?.total_calls || 0;
+            const cost = todayStats?.total_cost || 0;
+            const base = `http://127.0.0.1:${gatewayPort || 11430}/v1`;
+            return (
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span>
+                  {t('providers.summary.sources', { n: personalSourceRows.length, m: modelSet.size })}
+                  {calls > 0 ? (cost > 0 ? t('providers.summary.todayCost', { n: calls.toLocaleString(), cost: fmtCost(cost) }) : t('providers.summary.today', { n: calls.toLocaleString() })) : t('providers.summary.todayNone')}
+                </span>
+                <button type="button" onClick={() => { navigator.clipboard?.writeText(base).catch(() => {}); }}
+                  title={t('providers.summary.copyApi')}
+                  className="font-mono text-blue-600 dark:text-blue-400 hover:underline">
+                  {t('providers.summary.api', { url: base })}
+                </button>
+              </p>
+            );
+          })()}
+        </div>
+        <button type="button" onClick={() => { setSourcesView('list'); setPickerOpen(true); }}
+          className="shrink-0 text-xs px-3 py-1.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-medium">
+          {t('providers.summary.add')}
+        </button>
       </div>
 
       <>
@@ -5455,11 +5543,13 @@ export default function Providers() {
                   <div className={`${LIB_LIST_CLS} text-xs text-zinc-400 text-center py-8`}>{t('providers.filter.empty')}</div>
                 ) : (
                   <div className={LIB_LIST_CLS}>
-                    <div className="hidden md:grid md:grid-cols-[minmax(0,1fr)_9rem_4rem_6.5rem] gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]">
+                    <div className={`hidden md:grid ${SOURCE_GRID} gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]`}>
                       <span>{t('providers.list.name')}</span>
                       <span>{t('providers.list.type')}</span>
                       <span className="text-right">{t('providers.list.models')}</span>
+                      <span>{t('providers.list.today')}</span>
                       <span>{t('providers.list.status')}</span>
+                      <span className="text-right">{t('providers.list.actions')}</span>
                     </div>
                     <ul role="listbox" aria-label={tierConfig.local.label}>
                       {summaries.map(sm => renderSourceRow(sm, sm.key === selectedSourceKey))}
@@ -5491,6 +5581,62 @@ export default function Providers() {
         </div>
       </section>
 
+      {/* 模型降级链：同一个模型挂在几个来源上，前一个不行换下一个。这里只读，顺序在「按模型看」里调 */}
+      {(() => {
+        const nameOf = (m) => (typeof m === 'string' ? m : m?.name);
+        const srcName = (inst) => inst?.name || inst?.label || inst?.gateway_id || inst?.id;
+        const bySource = {};
+        for (const inst of modelViewInstances) {
+          for (const m of (inst.models || []).map(nameOf).filter(Boolean)) {
+            const list = bySource[m] || (bySource[m] = []);
+            if (!list.includes(inst)) list.push(inst);
+          }
+        }
+        const saved = new Map(sceneRoutes.filter(r => r?.list_route && r.model_key).map(r => [r.model_key, r]));
+        const chains = [];
+        for (const [model, insts] of Object.entries(bySource)) {
+          const route = saved.get(model);
+          let order = insts;
+          if (route?.steps?.length) {
+            const byGw = new Map(insts.map(i => [i.gateway_id || i.id, i]));
+            const picked = route.steps.map(s => byGw.get(s.provider)).filter(Boolean);
+            order = [...picked, ...insts.filter(i => !picked.includes(i))];
+          }
+          if (order.length < 2 && !route) continue;
+          const head = order[0];
+          const cooling = head ? !!cooldownFor(head.gateway_id, head.id, head.source_id) : false;
+          const broken = head ? (head.gateway_id && sourceIssues[head.gateway_id]) : null;
+          chains.push({ model, order, degraded: cooling || !!broken, saved: !!route });
+        }
+        if (!chains.length) return null;
+        chains.sort((a, b) => (b.degraded - a.degraded) || a.model.localeCompare(b.model));
+        return (
+          <section id="model-chains" className="space-y-3 pt-4 scroll-mt-3">
+            <SourceSectionHeader dot="bg-violet-500" title={t('providers.chains.title')} hint={t('providers.chains.hint')} />
+            <div className={LIB_LIST_CLS}>
+              <ul className="list-none m-0 p-0">
+                {chains.map(c => (
+                  <li key={c.model} className="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(8rem,14rem)_minmax(0,1fr)_auto] gap-x-4 gap-y-1 items-center px-4 py-2.5 border-b last:border-b-0 border-zinc-100 dark:border-white/[0.05]">
+                    <span className="text-xs font-medium text-zinc-800 dark:text-zinc-100 truncate font-mono" title={c.model}>{c.model}</span>
+                    <span className="col-span-2 md:col-span-1 order-3 md:order-none text-[11px] text-zinc-600 dark:text-zinc-300 min-w-0 flex flex-wrap items-center gap-1.5">
+                      <span className="min-w-0">{t('providers.chains.order', { list: c.order.map(srcName).join(' → ') })}</span>
+                      {c.degraded && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">{t('providers.chains.degraded')}</span>
+                      )}
+                    </span>
+                    <button type="button"
+                      onClick={() => { setSourcesView('model'); requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' })); }}
+                      className="justify-self-end text-[11px] px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                      {t('providers.chains.adjust')}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        );
+      })()}
+
       {/* 自定义路由（原网关页「场景路由」）：按规则或模型链组合出的路由 */}
       <section id="custom-routes" className="space-y-3 pt-4 scroll-mt-3">
         <SourceSectionHeader dot="bg-sky-500" title={t('providers.customRoutes.title')} />
@@ -5503,6 +5649,12 @@ export default function Providers() {
           dot={tierConfig.p2p.dot}
           title={t('providers.group.remote')}
           hint={tierConfig.p2p.hint}
+          trailing={(
+            <button type="button" onClick={() => navigate('/contribute', { state: { tradeTab: 'hire' } })}
+              className="ml-auto text-[11px] text-blue-600 dark:text-blue-400 hover:underline">
+              {t('providers.community.rentMore')}
+            </button>
+          )}
         />
         <div className={`grid ${tierConfig.p2p.cols} gap-3`}>
           {providers.filter(p => p.type === 'p2p').map(p => (
