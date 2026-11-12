@@ -850,6 +850,12 @@ function isCommunityPlaygroundAgent(agent) {
     || String(agent.id || '').startsWith('community:');
 }
 
+/** 不在本机跑的智能体（雇来的社区智能体、外部智能体）：不需要本机工作目录 */
+function isRemotePlaygroundAgent(agent) {
+  if (!agent) return false;
+  return isCommunityPlaygroundAgent(agent) || agent.type === 'external' || String(agent.id || '').startsWith('external:');
+}
+
 /** 可在游乐场改路由的应用。Cursor 直连用 CLI 模型，不走网关路由。 */
 function routeAppForAgent(agent, apps) {
   if (!agent || isCommunityPlaygroundAgent(agent)) return null;
@@ -995,6 +1001,8 @@ export default function Debug() {
   const [mainAgentId, setMainAgentId] = useState(() => loadMainAgentId());
   const [delegations, setDelegations] = useState({});
   const [conversationTurns, setConversationTurns] = useState([]);
+  // 外部智能体就某个任务后来推的消息（它自己的定时任务等），按任务 id 分组
+  const [pushedByTask, setPushedByTask] = useState({});
   const [historyOpen, setHistoryOpen] = useState(false);
   const [llmHistoryOpen, setLlmHistoryOpen] = useState(false);
   // 底部输入框高度（拖中间框线调整，持久化）
@@ -1019,6 +1027,21 @@ export default function Debug() {
   const mainAgent = agents.find(a => a.id === mainAgentId && !a.custom && a.installed !== false)
     || agents.find(a => a.type === 'cli' && a.installed !== false)
     || null;
+  const pushTaskIdsKey = [...(conversationTurns || []).map(tr => tr?.taskId), currentTask?.id].filter(Boolean).join(',');
+  useEffect(() => {
+    const api = window.electronAPI?.agent;
+    if (!api?.taskMessages) return undefined;
+    const ids = pushTaskIdsKey ? pushTaskIdsKey.split(',') : [];
+    const load = () => {
+      if (!ids.length) { setPushedByTask({}); return; }
+      Promise.resolve(api.taskMessages(ids)).then(r => { if (r?.success) setPushedByTask(r.byTask || {}); }).catch(() => {});
+    };
+    load();
+    const off = api.onTaskMessage?.((d) => {
+      if (!d || ids.includes(d.rootTaskId) || ids.includes(d.taskId)) load();
+    });
+    return () => { if (typeof off === 'function') off(); };
+  }, [pushTaskIdsKey]);
   const isHubMode = !selectedAgent;
   const activeAgent = isHubMode ? mainAgent : selectedAgent;
 
@@ -2509,8 +2532,8 @@ export default function Debug() {
     const workDir = normalizeWorkingDir(
       getStoreSession(execKey).sessionWorkingDir || agentWorkingDir.trim(),
     );
-    // 雇来的社区智能体在对方设备上执行，本机目录用不上，不拦
-    if (!workDir && !communityAgent) {
+    // 雇来的社区智能体、外部智能体不在本机执行，本机目录用不上，不拦
+    if (!workDir && !communityAgent && !isRemotePlaygroundAgent(activeAgent)) {
       setDirError(t('debug.agent.needWorkingDir'));
       return;
     }
@@ -3347,6 +3370,7 @@ export default function Debug() {
                   )}
                   <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate" title={dir || undefined}>
                     {isCommunityPlaygroundAgent(selectedAgent) ? t('debug.header.remote')
+                      : isRemotePlaygroundAgent(selectedAgent) ? t('debug.header.external')
                       : dir ? t('debug.header.inDir', { dir }) : t('debug.header.noDir')}
                   </span>
                 </span>
@@ -3640,6 +3664,7 @@ export default function Debug() {
                   agentNames={agentNameMap}
                   onPreviewImage={setLightbox}
                   footer={turnFooter}
+                  pushedByTask={pushedByTask}
                 />
               )
             ) : selectedAgent?.id === 'cursor' && selectedAgent.installed === false ? (
@@ -3714,6 +3739,7 @@ export default function Debug() {
                 agentName={selectedAgent?.name}
                 onPreviewImage={setLightbox}
                 footer={turnFooter}
+                pushedByTask={pushedByTask}
               />
             )}
           </div>

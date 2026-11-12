@@ -532,6 +532,8 @@ function normalizeCommunityArtifacts(raw) {
 class AgentExecutor extends EventEmitter {
   constructor() {
     super();
+    // 应用重启后接回派给外部智能体、还没做完的任务
+    setImmediate(() => this._watchExternalResults());
     this.runningTasks = new Map(); // taskId → { process, agent_id }
     // 任务元数据缓存：进程结束后仍可用于 IPC 事件路由
     this.taskMetaCache = new Map(); // taskId → { agentId, sessionKey, parentTaskId }
@@ -1421,13 +1423,19 @@ class AgentExecutor extends EventEmitter {
 
   /** 外部智能体的任务：和社区任务一样只记结果，不在本机跑 */
   async _runExternalTaskForExecute(taskId, agentId, prompt, options = {}) {
-    const db = this._getDb();
+    this._watchExternalResults();
     this.emit('task:step', {
       taskId, stepType: 'system_event', system_subtype: 'process_started',
       content: agentId, message: agentId, timestamp: Date.now(), ...this._taskEventMeta(taskId),
     });
     const result = await require('./external-agents').dispatch(agentId, prompt, { timeoutMs: options.timeoutMs, taskId });
+    this._finishExternalTask(taskId, result);
+  }
+
+  /** 外部智能体回来的结果：派出时在等的、和应用重启后才回来的，都走这里记进任务 */
+  _finishExternalTask(taskId, result) {
     if (this._isTaskCancelled(taskId)) { this.taskMetaCache.delete(taskId); return; }
+    const db = this._getDb();
     const output = String(result?.output || '');
     if (!result?.ok) {
       const errText = String(result?.error || 'external agent failed');
@@ -1450,6 +1458,67 @@ class AgentExecutor extends EventEmitter {
       status: 'completed', ...this._taskEventMeta(taskId),
     });
     this.taskMetaCache.delete(taskId);
+  }
+
+  /** 接上次没做完的外部任务：排队的继续等它来取，取走的结果回来时记进任务；任务结束后它推来的消息也记下 */
+  _watchExternalResults() {
+    if (this._externalWatched) return;
+    this._externalWatched = true;
+    try {
+      const ext = require('./external-agents');
+      ext.setPushHandler((agentId, taskId, text) => this.recordTaskMessage(agentId, taskId, text));
+      ext.setResultHandler((taskId, result) => this._finishExternalTask(taskId, result));
+    } catch (e) { console.warn('[agent] external tasks restore failed:', e.message); }
+  }
+
+  _ensureTaskMessagesTable(db) {
+    if (this._taskMessagesReady) return;
+    db.exec(`CREATE TABLE IF NOT EXISTS agent_task_messages (
+      id TEXT PRIMARY KEY, task_id TEXT NOT NULL, root_task_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL)`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_agent_task_messages_root ON agent_task_messages(root_task_id, created_at)');
+    this._taskMessagesReady = true;
+  }
+
+  /** 外部智能体就它接过的任务推来一条消息：只认派给它的任务；记到最上层的那个任务下（游乐场按它显示） */
+  recordTaskMessage(agentId, taskId, text) {
+    const db = this._getDb();
+    const row = db.prepare('SELECT id, agent_id, context FROM agent_tasks WHERE id = ?').get(taskId);
+    if (!row || row.agent_id !== agentId) return false;
+    this._ensureTaskMessagesTable(db);
+    let root = row;
+    for (let i = 0; i < 5; i++) {
+      let parent = '';
+      try { parent = JSON.parse(root.context || '{}').parentTaskId || ''; } catch { parent = ''; }
+      const up = parent ? db.prepare('SELECT id, agent_id, context FROM agent_tasks WHERE id = ?').get(parent) : null;
+      if (!up) break;
+      root = up;
+    }
+    const msg = {
+      id: `msg_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+      task_id: taskId, root_task_id: root.id, agent_id: agentId, content: String(text), created_at: Date.now(),
+    };
+    db.prepare('INSERT INTO agent_task_messages (id, task_id, root_task_id, agent_id, content, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(msg.id, msg.task_id, msg.root_task_id, msg.agent_id, msg.content, msg.created_at);
+    this.emit('task:message', { taskId, rootTaskId: root.id, agentId, content: msg.content, timestamp: msg.created_at });
+    return true;
+  }
+
+  /** 这些任务（或它们的子任务）收到的推送，按传进来的任务 id 分组 */
+  listTaskMessages(taskIds = []) {
+    const ids = [...new Set((taskIds || []).filter(Boolean).map(String))].slice(0, 500);
+    if (!ids.length) return {};
+    const db = this._getDb();
+    this._ensureTaskMessagesTable(db);
+    const ph = ids.map(() => '?').join(',');
+    const rows = db.prepare(`SELECT * FROM agent_task_messages WHERE root_task_id IN (${ph}) OR task_id IN (${ph}) ORDER BY created_at`).all(...ids, ...ids);
+    const want = new Set(ids);
+    const out = {};
+    for (const r of rows) {
+      const key = want.has(r.root_task_id) ? r.root_task_id : r.task_id;
+      (out[key] = out[key] || []).push({ id: r.id, agentId: r.agent_id, content: r.content, timestamp: r.created_at });
+    }
+    return out;
   }
 
   /**

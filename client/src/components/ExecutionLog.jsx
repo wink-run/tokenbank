@@ -1597,6 +1597,7 @@ export default function ExecutionLog({
   agentNames = {},
   onPreviewImage,
   footer = null,   // 本轮结束后显示在最后（游乐场的「重做 / 改派」）
+  pushedByTask = {},   // 外部智能体后来就这个任务推的消息：{ taskId: [{ content, timestamp }] }
 }) {
   const { t } = useLang();
   const endRef = useRef(null);
@@ -1606,8 +1607,11 @@ export default function ExecutionLog({
   /** 合并历史轮次 + 当前轮次；currentStart 之后才是本轮（呼吸光标只挂这里） */
   const { timeline, currentStart } = useMemo(() => {
     const items = [];
+    const pushedItems = (id) => (id && pushedByTask[id] ? pushedByTask[id] : [])
+      .map(m => ({ kind: 'assistant', content: m.content, timestamp: m.timestamp }));
     for (const turn of conversationTurns) {
       items.push(...buildTurnTimeline(turn, turn.delegations || {}, agentNames, t));
+      items.push(...pushedItems(turn.taskId));
     }
     const currentStart = items.length;
     const sentAt = task?.created_at || task?.started_at || null;
@@ -1627,8 +1631,9 @@ export default function ExecutionLog({
       const withArts = attachTurnArtifacts(items.slice(currentStart), result.artifacts);
       items.splice(currentStart, items.length - currentStart, ...withArts);
     }
+    if (task?.id && !conversationTurns.some(tr => tr.taskId === task.id)) items.push(...pushedItems(task.id));
     return { timeline: items, currentStart };
-  }, [conversationTurns, userPrompt, userImages, steps, delegations, agentNames, status, result, task?.completed_at, task?.created_at, task?.started_at, t]);
+  }, [conversationTurns, userPrompt, userImages, steps, delegations, agentNames, status, result, task?.id, task?.completed_at, task?.created_at, task?.started_at, pushedByTask, t]);
 
   // 仅在本轮内找「正在流式」的气泡，避免光标粘在历史回复上
   const lastAssistantIdx = useMemo(() => {

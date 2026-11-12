@@ -219,6 +219,20 @@ export function ExternalAgents() {
             </li>
             <li>{t('gw2.ext.step3')}</li>
           </ol>
+          <div className="space-y-1">
+            <p className="m-0 font-semibold">{t('gw2.ext.apiTitle')}</p>
+            {[
+              ['gw2.ext.apiPull', `GET ${gateway}/v1/agent/external/tasks?wait=25&interval=300`],
+              ['gw2.ext.apiResult', `POST ${gateway}/v1/agent/external/tasks/{task_id}/result  {"output": "…"}`],
+              ['gw2.ext.apiPush', `POST ${gateway}/v1/agent/external/tasks/{task_id}/messages  {"output": "…"}`],
+            ].map(([k, line]) => (
+              <div key={k} className="flex flex-col md:flex-row md:items-center gap-1 md:gap-2 min-w-0">
+                <span className="shrink-0 md:w-28 text-zinc-500 dark:text-zinc-400">{t(k)}</span>
+                <Code>{line}</Code>
+              </div>
+            ))}
+            <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.ext.apiNote')}</p>
+          </div>
           <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.ext.network', { gw: gateway })}</p>
         </div>
       )}

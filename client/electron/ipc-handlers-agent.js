@@ -260,6 +260,11 @@ function registerAgentHandlers() {
     catch (error) { return { success: false, error: error.message }; }
   });
 
+  ipcMain.handle('agent:taskMessages', async (_event, taskIds = []) => {
+    try { return { success: true, byTask: agentExecutor.listTaskMessages(taskIds) }; }
+    catch (error) { return { success: false, error: error.message }; }
+  });
+
   ipcMain.handle('agent:taskStats', async () => {
     try {
       return { success: true, stats: agentExecutor.todayTaskStats() };
@@ -388,6 +393,13 @@ function registerAgentHandlers() {
   /**
    * 监听任务失败事件
    */
+  // 外部智能体主动推来的消息（它自己的定时任务等）：游乐场收到后刷新对应对话
+  agentExecutor.on('task:message', (data) => {
+    BrowserWindow.getAllWindows().forEach(win => {
+      win.webContents.send('agent:task:message', data);
+    });
+  });
+
   agentExecutor.on('task:failed', (data) => {
     if (!shouldBroadcastToUi(data)) return;
     BrowserWindow.getAllWindows().forEach(win => {

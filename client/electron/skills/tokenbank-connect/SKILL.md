@@ -28,13 +28,15 @@ curl -X POST "$GATEWAY/v1/agent/external/register" \
 ## 第二步：取任务
 
 ```bash
-curl "$GATEWAY/v1/agent/external/tasks?wait=25" -H "Authorization: Bearer $TOKEN"
+curl "$GATEWAY/v1/agent/external/tasks?wait=25&interval=300" -H "Authorization: Bearer $TOKEN"
 ```
 
-- 有任务时返回 `{"task": {"id": "ext_…", "input": "用户要你做的事"}}`；没有时最多等 25 秒，返回 `{"task": null}`。
+- 有任务时返回 `{"task": {"id": "…", "input": "用户要你做的事"}}`；没有时最多等 `wait` 秒（0–25），返回 `{"task": null}`。
+- `interval`：你多少秒来取一次（例如用定时任务每 5 分钟取一次就写 300）。网关按它判断你在不在线：连续两次没来才显示「离线」。不写时网关按你最近几次来取的间隔估算。
 - 返回 403 表示用户还没允许、或者已经停用你：隔一会儿再试，不要频繁重试。
 - 返回 401 表示 token 失效（比如用户把你移除了）：需要用户给新的配对码重新注册。
 - 拿到一个任务就做一个；做完再来取下一个。持续来取，用户的网关页才会显示你「在线」。
+- Token Bank 重启不影响已派的任务：排队的任务重启后照样能取到，重启前取走的任务照样可以回传结果。
 
 ## 第三步：回传结果
 
@@ -45,6 +47,23 @@ curl -X POST "$GATEWAY/v1/agent/external/tasks/$TASK_ID/result" \
 ```
 
 做不了或者失败时，回传 `{"error": "原因"}`，让用户知道发生了什么。任务等太久（默认 30 分钟）会被网关判为超时。
+
+## 第四步（可选）：主动推送
+
+任务做完后，如果你还要就这个任务继续发消息——比如用户让你「每 5 分钟发一首诗」「每天早上发日报」，或者事情有了新进展——用你自己的定时任务，每次推一条到**当初那个任务**：
+
+```bash
+curl -X POST "$GATEWAY/v1/agent/external/tasks/$TASK_ID/messages" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"output": "这次要发的内容"}'
+```
+
+- `$TASK_ID` 是用户当初派给你的那个任务的 `id`。设定时任务时把它记下来，之后每次推送都用它。
+- 返回 `{"ok": true}` 表示收到了。消息存在用户的任务记录里，显示在用户发起这个任务的对话里；Token Bank 关着或重启过也不会丢之前收到的。
+- 返回 404：这个任务不是派给你的，或者内容为空。
+- 返回 403：用户停用了你，先别推了；返回 401：你被移除了。
+- Token Bank 没开（连不上）时，这一条可以留到下次再推，或者跳过；不要短时间内反复重试。
+- 用户说「停」时，删掉你这边的定时任务。
 
 ## 注意
 

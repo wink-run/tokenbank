@@ -228,7 +228,9 @@ async function handleExternal(req, res, method, cleanPath) {
       sendJson(res, 200, out);
       return true;
     }
-    const agent = ext.authenticate(callerKey(req));
+    const qs = new URL(req.url || '/', 'http://x').searchParams;
+    const isPull = method === 'GET' && cleanPath === '/v1/agent/external/tasks';
+    const agent = ext.authenticate(callerKey(req), Date.now(), { heartbeat: isPull, intervalSec: Number(qs.get('interval')) || 0 });
     if (!agent) {
       req.resume();
       sendJson(res, 401, { error: { message: 'invalid external agent token', type: 'auth_error' } });
@@ -239,9 +241,9 @@ async function handleExternal(req, res, method, cleanPath) {
       sendJson(res, 403, { error: { message: agent.status === 'pending' ? '还在等用户允许' : '已被停用', type: 'forbidden' }, status: agent.status });
       return true;
     }
-    if (method === 'GET' && cleanPath === '/v1/agent/external/tasks') {
+    if (isPull) {
       req.resume();
-      const wait = Number(new URL(req.url || '/', 'http://x').searchParams.get('wait') || 25) * 1000;
+      const wait = Number(qs.get('wait') ?? 25) * 1000;
       const task = await ext.pull(agent.id, wait);
       sendJson(res, 200, { task: task ? { id: task.id, input: task.prompt } : null });
       return true;
@@ -251,6 +253,14 @@ async function handleExternal(req, res, method, cleanPath) {
       const { body } = await readBody(req);
       const ok = ext.complete(agent.id, decodeURIComponent(m[1]), { output: body.output, error: body.error });
       sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: { message: 'no such task waiting', type: 'not_found' } });
+      return true;
+    }
+    // 主动推送：就之前接过的任务再发一条（它自己的定时任务、后续进展）
+    const mp = String(cleanPath).match(/^\/v1\/agent\/external\/tasks\/([^/]+)\/messages$/);
+    if (method === 'POST' && mp) {
+      const { body } = await readBody(req);
+      const ok = ext.push(agent.id, decodeURIComponent(mp[1]), { output: body.output || body.text || body.content });
+      sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: { message: 'no such task for this agent, or empty output', type: 'not_found' } });
       return true;
     }
     req.resume();

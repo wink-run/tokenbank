@@ -128,6 +128,7 @@ const agent = {
   listRecentTasks: (opts) => invoke('agent:listRecentTasks', opts),
   taskStats: call0('agent:taskStats'),
   listBlocked: call0('agent:listBlocked'),
+  taskMessages: (taskIds) => invoke('agent:taskMessages', taskIds),
   routesList: call0('agent:routesList'),
   routesSave: (route) => invoke('agent:routesSave', route),
   routesRemove: (id) => invoke('agent:routesRemove', id),
@@ -150,6 +151,7 @@ const agent = {
   onCompleted: on('agent:task:completed'),
   onFailed: on('agent:task:failed'),
   onCancelled: on('agent:task:cancelled'),
+  onTaskMessage: on('agent:task:message'),
   onCliSession: on('agent:task:cliSession'),
   onListUpdated: on('agent:listUpdated'),
 };

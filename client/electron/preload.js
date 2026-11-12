@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listRecentTasks: (opts) => ipcRenderer.invoke('agent:listRecentTasks', opts),
     taskStats: () => ipcRenderer.invoke('agent:taskStats'),
     listBlocked: () => ipcRenderer.invoke('agent:listBlocked'),
+    taskMessages: (taskIds) => ipcRenderer.invoke('agent:taskMessages', taskIds),
     routesList: () => ipcRenderer.invoke('agent:routesList'),
     routesSave: (route) => ipcRenderer.invoke('agent:routesSave', route),
     routesRemove: (id) => ipcRenderer.invoke('agent:routesRemove', id),
@@ -97,6 +98,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const handler = (_e, data) => cb(data);
       ipcRenderer.on('agent:task:failed', handler);
       return () => ipcRenderer.removeListener('agent:task:failed', handler);
+    },
+    onTaskMessage: (cb) => {
+      const handler = (_e, data) => cb(data);
+      ipcRenderer.on('agent:task:message', handler);
+      return () => ipcRenderer.removeListener('agent:task:message', handler);
     },
     onCancelled: (cb) => {
       const handler = (_e, data) => cb(data);
