@@ -254,7 +254,13 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
       );
       setSelectedAssistantIds(prevAsst);
       assistantsHydratedRef.current = true;
-      snapPending.current = true;
+      // 生效中的上架内容按读到的配置记下，不等渲染后再取，免得把刚从别页带来的出租项也算成已生效
+      const loadedCircles = cfg.contribute_circle_ids?.length ? cfg.contribute_circle_ids
+        : (cfg.contribute_circle_id ? [cfg.contribute_circle_id] : []);
+      setSavedSnap(JSON.stringify([
+        [...prevNames].sort(), [...prevAsst].sort(), loadedCircles.length ? 'circle' : 'public',
+        [...new Set(uniqueCircleIds(loadedCircles))].sort(), cfg.name || '', !!cfg.auto_start,
+      ]));
       setHydrated(true);
     });
   }, []);
@@ -428,412 +434,273 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
     } finally { setSaving(false); }
   }
 
+  // 上次生效时的上架内容：新加的项标「还没生效」，可以确认或撤回
+  const savedSets = (() => {
+    try {
+      const [m, a] = JSON.parse(savedSnap || '[]');
+      return { models: new Set(m || []), agents: new Set(a || []) };
+    } catch { return { models: new Set(), agents: new Set() }; }
+  })();
+  const empty = selectedNames.size === 0 && selectedAssistantIds.size === 0;
+  const toggleRunning = () => {
+    if (running) {
+      if (typeof window !== 'undefined' && !window.confirm(t('contribute.stopConfirm'))) return;
+      onStop?.();
+    } else {
+      save();
+    }
+  };
+  // 撤回还没生效的改动：回到上次生效时的清单
+  const discardNew = () => {
+    setSelectedNames(new Set([...selectedNames].filter(n => savedSets.models.has(n))));
+    setSelectedAssistantIds(new Set([...selectedAssistantIds].filter(id => savedSets.agents.has(id))));
+    setOfferNote('');
+  };
+  const modelTypeText = (m) => (m.type === 'image' ? t('contribute.modelTypeImage') : m.type === 'vision' ? t('contribute.modelTypeVision') : t('contribute.modelTypeText'));
+  const rowCls = (fresh) => `grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] gap-x-4 gap-y-1 items-center px-4 py-2.5 border-b last:border-b-0 border-zinc-100 dark:border-white/[0.05] ${fresh ? 'bg-blue-50/60 dark:bg-blue-950/20' : ''}`;
+  const btnCls = 'text-[11px] px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800';
+  const anyFresh = [...selectedNames].some(n => !savedSets.models.has(n)) || [...selectedAssistantIds].some(id => !savedSets.agents.has(id));
+  const freshActions = (onRemove) => (
+    <span className="flex items-center gap-1.5 justify-end">
+      {running && (
+        <button type="button" onClick={save} disabled={saving}
+          className="text-[11px] font-medium px-2.5 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50">
+          {saving ? t('contribute.applying') : t('contribute.confirmListing')}
+        </button>
+      )}
+      <button type="button" onClick={onRemove} className={btnCls}>{t('contribute.dropNew')}</button>
+    </span>
+  );
+
   return (
     <div className="space-y-3">
-      {/* 状态头：一眼看清是否在线、对谁开放、上架了多少 */}
-      <div className={`relative overflow-hidden rounded-2xl border px-5 py-4 ${
-        running
-          ? 'border-green-200/80 dark:border-green-900/60 bg-gradient-to-br from-green-50/90 via-white/70 to-emerald-50/60 dark:from-green-950/40 dark:via-zinc-900/40 dark:to-emerald-950/20'
-          : 'border-zinc-200/70 dark:border-white/[0.07] bg-gradient-to-br from-zinc-50/90 via-white/70 to-blue-50/40 dark:from-zinc-900/60 dark:via-zinc-900/40 dark:to-blue-950/20'
-      }`}>
-        <div className="flex flex-wrap items-center gap-4">
-          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center text-lg shrink-0 ${
-            running ? 'bg-green-500 text-white shadow-md shadow-green-500/30' : 'bg-white dark:bg-zinc-800 text-zinc-400 ring-1 ring-zinc-200 dark:ring-zinc-700'
-          }`} aria-hidden>
-            {running ? '⚡' : '⏸'}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[15px] font-semibold text-zinc-900 dark:text-zinc-50">
-                {running ? t('contribute.heroOnline') : t('contribute.heroOffline')}
-              </span>
-              {running && <span className="relative flex w-2 h-2"><span className="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-60 animate-ping" /><span className="relative inline-flex w-2 h-2 rounded-full bg-green-500" /></span>}
-            </div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {t('contribute.heroSummary', {
-                models: selectedNames.size,
-                agents: selectedAssistantIds.size,
-                scope: circleScope === 'public'
-                  ? t('contribute.scope.public')
-                  : t('contribute.heroCircles', { n: selectedCircleIds.size }),
-              })}
-            </p>
-            {running && liveStats && (
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 tabular-nums">
-                {t('contribute.money.live', { rate: liveStats.contribute_req_per_min ?? 0, active: liveStats.active_requests ?? 0, nodes: liveStats.active_workers ?? 0 })}
-              </p>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {savedMsg && <span className="text-xs text-green-600 dark:text-green-400">{savedMsg}</span>}
-            {offerNote && dirty && <span className="text-xs text-blue-600 dark:text-blue-400">{offerNote}</span>}
-            {running && dirty && (
-              <button type="button" onClick={save} disabled={saving}
-                className="tb-press text-xs font-medium px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50">
-                {saving ? t('contribute.applying') : t('contribute.applyChanges')}
-              </button>
-            )}
-            {(() => {
-              const empty = selectedNames.size === 0 && selectedAssistantIds.size === 0;
-              const toggle = () => {
-                if (running) {
-                  if (typeof window !== 'undefined' && !window.confirm(t('contribute.stopConfirm'))) return;
-                  onStop?.();
-                } else {
-                  save();
-                }
-              };
-              return (
-                <label className={`inline-flex items-center gap-2 text-[13px] font-medium ${(!running && empty) ? 'opacity-50' : ''}`}>
-                  <button type="button" role="switch" aria-checked={running} disabled={saving || (!running && empty)} onClick={toggle}
-                    className={`relative shrink-0 w-10 h-6 rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${running ? 'bg-green-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}>
-                    <span className={`absolute top-[3px] left-0 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform duration-200 ${running ? 'translate-x-[19px]' : 'translate-x-[3px]'}`} />
-                  </button>
-                  <span className="text-zinc-800 dark:text-zinc-100">{saving && !running ? t('contribute.savingAndStarting') : t('contribute.accepting')}</span>
-                </label>
-              );
-            })()}
-          </div>
+      {/* 一条状态栏：接单开关 + 这会儿的情况 + 给谁用 */}
+      <div className={`rounded-2xl border px-4 py-3 ${running
+        ? 'border-green-200/80 dark:border-green-900/60 bg-green-50/60 dark:bg-green-950/20'
+        : 'border-zinc-200/70 dark:border-white/[0.07] bg-white/60 dark:bg-zinc-900/40'}`}>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <label className={`inline-flex items-center gap-2 text-[13px] font-semibold ${(!running && empty) ? 'opacity-50' : ''}`}>
+            <button type="button" role="switch" aria-checked={running} disabled={saving || (!running && empty)} onClick={toggleRunning}
+              className={`relative shrink-0 w-10 h-6 rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${running ? 'bg-green-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}>
+              <span className={`absolute top-[3px] left-0 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform duration-200 ${running ? 'translate-x-[19px]' : 'translate-x-[3px]'}`} />
+            </button>
+            <span className="text-zinc-900 dark:text-zinc-50">{saving && !running ? t('contribute.savingAndStarting') : t('contribute.accepting')}</span>
+          </label>
+          <p className="min-w-0 flex-1 text-xs text-zinc-600 dark:text-zinc-300">
+            {running
+              ? (liveStats
+                ? t('contribute.money.live', { rate: liveStats.contribute_req_per_min ?? 0, active: liveStats.active_requests ?? 0, nodes: liveStats.active_workers ?? 0 })
+                : t('contribute.heroOnline'))
+              : (empty ? t('contribute.barEmpty') : t('contribute.barOff', { models: selectedNames.size, agents: selectedAssistantIds.size }))}
+          </p>
+          {savedMsg && <span className="text-xs text-green-600 dark:text-green-400">{savedMsg}</span>}
+          {running && dirty && !anyFresh && (
+            <button type="button" onClick={save} disabled={saving}
+              className="tb-press text-xs font-medium px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50">
+              {saving ? t('contribute.applying') : t('contribute.applyChanges')}
+            </button>
+          )}
+          <label className="inline-flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+            {t('contribute.forWhom')}
+            <select value={circleScope} onChange={e => setCircleScope(e.target.value)}
+              className="tb-soft-field text-xs px-2.5 py-1.5 rounded-lg text-zinc-800 dark:text-zinc-100">
+              <option value="public">{t('contribute.scopePublicOption')}</option>
+              <option value="circle">{t('contribute.scopeCircleOption')}</option>
+            </select>
+          </label>
+          {onManageCircles && (
+            <button type="button" onClick={onManageCircles} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">
+              {t('contribute.manageCircles')}
+            </button>
+          )}
         </div>
+        {circleScope === 'circle' && (
+          <div className="mt-2.5 pt-2.5 border-t border-zinc-200/70 dark:border-white/[0.06] space-y-1.5">
+            {circles.length === 0 ? (
+              <p className="text-xs text-zinc-500">
+                {t('contribute.noCircle')}
+                {onManageCircles && (
+                  <button type="button" onClick={onManageCircles} className="ml-1.5 text-blue-600 dark:text-blue-400 hover:underline">
+                    {t('contribute.createCircleLink')}
+                  </button>
+                )}
+              </p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {circles.map(c => {
+                  const sel = selectedCircleIds.has(c.id);
+                  return (
+                    <button key={c.id} type="button" onClick={() => toggleCircle(c.id)} aria-pressed={sel}
+                      className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${sel
+                        ? 'border-blue-500 bg-blue-600 text-white'
+                        : 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300'}`}>
+                      <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-semibold ${sel ? 'bg-white/25' : `${avatarColor(c.name)} text-white`}`} aria-hidden>
+                        {sel ? '✓' : (c.name || '?')[0]}
+                      </span>
+                      {c.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <p className="text-[11px] text-zinc-400">{t('contribute.scopeHint')}</p>
+          </div>
+        )}
         {agentError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{agentError}</p>}
       </div>
 
-      {/* ① 上架什么 */}
-      <section className={`${LIB_LIST_CLS} p-5 space-y-4`}>
-        <SupplySectionHead title={t('contribute.secWhat')} hint={t('contribute.secWhatHint')} />
-      {/* 贡献模型：默认只展示已选；点 + 从候选里添加，避免占满整页 */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200">
-            <span className="w-5 h-5 rounded-md bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-300 flex items-center justify-center text-[10px]" aria-hidden>◆</span>
-            {t('contribute.models')}
-          </span>
-          {selectedNames.size > 0 && (
-            <span className="text-[11px] text-zinc-400">{t('contribute.modelsSelected', { n: selectedNames.size })}</span>
-          )}
-        </div>
+      {offerNote && anyFresh && (
+        <p className="text-xs text-blue-700 dark:text-blue-300 px-1">{offerNote}</p>
+      )}
 
-        {availableModels.length === 0 ? (
-          <p className="text-xs text-zinc-400 dark:text-zinc-500">{t('contribute.noModelsHint')}</p>
-        ) : (
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-1.5 items-center">
-              {[...selectedNames].map((name) => {
-                const m = availableModels.find((x) => x.name === name) || { name, type: 'chat' };
-                const isImage = m.type === 'image';
-                const typeTitle = isImage
-                  ? t('contribute.modelTypeImage')
-                  : m.type === 'vision'
-                    ? t('contribute.modelTypeVision')
-                    : t('contribute.modelTypeText');
-                return (
-                  // 仅 × 可移除；类型用 title，避免「对话」角标抢视觉
-                  <span
-                    key={name}
-                    title={typeTitle}
-                    className={`tb-tag pl-2.5 pr-0.5 py-1 text-xs font-mono ${
-                      isImage ? 'tb-tag-purple' : 'tb-tag-blue'
-                    }`}
-                  >
-                    <TruncTip as="span" title={name} className="max-w-[14rem]">{name}</TruncTip>
-                    <button
-                      type="button"
-                      title={t('contribute.removeModel')}
-                      aria-label={t('contribute.removeModel')}
-                      onClick={() => toggleModel(name)}
-                      className="ml-0.5 w-5 h-5 inline-flex items-center justify-center rounded-md text-current/55 hover:text-red-500 hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer transition-colors duration-200"
-                    >
-                      ×
-                    </button>
-                  </span>
-                );
-              })}
-              <button
-                type="button"
-                onClick={() => setShowModelPicker((v) => !v)}
-                className={`tb-tag tb-tag-muted border-dashed justify-center h-7 px-2.5 text-xs cursor-pointer ${
-                  showModelPicker ? '!border-solid !bg-white/75 dark:!bg-zinc-700/80 !text-zinc-900 dark:!text-zinc-100' : ''
-                }`}
-                title={t('contribute.addModel')}
-                aria-label={t('contribute.addModel')}
-                aria-expanded={showModelPicker}
-              >
-                + {t('contribute.addShort')}
-              </button>
+      {/* 上架的模型 */}
+      <section className="space-y-2">
+        <div className="flex items-center gap-2 px-1">
+          <h3 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100 m-0">{t('contribute.listedModels')}</h3>
+          <span className="text-[11px] text-zinc-400">{t('contribute.listedModelsHint')}</span>
+          <button type="button" onClick={() => setShowModelPicker(v => !v)} aria-expanded={showModelPicker}
+            className={`ml-auto ${btnCls}`}>{t('contribute.addModel')}</button>
+        </div>
+        {showModelPicker && (
+          <div className="tb-soft-card rounded-xl p-3 space-y-2 max-h-48 overflow-y-auto">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] text-zinc-500">{availableModels.length ? t('contribute.pickModelHint') : t('contribute.noModelsHint')}</p>
+              <button type="button" onClick={() => setShowModelPicker(false)} className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">{t('contribute.closePicker')}</button>
             </div>
-            {selectedNames.size === 0 && !showModelPicker && (
-              <p className="text-[11px] text-zinc-400">{t('contribute.addModelHint')}</p>
-            )}
-            {showModelPicker && (
-              <div className="tb-soft-card rounded-xl p-3 space-y-2 max-h-48 overflow-y-auto">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-zinc-500">{t('contribute.pickModelHint')}</p>
-                  <button
-                    type="button"
-                    onClick={() => setShowModelPicker(false)}
-                    className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-                  >
-                    {t('contribute.closePicker')}
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {availableModels
-                    .filter((m) => !selectedNames.has(m.name))
-                    .map((m) => {
-                      const isImage = m.type === 'image';
-                      return (
-                        <button
-                          key={m.name}
-                          type="button"
-                          title={isImage ? t('contribute.modelTypeImage') : t('contribute.modelTypeText')}
-                          onClick={() => toggleModel(m.name)}
-                          className="tb-tag tb-tag-muted px-2.5 py-1 text-xs font-mono cursor-pointer"
-                        >
-                          {m.name}
-                        </button>
-                      );
-                    })}
-                  {availableModels.every((m) => selectedNames.has(m.name)) && (
-                    <p className="text-[11px] text-zinc-400">{t('contribute.allModelsAdded')}</p>
-                  )}
-                </div>
-              </div>
-            )}
+            <div className="flex flex-wrap gap-1.5">
+              {availableModels.filter(m => !selectedNames.has(m.name)).map(m => (
+                <button key={m.name} type="button" title={modelTypeText(m)} onClick={() => toggleModel(m.name)}
+                  className="tb-tag tb-tag-muted px-2.5 py-1 text-xs font-mono cursor-pointer">{m.name}</button>
+              ))}
+              {availableModels.length > 0 && availableModels.every(m => selectedNames.has(m.name)) && (
+                <p className="text-[11px] text-zinc-400">{t('contribute.allModelsAdded')}</p>
+              )}
+            </div>
           </div>
         )}
-      </div>
-
-      {/* 贡献智能体：默认只展示已选；点 + 添加（须已投射） */}
-      <div className="space-y-2 pt-4 border-t border-zinc-100 dark:border-white/[0.06]">
-        <div className="flex items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200">
-            <span className="w-5 h-5 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-300 flex items-center justify-center text-[10px]" aria-hidden>✦</span>
-            {t('contribute.assistants')}
-          </span>
-          {selectedAssistantIds.size > 0 && (
-            <span className="text-[11px] text-zinc-400">
-              {t('contribute.assistantsSelected', { n: selectedAssistantIds.size })}
-            </span>
-          )}
-        </div>
-        {availableAssistants.length === 0 && availableApps.length === 0 && selectedAssistantIds.size === 0 ? (
-          <p className="text-xs text-zinc-400 dark:text-zinc-500">{t('contribute.noAssistantsHint')}</p>
-        ) : null}
-        {(availableAssistants.length > 0 || availableApps.length > 0 || selectedAssistantIds.size > 0) && (
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-1.5 items-center">
-              {[...selectedAssistantIds].map((id) => {
-                const runtime = listedAppRuntime(id);
-                const a = runtime ? null : availableAssistants.find((x) => x.id === id);
-                const app = runtime ? availableApps.find((x) => x.id === runtime) : null;
-                const label = app?.name || a?.display_name || a?.name || runtime || id;
-                const reason = runtime
-                  ? (app ? '' : t('contribute.appMissing'))
-                  : (a ? assistantDisabledReason(a) : '');
+        <div className={LIB_LIST_CLS}>
+          {selectedNames.size === 0 ? (
+            <p className="px-4 py-4 text-xs text-zinc-400">{t('contribute.addModelHint')}</p>
+          ) : (
+            <ul className="list-none m-0 p-0">
+              {[...selectedNames].map(name => {
+                const m = availableModels.find(x => x.name === name) || { name, type: 'chat' };
+                const fresh = !savedSets.models.has(name);
                 return (
-                  // 仅操作按钮可点；避免点 chip 本体误删
-                  <span
-                    key={id}
-                    title={reason || a?.description || undefined}
-                    className="tb-tag tb-tag-amber pl-2.5 pr-0.5 py-0.5 text-xs"
-                  >
-                    <TruncTip as="span" title={label} className="max-w-[14rem]">{label}</TruncTip>
-                    {reason && <span className="text-[10px] opacity-80">· {reason}</span>}
-                    <button
-                      type="button"
-                      title={t('contribute.copyWebLink')}
-                      aria-label={t('contribute.copyWebLink')}
-                      onClick={() => copyAssistantWebLink(id)}
-                      className="ml-0.5 px-1.5 h-5 inline-flex items-center justify-center rounded-md text-[10px] text-current/70 hover:text-current hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer transition-colors duration-200"
-                    >
-                      {copiedAssistantId === id ? t('contribute.webLinkCopied') : t('contribute.webLink')}
-                    </button>
-                    <button
-                      type="button"
-                      title={t('contribute.removeAssistant')}
-                      aria-label={t('contribute.removeAssistant')}
-                      onClick={() => toggleAssistant(id)}
-                      className="ml-0.5 w-5 h-5 inline-flex items-center justify-center rounded-md text-current/55 hover:text-red-500 hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer transition-colors duration-200"
-                    >
-                      ×
-                    </button>
-                  </span>
-                );
-              })}
-              <button
-                type="button"
-                onClick={() => setShowAssistantPicker((v) => !v)}
-                className={`tb-tag tb-tag-muted border-dashed justify-center h-7 px-2.5 text-xs cursor-pointer ${
-                  showAssistantPicker ? '!border-solid !bg-white/75 dark:!bg-zinc-700/80 !text-zinc-900 dark:!text-zinc-100' : ''
-                }`}
-                title={t('contribute.addAssistant')}
-                aria-label={t('contribute.addAssistant')}
-                aria-expanded={showAssistantPicker}
-              >
-                + {t('contribute.addShort')}
-              </button>
-            </div>
-            {selectedAssistantIds.size === 0 && !showAssistantPicker && (
-              <p className="text-[11px] text-zinc-400">{t('contribute.addAssistantHint')}</p>
-            )}
-            {showAssistantPicker && (
-              <div className="tb-soft-card rounded-xl p-3 space-y-2 max-h-72 overflow-y-auto">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-zinc-500">
-                    {assistantPickerBusy
-                      ? t('contribute.pickAssistantRefreshing')
-                      : t('contribute.pickAssistantHint')}
-                  </p>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      disabled={assistantPickerBusy}
-                      onClick={() => {
-                        setAssistantPickerBusy(true);
-                        Promise.all([refreshAssistants(), refreshApps()]).finally(() => setAssistantPickerBusy(false));
-                      }}
-                      className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 disabled:opacity-40"
-                    >
-                      {t('contribute.refreshAssistants')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowAssistantPicker(false)}
-                      className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-                    >
-                      {t('contribute.closePicker')}
-                    </button>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {availableAssistants
-                    .filter((a) => !selectedAssistantIds.has(a.id))
-                    .map((a) => {
-                      const reason = assistantDisabledReason(a);
-                      const label = a.display_name || a.name;
-                      if (reason) {
-                        return (
-                          <span
-                            key={a.id}
-                            title={reason}
-                            className="tb-tag tb-tag-muted px-2.5 py-1 text-xs opacity-55 cursor-not-allowed"
-                          >
-                            {label}
-                            <span className="ml-1 text-[10px] opacity-80">· {reason}</span>
-                          </span>
-                        );
-                      }
-                      return (
-                        <button
-                          key={a.id}
-                          type="button"
-                          title={a.description || a.name}
-                          onClick={() => toggleAssistant(a.id)}
-                          className="tb-tag tb-tag-muted px-2.5 py-1 text-xs cursor-pointer"
-                        >
-                          {label}
-                        </button>
-                      );
-                    })}
-                  {availableAssistants.filter((a) => !selectedAssistantIds.has(a.id) && !assistantDisabledReason(a)).length === 0 && (
-                    <p className="text-[11px] text-zinc-400 w-full">{t('contribute.noAddableAssistants')}</p>
-                  )}
-                </div>
-                <div className="pt-2 border-t border-zinc-100 dark:border-white/[0.06] space-y-1.5">
-                  <p className="text-[11px] text-zinc-500">{t('contribute.localAppsHint')}</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {availableApps
-                      .filter((a) => !selectedAssistantIds.has(`app:${a.id}`))
-                      .map((a) => (
-                        <button
-                          key={a.id}
-                          type="button"
-                          title={a.name}
-                          onClick={() => toggleAssistant(`app:${a.id}`)}
-                          className="tb-tag tb-tag-muted px-2.5 py-1 text-xs cursor-pointer"
-                        >
-                          {a.name}
-                        </button>
-                      ))}
-                    {availableApps.filter((a) => !selectedAssistantIds.has(`app:${a.id}`)).length === 0 && (
-                      <p className="text-[11px] text-zinc-400 w-full">{t('contribute.noLocalApps')}</p>
+                  <li key={name} className={rowCls(fresh)}>
+                    <span className="min-w-0">
+                      <TruncTip as="span" title={name} className="block text-xs font-medium font-mono text-zinc-800 dark:text-zinc-100">{name}</TruncTip>
+                      <span className="block text-[11px] text-zinc-400">{modelTypeText(m)}</span>
+                    </span>
+                    <span className="hidden md:block text-[11px] text-zinc-500 dark:text-zinc-400">
+                      {fresh ? t('contribute.notLiveYet') : (running ? t('contribute.listedLive') : t('contribute.listedOff'))}
+                    </span>
+                    {fresh ? freshActions(() => toggleModel(name)) : (
+                      <button type="button" onClick={() => toggleModel(name)} className={`justify-self-end ${btnCls}`}>{t('contribute.remove')}</button>
                     )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       </section>
 
-      {/* ② 给谁用：圈子即交易范围 */}
-      <section className={`${LIB_LIST_CLS} p-5 space-y-3`}>
-        <SupplySectionHead title={t('contribute.secWho')} hint={t('contribute.secWhoHint')} />
-        <div role="radiogroup" aria-label={t('contribute.scope')} className="grid gap-2.5 sm:grid-cols-2">
-          {[
-            ['public', '🌐', t('contribute.scopePublicTitle'), t('contribute.scopePublicDesc')],
-            ['circle', '◎', t('contribute.scopeCircleTitle'), t('contribute.scopeCircleDesc')],
-          ].map(([v, icon, title, desc]) => {
-            const on = circleScope === v;
-            return (
-              <button key={v} type="button" role="radio" aria-checked={on} onClick={() => setCircleScope(v)}
-                className={`relative text-left flex gap-3 p-3.5 rounded-xl border transition-all ${
-                  on
-                    ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/30 ring-2 ring-blue-500/15'
-                    : 'border-zinc-200 dark:border-zinc-700 bg-white/60 dark:bg-zinc-900/30 hover:border-zinc-300 dark:hover:border-zinc-600'
-                }`}>
-                <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm shrink-0 ${
-                  on ? 'bg-blue-600 text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'
-                }`} aria-hidden>{icon}</span>
-                <span className="min-w-0">
-                  <span className={`block text-[13px] font-medium ${on ? 'text-blue-700 dark:text-blue-300' : 'text-zinc-800 dark:text-zinc-100'}`}>{title}</span>
-                  <span className="block text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed">{desc}</span>
-                </span>
-                <span className={`absolute top-3 right-3 w-4 h-4 rounded-full border-2 ${
-                  on ? 'border-blue-600 bg-blue-600 shadow-[inset_0_0_0_2px_white] dark:shadow-[inset_0_0_0_2px_rgb(24,24,27)]' : 'border-zinc-300 dark:border-zinc-600'
-                }`} aria-hidden />
-              </button>
-            );
-          })}
+      {/* 上架的智能体（含本机应用） */}
+      <section className="space-y-2">
+        <div className="flex items-center gap-2 px-1">
+          <h3 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100 m-0">{t('contribute.listedAgents')}</h3>
+          <span className="text-[11px] text-zinc-400">{t('contribute.listedAgentsHint')}</span>
+          <button type="button" onClick={() => setShowAssistantPicker(v => !v)} aria-expanded={showAssistantPicker}
+            className={`ml-auto ${btnCls}`}>{t('contribute.addAssistant')}</button>
         </div>
-
-        {circleScope === 'circle' && (
-          <div className="rounded-xl bg-zinc-50/80 dark:bg-zinc-900/40 px-3.5 py-3 space-y-2">
-            {circles.length === 0
-              ? (
-                <p className="text-xs text-zinc-500">
-                  {t('contribute.noCircle')}
-                  {onManageCircles && (
-                    <button type="button" onClick={onManageCircles} className="ml-1.5 text-blue-600 dark:text-blue-400 hover:underline">
-                      {t('contribute.createCircleLink')}
-                    </button>
-                  )}
-                </p>
-              )
-              : (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {circles.map(c => {
-                    const sel = selectedCircleIds.has(c.id);
-                    return (
-                      <button key={c.id} type="button" onClick={() => toggleCircle(c.id)} aria-pressed={sel}
-                        className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                          sel
-                            ? 'border-blue-500 bg-blue-600 text-white'
-                            : 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300'
-                        }`}>
-                        <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-semibold ${sel ? 'bg-white/25' : `${avatarColor(c.name)} text-white`}`} aria-hidden>
-                          {sel ? '✓' : (c.name || '?')[0]}
-                        </span>
-                        {c.name}
-                      </button>
-                    );
-                  })}
-                </div>
+        {showAssistantPicker && (
+          <div className="tb-soft-card rounded-xl p-3 space-y-2 max-h-72 overflow-y-auto">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] text-zinc-500">{assistantPickerBusy ? t('contribute.pickAssistantRefreshing') : t('contribute.pickAssistantHint')}</p>
+              <div className="flex items-center gap-2 shrink-0">
+                <button type="button" disabled={assistantPickerBusy}
+                  onClick={() => { setAssistantPickerBusy(true); Promise.all([refreshAssistants(), refreshApps()]).finally(() => setAssistantPickerBusy(false)); }}
+                  className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 disabled:opacity-40">{t('contribute.refreshAssistants')}</button>
+                <button type="button" onClick={() => setShowAssistantPicker(false)} className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">{t('contribute.closePicker')}</button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {availableAssistants.filter(a => !selectedAssistantIds.has(a.id)).map(a => {
+                const reason = assistantDisabledReason(a);
+                const label = a.display_name || a.name;
+                if (reason) {
+                  return (
+                    <span key={a.id} title={reason} className="tb-tag tb-tag-muted px-2.5 py-1 text-xs opacity-55 cursor-not-allowed">
+                      {label}<span className="ml-1 text-[10px] opacity-80">· {reason}</span>
+                    </span>
+                  );
+                }
+                return (
+                  <button key={a.id} type="button" title={a.description || a.name} onClick={() => toggleAssistant(a.id)}
+                    className="tb-tag tb-tag-muted px-2.5 py-1 text-xs cursor-pointer">{label}</button>
+                );
+              })}
+              {availableAssistants.filter(a => !selectedAssistantIds.has(a.id) && !assistantDisabledReason(a)).length === 0 && (
+                <p className="text-[11px] text-zinc-400 w-full">{t('contribute.noAddableAssistants')}</p>
               )}
-            <p className="text-[11px] text-zinc-400">{t('contribute.scopeHint')}</p>
+            </div>
+            <div className="pt-2 border-t border-zinc-100 dark:border-white/[0.06] space-y-1.5">
+              <p className="text-[11px] text-zinc-500">{t('contribute.localAppsHint')}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {availableApps.filter(a => !selectedAssistantIds.has(`app:${a.id}`)).map(a => (
+                  <button key={a.id} type="button" title={a.name} onClick={() => toggleAssistant(`app:${a.id}`)}
+                    className="tb-tag tb-tag-muted px-2.5 py-1 text-xs cursor-pointer">{a.name}</button>
+                ))}
+                {availableApps.filter(a => !selectedAssistantIds.has(`app:${a.id}`)).length === 0 && (
+                  <p className="text-[11px] text-zinc-400 w-full">{t('contribute.noLocalApps')}</p>
+                )}
+              </div>
+            </div>
           </div>
+        )}
+        <div className={LIB_LIST_CLS}>
+          {selectedAssistantIds.size === 0 ? (
+            <p className="px-4 py-4 text-xs text-zinc-400">{availableAssistants.length || availableApps.length ? t('contribute.addAssistantHint') : t('contribute.noAssistantsHint')}</p>
+          ) : (
+            <ul className="list-none m-0 p-0">
+              {[...selectedAssistantIds].map(id => {
+                const runtime = listedAppRuntime(id);
+                const a = runtime ? null : availableAssistants.find(x => x.id === id);
+                const app = runtime ? availableApps.find(x => x.id === runtime) : null;
+                const label = app?.name || a?.display_name || a?.name || runtime || id;
+                const reason = runtime ? (app ? '' : t('contribute.appMissing')) : (a ? assistantDisabledReason(a) : '');
+                const on = (a?.projections || []).map(p => p.agentId || p.agent_id).filter(Boolean);
+                const where = runtime ? t('contribute.agentIsApp') : (on.length ? t('contribute.agentRunsOn', { apps: on.join('、') }) : '');
+                const fresh = !savedSets.agents.has(id);
+                return (
+                  <li key={id} className={rowCls(fresh)}>
+                    <span className="min-w-0">
+                      <TruncTip as="span" title={label} className="block text-xs font-medium text-zinc-800 dark:text-zinc-100">{label}</TruncTip>
+                      <span className={`block text-[11px] ${reason ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400'}`}>{reason || where}</span>
+                    </span>
+                    <span className="hidden md:block text-[11px] text-zinc-500 dark:text-zinc-400">
+                      {fresh ? t('contribute.agentNewHint') : (running ? t('contribute.listedLive') : t('contribute.listedOff'))}
+                    </span>
+                    {fresh ? freshActions(() => toggleAssistant(id)) : (
+                      <span className="flex items-center gap-1.5 justify-end">
+                        <button type="button" onClick={() => copyAssistantWebLink(id)} className={btnCls}>
+                          {copiedAssistantId === id ? t('contribute.webLinkCopied') : t('contribute.webLink')}
+                        </button>
+                        <button type="button" onClick={() => toggleAssistant(id)} className={btnCls}>{t('contribute.remove')}</button>
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+        {anyFresh && !running && (
+          <p className="text-[11px] text-zinc-500 px-1">
+            {t('contribute.freshOffHint')}
+            <button type="button" onClick={discardNew} className="ml-2 text-blue-600 dark:text-blue-400 hover:underline">{t('contribute.dropAllNew')}</button>
+          </p>
         )}
       </section>
 
@@ -938,21 +805,24 @@ function EarningsView({ settlements, summary, stats, logs, logRef }) {
 
   return (
     <div className="space-y-4">
+      {/* 两张大卡：赚的、花的，各一个大数加一句说明 */}
       <div className="grid gap-4 md:grid-cols-2">
-        {groups.map(g => (
-          <section key={g.key} className="space-y-2">
-            <h3 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100">{g.title}</h3>
-            <div className="grid grid-cols-2 gap-2.5">
-              {g.tiles.map(m => (
-                <div key={m.k} className={`${LIB_LIST_CLS} px-4 py-3`}>
-                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">{m.label}</div>
-                  <div className={`mt-1 text-lg font-semibold tabular-nums tracking-tight ${m.tone || 'text-zinc-900 dark:text-zinc-50'}`}>{m.value}</div>
-                  <div className="text-[11px] truncate mt-0.5 text-zinc-400">{m.sub || '\u00a0'}</div>
-                </div>
-              ))}
-            </div>
-          </section>
-        ))}
+        {groups.map(g => {
+          const [lead, ...rest] = g.tiles;
+          return (
+            <section key={g.key} className={`${LIB_LIST_CLS} px-5 py-4`}>
+              <h3 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100">{g.title}</h3>
+              <div className="mt-2 flex flex-wrap items-baseline gap-x-2">
+                <span className={`text-3xl font-semibold tabular-nums tracking-tight ${lead.tone || 'text-zinc-900 dark:text-zinc-50'}`}>{lead.value}</span>
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">{lead.label}</span>
+              </div>
+              <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-300">
+                {[lead.sub, ...rest.map(m => `${m.label} ${m.value}`)].filter(Boolean).join(' · ')}
+              </p>
+              {rest.map(m => m.sub ? <p key={m.k} className="mt-0.5 text-[11px] text-zinc-400">{m.sub}</p> : null)}
+            </section>
+          );
+        })}
       </div>
 
       {/* 每次结算积分：单序列柱图（无需图例），悬停看明细 */}
@@ -1888,6 +1758,7 @@ export default function Contribute() {
       return ['hire', 'supply', 'earnings'].includes(v) ? v : 'hire';
     } catch { return 'hire'; }
   });
+  const [buyKind, setBuyKind] = useState('all'); // 买：全部 / 智能体 / 模型
   // 圈子 = 交易范围：共享给雇佣筛选、上架范围、圈子管理
   const [myCircles, setMyCircles] = useState(null);
   const [scope, setScope] = useState('all');
@@ -2114,14 +1985,29 @@ export default function Contribute() {
       <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
         {/* 三个页签常驻挂载：切换不丢未保存的上架配置 */}
         <div className={tab === 'hire' ? '' : 'hidden'}>
-          <CommunityAgentsCard
-            refreshKey={agentsRefreshKey}
-            circles={myCircles || []}
-            scope={scope}
-            onScopeChange={setScope}
-            focusAgent={focusAgent}
-          />
-          <CommunityModelsCard />
+          {/* 社区里能买的有两种：雇智能体、租模型。先选看哪种 */}
+          <div role="tablist" aria-label={t('contribute.buyKind')} className="flex flex-wrap items-center gap-1.5 mb-3">
+            {[['all', t('contribute.buyKindAll')], ['agents', t('contribute.buyKindAgents')], ['models', t('contribute.buyKindModels')]].map(([k, label]) => (
+              <button key={k} type="button" role="tab" aria-selected={buyKind === k} onClick={() => setBuyKind(k)}
+                className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${buyKind === k
+                  ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 font-medium'
+                  : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className={buyKind === 'models' ? 'hidden' : ''}>
+            <CommunityAgentsCard
+              refreshKey={agentsRefreshKey}
+              circles={myCircles || []}
+              scope={scope}
+              onScopeChange={setScope}
+              focusAgent={focusAgent}
+            />
+          </div>
+          <div className={buyKind === 'agents' ? 'hidden' : ''}>
+            <CommunityModelsCard />
+          </div>
         </div>
 
         <div className={tab === 'supply' ? 'space-y-2' : 'hidden'}>
