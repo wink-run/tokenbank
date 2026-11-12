@@ -424,6 +424,11 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
     }
     const response = taskToResponse(task);
     if (callContext) response.metadata.call_context = callContext;
+    // 走路由时原样带回路由名，另写明是哪个主智能体派的
+    if (resolved.options.agentRouteId) {
+      response.metadata.harness_id = harnessId;
+      response.metadata.dispatched_by = resolved.agentId;
+    }
     rememberIdempotency(idem, raw, response);
     reportTask(task);
     if (body.stream) {

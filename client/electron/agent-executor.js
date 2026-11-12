@@ -659,9 +659,11 @@ class AgentExecutor extends EventEmitter {
         (a) => a.type === 'cli' && typeof a.installed !== 'boolean',
       );
       if (!stale) {
-        // 雇佣名单可能刚写入：缓存里刷新 community 段
-        const base = AGENT_LIST_CACHE.agents.filter((a) => a.type !== 'community');
-        return [...base, ...hiredEntries()];
+        // 雇佣名单、外部智能体可能刚变：缓存里刷新这两段
+        const base = AGENT_LIST_CACHE.agents.filter((a) => a.type !== 'community' && a.type !== 'external');
+        let externals = [];
+        try { externals = require('./external-agents').listForAgents(); } catch { /* 外部智能体不可用 */ }
+        return [...base, ...hiredEntries(), ...externals];
       }
     }
 

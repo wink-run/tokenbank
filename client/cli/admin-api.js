@@ -435,6 +435,25 @@ function createAppRecord(data = {}) {
 
 // ── syncGateway ───────────────────────────────────────────────────────────────
 
+/** 智能体接口的本机钥匙：和桌面版一样，缺了就生成一次存进本机配置 */
+function applyAgentApiKey(lc) {
+  try {
+    if (!_gateway || typeof _gateway.setAgentApiKey !== 'function') return '';
+    let key = String(lc?.agent_api_key || '').trim();
+    if (!key) {
+      const cur = readLocalConfig() || {};
+      key = String(cur.agent_api_key || '').trim();
+      if (!key) {
+        key = 'sk-local-' + require('crypto').randomBytes(16).toString('hex');
+        cur.agent_api_key = key;
+        writeLocalConfig(cur);
+      }
+    }
+    _gateway.setAgentApiKey(key);
+    return key;
+  } catch (e) { console.warn('[admin-api] agent api key:', e.message); return ''; }
+}
+
 function syncGateway(lc) {
   if (!_gateway) return;
   const routes = lc.scene_routes || [];
@@ -492,6 +511,7 @@ function syncGateway(lc) {
   }
   _gateway.setAppControls(appControls);
   _gateway.setKeySceneMap(keyScene);
+  applyAgentApiKey(lc);
   // Claude Desktop 透明 mask 名（与 Electron syncGatewayFromConfig 一致）
   try { _gateway.setClaudeModels(configLoader.claudeModels()); } catch {}
 
@@ -1325,6 +1345,7 @@ async function handleRequest(req, res) {
 function start(port, gatewayInstance, bindHost = '127.0.0.1', opts = {}) {
   _gateway = gatewayInstance;
   _reporterGetStats = opts.reporterGetStats || null;
+  applyAgentApiKey(readLocalConfig() || {});
 
   _server = http.createServer((req, res) => {
     handleRequest(req, res).catch((err) => {
