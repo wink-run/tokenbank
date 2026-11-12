@@ -105,7 +105,14 @@ function startDispatchServer(agentExecutor, resourceManager) {
       }
 
       if (req.method === 'GET' && url.pathname === '/agents') {
-        const agents = await agentExecutor.listAvailableAgents();
+        let agents = await agentExecutor.listAvailableAgents();
+        // 按智能体路由收窄名单：只给主智能体看这条路由允许派的
+        const routeId = url.searchParams.get('route') || '';
+        if (routeId) {
+          const routes = require('./agent-routes');
+          const route = routes.get(routeId);
+          if (route) agents = routes.filterAgents(route, agents);
+        }
         sendJson(res, 200, { agents });
         return;
       }
@@ -129,6 +136,16 @@ function startDispatchServer(agentExecutor, resourceManager) {
         if (!agentId || !prompt) {
           sendJson(res, 400, { error: 'missing agentId or prompt' });
           return;
+        }
+        // 路由的名单之外的不派（尤其是没打开开关的雇来的社区智能体，会扣积分）
+        const routeId = String(body.route || '').trim();
+        if (routeId) {
+          const routes = require('./agent-routes');
+          const route = routes.get(routeId);
+          if (route && !routes.canDispatchTo(route, agentId, await agentExecutor.listAvailableAgents())) {
+            sendJson(res, 403, { error: `「${route.name}」的名单里没有 ${agentId}，只能派给 tb_list_agents 列出的智能体` });
+            return;
+          }
         }
 
         const status = await agentExecutor.dispatchAndWait(agentId, prompt, {

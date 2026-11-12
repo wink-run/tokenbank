@@ -2,6 +2,8 @@
 'use strict';
 
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const WAIT_MS = 10 * 60 * 1000;
 const idempotency = new Map();
@@ -141,10 +143,32 @@ function rememberIdempotency(key, raw, response, taskId) {
 async function listHarnesses() {
   const executor = require('./agent-executor');
   const agents = await executor.listAvailableAgents();
-  // 只列本机已经装好、执行器能拉起的命令行应用。
-  return agents
-    .filter((agent) => agent.type === 'cli' && agent.installed)
-    .map((agent) => ({ id: agent.id, name: agent.name || agent.id, kind: 'app' }));
+  // 通用（本机装好的应用）、专业（投射的智能体，管家除外）、外部（自己注册进来的），再加智能体路由
+  const out = [];
+  for (const agent of agents) {
+    if (!agent || agent.guardian) continue;
+    if (agent.type === 'cli' && agent.installed) out.push({ id: agent.id, name: agent.name || agent.id, kind: 'app' });
+    else if (agent.type === 'assistant') out.push({ id: agent.id, name: agent.name || agent.id, kind: 'assistant', runs_on: agent.runtimeAgentId || null });
+    else if (agent.type === 'external') out.push({ id: agent.id, name: agent.name || agent.id, kind: 'external', online: !!agent.online });
+  }
+  try {
+    for (const r of require('./agent-routes').list()) out.push({ id: r.id, name: r.name, kind: 'route' });
+  } catch { /* 路由读不到时只列智能体 */ }
+  return out;
+}
+
+/** harness_id 是智能体路由时：交给这条路由的主智能体，以编排模式照规则派发 */
+async function resolveHarness(executor, harnessId, preferredMain = '') {
+  const routes = require('./agent-routes');
+  if (!routes.isRouteId(harnessId)) return { agentId: harnessId, options: {} };
+  const route = routes.get(harnessId);
+  if (!route) throw Object.assign(new Error(`没有这条智能体路由：${harnessId}`), { status: 404 });
+  await executor.listAvailableAgents();
+  const launchable = executor._launchableCliIds || new Set();
+  // 路由没指定谁来派时，用调用方带来的（游乐场传它设的主智能体），再没有就挑第一个装好的
+  const main = routes.resolveMainAgent(route, launchable, preferredMain);
+  if (!main) throw Object.assign(new Error('没有能派发的主智能体：先装好 Claude Code、Codex、Cursor 或 Pi 中的一个'), { status: 409 });
+  return { agentId: main, options: { mode: 'orchestrator', mainAgentId: main, agentRouteId: route.id } };
 }
 
 async function waitTask(executor, taskId) {
@@ -180,8 +204,67 @@ function buildAgentRouteLog(info = {}) {
   return entry;
 }
 
+/**
+ * 外部智能体的接口（不用网关 Key，用配对码 / 它自己的 token）：
+ *   POST /v1/agent/external/register        { pairing_code, name, description } → { agent_id, token, status }
+ *   GET  /v1/agent/external/tasks?wait=25   取派给它的任务 → { task: { id, input } | null }
+ *   POST /v1/agent/external/tasks/:id/result { output, error }
+ *   GET  /v1/agent/external/skill           tokenbank-connect 技能说明（Markdown）
+ */
+async function handleExternal(req, res, method, cleanPath) {
+  if (!String(cleanPath || '').startsWith('/v1/agent/external/')) return false;
+  const ext = require('./external-agents');
+  try {
+    if (method === 'GET' && cleanPath === '/v1/agent/external/skill') {
+      req.resume();
+      const text = fs.readFileSync(path.join(__dirname, 'skills', 'tokenbank-connect', 'SKILL.md'), 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' });
+      res.end(text);
+      return true;
+    }
+    if (method === 'POST' && cleanPath === '/v1/agent/external/register') {
+      const { body } = await readBody(req);
+      const out = ext.register({ code: body.pairing_code || body.code, name: body.name, description: body.description });
+      sendJson(res, 200, out);
+      return true;
+    }
+    const agent = ext.authenticate(callerKey(req));
+    if (!agent) {
+      req.resume();
+      sendJson(res, 401, { error: { message: 'invalid external agent token', type: 'auth_error' } });
+      return true;
+    }
+    if (agent.status !== 'active') {
+      req.resume();
+      sendJson(res, 403, { error: { message: agent.status === 'pending' ? '还在等用户允许' : '已被停用', type: 'forbidden' }, status: agent.status });
+      return true;
+    }
+    if (method === 'GET' && cleanPath === '/v1/agent/external/tasks') {
+      req.resume();
+      const wait = Number(new URL(req.url || '/', 'http://x').searchParams.get('wait') || 25) * 1000;
+      const task = await ext.pull(agent.id, wait);
+      sendJson(res, 200, { task: task ? { id: task.id, input: task.prompt } : null });
+      return true;
+    }
+    const m = String(cleanPath).match(/^\/v1\/agent\/external\/tasks\/([^/]+)\/result$/);
+    if (method === 'POST' && m) {
+      const { body } = await readBody(req);
+      const ok = ext.complete(agent.id, decodeURIComponent(m[1]), { output: body.output, error: body.error });
+      sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: { message: 'no such task waiting', type: 'not_found' } });
+      return true;
+    }
+    req.resume();
+    sendJson(res, 404, { error: { message: 'not_found', type: 'invalid_request_error' } });
+    return true;
+  } catch (e) {
+    sendJson(res, e.status || 500, { error: { message: e.message, type: e.status === 401 ? 'auth_error' : 'invalid_request_error' } });
+    return true;
+  }
+}
+
 async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
   const started = Date.now();
+  if (await handleExternal(req, res, method, cleanPath)) return true;
   const route = parseAgentRoute(method, cleanPath);
   if (!route && String(cleanPath || '').startsWith('/v1/agent')) {
     sendJson(res, 404, { error: { message: 'not_found', type: 'invalid_request_error' } });
@@ -296,7 +379,16 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
       } catch { /* 找不到上一轮就当新任务 */ }
     }
 
-    const { taskId } = await executor.execute(harnessId, prompt, {
+    let resolved;
+    try {
+      resolved = await resolveHarness(executor, harnessId, String(body.metadata?.main_agent_id || '').trim());
+    } catch (e) {
+      report({ ok: false, error: e.message, prompt, harnessId });
+      sendJson(res, e.status || 400, { error: { message: e.message, type: 'invalid_request_error' } });
+      return true;
+    }
+    const { taskId } = await executor.execute(resolved.agentId, prompt, {
+      ...resolved.options,
       continueSession,
       cliSessionId: cliSessionId || undefined,
       workingDir: typeof body.metadata?.working_dir === 'string' ? body.metadata.working_dir : undefined,
@@ -392,6 +484,8 @@ function writeSse(res, response) {
 }
 
 module.exports = {
+  resolveHarness,
+  listHarnesses,
   parseAgentRoute,
   inputText,
   harnessIdFromBody,

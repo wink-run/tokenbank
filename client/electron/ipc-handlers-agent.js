@@ -80,6 +80,12 @@ function registerAgentHandlers() {
    */
   ipcMain.handle('agent:execute', async (event, { agentId, prompt, options = {} }) => {
     try {
+      // 游乐场「聚合入口」带着智能体路由来：和智能体接口用同一个解析（谁来派、编排模式、按路由的规则和名单）
+      if (options.agentRouteId) {
+        const resolved = await require('./agent-http').resolveHarness(agentExecutor, options.agentRouteId, options.mainAgentId || agentId);
+        const result = await agentExecutor.execute(resolved.agentId, prompt, { ...options, ...resolved.options });
+        return { success: true, ...result };
+      }
       const result = await agentExecutor.execute(agentId, prompt, options);
       return { success: true, ...result };
     } catch (error) {
@@ -214,6 +220,44 @@ function registerAgentHandlers() {
     } catch (error) {
       return { success: false, error: error.message };
     }
+  });
+
+  // 智能体路由（网关页「路由」）：和游乐场聚合入口同一套派发
+  ipcMain.handle('agent:routesList', async () => {
+    try { return { success: true, routes: require('./agent-routes').list() }; }
+    catch (error) { return { success: false, error: error.message }; }
+  });
+  ipcMain.handle('agent:routesSave', async (_event, route = {}) => {
+    try { return { success: true, route: require('./agent-routes').save(route) }; }
+    catch (error) { return { success: false, error: error.message }; }
+  });
+  ipcMain.handle('agent:routesRemove', async (_event, id) => {
+    try { return { success: true, removed: require('./agent-routes').remove(String(id || '')) }; }
+    catch (error) { return { success: false, error: error.message }; }
+  });
+  // 外部智能体（网关页「外部智能体」）：配对码、允许 / 停用 / 移除
+  const ext = () => require('./external-agents');
+  ipcMain.handle('agent:externalList', async () => {
+    try { return { success: true, agents: ext().list(), pairing: ext().currentPairing() }; }
+    catch (error) { return { success: false, error: error.message }; }
+  });
+  ipcMain.handle('agent:externalPair', async () => {
+    try { return { success: true, pairing: ext().newPairingCode() }; }
+    catch (error) { return { success: false, error: error.message }; }
+  });
+  ipcMain.handle('agent:externalSet', async (_event, { id, action } = {}) => {
+    try {
+      const e = ext();
+      const fn = { approve: e.approve, disable: e.disable, enable: e.enable, remove: e.remove }[action];
+      if (!fn) throw new Error('unknown action');
+      return { success: true, result: fn(String(id || '')) };
+    } catch (error) { return { success: false, error: error.message }; }
+  });
+
+  // 智能体接口能调的：通用、专业、外部智能体和路由
+  ipcMain.handle('agent:harnesses', async () => {
+    try { return { success: true, harnesses: await require('./agent-http').listHarnesses() }; }
+    catch (error) { return { success: false, error: error.message }; }
   });
 
   ipcMain.handle('agent:taskStats', async () => {

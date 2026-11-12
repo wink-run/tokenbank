@@ -590,6 +590,8 @@ class AgentExecutor extends EventEmitter {
     const builtin = canonicalBuiltinAgentId(raw);
     if (builtin) return builtin;
     if (require('./guardian/chat').isGuardianAgent(raw)) return raw;
+    // 外部智能体：按 id 原样执行（是否允许接任务由 external-agents 判断）
+    if (require('./external-agents').isExternalId(raw)) return raw;
 
     const {
       isCommunityAgentId,
@@ -739,6 +741,8 @@ class AgentExecutor extends EventEmitter {
       ...this._listCustomAssistants(launchableCliIds),
       // 已雇佣的社区武将（远程执行，无正文）
       ...require('./hired-community-agents').toAgentListEntries(),
+      // 外部智能体（Muse、GrokBot 等）：自己注册进来、用户允许过的，来网关取任务
+      ...(() => { try { return require('./external-agents').listForAgents(); } catch { return []; } })(),
     ];
 
     // 探测命令只留给后台补版本，不发给界面
@@ -1413,6 +1417,39 @@ class AgentExecutor extends EventEmitter {
     this.taskMetaCache.delete(taskId);
   }
 
+  /** 外部智能体的任务：和社区任务一样只记结果，不在本机跑 */
+  async _runExternalTaskForExecute(taskId, agentId, prompt, options = {}) {
+    const db = this._getDb();
+    this.emit('task:step', {
+      taskId, stepType: 'system_event', system_subtype: 'process_started',
+      content: agentId, message: agentId, timestamp: Date.now(), ...this._taskEventMeta(taskId),
+    });
+    const result = await require('./external-agents').dispatch(agentId, prompt, { timeoutMs: options.timeoutMs, taskId });
+    if (this._isTaskCancelled(taskId)) { this.taskMetaCache.delete(taskId); return; }
+    const output = String(result?.output || '');
+    if (!result?.ok) {
+      const errText = String(result?.error || 'external agent failed');
+      const payload = { success: false, summary: output, output, stderr: errText, error: errText, files: [], stepCount: 0 };
+      try {
+        db.prepare("UPDATE agent_tasks SET status = 'failed', error = ?, result = ?, completed_at = ? WHERE id = ?")
+          .run(errText, JSON.stringify(payload), Date.now(), taskId);
+      } catch { this._updateTaskStatus(taskId, 'failed', errText); }
+      this.emit('task:failed', { taskId, error: errText, result: payload, status: 'failed', ...this._taskEventMeta(taskId) });
+      this.taskMetaCache.delete(taskId);
+      return;
+    }
+    const payload = { success: true, summary: output, output, stderr: '', files: [], stepCount: 0 };
+    try {
+      db.prepare("UPDATE agent_tasks SET status = 'completed', result = ?, completed_at = ? WHERE id = ?")
+        .run(JSON.stringify(payload), Date.now(), taskId);
+    } catch { /* 记不下结果也照常通知 */ }
+    this.emit('task:completed', {
+      taskId, result: { success: true, summary: output, stderr: '', files: [], stepCount: 0 },
+      status: 'completed', ...this._taskEventMeta(taskId),
+    });
+    this.taskMetaCache.delete(taskId);
+  }
+
   /**
    * 异步执行任务
    */
@@ -1433,6 +1470,11 @@ class AgentExecutor extends EventEmitter {
       const { isCommunityAgentId } = require('./hired-community-agents');
       if (isCommunityAgentId(agentId)) {
         await this._runCommunityTaskForExecute(taskId, agentId, prompt, options);
+        return;
+      }
+      // 外部智能体：排进它的队列，等它来取、做完回传
+      if (require('./external-agents').isExternalId(agentId)) {
+        await this._runExternalTaskForExecute(taskId, agentId, prompt, options);
         return;
       }
 
@@ -1502,6 +1544,7 @@ class AgentExecutor extends EventEmitter {
           profileId: mcpProfile || mcpManager.DEVELOPMENT_PROFILE_ID || mcpManager.DEFAULT_PROFILE_ID,
           sessionKey: options.sessionKey || null,
           sessionInstanceId: options.sessionInstanceId || null,
+          agentRouteId: options.agentRouteId || '',
         });
         orchestratorCleanup = orch.cleanup;
         if (orch.promptPrefix) execPrompt = orch.promptPrefix + userPrompt;

@@ -911,6 +911,20 @@ export default function Debug() {
   // Agent 模式状态
   const [agents, setAgents] = useState(() => getCachedAgentsList() || []);
   const [selectedAgent, setSelectedAgent] = useState(null);
+  // 聚合入口用哪条智能体路由（网关页「路由」里配）；记在本机
+  const [hubRoutes, setHubRoutes] = useState([]);
+  const [hubRouteId, setHubRouteIdRaw] = useState(() => {
+    try { return localStorage.getItem('tb.play.hubRoute') || 'agent-router-default'; } catch { return 'agent-router-default'; }
+  });
+  const setHubRouteId = (id) => {
+    setHubRouteIdRaw(id);
+    try { localStorage.setItem('tb.play.hubRoute', id); } catch { /* 只在本次生效 */ }
+  };
+  useEffect(() => {
+    Promise.resolve(window.electronAPI?.agent?.routesList?.())
+      .then(r => { if (r?.success) setHubRoutes(r.routes || []); })
+      .catch(() => {});
+  }, [mode]);
   // 智能管家有自己的对话页，不在游乐场里出现
   const isGuardianEntry = (a) => !!a && (a.guardian || a.id === 'assistant:tb-guardian');
   const playAgents = useMemo(() => (agents || []).filter(a => a && !isGuardianEntry(a)), [agents]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2589,6 +2603,8 @@ export default function Debug() {
           mode: execMode,
           mainAgentId: isHubMode ? activeAgent.id : mainAgentId,
           mcpProfile: isHubMode ? MCP_PROFILE_DEVELOPMENT : undefined,
+          // 聚合入口走智能体路由：和外部系统调智能体接口是同一套
+          agentRouteId: isHubMode ? (hubRouteId || 'agent-router-default') : undefined,
           sessionKey: execKey,
           sessionInstanceId: instanceId,
           continueSession,
@@ -3310,8 +3326,17 @@ export default function Debug() {
                 ? (selectedAgent.guardian ? t('debug.tabs.guardian') : selectedAgent.name)
                 : t('debug.tabs.hub');
               return (
-                <span className="flex items-baseline gap-2 min-w-0">
+                <span className="flex items-baseline gap-2 min-w-0 flex-wrap">
                   <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 truncate">{name}</span>
+                  {!selectedAgent && hubRoutes.length > 0 && (
+                    <label className="electron-no-drag inline-flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                      {t('debug.header.route')}
+                      <select value={hubRoutes.some(r => r.id === hubRouteId) ? hubRouteId : 'agent-router-default'} onChange={e => setHubRouteId(e.target.value)}
+                        className="min-h-[32px] bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 text-xs text-zinc-900 dark:text-zinc-100">
+                        {hubRoutes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      </select>
+                    </label>
+                  )}
                   <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate" title={dir || undefined}>
                     {isCommunityPlaygroundAgent(selectedAgent) ? t('debug.header.remote')
                       : dir ? t('debug.header.inDir', { dir }) : t('debug.header.noDir')}

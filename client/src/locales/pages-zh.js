@@ -1923,6 +1923,7 @@ export default {
   "debug.header.inDir": "在 {dir} 里干活",
   "debug.header.noDir": "还没选工作目录，在底部选",
   "debug.header.remote": "在对方设备上执行，按次扣积分",
+  "debug.header.route": "按路由派",
   'debug.tabs.agents': '和谁说话',
   'debug.tabs.collapseAgents': '收起',
   'debug.tabs.expandAgents': '展开',

@@ -1918,6 +1918,7 @@ export default {
   "debug.header.inDir": "working in {dir}",
   "debug.header.noDir": "No working folder yet; pick one below",
   "debug.header.remote": "Runs on the owner's device, charged per task",
+  "debug.header.route": "Route",
   'debug.tabs.agents': 'Talk to',
   'debug.tabs.collapseAgents': 'Hide',
   'debug.tabs.expandAgents': 'Show',

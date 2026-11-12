@@ -56,6 +56,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listRecentTasks: (opts) => ipcRenderer.invoke('agent:listRecentTasks', opts),
     taskStats: () => ipcRenderer.invoke('agent:taskStats'),
     listBlocked: () => ipcRenderer.invoke('agent:listBlocked'),
+    routesList: () => ipcRenderer.invoke('agent:routesList'),
+    routesSave: (route) => ipcRenderer.invoke('agent:routesSave', route),
+    routesRemove: (id) => ipcRenderer.invoke('agent:routesRemove', id),
+    harnesses: () => ipcRenderer.invoke('agent:harnesses'),
+    externalList: () => ipcRenderer.invoke('agent:externalList'),
+    externalPair: () => ipcRenderer.invoke('agent:externalPair'),
+    externalSet: (id, action) => ipcRenderer.invoke('agent:externalSet', { id, action }),
     pickWorkingDir: (opts) => ipcRenderer.invoke('agent:pickWorkingDir', opts),
     pickFiles: (opts) => ipcRenderer.invoke('agent:pickFiles', opts),
     // 兼容旧调用
