@@ -60,7 +60,7 @@ function GroupHead({ title, hint, badge, badgeTone = 'red', right }) {
 }
 
 /** 智能体接口的本机钥匙：外部系统调用 /v1/agent 时用 */
-export function AgentApiKey() {
+export function AgentApiKey({ inline = false } = {}) {
   const { t } = useLang();
   const [key, setKey] = useState('');
   const [show, setShow] = useState(false);
@@ -69,7 +69,7 @@ export function AgentApiKey() {
   }, []);
   if (!key) return null;
   return (
-    <div className="mt-1.5 flex items-center gap-2 min-w-0 text-xs text-zinc-500 dark:text-zinc-400">
+    <div className={`${inline ? '' : 'mt-1.5 '}flex items-center gap-2 min-w-0 text-xs text-zinc-500 dark:text-zinc-400`}>
       <span className="shrink-0">{t('gw2.agentKey')}</span>
       <Code>{show ? key : `${key.slice(0, 12)}••••••••`}</Code>
       <button type="button" className="shrink-0 min-h-[32px] px-1.5 text-blue-600 dark:text-blue-400 hover:underline" onClick={() => setShow(v => !v)}>

@@ -5466,15 +5466,15 @@ export default function Gateway() {
         </button>
       </div>
 
-      {/* 网关地址和智能体地址并排。指标单位不同：左边是补全，右边是任务。 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-        <div className="tb-soft-card rounded-xl px-3 py-2.5 min-w-0">
-          <div className="flex items-start gap-2 min-w-0">
-            <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 shrink-0 pt-0.5">{t('gateway.surface.gateway')}</span>
+      {/* 网关地址和智能体地址：两行紧凑信息条，不再单独占两张卡片。指标单位不同：上面是补全，下面是任务。 */}
+      <div className="space-y-1.5 text-xs text-zinc-500 dark:text-zinc-400 min-w-0 -mt-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
+          <span className="flex items-center gap-1.5 min-w-0">
+            <span className="font-semibold text-zinc-700 dark:text-zinc-200 shrink-0">{t('gateway.surface.gateway')}</span>
             <code className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 break-all min-w-0">{localBase}</code>
-            <CopyButton text={localBase} label={t('gateway.common.copy')} className="ml-auto py-0.5 text-xs shrink-0" />
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+            <CopyButton text={localBase} label={t('gateway.common.copy')} className="py-0.5 text-xs shrink-0" />
+          </span>
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
             <button type="button" onClick={jumpToRouteLog} title={t('gateway.log.jump')}
               className="hover:text-zinc-800 dark:hover:text-zinc-200 underline-offset-2 hover:underline">
               <b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{stats ? headerCalls.toLocaleString() : '—'}</b> {t('gateway.stat.requests')}
@@ -5482,16 +5482,16 @@ export default function Gateway() {
             <span><b className="text-blue-600 dark:text-blue-400 tabular-nums">{stats ? fmtTokens(headerTokens) : '—'}</b> Token</span>
             <span><b className="text-violet-600 dark:text-violet-400 tabular-nums">{gatewayRatio !== null ? `${gatewayRatio}%` : '—'}</b> {t('gateway.stat.forward')}</span>
             <span title={t('gateway.stat.avgLatencyHint')}><b className="text-zinc-700 dark:text-zinc-200 tabular-nums">{avgLatency > 0 ? `${avgLatency}ms` : '—'}</b> {t('gateway.stat.firstToken')}</span>
-          </div>
+          </span>
         </div>
-        <div className="tb-soft-card rounded-xl px-3 py-2.5 min-w-0">
-          <div className="flex items-start gap-2 min-w-0">
-            <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 shrink-0 pt-0.5">{t('gateway.surface.agent')}</span>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
+          <span className="flex items-center gap-1.5 min-w-0">
+            <span className="font-semibold text-zinc-700 dark:text-zinc-200 shrink-0">{t('gateway.surface.agent')}</span>
             <code className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 break-all min-w-0">{`${localBase.replace(/\/$/, '')}/agent`}</code>
-            <CopyButton text={`${localBase.replace(/\/$/, '')}/agent`} label={t('gateway.common.copy')} className="ml-auto py-0.5 text-xs shrink-0" />
-          </div>
-          <AgentApiKey />
-          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+            <CopyButton text={`${localBase.replace(/\/$/, '')}/agent`} label={t('gateway.common.copy')} className="py-0.5 text-xs shrink-0" />
+          </span>
+          <AgentApiKey inline />
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
             <button type="button" onClick={jumpToRouteLog} title={t('gateway.log.jump')}
               className="hover:text-zinc-800 dark:hover:text-zinc-200 underline-offset-2 hover:underline">
               <b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentStats ? agentStats.tasks : '—'}</b> {t('gateway.stat.agentTasks')}
@@ -5499,7 +5499,7 @@ export default function Gateway() {
             <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentStats ? agentStats.running : '—'}</b> {t('gateway.stat.agentRunning')}</span>
             <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentStats ? agentStats.failed : '—'}</b> {t('gateway.stat.agentFailed')}</span>
             <span><b className="text-zinc-900 dark:text-zinc-100 tabular-nums">{agentDurationLabel(agentStats?.avg_duration_ms, fmtMs)}</b> {t('gateway.stat.agentDuration')}</span>
-          </div>
+          </span>
         </div>
       </div>
 
