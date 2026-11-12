@@ -6047,28 +6047,8 @@ app.whenReady().then(() => {
     }
     syncAgentProviderModelsFromAccounts();
   } catch (e) { console.warn('[main] provider migration skipped:', e.message); }
-  // shim 写脚本时按 toolId 取该 shim 应用的 api_key（解析 inject.env 的 {KEY}）
-  agentLinker.setKeyResolver((toolId) => {
-    const apps = readLocalConfig().apps || [];
-    const a = apps.find(x => x.link_method === 'shim' && x.agent_id === toolId);
-    if (!a || a.hosted === false) return null;
-    // 未绑路由 = 纳管但直连，不走网关（与 apps:list configured 口径一致）
-    const hasRoute = !!(a.route_id || (Array.isArray(a.route_ids) && a.route_ids.length));
-    if (!hasRoute) return null;
-    return a.api_key || null;
-  });
-  // 多账号实例列表（供 shim 目录分发）：该工具所有带 instance 段的 shim 记录
-  agentLinker.setInstancesResolver((toolId) => {
-    const apps = readLocalConfig().apps || [];
-    return apps
-      .filter(x => x.link_method === 'shim' && x.agent_id === toolId && x.instance && !x.instance.invalid)
-      .map(x => ({
-        config_dir: x.instance.config_dir, api_key: x.api_key, dir_glob: x.instance.dir_glob,
-        is_default: !!x.instance.is_default,
-        // 路由态：已托管 + 绑了路由 → 走网关；否则直连（shim 只切账号、不注网关）
-        routed: !!(x.hosted && (x.route_id || (Array.isArray(x.route_ids) && x.route_ids.length))),
-      }));
-  });
+  // shim 写脚本时按 toolId 取该 shim 应用的 api_key（与 Docker gateway 共用 bootstrap）
+  require('../shared/shim-linker-bootstrap').installShimLinkerResolvers(readLocalConfig);
   // 端口占用检测：被占则弹框提示 + 退出，避免网关静默起不来后 app 假装在运行。
   const GATEWAY_PORT = 11430;
   let _portFatalShown = false;

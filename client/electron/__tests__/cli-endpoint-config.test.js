@@ -136,6 +136,49 @@ test('其他代理改写 base_url 后再次 sync：重新占回网关', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('无 instance：默认写入 HOME/.claude/settings.json（Docker 单实例）', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-claude-home-'));
+  const prevHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const app = {
+      link_method: 'shim', agent_id: 'claude-code', api_key: 'sk-local-abc',
+      hosted: true, route_id: 'p2p:minimax-m3',
+    };
+    const expandHome = (p) => String(p).replace(/^~(?=$|[/\\])/, home);
+    const file = path.join(home, '.claude', 'settings.json');
+    assert.equal(syncCliInstanceEndpointConfig(app, { ...OPTS, expandHome }), 'routed');
+    assert.ok(fs.existsSync(file));
+    assert.equal(rd(file).env.ANTHROPIC_AUTH_TOKEN, PROXY_MANAGED_TOKEN);
+    assert.equal(rd(file).env.ANTHROPIC_BASE_URL, GW);
+  } finally {
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('未托管或无路由：不写默认 settings', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-claude-skip-'));
+  const prevHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const expandHome = (p) => String(p).replace(/^~(?=$|[/\\])/, home);
+    const file = path.join(home, '.claude', 'settings.json');
+    assert.equal(syncCliInstanceEndpointConfig({
+      link_method: 'shim', agent_id: 'claude-code', hosted: false, route_id: 'r1',
+    }, { ...OPTS, expandHome }), 'skip');
+    assert.equal(syncCliInstanceEndpointConfig({
+      link_method: 'shim', agent_id: 'claude-code', hosted: true, route_id: null,
+    }, { ...OPTS, expandHome }), 'skip');
+    assert.ok(!fs.existsSync(file));
+  } finally {
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test('非 claude-code agent：跳过', () => {
   const dir = mkInstance(FORTINET);
   assert.equal(syncCliInstanceEndpointConfig(appFor(dir, { agent_id: 'codex' }), OPTS), 'skip');

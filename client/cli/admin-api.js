@@ -1114,6 +1114,15 @@ async function handleRequest(req, res) {
     const app = createAppRecord(body);
     cfg.apps.push(app);
     persistAppsCfg(cfg);
+    if (app.link_method === 'shim' && app.agent_id === 'claude-code'
+      && app.hosted && (app.route_id || (app.route_ids && app.route_ids.length))) {
+      try {
+        const { syncShimClaudeEndpointConfig, defaultGatewayOrigin } = require('../shared/shim-linker-bootstrap');
+        syncShimClaudeEndpointConfig(app, { gatewayOrigin: defaultGatewayOrigin() });
+      } catch (e) {
+        console.warn('[admin-api] claude endpoint sync (create):', e.message);
+      }
+    }
     return json(res, 200, app);
   }
 
@@ -1150,6 +1159,18 @@ async function handleRequest(req, res) {
             if (!wr?.ok) console.warn('[admin-api] route-changed rewrite failed:', wr?.error);
           } catch (e) {
             console.warn('[admin-api] route-changed rewrite error:', e.message);
+          }
+        }
+      }
+      // Claude Code shim：路由/托管变化时写 ~/.claude/settings.json（与桌面 apps:update 对齐）
+      if (updated.link_method === 'shim' && updated.agent_id === 'claude-code') {
+        const routeKeys = ['route_id', 'route_ids', 'hosted'];
+        if (routeKeys.some((k) => Object.prototype.hasOwnProperty.call(patch, k))) {
+          try {
+            const { syncShimClaudeEndpointConfig, defaultGatewayOrigin } = require('../shared/shim-linker-bootstrap');
+            syncShimClaudeEndpointConfig(updated, { gatewayOrigin: defaultGatewayOrigin() });
+          } catch (e) {
+            console.warn('[admin-api] claude endpoint sync:', e.message);
           }
         }
       }
