@@ -1598,6 +1598,7 @@ export default function ExecutionLog({
   onPreviewImage,
   footer = null,   // 本轮结束后显示在最后（游乐场的「重做 / 改派」）
   pushedByTask = {},
+  strayPushes = [],   // 它给别的任务推来的（按时间插进这段对话，标上来源）
   externalAgent = null,   // 和外部智能体说话时：{ name, intervalMs, lastSeenAt }，等它来取时不显示「执行中」   // 外部智能体后来就这个任务推的消息：{ taskId: [{ content, timestamp }] }
 }) {
   const { t } = useLang();
@@ -1610,10 +1611,26 @@ export default function ExecutionLog({
     const items = [];
     const pushedItems = (id) => (id && pushedByTask[id] ? pushedByTask[id] : [])
       .map(m => ({ kind: 'assistant', content: m.content, timestamp: m.timestamp }));
-    for (const turn of conversationTurns) {
+    // 别的任务的推送：放在开始时间早于它的最后一轮之后
+    const strays = [...(strayPushes || [])].sort((a, b) => a.timestamp - b.timestamp);
+    const strayItem = (m) => ({
+      kind: 'assistant',
+      content: `${t('debug.log.pushFrom', { title: m.source || t('debug.log.pushFromOther') })}\n\n${m.content}`,
+      timestamp: m.timestamp,
+    });
+    const turnStart = (tr) => Number(tr?.sentAt || tr?.timestamp || 0);
+    const takeStraysBefore = (limit) => {
+      const out = [];
+      while (strays.length && strays[0].timestamp < limit) out.push(strayItem(strays.shift()));
+      return out;
+    };
+    conversationTurns.forEach((turn, i) => {
       items.push(...buildTurnTimeline(turn, turn.delegations || {}, agentNames, t));
       items.push(...pushedItems(turn.taskId));
-    }
+      const next = conversationTurns[i + 1];
+      const nextStart = next ? turnStart(next) : Number(task?.created_at || Infinity);
+      items.push(...takeStraysBefore(nextStart || Infinity));
+    });
     const currentStart = items.length;
     const sentAt = task?.created_at || task?.started_at || null;
     items.push(...buildTimeline(userPrompt, steps, delegations, agentNames, userImages, sentAt));
@@ -1633,8 +1650,9 @@ export default function ExecutionLog({
       items.splice(currentStart, items.length - currentStart, ...withArts);
     }
     if (task?.id && !conversationTurns.some(tr => tr.taskId === task.id)) items.push(...pushedItems(task.id));
+    items.push(...takeStraysBefore(Infinity));
     return { timeline: items, currentStart };
-  }, [conversationTurns, userPrompt, userImages, steps, delegations, agentNames, status, result, task?.id, task?.completed_at, task?.created_at, task?.started_at, pushedByTask, t]);
+  }, [conversationTurns, userPrompt, userImages, steps, delegations, agentNames, status, result, task?.id, task?.completed_at, task?.created_at, task?.started_at, pushedByTask, strayPushes, t]);
 
   // 仅在本轮内找「正在流式」的气泡，避免光标粘在历史回复上
   const lastAssistantIdx = useMemo(() => {

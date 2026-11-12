@@ -2059,6 +2059,8 @@ export default {
   'debug.log.extLastMin': '上次 {n} 分钟前',
   'debug.log.extLastJust': '刚来过',
   'debug.log.extNever': '它还没来取过',
+  'debug.log.pushFrom': '来自「{title}」的推送',
+  'debug.log.pushFromOther': '另一个任务',
   'debug.log.executing': '执行中…',
   'debug.log.failed': '失败',
   'debug.log.running': '执行中',

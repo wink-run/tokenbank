@@ -56,7 +56,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listRecentTasks: (opts) => ipcRenderer.invoke('agent:listRecentTasks', opts),
     taskStats: () => ipcRenderer.invoke('agent:taskStats'),
     listBlocked: () => ipcRenderer.invoke('agent:listBlocked'),
-    taskMessages: (taskIds) => ipcRenderer.invoke('agent:taskMessages', taskIds),
+    taskMessages: (taskIds, opts) => ipcRenderer.invoke('agent:taskMessages', taskIds, opts),
     setAssistantRuntime: (resourceId, runtimeAgentId) => ipcRenderer.invoke('agent:setAssistantRuntime', { resourceId, runtimeAgentId }),
     routesList: () => ipcRenderer.invoke('agent:routesList'),
     routesSave: (route) => ipcRenderer.invoke('agent:routesSave', route),

@@ -1003,6 +1003,8 @@ export default function Debug() {
   const [conversationTurns, setConversationTurns] = useState([]);
   // 外部智能体就某个任务后来推的消息（它自己的定时任务等），按任务 id 分组
   const [pushedByTask, setPushedByTask] = useState({});
+  // 和外部智能体的当前对话：它这段时间给别的任务推来的消息（定时任务等）
+  const [strayPushes, setStrayPushes] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [llmHistoryOpen, setLlmHistoryOpen] = useState(false);
   // 底部输入框高度（拖中间框线调整，持久化）
@@ -1028,20 +1030,32 @@ export default function Debug() {
     || agents.find(a => a.type === 'cli' && a.installed !== false)
     || null;
   const pushTaskIdsKey = [...(conversationTurns || []).map(tr => tr?.taskId), currentTask?.id].filter(Boolean).join(',');
+  const pushAgentId = (selectedAgent?.type === 'external' || String(selectedAgent?.id || '').startsWith('external:')) ? selectedAgent.id : '';
+  // 这段对话从什么时候开始：之后它推来的都显示在这里
+  const pushSince = (() => {
+    const first = (conversationTurns || [])[0];
+    return Number(first?.sentAt || first?.timestamp || currentTask?.created_at || 0) || 0;
+  })();
   useEffect(() => {
     const api = window.electronAPI?.agent;
     if (!api?.taskMessages) return undefined;
     const ids = pushTaskIdsKey ? pushTaskIdsKey.split(',') : [];
     const load = () => {
-      if (!ids.length) { setPushedByTask({}); return; }
-      Promise.resolve(api.taskMessages(ids)).then(r => { if (r?.success) setPushedByTask(r.byTask || {}); }).catch(() => {});
+      if (!ids.length) { setPushedByTask({}); setStrayPushes([]); return; }
+      const opts = pushAgentId && pushSince ? { agentId: pushAgentId, since: pushSince } : {};
+      Promise.resolve(api.taskMessages(ids, opts)).then(r => {
+        if (!r?.success) return;
+        setPushedByTask(r.byTask || {});
+        const own = new Set(ids);
+        setStrayPushes((r.byAgent || []).filter(m => !own.has(m.rootTaskId) && !own.has(m.taskId)));
+      }).catch(() => {});
     };
     load();
     const off = api.onTaskMessage?.((d) => {
-      if (!d || ids.includes(d.rootTaskId) || ids.includes(d.taskId)) load();
+      if (!d || ids.includes(d.rootTaskId) || ids.includes(d.taskId) || (pushAgentId && d.agentId === pushAgentId)) load();
     });
     return () => { if (typeof off === 'function') off(); };
-  }, [pushTaskIdsKey]);
+  }, [pushTaskIdsKey, pushAgentId, pushSince]);
   const isHubMode = !selectedAgent;
   const activeAgent = isHubMode ? mainAgent : selectedAgent;
 
@@ -3741,6 +3755,7 @@ export default function Debug() {
                 onPreviewImage={setLightbox}
                 footer={turnFooter}
                 pushedByTask={pushedByTask}
+                strayPushes={strayPushes}
                 externalAgent={isRemotePlaygroundAgent(selectedAgent) && !isCommunityPlaygroundAgent(selectedAgent)
                   ? { name: selectedAgent.name, intervalMs: selectedAgent.intervalMs || 0, lastSeenAt: selectedAgent.lastSeenAt || 0 }
                   : null}

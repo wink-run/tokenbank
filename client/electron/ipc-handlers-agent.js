@@ -269,8 +269,15 @@ function registerAgentHandlers() {
     } catch (error) { return { success: false, error: error.message }; }
   });
 
-  ipcMain.handle('agent:taskMessages', async (_event, taskIds = []) => {
-    try { return { success: true, byTask: agentExecutor.listTaskMessages(taskIds) }; }
+  ipcMain.handle('agent:taskMessages', async (_event, taskIds = [], opts = {}) => {
+    try {
+      return {
+        success: true,
+        byTask: agentExecutor.listTaskMessages(taskIds),
+        // 和外部智能体的当前对话：它这段时间里给别的任务推的也一起显示
+        byAgent: opts && opts.agentId ? agentExecutor.listAgentMessagesSince(opts.agentId, opts.since) : [],
+      };
+    }
     catch (error) { return { success: false, error: error.message }; }
   });
 

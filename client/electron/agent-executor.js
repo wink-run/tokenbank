@@ -1521,6 +1521,20 @@ class AgentExecutor extends EventEmitter {
     return true;
   }
 
+  /** 某个外部智能体 since 之后推来的所有消息（游乐场里和它的当前对话显示用），带上来源任务的标题 */
+  listAgentMessagesSince(agentId, since = 0) {
+    if (!agentId) return [];
+    const db = this._getDb();
+    this._ensureTaskMessagesTable(db);
+    const rows = db.prepare(`SELECT m.*, t.prompt AS root_prompt FROM agent_task_messages m
+      LEFT JOIN agent_tasks t ON t.id = m.root_task_id
+      WHERE m.agent_id = ? AND m.created_at >= ? ORDER BY m.created_at LIMIT 500`).all(String(agentId), Number(since) || 0);
+    return rows.map(r => ({
+      id: r.id, taskId: r.task_id, rootTaskId: r.root_task_id, agentId: r.agent_id,
+      content: r.content, timestamp: r.created_at, source: String(r.root_prompt || '').slice(0, 40),
+    }));
+  }
+
   /** 这些任务（或它们的子任务）收到的推送，按传进来的任务 id 分组 */
   listTaskMessages(taskIds = []) {
     const ids = [...new Set((taskIds || []).filter(Boolean).map(String))].slice(0, 500);

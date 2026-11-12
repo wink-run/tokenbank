@@ -2054,6 +2054,8 @@ export default {
   'debug.log.extLastMin': 'last {n} min ago',
   'debug.log.extLastJust': 'just checked',
   'debug.log.extNever': 'it hasn’t checked in yet',
+  'debug.log.pushFrom': 'Pushed from “{title}”',
+  'debug.log.pushFromOther': 'another task',
   'debug.log.executing': 'Running…',
   'debug.log.failed': 'Failed',
   'debug.log.running': 'Running',
