@@ -5216,6 +5216,7 @@ export default function Gateway() {
     if (!want) return;
     if (want === 'routes') setMainTab(1);
     else if (want === 'apps') setMainTab(0);
+    else if (want === 'pro' || want === 'ext') setGwTab(want);
     gwNavigate(gwLocation.pathname, { replace: true, state: null });
   }, [gwLocation.state]); // eslint-disable-line react-hooks/exhaustive-deps
   // 顶部「请求 / 任务」点进来：先切到场景路由（明细只挂在这个 Tab），再滚到列表。

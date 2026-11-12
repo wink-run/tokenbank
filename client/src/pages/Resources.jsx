@@ -77,6 +77,7 @@ const LIB_GRID = 'grid-cols-[minmax(0,1fr)_9rem_3.5rem_11rem_8rem]';
 const LIB_GRID_MD = 'md:grid-cols-[minmax(0,1fr)_9rem_3.5rem_11rem_8rem]';
 
 const LIST_SORT_OPTIONS = [
+  { id: 'smart', labelKey: 'resources.sort.smart' },
   { id: 'time', labelKey: 'resources.sort.time' },
   { id: 'name', labelKey: 'resources.sort.name' },
   { id: 'usage', labelKey: 'resources.sort.usage' },
@@ -178,10 +179,10 @@ function saveDiscoverType(type) {
 function readTypeFilter() {
   try {
     const v = localStorage.getItem(TYPE_FILTER_KEY);
-    // 资产库不再有「全部」：缺省落到技能；记住用户上次选择
+    // 第一个标签是「全部」，缺省就是它；记住用户上次选择
     if (v === 'prompt' || v === 'skill' || v === 'assistant' || v === 'mcp') return v;
-    return 'skill';
-  } catch { return 'skill'; }
+    return '';
+  } catch { return ''; }
 }
 
 function saveTypeFilter(type) {
@@ -199,9 +200,9 @@ function saveAppFilter(agentId) {
 function readListSort() {
   try {
     const v = localStorage.getItem(LIST_SORT_KEY);
-    if (v === 'time' || v === 'name' || v === 'usage') return v;
+    if (v === 'smart' || v === 'time' || v === 'name' || v === 'usage') return v;
   } catch { /* ignore */ }
-  return 'usage';
+  return 'smart';
 }
 
 function saveListSort(sort) {
@@ -3081,7 +3082,10 @@ export default function Resources() {
       if (ub.lastUsed !== ua.lastUsed) return ub.lastUsed - ua.lastUsed;
       return byTime(a, b);
     };
-    const cmp = listSort === 'name' ? byName : listSort === 'time' ? byTime : byUsage;
+    // 默认：有问题的在前，其次最近用过 / 改过的
+    const issueOf = (x) => (hasAssetIssue(x?.resourceId || x?.id) ? 1 : 0);
+    const bySmart = (a, b) => (issueOf(b) - issueOf(a)) || byTime(a, b);
+    const cmp = listSort === 'name' ? byName : listSort === 'time' ? byTime : listSort === 'usage' ? byUsage : bySmart;
     // Hit-or-Exit：与分层计数同源；Skill 扫描行回退到已纳管资源再判定
     const matchLayer = (item) => {
       if (!layerFilter) return true;
@@ -3222,7 +3226,7 @@ export default function Resources() {
           <p className="flex flex-wrap items-center gap-x-3 text-[11px] text-zinc-400 px-1">
             <span>{t('resources.listCount', { n: rows.length })}</span>
             {showSkills && scanStats && <span>{t('resources.syncSummary', { n: scanStats.totalOnDisk })}</span>}
-            <span className="hidden md:inline ml-auto">{t('resources.kbdHint')}</span>
+            <span className="hidden md:inline ml-auto [@media(pointer:coarse)]:hidden">{t('resources.kbdHint')}</span>
           </p>
         </div>
         {selected && renderInspector(selected)}
@@ -3410,11 +3414,33 @@ export default function Resources() {
     if (f.quality === 'warn') return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyQuality'), act: 'look' };
     if (f.updateAvailable) return { kind: 'update', word: t('resources.row.update'), why: t('resources.row.whyUpdate', { to: f.updateAvailable.to }), act: 'look' };
     if (li.life.layer === 'exempt') return { kind: 'active', word: t('resources.source.builtin'), why: '', act: 'project' };
+    // 智能体是模板：说它投射到了哪里，不说「在用 / 没在用」（运行情况在网关页）
+    if (li.type === 'assistant') {
+      return li.apps.length
+        ? { kind: 'active', word: t('resources.tpl.projected', { n: li.apps.length }), why: t('resources.tpl.runInGateway'), act: 'project', gateway: true }
+        : { kind: 'idle', word: t('resources.tpl.notProjected'), why: '', act: 'project' };
+    }
     if (li.life.layer === 'active') {
       return { kind: 'active', word: t('resources.state.active'), why: li.apps.length ? t('resources.row.onApps', { n: li.apps.length }) : '', act: 'project' };
     }
-    const why = { pending: t('resources.row.whyPending'), dormant: t('resources.row.whyDormant'), cold: t('resources.row.whyCold'), shelf: t('resources.row.whyShelf') }[li.life.layer] || '';
-    return { kind: 'idle', word: t('resources.state.idle'), why, act: 'project' };
+    // 一句话说清楚，不再「没在用」+「启用了还没用过」两句打架
+    const word = { pending: t('resources.row.whyPending'), dormant: t('resources.row.whyDormant'), cold: t('resources.row.whyCold'), shelf: t('resources.row.whyShelf') }[li.life.layer] || t('resources.state.idle');
+    return { kind: 'idle', word, why: '', act: 'project' };
+  }
+
+  /** 行里的一句描述：不重复系统提示词；智能体模板写它带了哪些技能 */
+  function rowDesc(li) {
+    const d = String(li.desc || '').trim();
+    if (li.type !== 'assistant') return d;
+    const echo = !d || /^你是/.test(d) || d === `你是${li.name}` || d.length <= String(li.name || '').length + 3;
+    if (!echo) return d;
+    let skills = [];
+    try {
+      const raw = li.item?.content;
+      const cfg = typeof raw === 'string' && raw.trim().startsWith('{') ? JSON.parse(raw) : (raw && typeof raw === 'object' ? raw : {});
+      skills = Array.isArray(cfg.skills) ? cfg.skills.map(x => (typeof x === 'string' ? x : x?.name || x?.id)).filter(Boolean) : [];
+    } catch { /* 解析不了就不写技能 */ }
+    return skills.length ? t('resources.tpl.skillsDesc', { n: skills.length, names: skills.slice(0, 3).join('、') + (skills.length > 3 ? '…' : '') }) : t('resources.tpl.noSkills');
   }
 
   function renderLibraryRow(li, sel, nested = '') {
@@ -3440,7 +3466,7 @@ export default function Resources() {
         <LibraryRowTitle
           logo={<AssetLogo type={li.type} icon={it.icon || it.metadata?.icon} name={nested || li.name || it.id} />}
           name={li.name}
-          sub={li.desc || (li.path ? shortenHomePath(li.path) : t('resources.emptyDetail'))}
+          sub={rowDesc(li) || (li.path ? shortenHomePath(li.path) : t('resources.emptyDetail'))}
           chips={(
             <>
               <span className={`shrink-0 text-[10px] px-1.5 py-px rounded font-medium ${visual.chip}`}>{typeBadge(li.type, t)}</span>
@@ -3454,13 +3480,24 @@ export default function Resources() {
             </>
           )}
         />
+        <div className="md:hidden col-start-1 col-span-2 row-start-2 flex flex-nowrap items-center gap-1.5 min-w-0 text-[12px] pl-12 -mt-1">
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${stateDot}`} aria-hidden />
+          <span className={`shrink-0 ${stateCls}`}>{rs.word}</span>
+          {rs.why && (rs.gateway
+            ? <button type="button" onClick={(e) => { e.stopPropagation(); navigate('/gateway', { state: { gatewayTab: 'pro' } }); }}
+                className="truncate text-blue-600 dark:text-blue-400">· {rs.why}</button>
+            : <span className="truncate text-zinc-500 dark:text-zinc-400">· {rs.why}</span>)}
+        </div>
         <div className="hidden md:block min-w-0">{renderAppNames(li.apps)}</div>
-        <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{t('resources.row.uses', { n: li.useCount || 0 })}</div>
+        <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{li.type === 'assistant' ? '—' : t('resources.row.uses', { n: li.useCount || 0 })}</div>
         <div className="hidden md:flex items-start gap-1.5 text-[11px] min-w-0">
           <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${stateDot}`} aria-hidden />
           <span className="min-w-0">
             <span className={`block truncate ${stateCls}`}>{rs.word}</span>
-            {rs.why && <span className="block truncate text-zinc-400 dark:text-zinc-500" title={rs.why}>{rs.why}</span>}
+            {rs.why && (rs.gateway
+              ? <button type="button" onClick={(e) => { e.stopPropagation(); navigate('/gateway', { state: { gatewayTab: 'pro' } }); }}
+                  className="block truncate text-blue-600 dark:text-blue-400 hover:underline text-left">{rs.why}</button>
+              : <span className="block truncate text-zinc-400 dark:text-zinc-500" title={rs.why}>{rs.why}</span>)}
           </span>
         </div>
         <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
@@ -3951,7 +3988,7 @@ export default function Resources() {
         </div>
         {/* 主导航：资产类型直接作为一级 Tab（带数量），「发现」与之以竖线分隔 */}
         <div className="mt-4 flex flex-wrap items-end gap-x-6 gap-y-1 border-b border-zinc-200/80 dark:border-white/[0.08]" role="tablist">
-          {TYPE_OPTIONS.filter(o => o.id).map(opt => {
+          {TYPE_OPTIONS.map(opt => {
             const active = viewTab !== 'recommend' && typeFilter === opt.id;
             const n = typeCounts[opt.id || 'all'];
             return (
@@ -3972,11 +4009,11 @@ export default function Resources() {
                 }`}
               >
                 {t(`resources.tabType.${opt.id || 'all'}`)}
-                {n > 0 && <span className="ml-1.5 text-[11px] font-normal text-zinc-400 tabular-nums">{n}</span>}
+                {n != null && <span className="ml-1.5 text-[11px] font-normal text-zinc-400 tabular-nums">{n}</span>}
               </button>
             );
           })}
-          <div className="relative ml-auto mb-1.5 w-64 max-w-[40vw] self-center">
+          <div className="relative w-full md:w-64 md:ml-auto md:max-w-[40vw] mb-1.5 self-center">
             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" aria-hidden>
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3.5 h-3.5"><circle cx="9" cy="9" r="5.5" /><path d="M13.5 13.5 17 17" strokeLinecap="round" /></svg>
             </span>

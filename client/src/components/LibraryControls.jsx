@@ -192,10 +192,10 @@ export function LibrarySectionHead({ title, count, extra }) {
 /** 行内：名称 + 徽标 / 副标题（两行） */
 export function LibraryRowTitle({ logo, name, chips, sub, subClass = 'text-zinc-500 dark:text-zinc-400' }) {
   return (
-    <div className="flex items-center gap-3 min-w-0">
+    <div className="flex flex-nowrap items-center gap-3 min-w-0">
       {logo}
       <div className="min-w-0">
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex flex-nowrap items-center gap-1.5 min-w-0">
           <span className="text-[13px] font-medium text-zinc-900 dark:text-zinc-50 truncate">{name}</span>
           {chips}
         </div>
