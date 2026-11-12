@@ -966,7 +966,7 @@ function CommunityModelsCard() {
     let cancelled = false;
     // 两处合起来：本机网关拉到的社区模型（要登录），和公开网络里此刻在线的节点上的模型（不用登录也能看）
     const fromGateway = user
-      ? loadGatewayAvailableModels({ includeCommunity: true }).then(list => (list || []).filter(m => m.tier === 'p2p').map(m => m.id)).catch(() => [])
+      ? loadGatewayAvailableModels({ includeCommunity: true, includeHidden: true }).then(list => (list || []).filter(m => m.tier === 'p2p').map(m => m.id)).catch(() => [])
       : Promise.resolve([]);
     const fromNetwork = getNetwork()
       .then(r => {

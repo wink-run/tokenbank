@@ -4560,6 +4560,8 @@ export default function Providers() {
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [personalFilter, setPersonalFilter] = useState('all');
+  // 社区共享网络当作一个账户：它有哪些模型、哪些现在有节点、在线节点数、积分余额
+  const [community, setCommunity] = useState({ ids: [], online: new Set(), nodes: 0, balance: null, loaded: false });
   /** 个人源列表选中行（右侧详情放原配置卡） */
   const [selectedSourceKey, setSelectedSourceKey] = useState(null);
   /** 「谁在用它」：场景路由 + 绑定了模型的智能体（打开详情时加载） */
@@ -4672,6 +4674,28 @@ export default function Providers() {
     paygCatalog,
     providerPricing: mergedProviderPricing,
   }), [paygCatalog, mergedProviderPricing]);
+  const p2pProvider = providers.find(p => p.type === 'p2p') || null;
+  const communityEnabled = !!p2pProvider && p2pProvider.enabled !== false;
+  useEffect(() => {
+    if (provLocation.pathname !== '/providers') return undefined;
+    let dead = false;
+    const load = async () => {
+      const [cm, net, prof] = await Promise.allSettled([fetchServerCommunityModels(), getNetwork(), getProfile()]);
+      if (dead) return;
+      const ids = cm.status === 'fulfilled' && Array.isArray(cm.value?.ids) ? cm.value.ids : [];
+      const network = net.status === 'fulfilled' ? normalizeNetworkPayload(net.value?.data ?? net.value) : null;
+      const stats = modelStatsForIds(ids, network);
+      const online = new Set(stats.filter(x => x.nodes > 0).map(x => x.name));
+      const workers = Array.isArray(network?.workers) ? network.workers : [];
+      const nodes = new Set(workers.map(w => w?.worker_id ?? w?.name).filter(Boolean)).size;
+      const balance = prof.status === 'fulfilled' ? (prof.value?.data?.credits_balance ?? null) : null;
+      setCommunity({ ids, online, nodes, balance, loaded: true });
+    };
+    load();
+    const id = setInterval(load, 60000);
+    return () => { dead = true; clearInterval(id); };
+  }, [provLocation.pathname]);
+
   const modelViewInstances = useMemo(() => {
     const base = accountInstances.flatMap(inst => {
       const gwId = inst.gateway_id;
@@ -4698,12 +4722,21 @@ export default function Providers() {
         });
       }
     }
+    // 社区共享网络：当作最后一个账户；模型来自社区目录，没有在线节点的标成暂时不可用
+    if (communityEnabled && community.ids.length) {
+      base.push({
+        id: 'community', gateway_id: 'tokenbank-p2p', source_id: 'tokenbank-p2p', provider_id: 'tokenbank-p2p',
+        name: t('providers.community.name'), tag: 'p2p', community: true, test_verified: true,
+        models: community.ids, offlineModels: new Set(community.ids.filter(id => !community.online.has(id))),
+      });
+    }
     return base;
-  }, [accountInstances, providers, userPayg, userSubscriptions, pricingOverrides, directByAgent, modelViewCatalog]);
+  }, [accountInstances, providers, userPayg, userSubscriptions, pricingOverrides, directByAgent, modelViewCatalog, communityEnabled, community, t]);
   // 个人源「全部测速」：每个账户×模型钉 provider，避免同模型多账户只打中其中一个（展开会显示「无请求」）
   const personalProbeTargets = useMemo(() => {
     const seen = new Set(); const out = [];
     for (const inst of modelViewInstances) {
+      if (inst.community) continue;   // 社区测速要扣积分，个人源「全部测速」不碰它
       const prov = inst.gateway_id ? providers.find(p => p.id === inst.gateway_id) : null;
       const tier = prov?.type === 'free' ? 'free' : 'paid';
       const provider = inst.gateway_id || undefined;
@@ -5277,6 +5310,14 @@ export default function Providers() {
   }
 
   function sourceStatus(sm) {
+    if (sm.community) {
+      if (!sm.enabled) return { dot: 'bg-zinc-300 dark:bg-zinc-600', label: t('providers.list.disabled') };
+      if (!community.loaded) return { dot: 'bg-zinc-300 dark:bg-zinc-600', label: '…' };
+      if (community.balance != null && community.balance <= 0) return { dot: 'bg-red-500', label: t('providers.community.noCredits') };
+      return community.nodes > 0
+        ? { dot: 'bg-emerald-500', label: t('providers.community.nodes', { n: community.nodes }) }
+        : { dot: 'bg-amber-400', label: t('providers.community.noNodes') };
+    }
     if (sm.cooldown) return { dot: 'bg-amber-400', label: t('providers.list.cooling') };
     if (!sm.enabled) return { dot: 'bg-zinc-300 dark:bg-zinc-600', label: t('providers.list.disabled') };
     if (sm.verified) return { dot: 'bg-emerald-500', label: t('providers.list.ready') };
@@ -5314,8 +5355,14 @@ export default function Providers() {
           subClass="text-amber-600 dark:text-amber-400"
         />
         <div className="hidden md:flex items-center gap-1.5 min-w-0 text-[11px] text-zinc-600 dark:text-zinc-300">
-          <PersonalTypeIcon tag={sm.tag} />
-          <span className="truncate">{t(`providers.filter.${(PERSONAL_TYPE_BADGE[sm.tag] || PERSONAL_TYPE_BADGE.payg).filterKey}`)}</span>
+          {sm.community ? (
+            <span className="truncate">{t('providers.community.billing')}{community.balance != null ? ` · ${t('providers.community.balance', { n: community.balance })}` : ''}</span>
+          ) : (
+            <>
+              <PersonalTypeIcon tag={sm.tag} />
+              <span className="truncate">{t(`providers.filter.${(PERSONAL_TYPE_BADGE[sm.tag] || PERSONAL_TYPE_BADGE.payg).filterKey}`)}</span>
+            </>
+          )}
         </div>
         <span className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{sm.models || '—'}</span>
         <span className="flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300">
@@ -5326,8 +5373,25 @@ export default function Providers() {
     );
   }
 
+  /** 社区共享网络在账户表里的一行 */
+  const communitySummary = p2pProvider ? {
+    key: 'community', row: { type: 'community', provider: p2pProvider }, community: true,
+    name: t('providers.community.name'), iconProps: { id: 'tokenbank-p2p', icon: '🌐' },
+    tag: 'p2p', enabled: communityEnabled, models: community.ids.length, cooldown: null, verified: true,
+    gwIds: ['tokenbank-p2p'], modelNames: community.ids,
+  } : null;
+
   /** 原配置卡（详情面板内展示，保留全部编辑 / 测速 / 计费逻辑） */
   function renderSourceCard(row) {
+    if (row.type === 'community') {
+      return (
+        <div className="space-y-2">
+          <p className="m-0 text-xs text-zinc-500 dark:text-zinc-400">{t('providers.community.when')}</p>
+          <P2PNetworkCard provider={row.provider} onUpdate={updateProvider} onPersistEnabled={persistProviderEnabled}
+            cooldowns={cooldowns} onRetryCooldown={handleRetryCooldown} />
+        </div>
+      );
+    }
     if (row.type === 'chatgptweb') {
       return <ChatGptCard key={row.provider.id} provider={row.provider} onRemove={removeChatgptWebInstance} />;
     }
@@ -5390,12 +5454,6 @@ export default function Providers() {
       <>
       {/* 个人源：标题独立于 panel；统计 + 已添加卡片 + 添加源 */}
       <section className="space-y-3">
-        <SourceSectionHeader
-          dot={tierConfig.local.dot}
-          title={tierConfig.local.label}
-          hint={tierConfig.local.hint}
-        />
-
         {/* 不套外层玻璃：子卡直接浮在主区，立体与毛玻璃才看得见（Apple：勿叠浅色半透明） */}
         <div className="space-y-4">
         {sourcesView !== 'model' && (
@@ -5440,7 +5498,11 @@ export default function Providers() {
         ) : (
         <>
         {(() => {
-          const summaries = personalSourceRows.map(sourceSummary);
+          // 社区共享网络排在最后，和其它账户一样能选中看详情
+          const summaries = [
+            ...personalSourceRows.map(sourceSummary),
+            ...(communitySummary && personalFilter === 'all' ? [communitySummary] : []),
+          ];
           const sel = summaries.find(x => x.key === selectedSourceKey);
           return (
             <div className="flex gap-4 items-start">
@@ -5476,20 +5538,6 @@ export default function Providers() {
         </div>
       </section>
 
-      {/* 社区源：未登录可浏览，启用/配置 Key 需登录 */}
-      <section className="space-y-3 pt-4">
-        <SourceSectionHeader
-          dot={tierConfig.p2p.dot}
-          title={t('providers.group.remote')}
-          hint={tierConfig.p2p.hint}
-        />
-        <div className={`grid ${tierConfig.p2p.cols} gap-3`}>
-          {providers.filter(p => p.type === 'p2p').map(p => (
-            <P2PNetworkCard key={p.id} provider={p} onUpdate={updateProvider} onPersistEnabled={persistProviderEnabled}
-              cooldowns={cooldowns} onRetryCooldown={handleRetryCooldown} />
-          ))}
-        </div>
-      </section>
       </>
 
       {syncDeviceChoices && (

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { encodeRoute, modelIdFromRoute, parseRoute } from '../lib/route-binding';
 import { prefixModelRoutes } from '../lib/model-prefix-routes';
+import { modelVendor } from '../lib/model-vendor';
 import { modelTypeLabel, modelTypeBtnClass } from './PersonalSources';
 import ServiceIcon from './ServiceIcon';
 import { speedDotClass, speedTitle, useSpeedMap, speedFor, bucketFromMs, normModelKey } from '../lib/speed';
@@ -164,51 +165,57 @@ function buildRouteMenuItems({ routes, availableModels, t, showGatewayRoutes, is
   const listed = (m) => !hiddenModels?.has(m.id);
   const local = (availableModels || []).filter(m => (m.tier === 'free' || m.tier === 'paid') && listed(m));
   const remote = (availableModels || []).filter(m => m.tier === 'p2p' && listed(m));
-  // 同一个模型会挂在多个供给源上。收成降级链后选项值都是链头，只留一行。
-  const seenValues = new Set(items.filter(it => it.kind === 'option').map(it => it.value));
-  const pushModel = (m, value, extra) => {
-    if (seenValues.has(value)) return;
-    seenValues.add(value);
-    const chain = !!extra?.chain;
-    // 降级链只写模型名。普通模型用供给源图标区分，不再写 providerId:。
-    items.push({
-      kind: 'option',
-      value,
-      label: String(m?.id || '').trim(),
-      owner: chain ? '' : dropdownProviderId(m),
-      type: m.type,
-      modelId: m.id,
-      ...extra,
-    });
+  // 每个模型只列一次：个人账户和社区合在一起，后面写有哪些来源；按厂商分组
+  const byId = new Map();
+  const entry = (m) => {
+    if (!byId.has(m.id)) byId.set(m.id, { id: m.id, locals: [], remote: null, type: m.type });
+    return byId.get(m.id);
   };
-  if (local.length) {
-    items.push({ kind: 'group', label: t('gateway.app.tier.local') });
-    // 与供给源「模型列表」一致：降级链在前，其余在后，组内按名称。桌面和 Docker Web 共用这段。
-    const byId = (a, b) => String(a).localeCompare(String(b));
-    const chainIds = [];
-    const plainIds = [];
-    const seenId = new Set();
-    for (const m of local) {
-      if (!m?.id || seenId.has(m.id)) continue;
-      seenId.add(m.id);
-      (chainHeads?.has(m.id) ? chainIds : plainIds).push(m.id);
-    }
-    chainIds.sort(byId);
-    plainIds.sort(byId);
-    for (const id of chainIds) {
-      const m = local.find(x => x.id === id);
-      if (m) pushModel(m, m.id, { chain: true });
-    }
-    for (const id of [...chainIds, ...plainIds]) {
-      for (const m of local) {
-        if (m.id === id) pushModel(m, routeOptionValue(m));
-      }
-    }
+  for (const m of local) if (m?.id) entry(m).locals.push(m);
+  for (const m of remote) if (m?.id) { const e = entry(m); e.remote = m; e.type = e.type || m.type; }
+  const sourceName = (m) => String(m?.providerName || m?.owner || '').trim();
+  const groups = new Map();
+  for (const e of byId.values()) {
+    const v = modelVendor(e.id);
+    if (!groups.has(v)) groups.set(v, []);
+    groups.get(v).push(e);
   }
-  if (remote.length) {
-    items.push({ kind: 'group', label: t('gateway.app.tier.remote') });
-    // 社区源没有本地降级链，同名也不打标
-    for (const m of remote) pushModel(m, modelTierKey(m), { tier: 'p2p' });
+  const ordered = [...groups.entries()].sort((a, b) => (b[1].length - a[1].length) || a[0].localeCompare(b[0]));
+  const seenValues = new Set(items.filter(it => it.kind === 'option').map(it => it.value));
+  for (const [vendor, list] of ordered) {
+    list.sort((a, b) => ((chainHeads?.has(b.id) ? 1 : 0) - (chainHeads?.has(a.id) ? 1 : 0)) || String(a.id).localeCompare(String(b.id)));
+    const rows = [];
+    for (const e of list) {
+      const chain = !!chainHeads?.has(e.id);
+      const communityOnly = !e.locals.length;
+      // 默认值：降级链用链头；只有社区有用社区；其它用第一个个人账户（不会悄悄扣积分）
+      const value = chain ? e.id : (communityOnly ? modelTierKey(e.remote) : routeOptionValue(e.locals[0]));
+      if (seenValues.has(value)) continue;
+      seenValues.add(value);
+      const names = [...new Set(e.locals.map(sourceName).filter(Boolean))];
+      const sources = [...names, ...(e.remote ? [t('gateway.app.sourceCommunity')] : [])];
+      // 多个来源时可以展开，指定只用某一个
+      const pins = [];
+      if (!communityOnly && (e.locals.length > 1 || e.remote)) {
+        for (const m of e.locals) {
+          const v = routeOptionValue(m);
+          if (v !== value && !pins.some(p => p.value === v)) pins.push({ value: v, label: t('gateway.app.pinOnly', { name: sourceName(m) || m.owner }) });
+        }
+        if (e.remote) pins.push({ value: modelTierKey(e.remote), label: t('gateway.app.pinCommunity'), community: true });
+        if (!chain && e.locals.length) {
+          pins.unshift({ value, label: t('gateway.app.pinOnly', { name: sourceName(e.locals[0]) || e.locals[0].owner }), isDefault: true });
+        }
+      }
+      rows.push({
+        kind: 'option', value, label: String(e.id), modelId: e.id, type: e.type, chain,
+        owner: '', tier: communityOnly ? 'p2p' : undefined,
+        sub: sources.join(' · '), communityOnly, pins: pins.filter(p => p.value !== value || p.isDefault),
+      });
+    }
+    if (rows.length) {
+      items.push({ kind: 'group', label: vendor });
+      items.push(...rows);
+    }
   }
   return items;
 }
@@ -502,7 +509,7 @@ function ProviderGlyph({ id, compact }) {
   );
 }
 
-function RouteMenuRow({ mark, label, owner, modelType, chain, active, theme, compact, multi, t, onEnter, onClick, isModel, speed }) {
+function RouteMenuRow({ mark, label, owner, modelType, chain, active, theme, compact, multi, t, onEnter, onClick, isModel, speed, sub = '', communityOnly = false, canExpand = false, expanded = false, onToggle = null, indent = false }) {
   return (
     <div
       role={multi ? 'menuitemcheckbox' : 'option'}
@@ -526,12 +533,23 @@ function RouteMenuRow({ mark, label, owner, modelType, chain, active, theme, com
         <span title={speed?.title || speedTitle(speed)} className={`w-1.5 h-1.5 rounded-full shrink-0 mr-1.5 ${speedDotClass(speed?.bucket)}`} />
       )}
       {owner ? <ProviderGlyph id={owner} compact={compact} /> : null}
-      <span className="truncate flex-1 min-w-0">{label}</span>
-      {(chain || (modelType && modelType !== 'chat')) && (
+      <span className={`flex-1 min-w-0 ${indent ? 'pl-3' : ''}`}>
+        <span className="block truncate">{label}</span>
+        {sub ? <span className={`block truncate text-[10px] ${active ? 'text-white/80' : 'text-zinc-500 dark:text-zinc-400'}`}>{sub}</span> : null}
+      </span>
+      {(chain || communityOnly || (modelType && modelType !== 'chat')) && (
         <span className="flex items-center gap-1 shrink-0 ml-1.5">
+          {communityOnly && <span className={`text-[10px] leading-none px-1 py-0.5 rounded ${active ? 'bg-white/25 text-white' : 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300'}`}>{t('gateway.app.communityOnly')}</span>}
           {chain && <ChainBadge t={t} active={active} compact={compact} />}
           <ModelTypeBadge type={modelType} t={t} active={active} compact={compact} />
         </span>
+      )}
+      {canExpand && (
+        <button type="button" aria-expanded={expanded} aria-label={t('gateway.app.pinExpand')}
+          className={`shrink-0 ml-1 w-6 h-6 flex items-center justify-center rounded ${active ? 'text-white hover:bg-white/20' : 'text-zinc-400 hover:bg-zinc-200/60 dark:hover:bg-white/10'}`}
+          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onToggle?.(); }}>
+          {expanded ? '▾' : '▸'}
+        </button>
       )}
     </div>
   );
@@ -561,6 +579,8 @@ export default function RouteSelect({
   const [panelVisible, setPanelVisible] = useState(false);
   /** 多选草稿：点「确定」后才 onChange */
   const [draftSelected, setDraftSelected] = useState([]);
+  const [query, setQuery] = useState('');
+  const [expandedKey, setExpandedKey] = useState(null);
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
   const panelRef = useRef(null);
@@ -600,6 +620,20 @@ export default function RouteSelect({
     ? (isManual ? workingSelected.length : (officialActive ? 1 : workingSelected.length))
     : 0;
   const routeOptionCount = menuItems.filter(item => item.kind === 'option').length;
+  const visibleItems = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return menuItems;
+    const out = [];
+    let group = null;
+    for (const it of menuItems) {
+      if (it.kind === 'group') { group = it; continue; }
+      const hay = `${it.label || ''} ${it.sub || ''}`.toLowerCase();
+      if (!hay.includes(q)) continue;
+      if (group) { out.push(group); group = null; }
+      out.push(it);
+    }
+    return out;
+  }, [menuItems, query]);
 
   const displayText = multi && !officialActive && selected.length > 1
     ? t('gateway.app.routeMultiSummary', {
@@ -626,7 +660,7 @@ export default function RouteSelect({
   }, []);
 
   useEffect(() => {
-    if (!open) { setHoverKey(null); setPanelVisible(false); return; }
+    if (!open) { setHoverKey(null); setPanelVisible(false); setQuery(''); setExpandedKey(null); return; }
     updatePanelPos();
     const raf = requestAnimationFrame(() => requestAnimationFrame(() => setPanelVisible(true)));
     const onDoc = (e) => {
@@ -696,16 +730,32 @@ export default function RouteSelect({
       }}
       onMouseLeave={() => setHoverKey(null)}
     >
+      {routeOptionCount > 8 && (
+        <div className="shrink-0 px-2 pb-1.5">
+          <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder={t('gateway.app.searchModel')}
+            onMouseDown={e => e.stopPropagation()}
+            className="w-full min-h-[28px] px-2 rounded-md border border-zinc-200 dark:border-white/10 bg-white/80 dark:bg-zinc-800/80 text-xs text-zinc-800 dark:text-zinc-100 outline-none" />
+        </div>
+      )}
       <div className={`min-h-0 flex-1 overflow-y-auto overscroll-contain ${multi ? '' : 'py-0'}`}>
-      {menuItems.map((item, i) => {
+      {visibleItems.map((item, i) => {
         if (item.kind === 'group') {
           return <div key={`grp-${item.label}`} className={theme.group}>{item.label}</div>;
         }
         const key = item.value || '__official__';
         const isOfficial = item.value === '';
+        const pins = item.pins || [];
+        const pinMarked = pins.some(p => isMarked(p.value));
+        const expanded = expandedKey === key || (expandedKey == null && pinMarked);
         return (
+          <React.Fragment key={key}>
           <RouteMenuRow
             key={key}
+            sub={item.sub}
+            communityOnly={!!item.communityOnly}
+            canExpand={pins.length > 0}
+            expanded={expanded}
+            onToggle={() => setExpandedKey(expanded ? '' : key)}
             compact={compact}
             multi={multi}
             theme={theme}
@@ -721,8 +771,28 @@ export default function RouteSelect({
             onEnter={() => setHoverKey(key)}
             onClick={() => (isOfficial ? pickOfficial() : pickRoute(item.value))}
           />
+          {expanded && pins.map(p => (
+            <RouteMenuRow
+              key={key + '>' + p.value}
+              compact={compact}
+              multi={multi}
+              theme={theme}
+              t={t}
+              indent
+              mark={isMarked(p.value)}
+              label={p.label}
+              sub={p.community ? t('gateway.app.pinCommunityHint') : (p.isDefault ? t('gateway.app.pinDefault') : '')}
+              active={hoverKey === key + '>' + p.value}
+              onEnter={() => setHoverKey(key + '>' + p.value)}
+              onClick={() => pickRoute(p.value)}
+            />
+          ))}
+          </React.Fragment>
         );
       })}
+      {visibleItems.every(it => it.kind === 'group') && (
+        <div className="px-3 py-3 text-center text-[11px] text-zinc-400">{t('gateway.app.searchNone')}</div>
+      )}
       </div>
       {multi ? (
         <div className={theme.footer}>

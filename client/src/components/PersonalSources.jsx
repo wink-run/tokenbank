@@ -148,56 +148,9 @@ export function modelTypeBtnClass(type) {
   return 'bg-blue-50 dark:bg-blue-900/20 text-blue-500 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40';
 }
 
-// ── 模型多时的整理：按厂商分组、去掉厂商前缀、日期/档位版本折叠到主模型下 ──
-const MODEL_VENDORS = [
-  ['DeepSeek', /^deepseek/i, /^deepseek[-_]?/i],
-  ['豆包', /^(doubao|seed|ark|skylark)/i, /^doubao[-_]?/i],
-  ['GLM', /^(glm|chatglm|cogview|cogvideo|charglm|codegeex)/i, /^glm[-_]?/i],
-  ['OpenAI', /^(gpt|o\d|chatgpt|codex|dall-e|text-embedding|whisper|tts)/i, /^gpt[-_]?/i],
-  ['Claude', /^claude/i, /^claude[-_]?/i],
-  ['Gemini', /^(gemini|gemma|imagen)/i, /^gemini[-_]?/i],
-  ['通义', /^(qwen|qwq|qvq|tongyi|wan)/i, /^qwen[-_]?/i],
-  ['Kimi', /^(kimi|moonshot)/i, /^(kimi|moonshot)[-_]?/i],
-  ['MiniMax', /^(minimax|abab|hailuo)/i, /^minimax[-_]?/i],
-  ['Grok', /^grok/i, /^grok[-_]?/i],
-  ['Llama', /^(llama|meta-llama)/i, null],
-  ['Mistral', /^(mistral|mixtral|codestral|devstral|magistral)/i, null],
-];
-
-/** 模型归哪个厂商：org/model 写法按 org，其余按名字开头 */
-export function modelVendor(name) {
-  const raw = String(name || '').trim();
-  const [org, rest] = raw.includes('/') ? raw.split('/', 2) : ['', raw];
-  for (const [label, re] of MODEL_VENDORS) if (re.test(rest)) return label;
-  if (org) return org.charAt(0).toUpperCase() + org.slice(1);
-  return '其它';
-}
-
-/** 卡片上显示的短名：去掉 org/ 和厂商前缀（deepseek-v4-flash → v4-flash） */
-export function modelShortName(name) {
-  const raw = String(name || '').trim();
-  const rest = raw.includes('/') ? raw.split('/').slice(1).join('/') : raw;
-  for (const [, re, strip] of MODEL_VENDORS) {
-    if (re.test(rest) && strip) {
-      const short = rest.replace(strip, '');
-      return short || rest;
-    }
-  }
-  return rest;
-}
-
-/** 日期、档位版本归到哪个主模型（deepseek-v4-flash-ga-260731 → deepseek-v4-flash） */
-export function modelBaseName(name) {
-  let n = String(name || '').trim();
-  for (let i = 0; i < 3; i++) {
-    const next = n
-      .replace(/[-_@](\d{4}-\d{2}-\d{2}|\d{6,8})$/, '')
-      .replace(/[-_](ga|economy|eco|preview|latest|exp|beta|turbo-\d+)$/i, '');
-    if (next === n) break;
-    n = next;
-  }
-  return n;
-}
+// 按厂商分组、去前缀、版本折叠：和选模型的下拉框共用
+export { modelVendor, modelShortName, modelBaseName } from '../lib/model-vendor';
+import { modelVendor, modelBaseName } from '../lib/model-vendor';
 
 /** 模型名旁的来源标记：同步 = 服务端目录；手工 = 本地添加或改过 */
 function ModelOriginBadge({ origin, t }) {
@@ -1333,7 +1286,10 @@ function ModelChipGroups({
       const degraded = !skipSpeed && !!route && chainServingLater(model, srcs, route, latencyMap);
       const probingThis = !skipSpeed && !!(probing?.current && probeTargetBare(probing.current) === String(model).trim().toLowerCase());
       const bucket = skipSpeed ? 'unknown' : (probingThis ? 'fast' : degraded ? 'slow' : statusDotBucket({ ms: fastMs, failed: anyFail, ok: !!fastMs }));
-      m.set(model, { srcs, mType, fastMs, anyFail, failCode: failRow ? failRow.statusCode : null, bucket, probingThis, inChain: isModelRoute(model), used: isModelRoute(model) || okRecently });
+      // 只有社区共享网络能提供：扣积分；社区现在没有节点时灰掉
+      const communityOnly = srcs.length > 0 && srcs.every(s => s.community);
+      const offline = communityOnly && srcs.every(s => s.offlineModels?.has(model));
+      m.set(model, { srcs, mType, fastMs, anyFail, communityOnly, offline, failCode: failRow ? failRow.statusCode : null, bucket, probingThis, inChain: isModelRoute(model), used: isModelRoute(model) || okRecently });
     }
     return m;
   }, [displayModels, modelTypeMap, latencyMap, probing, isModelRoute, routeForModel]);
@@ -1365,8 +1321,10 @@ function ModelChipGroups({
 
   const q = query.trim().toLowerCase();
   const failedNames = heads.filter(n => info.get(n)?.anyFail);
+  const communityOnlyNames = heads.filter(n => info.get(n)?.communityOnly);
   const matches = (name) => {
     if (typeFilter === 'failed') { if (!info.get(name)?.anyFail) return false; }
+    else if (typeFilter === 'community') { if (!info.get(name)?.communityOnly) return false; }
     else if (typeFilter && (modelTypeMap[name] || 'chat') !== typeFilter) return false;
     if (!q) return true;
     const group = [name, ...(variantsOf.get(name) || [])];
@@ -1415,6 +1373,8 @@ function ModelChipGroups({
       <button key={name} type="button" title={tip} onClick={() => onOpen(name)}
         className={`inline-flex items-center gap-1.5 max-w-full min-h-[32px] md:min-h-[28px] px-2.5 rounded-lg text-xs transition-colors ${
           chainModel === name ? 'border-[1.5px] border-blue-500 bg-blue-50/70 dark:bg-blue-950/30'
+            : it.offline ? 'border border-dashed border-blue-200 dark:border-blue-900/60 bg-zinc-50/70 dark:bg-zinc-800/40 text-zinc-400'
+            : it.communityOnly && !dim ? 'border border-blue-300 dark:border-blue-800 bg-white dark:bg-zinc-800'
             : dim ? 'border border-dashed border-zinc-300 dark:border-zinc-600 bg-zinc-50/70 dark:bg-zinc-800/40 text-zinc-500 dark:text-zinc-400 hover:border-zinc-400'
               : it.inChain ? 'border border-zinc-400 dark:border-zinc-500 bg-white dark:bg-zinc-800'
                 : 'border border-zinc-200 dark:border-zinc-700 bg-white/80 dark:bg-zinc-800/70 hover:border-zinc-400/70'
@@ -1427,6 +1387,8 @@ function ModelChipGroups({
         )}
         {it.inChain && <span className="shrink-0 text-[10px] leading-none px-1 py-0.5 rounded bg-zinc-200/80 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300">{t('psrc.route.custom')}</span>}
         {reason && <span className="shrink-0 text-[11px] text-red-600 dark:text-red-400">{reason}</span>}
+        {it.communityOnly && !it.offline && <span className="shrink-0 text-[10px] leading-none px-1 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">{t('psrc.chips.communityOnly')}</span>}
+        {it.offline && <span className="shrink-0 text-[11px] text-zinc-400">{t('psrc.chips.noNode')}</span>}
         {off && <span className="shrink-0 text-[10px] text-zinc-500">{t('psrc.pick.offShort')}</span>}
       </button>
     );
@@ -1446,6 +1408,14 @@ function ModelChipGroups({
               {tp ? modelTypeLabel(tp, t) : t('psrc.chips.all')}
             </button>
           ))}
+          {communityOnlyNames.length > 0 && (
+            <button type="button" aria-pressed={typeFilter === 'community'} onClick={() => setTypeFilter(typeFilter === 'community' ? '' : 'community')}
+              className={`min-h-[32px] md:min-h-[26px] px-2 rounded-lg text-xs border ${typeFilter === 'community'
+                ? 'border-blue-400 text-blue-700 dark:text-blue-300 bg-blue-50/70 dark:bg-blue-950/30'
+                : 'border-zinc-200 dark:border-zinc-700 text-blue-700 dark:text-blue-300'}`}>
+              {t('psrc.chips.communityFilter', { n: communityOnlyNames.length })}
+            </button>
+          )}
           {failedNames.length > 0 && (
             <button type="button" aria-pressed={typeFilter === 'failed'} onClick={() => setTypeFilter(typeFilter === 'failed' ? '' : 'failed')}
               className={`min-h-[32px] md:min-h-[26px] px-2 rounded-lg text-xs border ${typeFilter === 'failed'
@@ -1494,6 +1464,7 @@ function ModelChipGroups({
         <span className="inline-flex items-center gap-1"><span className={`w-2 h-2 rounded-full ${speedDotClass('slow')}`} />{t('psrc.legend.slow')}</span>
         <span className="inline-flex items-center gap-1"><span className={`w-2 h-2 rounded-full ${speedDotClass('fail')}`} />{t('psrc.legend.fail')}</span>
         <span>{t('psrc.legend.border')}</span>
+        <span>{t('psrc.legend.community')}</span>
       </div>
     </div>
   );

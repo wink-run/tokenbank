@@ -266,10 +266,10 @@ export async function loadGatewayAvailableModels(opts = {}) {
     models = models.filter(m => m.tier !== 'p2p');
   }
   models = filterClaudeMaskModels(models, maskSet);
-  // 模型页里关了「在别处可选」的个人模型：选模型时不列出（社区模型不受影响）
+  // 模型页里关了「在别处可选」的模型：选模型时不列出（个人和社区来源都算）
   if (!opts.includeHidden) {
     const hidden = readHiddenModels(cfg);
-    if (hidden.size) models = models.filter(m => m?.tier === 'p2p' || !hidden.has(modelId(m)));
+    if (hidden.size) models = models.filter(m => !hidden.has(modelId(m)));
   }
   return attachProviderNames(enrichModelsWithType(models, cfg, acc), provById);
 }
