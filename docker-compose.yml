@@ -30,6 +30,7 @@ services:
 
   # ── Backend API server ───────────────────────────────────────────────────────
   proxy:
+    profiles: [server]
     build:
       context: ./server
     ports:
@@ -110,6 +111,7 @@ services:
 
   # ── CLI Gateway (headless, no Electron) ──────────────────────────────────────
   gateway:
+    profiles: [gateway]
     build:
       context: ./client
       dockerfile: Dockerfile.cli
