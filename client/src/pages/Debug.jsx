@@ -1337,7 +1337,8 @@ export default function Debug() {
 
   // Load Agents when switching to agent mode（缓存为空时补拉）
   useEffect(() => {
-    if (mode === 'agent' && agents.length === 0 && !loadingAgents) {
+    // 左侧「和谁说话」两种模式都显示，所以模型对话时也要有智能体列表
+    if (agents.length === 0 && !loadingAgents) {
       loadAgents();
     }
   }, [mode]);
@@ -3282,16 +3283,6 @@ export default function Debug() {
   const ghostBtn = 'tb-soft-tile shrink-0 px-2.5 py-1.5 text-xs rounded-lg text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 disabled:opacity-40';
   const composerField = 'tb-soft-field flex-1 rounded-xl px-3 py-2.5 text-[14px] leading-normal text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 overflow-y-auto disabled:opacity-50';
 
-  const modeSwitcher = (
-    <div className={segTrack}>
-      <button type="button" onClick={() => setMode('llm')} className={segItem(mode === 'llm')}>
-        {t('debug.modeLlm')}
-      </button>
-      <button type="button" onClick={() => setMode('agent')} className={segItem(mode === 'agent')}>
-        {t('debug.modeAgent')}
-      </button>
-    </div>
-  );
 
   return (
     /* 顶栏拉通；智能体列表仅在 Agent 模式内容区内 */
@@ -3303,7 +3294,22 @@ export default function Debug() {
         {/* 窄屏按行排开：模式和网关一行，地址一行，密钥一行 */}
         <div className="flex flex-col gap-2 md:flex-row md:gap-2 md:items-center md:flex-wrap md:min-h-[2rem]">
           <div className="electron-no-drag flex items-center gap-2 flex-nowrap min-w-0">
-            {modeSwitcher}
+            {/* 模型对话 / 智能体在左侧「和谁说话」里选，这里不再放切换 */}
+            {mode === 'agent' && (() => {
+              // 智能体模式的页头：在和谁说话、在哪个目录里干活
+              const dir = normalizeWorkingDir(agentWorkingDir);
+              const name = selectedAgent
+                ? (selectedAgent.guardian ? t('debug.tabs.guardian') : selectedAgent.name)
+                : t('debug.tabs.hub');
+              return (
+                <span className="flex items-baseline gap-2 min-w-0">
+                  <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 truncate">{name}</span>
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate" title={dir || undefined}>
+                    {dir ? t('debug.header.inDir', { dir }) : t('debug.header.noDir')}
+                  </span>
+                </span>
+              );
+            })()}
             {mode === 'llm' && (
               <select value={selectedId} onChange={e => setSelectedId(e.target.value)}
                 className="min-w-0 flex-1 md:flex-none bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-blue-500">
@@ -3413,12 +3419,14 @@ export default function Debug() {
 
       {/* ── 主体：Agent 模式下左侧智能体列表 + 右侧对话 ── */}
       <div className="tb-debug-body flex flex-nowrap flex-1 min-h-0 min-w-0">
-        {mode === 'agent' && (
+        {(
           <AgentTabBar
             agents={agents}
             selectedAgent={selectedAgent}
             mainAgentId={mainAgentId}
-            onSelect={switchAgent}
+            onSelect={(agent) => { if (mode !== 'agent') setMode('agent'); switchAgent(agent); }}
+            modelChat={{ active: mode === 'llm', onSelect: () => setMode('llm') }}
+            onHireMore={() => navigate('/contribute', { state: { tradeTab: 'hire' } })}
             onSetMainAgent={setMainAgent}
             loading={loadingAgents && agents.length === 0}
             runningKeys={runningAgentKeys}

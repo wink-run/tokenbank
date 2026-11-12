@@ -111,6 +111,10 @@ export default function AgentTabBar({
   installingCursorCli,
   onLoginCursorCli,
   loggingInCursorCli,
+  /** 游乐场「和谁说话」：最上面一项直接和模型说话 { active, onSelect } */
+  modelChat = null,
+  /** 列表底部「去交易里再雇一个」 */
+  onHireMore = null,
 }) {
   const { t } = useLang();
   const narrow = useWebNarrow();
@@ -186,7 +190,14 @@ export default function AgentTabBar({
   if (!agents?.length) {
     return (
       <div className={shellCls} style={{ width }}>
-        <aside className="w-full border-r border-white/40 dark:border-white/[0.06] bg-white/25 dark:bg-zinc-950/40 backdrop-blur-xl p-3">
+        <aside className="w-full border-r border-white/40 dark:border-white/[0.06] bg-white/25 dark:bg-zinc-950/40 backdrop-blur-xl p-3 space-y-3">
+          {modelChat && (
+            <button type="button" onClick={modelChat.onSelect} aria-pressed={!!modelChat.active}
+              className={`w-full text-left px-2.5 py-1.5 text-[13px] rounded-lg ${pressCls} ${modelChat.active ? 'tb-soft-bubble font-medium' : 'font-medium hover:bg-black/[0.05] dark:hover:bg-white/[0.06]'}`}>
+              <span className="block truncate">{t('debug.tabs.modelChat')}</span>
+              <span className="block text-[11px] font-normal text-zinc-400 truncate mt-0.5">{t('debug.tabs.modelChatHint')}</span>
+            </button>
+          )}
           <p className="text-[12px] leading-relaxed text-zinc-500 dark:text-zinc-400">
             {t('debug.tabs.noAgents')}
           </p>
@@ -197,8 +208,17 @@ export default function AgentTabBar({
   }
 
   const mainAgent = agents.find(a => a.id === mainAgentId && !a.custom && a.type !== 'assistant' && a.installed !== false);
-  const hubActive = !selectedAgent;
-  const currentName = selectedAgent
+  const hubActive = !selectedAgent && !modelChat?.active;
+  // 分组：通用（应用本身）、投射的智能体、雇来的。组内保持原顺序
+  const groupOf = (a) => ((a.type === 'community' || a.community) ? 'hired' : (a.custom || a.type === 'assistant') ? 'projected' : 'general');
+  const GROUP_ORDER = { general: 0, projected: 1, hired: 2 };
+  const orderedAgents = agents.map((a, i) => [a, i])
+    .sort((x, y) => (GROUP_ORDER[groupOf(x[0])] - GROUP_ORDER[groupOf(y[0])]) || (x[1] - y[1]))
+    .map(([a]) => a);
+  const groupHead = (g) => (
+    <p key={`h-${g}`} className="px-2.5 pt-2.5 pb-1 text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">{t(`debug.tabs.group.${g}`)}</p>
+  );
+  const currentName = modelChat?.active ? t('debug.tabs.modelChat') : selectedAgent
     ? (selectedAgent.guardian ? t('debug.tabs.guardian') : selectedAgent.name)
     : t('debug.tabs.hub');
 
@@ -239,6 +259,23 @@ export default function AgentTabBar({
         ? 'absolute left-0 right-0 top-full z-20 max-h-[min(22rem,calc(100dvh-14rem))] overflow-y-auto overscroll-contain px-2 py-2 space-y-0.5 rounded-b-2xl border border-zinc-200/90 bg-white shadow-[0_16px_40px_rgb(15_23_42/0.14)] dark:border-zinc-700 dark:bg-zinc-950'
         : 'flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 tb-scroll-layer'
       }>
+        {modelChat && (
+          <>
+            <p className="px-2.5 pt-1 pb-1 text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">{t('debug.tabs.group.model')}</p>
+            <button
+              type="button"
+              onClick={modelChat.onSelect}
+              aria-pressed={!!modelChat.active}
+              className={`w-full text-left px-2.5 py-1.5 text-[13px] rounded-lg ${pressCls} ${modelChat.active
+                ? 'tb-soft-bubble text-zinc-900 dark:text-zinc-100 font-medium'
+                : 'text-zinc-800 dark:text-zinc-200 font-medium hover:bg-black/[0.05] dark:hover:bg-white/[0.06]'}`}
+            >
+              <span className="block truncate">{t('debug.tabs.modelChat')}</span>
+              <span className="block text-[11px] font-normal text-zinc-400 dark:text-zinc-500 truncate mt-0.5">{t('debug.tabs.modelChatHint')}</span>
+            </button>
+            <div className="mx-1.5 my-2 border-t border-zinc-200/90 dark:border-zinc-800" />
+          </>
+        )}
         {/* Hub：选中与列表项同一玻璃高亮，避免实心蓝跳出体系 */}
         <button
           type="button"
@@ -263,8 +300,10 @@ export default function AgentTabBar({
         {/* 分隔用留白+细线，弱化硬分割 */}
         <div className="mx-1.5 my-2.5 border-t border-zinc-200/90 dark:border-zinc-800" />
 
-        {agents.map(agent => {
-          const active = selectedAgent?.id === agent.id;
+        {orderedAgents.map((agent, idx) => {
+          const g = groupOf(agent);
+          const head = (idx === 0 || groupOf(orderedAgents[idx - 1]) !== g) ? groupHead(g) : null;
+          const active = !modelChat?.active && selectedAgent?.id === agent.id;
           const isMain = agent.id === mainAgentId && !agent.custom;
           const isCommunity = agent.type === 'community' || !!agent.community;
           const isCustom = !isCommunity && (agent.custom || agent.type === 'assistant');
@@ -290,7 +329,9 @@ export default function AgentTabBar({
                 ? `→ ${agent.runtimeName}`
                 : '';
           return (
-            <div key={agent.id} className={`relative group ${dimmed && !cursorNeedCli && !cursorNeedLogin ? 'opacity-45' : cursorNeedLogin ? 'opacity-70' : ''}`}>
+            <React.Fragment key={agent.id}>
+            {head}
+            <div className={`relative group ${dimmed && !cursorNeedCli && !cursorNeedLogin ? 'opacity-45' : cursorNeedLogin ? 'opacity-70' : ''}`}>
               <button
                 type="button"
                 onClick={() => onSelect(agent)}
@@ -399,8 +440,15 @@ export default function AgentTabBar({
                 </button>
               )}
             </div>
+            </React.Fragment>
           );
         })}
+        {onHireMore && (
+          <button type="button" onClick={onHireMore}
+            className="w-full text-left px-2.5 pt-3 pb-1 text-[12px] text-blue-600 dark:text-blue-400 hover:underline">
+            {t('debug.tabs.hireMore')}
+          </button>
+        )}
         {narrow && mainAgent && selectedAgent && (
           <p className="px-2.5 pt-2 pb-1 text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug">
             {t('debug.tabs.mainFooter', { name: mainAgent.name })}
