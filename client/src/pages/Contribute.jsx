@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getStats, getSettlements, getContributeSummary, listJoinedCircles, listMyCircles, listCommunityAgents, listPublicCommunityAgents, getNetwork } from '../api/client';
 import { normalizeNetworkPayload, workerModelNames } from '../lib/networkModelStats';
-import { getConfig, getGateway, getLocalConfig, getOauth } from '../api/adapter';
+import { getConfig, getGateway, getLocalConfig } from '../api/adapter';
 import { resolveLocalGatewayBase, loadGatewayAvailableModels } from '../api/gatewayModels';
 import { loadUserAccounts } from '../api/userAccounts';
 import { collectPersonalAvailableModels, mergeAccountsForGateway } from '../lib/personalAvailableModels';
@@ -24,7 +24,7 @@ import {
 } from '../components/LibraryControls';
 import ServiceIcon from '../components/ServiceIcon';
 import { resolveBrandIcon } from '../lib/brandIcons';
-import { getServerUrl, getSyncServerBase } from '../config';
+import { getServerUrl } from '../config';
 import { copyText } from '../lib/resource-enable';
 function multiplierToStars(m) {
   const n = m >= 1.3 ? 5 : m >= 1.1 ? 4 : m >= 0.9 ? 3 : m >= 0.7 ? 2 : 1;
@@ -1796,11 +1796,6 @@ export default function Contribute() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [circlesOpen]);
-  async function openNetwork() {
-    const base = String((await getSyncServerBase().catch(() => '')) || getServerUrl() || '').replace(/\/$/, '');
-    if (base) getOauth().openExternal(`${base}/network`);
-  }
-
   useEffect(() => {
     Promise.all([listMyCircles(), listJoinedCircles()])
       .then(([o, j]) => setMyCircles(uniqueCircles([...(o.data?.circles || []), ...(j.data?.circles || [])])))
@@ -1812,7 +1807,7 @@ export default function Contribute() {
     if (location.pathname !== '/contribute') return;
     const st = location.state || {};
     if (st.tradeTab === 'circles') setCirclesOpen(true);
-    else if (st.tradeTab === 'network') openNetwork();
+    else if (st.tradeTab === 'network') changeTab('hire');   // 共享网络已并入「买」
     else if (st.tradeTab) changeTab(st.tradeTab);
     if (st.scope != null) setScope(st.scope);
     if (st.focusAgent) setFocusAgent({ id: st.focusAgent, at: Date.now() });
@@ -1957,10 +1952,6 @@ export default function Contribute() {
             <button type="button" onClick={() => setCirclesOpen(true)}
               className="text-xs px-2.5 py-1.5 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-white/60 dark:hover:bg-white/5">
               {t('contribute.manageCircles')}{myCircles?.length ? ` · ${myCircles.length}` : ''}
-            </button>
-            <button type="button" onClick={openNetwork}
-              className="text-xs px-2.5 py-1.5 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-white/60 dark:hover:bg-white/5">
-              {t('contribute.networkCloud')} ↗
             </button>
             {/* 累计积分：点击看收益记录（明细数据都在该页签） */}
             {summary && (
