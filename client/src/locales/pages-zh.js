@@ -3140,6 +3140,8 @@ export default {
   'gw2.pro.newPlus': '+ 新建专业智能体',
   'gw2.ext.connectPlus': '+ 接入外部智能体',
   'gw2.route.newPlus': '+ 新建智能体路由',
+  'gw2.pro.apiClose': '收起',
+  'gw2.proApi.inlineHint': 'POST /v1/agent/responses，Key 用页面顶部的「智能体接口 Key」；返回任务 id，用 GET /v1/agent/responses/{id} 查结果。所有可调用的 harness_id：GET {url}',
   'gw2.kind.pro': '专业',
   'gw2.kind.ext': '外部',
   'gw2.kind.app': '应用',

@@ -3081,6 +3081,8 @@ export default {
   'gw2.pro.newPlus': '+ New specialist agent',
   'gw2.ext.connectPlus': '+ Connect external agent',
   'gw2.route.newPlus': '+ New agent route',
+  'gw2.pro.apiClose': 'Close',
+  'gw2.proApi.inlineHint': 'POST /v1/agent/responses with the agent API key from the top of the page; you get a task id, GET /v1/agent/responses/{id} for the result. All callable harness_ids: GET {url}',
   'gw2.kind.pro': 'specialist',
   'gw2.kind.ext': 'external',
   'gw2.kind.app': 'app',

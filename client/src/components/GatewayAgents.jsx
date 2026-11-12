@@ -103,45 +103,24 @@ function gatewayBase() {
   try { return `${window.location.protocol}//${window.location.hostname}:11430`; } catch { return 'http://127.0.0.1:11430'; }
 }
 
-/** 专业智能体怎么从接口调用：选一个，给出 harness_id 和 curl */
-function ProApiCard({ rows, appName, picked, onPick, open, setOpen, t }) {
-  const cur = rows.find(r => r.id === picked) || rows[0];
+/** 某个专业智能体怎么从接口调用：在它那一行下面展开 */
+function ProApiInline({ agent, appName, t }) {
   const gw = gatewayBase();
-  const curl = cur ? `curl ${gw}/v1/agent/responses \\
+  const curl = `curl ${gw}/v1/agent/responses \\
   -H "Authorization: Bearer [智能体接口 Key]" \\
   -H "Content-Type: application/json" \\
-  -d '{"input": "你的任务", "metadata": {"harness_id": "${cur.id}"}}'` : '';
+  -d '{"input": "你的任务", "metadata": {"harness_id": "${agent.id}"}}'`;
   return (
-    <div id="gw-pro-api" className="rounded-xl border border-zinc-200/80 dark:border-white/[0.08] bg-white/60 dark:bg-zinc-900/40">
-      <button type="button" className="w-full flex items-center gap-2 px-3 min-h-[44px] md:min-h-[38px] text-left" aria-expanded={open} onClick={() => setOpen(v => !v)}>
-        <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">{t('gw2.proApi.title')}</span>
-        <span className="text-[11px] text-zinc-500 dark:text-zinc-400 hidden md:inline">{t('gw2.proApi.short')}</span>
-        <span className="ml-auto text-xs text-zinc-400">{open ? '▾' : '▸'}</span>
-      </button>
-      {open && cur && (
-        <div className="px-3 pb-3 space-y-2 text-xs text-zinc-600 dark:text-zinc-300">
-          <ol className="m-0 pl-4 space-y-1 leading-relaxed">
-            <li>{t('gw2.proApi.step1')}</li>
-            <li>{t('gw2.proApi.step2')}</li>
-            <li>{t('gw2.proApi.step3')}</li>
-          </ol>
-          <div className="flex flex-col md:flex-row md:items-center gap-2">
-            <label className="flex flex-col md:flex-row md:items-center gap-1.5 text-zinc-500">{t('gw2.proApi.pick')}
-              <select value={cur.id} onChange={e => onPick(e.target.value)}
-                className="min-h-[44px] md:min-h-[30px] px-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm md:text-xs text-zinc-900 dark:text-zinc-100">
-                {rows.map(r => <option key={r.id} value={r.id}>{r.name} → {appName(r.runtimeAgentId)}</option>)}
-              </select>
-            </label>
-            <span className="flex items-center gap-2 min-w-0">harness_id <Code>{cur.id}</Code><CopyText text={cur.id} t={t} /></span>
-          </div>
-          <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.proApi.runsOn', { name: cur.name, app: appName(cur.runtimeAgentId) })}</p>
-          <div className="relative">
-            <pre className="m-0 p-3 pr-16 rounded-xl bg-zinc-900 text-zinc-100 text-[11px] leading-relaxed overflow-x-auto">{curl}</pre>
-            <span className="absolute top-2 right-2"><CopyText text={curl} t={t} /></span>
-          </div>
-          <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.proApi.list', { url: `${gw}/v1/agent/harnesses` })}</p>
-        </div>
-      )}
+    <div className="tb-table-row px-3 md:px-2.5 py-3 bg-zinc-50/60 dark:bg-white/[0.02] space-y-2 text-xs text-zinc-600 dark:text-zinc-300">
+      <div className="flex flex-wrap items-center gap-2 min-w-0">
+        <span className="text-zinc-500">harness_id</span><Code>{agent.id}</Code><CopyText text={agent.id} t={t} />
+        <span className="text-zinc-500 dark:text-zinc-400">{t('gw2.proApi.runsOn', { name: agent.name, app: appName(agent.runtimeAgentId) })}</span>
+      </div>
+      <div className="relative">
+        <pre className="m-0 p-3 pr-16 rounded-xl bg-zinc-900 text-zinc-100 text-[11px] leading-relaxed overflow-x-auto">{curl}</pre>
+        <span className="absolute top-2 right-2"><CopyText text={curl} t={t} /></span>
+      </div>
+      <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.proApi.inlineHint', { url: `${gw}/v1/agent/harnesses` })}</p>
     </div>
   );
 }
@@ -152,7 +131,7 @@ export function ProfessionalAgents() {
   const navigate = useNavigate();
   const [reload, setReload] = useState(0);
   const { agents, blocked, stats, rentIds } = useAgentData(reload);
-  const [picked, setPicked] = useState('');
+  const [apiFor, setApiFor] = useState('');   // 哪一行展开了「接口示例」
   const [runtimeErr, setRuntimeErr] = useState('');
   const setDefaultApp = async (a, runtimeAgentId) => {
     setRuntimeErr('');
@@ -160,7 +139,6 @@ export function ProfessionalAgents() {
     if (!r?.success) setRuntimeErr(r?.error || t('gw2.pro.runtimeFailed'));
     setReload(v => v + 1);
   };
-  const [apiOpen, setApiOpen] = useState(false);   // 默认收起，点某行的「接口示例」时展开
   const rows = useMemo(() => {
     const list = agents.filter(a => a.type === 'assistant' && !a.guardian && a.id !== 'assistant:tb-guardian');
     const seen = new Set(list.map(a => a.id));
@@ -181,11 +159,6 @@ export function ProfessionalAgents() {
     return [...m.entries()].sort((a, b) => (b[1].some(r => blocked[r.id]) - a[1].some(r => blocked[r.id])) || b[1].length - a[1].length);
   }, [rows, blocked]);
   const brokenN = rows.filter(a => blocked[a.id]).length;
-  const showApi = (id) => {
-    setPicked(id);
-    setApiOpen(true);
-    setTimeout(() => { try { document.getElementById('gw-pro-api')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* ignore */ } }, 0);
-  };
   const GRID = 'md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.8fr)_15rem]';
   return (
     <section className="px-2.5 py-3 min-w-0">
@@ -196,7 +169,6 @@ export function ProfessionalAgents() {
       ) : (
         <div className="space-y-3">
           {runtimeErr && <p className="m-0 px-1 text-xs text-red-600 dark:text-red-400">{runtimeErr}</p>}
-          <ProApiCard rows={rows.filter(r => !blocked[r.id])} appName={appName} picked={picked} onPick={setPicked} open={apiOpen} setOpen={setApiOpen} t={t} />
           <div className={SHELL}>
           <div className={`${HEAD} ${GRID}`}>
             <span>{t('gw2.col.agent')}</span><span>{t('gw2.col.state')}</span><span>{t('gw2.col.today')}</span><span>{t('gw2.col.rent')}</span><span className="text-right">{t('gw2.col.actions')}</span>
@@ -220,7 +192,8 @@ export function ProfessionalAgents() {
                   const st = stats[a.id] || {};
                   const renting = a.resourceId && rentIds.has(a.resourceId);
                   return (
-                    <div key={a.id} className={`${ROW} ${GRID} ${b ? 'bg-red-50/50 dark:bg-red-950/10' : ''}`}>
+                    <React.Fragment key={a.id}>
+                    <div className={`${ROW} ${GRID} ${b ? 'bg-red-50/50 dark:bg-red-950/10' : ''}`}>
                       <span className="min-w-0">
                         <span className={`block ${NAME}`} title={a.name}>{a.name}</span>
                         <span className={`block ${META}`}>{a.skillCount ? t('gw2.pro.skills', { n: a.skillCount }) : t('gw2.pro.noSkills')}</span>
@@ -256,12 +229,15 @@ export function ProfessionalAgents() {
                         ) : (
                           <>
                             <button type="button" className={BTN} onClick={() => navigate('/debug', { state: { agentId: a.id } })}>{t('gw2.pro.try')}</button>
-                            <button type="button" className={BTN} onClick={() => showApi(a.id)}>{t('gw2.pro.api')}</button>
+                            <button type="button" className={`${BTN} ${apiFor === a.id ? '!border-blue-400 !text-blue-500' : ''}`} aria-expanded={apiFor === a.id}
+                              onClick={() => setApiFor(apiFor === a.id ? '' : a.id)}>{apiFor === a.id ? t('gw2.pro.apiClose') : t('gw2.pro.api')}</button>
                             <button type="button" className={BTN} onClick={() => navigate('/resources', { state: { resourceType: 'assistant', selectKey: a.resourceId ? `r-${a.resourceId}` : undefined } })}>{t('gw2.pro.edit')}</button>
                           </>
                         )}
                       </span>
                     </div>
+                    {apiFor === a.id && !b && <ProApiInline agent={a} appName={appName} t={t} />}
+                    </React.Fragment>
                   );
                 })}
               </React.Fragment>
