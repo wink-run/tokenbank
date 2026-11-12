@@ -3740,6 +3740,9 @@ export default function Debug() {
                 onPreviewImage={setLightbox}
                 footer={turnFooter}
                 pushedByTask={pushedByTask}
+                externalAgent={isRemotePlaygroundAgent(selectedAgent) && !isCommunityPlaygroundAgent(selectedAgent)
+                  ? { name: selectedAgent.name, intervalMs: selectedAgent.intervalMs || 0, lastSeenAt: selectedAgent.lastSeenAt || 0 }
+                  : null}
               />
             )}
           </div>

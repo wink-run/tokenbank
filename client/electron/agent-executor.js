@@ -1424,9 +1424,14 @@ class AgentExecutor extends EventEmitter {
   /** 外部智能体的任务：和社区任务一样只记结果，不在本机跑 */
   async _runExternalTaskForExecute(taskId, agentId, prompt, options = {}) {
     this._watchExternalResults();
+    // 外部智能体不是马上开始：先排队等它来取，界面据此显示「等它来取」而不是「执行中」
+    const ext = require('./external-agents');
+    const info = ext.get(agentId) || {};
     this.emit('task:step', {
-      taskId, stepType: 'system_event', system_subtype: 'process_started',
-      content: agentId, message: agentId, timestamp: Date.now(), ...this._taskEventMeta(taskId),
+      taskId, stepType: 'system_event', system_subtype: 'external_queued',
+      content: info.name || agentId, message: info.name || agentId,
+      external: { name: info.name || agentId, online: !!info.online, intervalMs: info.intervalMs || 0, lastSeenAt: info.lastSeenAt || 0 },
+      timestamp: Date.now(), ...this._taskEventMeta(taskId),
     });
     const result = await require('./external-agents').dispatch(agentId, prompt, { timeoutMs: options.timeoutMs, taskId });
     this._finishExternalTask(taskId, result);
@@ -1467,6 +1472,15 @@ class AgentExecutor extends EventEmitter {
     try {
       const ext = require('./external-agents');
       ext.setPushHandler((agentId, taskId, text) => this.recordTaskMessage(agentId, taskId, text));
+      ext.setTakenHandler((taskId, agentId) => {
+        const info = ext.get(agentId) || {};
+        this.emit('task:step', {
+          taskId, stepType: 'system_event', system_subtype: 'external_taken',
+          content: info.name || agentId, message: info.name || agentId,
+          external: { name: info.name || agentId },
+          timestamp: Date.now(), ...this._taskEventMeta(taskId),
+        });
+      });
       ext.setResultHandler((taskId, result) => this._finishExternalTask(taskId, result));
     } catch (e) { console.warn('[agent] external tasks restore failed:', e.message); }
   }

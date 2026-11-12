@@ -28,6 +28,7 @@ function tasksFile() { return path.join(os.homedir(), '.tokenbank', 'external-ta
 
 // ── 派出去的任务落盘：{ id, agentId, prompt, createdAt, deadline, takenAt } ──
 let resultHandler = null;   // (taskId, result) => void：没有人在等时（比如应用重启过）交给它记下
+let takenHandler = null;    // (taskId, agentId) => void：它把任务取走了
 let pushHandler = null;     // (agentId, taskId, text) => boolean：任务结束后它主动推来的消息（比如它自己的定时任务）
 let restored = false;
 const deadlineTimers = new Map();
@@ -53,6 +54,7 @@ function markTaken(id, now = Date.now()) {
   const all = readTasks();
   const t = all.find(x => x.id === id);
   if (t) { t.takenAt = now; writeTasks(all); }
+  if (t && takenHandler) { try { takenHandler(id, t.agentId); } catch { /* 只是通知 */ } }
 }
 function armDeadline(t) {
   const ms = Math.max(0, (t.deadline || 0) - Date.now());
@@ -82,6 +84,7 @@ function restore() {
 
 function setResultHandler(fn) { resultHandler = typeof fn === 'function' ? fn : null; restore(); }
 function setPushHandler(fn) { pushHandler = typeof fn === 'function' ? fn : null; }
+function setTakenHandler(fn) { takenHandler = typeof fn === 'function' ? fn : null; }
 
 /** 外部智能体就之前接过的任务再推一条消息（定时发的、后续进展）；不限次数，存进任务记录 */
 function push(agentId, taskId, { output } = {}) {
@@ -354,6 +357,7 @@ function complete(agentId, taskId, { output, error } = {}) {
 function listForAgents() {
   return list().filter(a => a.status === 'active').map(a => ({
     id: a.id, name: a.name, type: 'external', description: a.description, online: a.online, installed: true, status: 'active',
+    intervalMs: a.intervalMs || 0, lastSeenAt: a.lastSeenAt || 0,
   }));
 }
 
@@ -365,6 +369,6 @@ module.exports = {
   newPairingCode, currentPairing, register,
   approve, disable, enable, remove,
   authenticate, dispatch, pull, complete,
-  setResultHandler, setPushHandler, push, restore, isOnline, skillInfo, wasRemoved,
-  _internal: { file, tasksFile, queue, waiting, pollers, ONLINE_MS, reset() { restored = false; resultHandler = null; pushHandler = null; for (const t of deadlineTimers.values()) clearTimeout(t); deadlineTimers.clear(); } },
+  setResultHandler, setPushHandler, setTakenHandler, push, restore, isOnline, skillInfo, wasRemoved,
+  _internal: { file, tasksFile, queue, waiting, pollers, ONLINE_MS, reset() { restored = false; resultHandler = null; pushHandler = null; takenHandler = null; for (const t of deadlineTimers.values()) clearTimeout(t); deadlineTimers.clear(); } },
 };

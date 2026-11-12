@@ -25,7 +25,7 @@ import { onMessageCopy } from '../lib/copy-message';
 function isEphemeralSystemEvent(ev) {
   if (!ev) return false;
   const sub = String(ev.system_subtype || '');
-  if (sub === 'process_started' || sub === 'hook_response') return true;
+  if (sub === 'process_started' || sub === 'hook_response' || sub === 'external_queued' || sub === 'external_taken') return true;
   const c = String(ev.content || ev.message || '');
   return /SessionStart|会话上下文已加载|等待模型流式/i.test(c);
 }
@@ -1597,7 +1597,8 @@ export default function ExecutionLog({
   agentNames = {},
   onPreviewImage,
   footer = null,   // 本轮结束后显示在最后（游乐场的「重做 / 改派」）
-  pushedByTask = {},   // 外部智能体后来就这个任务推的消息：{ taskId: [{ content, timestamp }] }
+  pushedByTask = {},
+  externalAgent = null,   // 和外部智能体说话时：{ name, intervalMs, lastSeenAt }，等它来取时不显示「执行中」   // 外部智能体后来就这个任务推的消息：{ taskId: [{ content, timestamp }] }
 }) {
   const { t } = useLang();
   const endRef = useRef(null);
@@ -1664,6 +1665,32 @@ export default function ExecutionLog({
     }
     return true;
   }, [status, userPrompt, userImages, timeline, currentStart]);
+
+  // 外部智能体：还没来取 / 已取走，用它代替「执行中」
+  const externalWait = useMemo(() => {
+    if (status !== 'running') return '';
+    let last = null;
+    for (const s of steps || []) {
+      if (s && (s.system_subtype === 'external_queued' || s.system_subtype === 'external_taken')) last = s;
+    }
+    if (!last && !externalAgent) return '';
+    if (!last) last = { system_subtype: 'external_queued', external: externalAgent };
+    const x = { ...(externalAgent || {}), ...(last.external || {}) };
+    const name = x.name || last.content || '';
+    if (last.system_subtype === 'external_taken') return t('debug.log.extTaken', { name });
+    const parts = [t('debug.log.extQueued', { name })];
+    if (x.intervalMs) {
+      const m = Math.round(x.intervalMs / 60000);
+      parts.push(m >= 1 ? t('debug.log.extEveryMin', { n: m }) : t('debug.log.extEverySec', { n: Math.round(x.intervalMs / 1000) }));
+    }
+    if (x.lastSeenAt) {
+      const ago = Math.max(0, Math.round((Date.now() - x.lastSeenAt) / 60000));
+      parts.push(ago < 1 ? t('debug.log.extLastJust') : t('debug.log.extLastMin', { n: ago }));
+    } else {
+      parts.push(t('debug.log.extNever'));
+    }
+    return parts.join(' · ');
+  }, [status, steps, externalAgent, t]);
 
   usePinBottomScroll(
     endRef,
@@ -1826,7 +1853,7 @@ export default function ExecutionLog({
         <div className="flex justify-start">
           <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-[14px] leading-normal tb-soft-bubble border-blue-200/60 dark:border-blue-800/40 text-zinc-900 dark:text-zinc-100 min-h-[2.25rem] flex items-center gap-2">
             <span className="inline-block h-2.5 w-14 rounded bg-blue-200 dark:bg-blue-800 animate-pulse shrink-0" />
-            <span className="text-[14px] leading-normal text-blue-600/90 dark:text-blue-300/90 animate-pulse">{t('debug.log.executing')}</span>
+            <span className="text-[14px] leading-normal text-blue-600/90 dark:text-blue-300/90 animate-pulse">{externalWait || t('debug.log.executing')}</span>
             <span className="inline-block animate-pulse text-blue-500 dark:text-blue-400">▊</span>
           </div>
         </div>
