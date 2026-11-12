@@ -5,7 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { getConfig, getLocalConfig, getGateway, getApps } from '../api/adapter';
 import { loadGatewayAvailableModels, resolveGatewayModelType, resolveLocalGatewayBase } from '../api/gatewayModels';
 import { encodeTierModelRoute, parseRouteBinding, routeSelectValue } from '../lib/route-binding';
-import RouteSelect, { usableSceneRoutes, formatModelDropdownLabel } from '../components/RouteSelect';
+import RouteSelect, { usableSceneRoutes, formatModelDropdownLabel, routeOptionValue } from '../components/RouteSelect';
 import {
   agentSessionKey,
   getStoreSession,
@@ -436,7 +436,7 @@ async function doStreamChat({ baseUrl, token, model, messages, stream, anthropic
     onError(extractStreamError(rawBuf, emptyMsg));
   };
 
-  const useIpc = !!window.electronAPI?.llm;
+  const useIpc = !!window.electronAPI?.llm?.stream;   // Docker 网页版只有 llm.fetch，没有 stream：直接请求网关
   if (useIpc) {
     if (!stream) {
       try {
@@ -2945,7 +2945,8 @@ export default function Debug() {
           const preferred = mapped.filter(m => imageMode ? m.type === 'image' : m.type !== 'image');
           // 默认选第一个游乐场能直接调用的模型；都不可用时仍选第一个，由输入区提示引导
           const usable = preferred.filter(m => !m.needsClientAuth);
-          setModel(modelSelectValue(usable[0] || preferred[0] || mapped[0]));
+          const first = usable[0] || preferred[0] || mapped[0];
+          setModel(first ? routeOptionValue(first) : '');
           setManualModel(mapped.length === 0);
         } catch {
           if (!cancelled) { setModels([]); setManualModel(true); }
@@ -3006,8 +3007,11 @@ export default function Debug() {
       usableSceneRoutes(sceneRoutes, models).map(r => r.model_key || r.id).filter(Boolean),
     );
     if (!imageMode && sceneKeys.has(model)) return;
-    if (preferred.length && !preferred.some(m => modelSelectValue(m) === model)) {
-      setModel(modelSelectValue(preferred.find(m => !m.needsClientAuth) || preferred[0]));
+    // 选中值可能是 tier:模型、钉账户的值、裸模型名（降级链头）或社区值，都认
+    const matches = (m) => modelSelectValue(m) === model || routeOptionValue(m) === model || m.id === model
+      || model === `p2p:${m.id}`;
+    if (preferred.length && !preferred.some(matches)) {
+      setModel(routeOptionValue(preferred.find(m => !m.needsClientAuth) || preferred[0]));
     }
   }, [imageMode, models, model, sceneRoutes]);
 
@@ -3130,7 +3134,7 @@ export default function Debug() {
   const anthropic     = isAnthropicUrl(effectiveBase);
   const filteredModels = models.filter(m => imageMode ? m.type === 'image' : m.type !== 'image');
   // 本地网关下无可直接调用的模型（列表为空，或选中的是需客户端凭证的源且未填 Key）→ 输入区给出引导
-  const selectedModelEntry = models.find(m => modelSelectValue(m) === model);
+  const selectedModelEntry = models.find(m => modelSelectValue(m) === model || routeOptionValue(m) === model || m.id === model);
   const modelBlockReason = (selectedId !== '__local_gw__' || loadingModels || manualModel || token) ? null
     : filteredModels.length === 0 ? 'none'
     : selectedModelEntry?.needsClientAuth ? 'clientAuth'
@@ -3438,29 +3442,17 @@ export default function Debug() {
                 {t('debug.loadingModels')}
               </span>
             ) : !manualModel && (filteredModels.length > 0 || debugSceneRoutes.length > 0) ? (
-              <select value={model} onChange={e => setModel(e.target.value)}
-                className="min-w-0 w-full md:w-auto bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-blue-500 md:max-w-[280px]">
-                {debugSceneRoutes.length > 0 && (
-                  <optgroup label={t('gateway.app.sceneRoutes')}>
-                    {debugSceneRoutes.map(r => (
-                      <option key={r.id} value={r.model_key || r.id}>
-                        {r.icon && !String(r.icon).startsWith('icon:') ? `${r.icon} ` : ''}{r.scene_name}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                {filteredModels.some(m => m.tier)
-                  ? [{ key: 'local', tiers: ['free', 'paid'] }, { key: 'remote', tiers: ['p2p'] }].map(g => {
-                      const tms = uniqueBySelectValue(filteredModels.filter(m => g.tiers.includes(m.tier)));
-                      return tms.length ? (
-                        <optgroup key={g.key} label={t(`debug.tier.${g.key}`)}>
-                          {tms.map(m => <option key={modelSelectValue(m)} value={modelSelectValue(m)}>{formatModelDropdownLabel(m)}{m.needsClientAuth ? t('debug.needsClientAuthTag') : ''}</option>)}
-                        </optgroup>
-                      ) : null;
-                    })
-                  : uniqueBySelectValue(filteredModels).map(m => <option key={m.name} value={m.name}>{formatModelDropdownLabel(m)}</option>)
-                }
-              </select>
+              // 和网关页同一个选模型下拉框：按厂商分组、每个模型一行、写出来源、可搜索、可指定账户
+              <div className="min-w-0 w-full md:w-[280px]">
+                <RouteSelect
+                  value={model}
+                  onChange={(val) => { if (val) setModel(val); }}
+                  routes={selectedId === '__local_gw__' && !imageMode ? sceneRoutes : []}
+                  availableModels={filteredModels}
+                  showOfficial={false}
+                  t={t}
+                />
+              </div>
             ) : (
               <input value={model} onChange={e => setModel(e.target.value)}
                 placeholder={t('debug.modelPh')}

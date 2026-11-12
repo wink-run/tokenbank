@@ -47,7 +47,8 @@ function dropdownProviderId(m) {
 }
 
 /** 普通模型钉到具体供给源。降级链另有一行，值是链 id。 */
-function routeOptionValue(m) {
+/** 一个模型在下拉框里的默认值（和下拉框选中标记一致）；游乐场等处设默认选中时用 */
+export function routeOptionValue(m) {
   if (m?.tier === 'p2p') return modelTierKey(m);
   const owner = String(m?.owner || '').trim();
   if (!owner || BARE_PROVIDER_IDS.has(owner)) return modelTierKey(m);
