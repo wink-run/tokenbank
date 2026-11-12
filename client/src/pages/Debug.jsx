@@ -3270,7 +3270,8 @@ export default function Debug() {
   const chromeBottom = 'shrink-0 border-t border-white/40 dark:border-white/[0.06] bg-white/40 dark:bg-zinc-900/45 backdrop-blur-xl backdrop-saturate-150 electron-no-drag relative z-40';
   const fieldCls = 'tb-soft-field rounded-lg text-xs text-zinc-900 dark:text-zinc-100';
   const ghostBtn = 'tb-soft-tile shrink-0 px-2.5 py-1.5 text-xs rounded-lg text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 disabled:opacity-40';
-  const composerField = 'tb-soft-field flex-1 rounded-xl px-3 py-2.5 text-[14px] leading-normal text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 overflow-y-auto disabled:opacity-50';
+  // 正文 14px；占位提示小一号，输入后的文字仍是 14px
+  const composerField = 'tb-soft-field flex-1 rounded-xl px-3 py-2.5 text-[14px] leading-normal text-zinc-900 dark:text-zinc-100 placeholder:text-[13px] placeholder-zinc-400 overflow-y-auto disabled:opacity-50';
 
   const modeSwitcher = (
     <div className={segTrack}>

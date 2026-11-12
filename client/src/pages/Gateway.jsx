@@ -15,6 +15,7 @@ import { useAuth } from '../store/index';
 import RouteSelect, { tierOptgroups, usableSceneRoutes, formatModelDropdownLabel } from '../components/RouteSelect';
 import {
   encodeTierModelRoute,
+  isKnownRouteSelectValue,
   parseRouteBinding,
   routeSelectValue,
 } from '../lib/route-binding';
@@ -3708,15 +3709,8 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                   const isGatewayRouted = isSessionApp
                     ? effectiveRouteIds(app).length > 0
                     : (hostable ? !!(tracked && effectiveRouteIds(app).length) : !!(keyApp && effectiveRouteIds(app).length));
-                  const routeKnown = (val) => {
-                    if (!val) return false;
-                    // 场景路由始终可识别（按 model_key / id）
-                    if (routes.some(r => (r.model_key || r.id) === val)) return true;
-                    const avail = new Set(availableModels.map(m => m.id));
-                    const usableRoutes = routes.filter(r => r.strategy || r.flow || (r.steps || []).some(s => s.strategy || s.scope || s.tier || s.provider || s.sharer || avail.has(s.model || s.label)));
-                    return usableRoutes.some(r => (r.model_key || r.id) === val)
-                      || availableModels.some(m => ['free', 'p2p', 'paid'].includes(m.tier) && modelTierKey(m) === val);
-                  };
+                  // 认下拉里实际写出的值（含供给源钉选、降级链裸名），否则选完回读为空，框里一直是「—」
+                  const routeKnown = (val) => isKnownRouteSelectValue(val, availableModels, routes);
                   const currentRouteValue = (() => {
                     const primary = effectiveRouteIds(app)[0];
                     if (!primary) return '';
