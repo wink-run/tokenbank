@@ -8,7 +8,8 @@ import { RANGE_KEYS, RANGE_DAYS } from '../utils/ranges';
 import { isAppIcon, appIconSvg } from '../lib/appIcons';
 import { brandIconFor } from '../lib/brandIcons';
 import { useAuth } from '../store/index';
-import { MultiDeviceUsage } from './TokenDashboard';
+import { fetchDashboardStats } from './TokenDashboard';
+import { formatDeviceTitle } from '../lib/device-display';
 
 const PAID_PROVIDERS = ['openai', 'anthropic-paid', 'openrouter', 'anthropic'];
 const P2P_PROVIDERS  = ['tokenbank-p2p'];
@@ -612,7 +613,19 @@ export default function Dashboard() {
   const [compStats, setCompStats] = useState(null);
   const [loading, setLoading]     = useState(true);
   const { user } = useAuth();
-  const [merged, setMerged]       = useState(null);   // 登录后：多台设备合并的数（云端）
+  // 登录后云端按设备合并的数（含这台电脑）。拿不到时整页只看这台电脑
+  const [cloud, setCloud]         = useState(null);
+  const [scopePick, setScopePick] = useState('all');  // 'all' 全部设备 | 'local' 这台电脑 | 其它设备 id
+  const [thisDeviceId, setThisDeviceId] = useState('');
+  // 这台电脑在云端设备列表里的 id：和设备上报用的是同一个
+  useEffect(() => {
+    try {
+      const id = window.electronAPI?.app?.getDeviceId?.();
+      if (id) { setThisDeviceId(String(id)); return; }
+    } catch { /* 走下面的网页接口 */ }
+    fetch('/api/device-identity').then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.device_id) setThisDeviceId(String(d.device_id)); }).catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -646,13 +659,22 @@ export default function Dashboard() {
         const r = await fetch(`/api/local-stats?days=${days}`);
         if (!r.ok) throw new Error(`local-stats ${r.status}`);
         data = await r.json();
-        setAppsUsage([]);
+        setAppsUsage(enrichAppsUsageBilling(data.app_usage || [], billableSubsList, days, catalog, acct));
         setSkillUsage(data.skill_usage || { total: 0, items: [] });
         setToolUsage(data.tool_usage || { total: 0, items: [] });
         setMcpUsage(data.mcp_usage || { total: 0, servers: [], items: [] });
       }
 
       setLocalData(enrichDashboardBilling(data, payg, days, billableSubsList, catalog));
+
+      // 登录后再取各设备合并的数；只认云端给的，退回本机的不算
+      if (user) {
+        fetchDashboardStats(days)
+          .then(d => setCloud(d?.source === 'cloud' ? d : null))
+          .catch(() => setCloud(null));
+      } else {
+        setCloud(null);
+      }
 
       const fetchStatus = window.electronAPI?.gateway
         ? () => window.electronAPI.gateway.status().then(setGwStatus).catch(() => {})
@@ -669,7 +691,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [range]);
+  }, [range, user]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -679,25 +701,44 @@ export default function Dashboard() {
     return window.electronAPI.localStats.onChanged(() => { load(); });
   }, [load]);
 
-  // ── Derived ───────────────────────────────────────────────────────────────
-  const totalCalls  = localData?.total_calls  ?? 0;
-  const totalTokens = localData?.total_tokens ?? 0;
-  const totalCost   = localData?.total_cost ?? 0;
-  const subCost     = localData?.subscription_cost ?? 0;
-  const paygCost    = localData?.payg_cost ?? 0;
+  // ── 看哪些设备 ─────────────────────────────────────────────────────────────
+  // 全部设备：云端合并；这台电脑：本机明细；其它设备：云端里那台的摘要
+  const devices = cloud?.devices || [];
+  const scope = !cloud ? 'local'
+    : (scopePick === 'all' || scopePick === 'local' || devices.some(d => d.device_id === scopePick)) ? scopePick : 'all';
+  const isThis = (d) => !!thisDeviceId && String(d?.device_id) === thisDeviceId;
+  const pickedDevice = scope !== 'all' && scope !== 'local' ? devices.find(d => d.device_id === scope) : null;
+  const useLocal = scope === 'local' || (pickedDevice && isThis(pickedDevice));
+  const v = useLocal ? localData
+    : scope === 'all' ? cloud
+      : {
+        total_calls: pickedDevice?.calls || 0, total_tokens: pickedDevice?.tokens || 0, total_cost: pickedDevice?.cost || 0,
+        tiers: pickedDevice?.tiers || {}, providers: pickedDevice?.providers || [], models: pickedDevice?.models || [],
+        app_usage: pickedDevice?.app_usage || [],
+      };
 
-  const freeCalls  = localData?.tiers?.free  ?? 0;
-  const p2pCalls   = localData?.tiers?.p2p   ?? 0;
-  const paidCalls  = localData?.tiers?.paid  ?? 0;
+  // ── Derived ───────────────────────────────────────────────────────────────
+  const totalCalls  = v?.total_calls  ?? 0;
+  const totalTokens = v?.total_tokens ?? 0;
+  const totalCost   = v?.total_cost ?? 0;
+  const subCost     = v?.subscription_cost ?? 0;
+  const paygCost    = v?.payg_cost ?? 0;
+
+  const freeCalls  = v?.tiers?.free  ?? 0;
+  const p2pCalls   = v?.tiers?.p2p   ?? 0;
+  const paidCalls  = v?.tiers?.paid  ?? 0;
   const freeRatio  = totalCalls > 0 ? Math.round(freeCalls / totalCalls * 100) : 0;
 
   const trendMode = range === 'today' ? 'hourly' : 'daily';
   const trendDays = RANGE_DAYS[range];
-  const trendDataRaw = range === 'today'
-    ? (localData?.hourly ?? [])
-    : (localData?.daily ?? []);
+  // 趋势：选中的范围有逐时 / 逐日数据就用它，没有（单台其它设备、云端没给逐日）就用这台电脑的
+  const trendOwn = (range === 'today' ? v?.hourly : v?.daily) || [];
+  const trendFromLocal = !useLocal && !trendOwn.length;
+  const trendDataRaw = trendFromLocal
+    ? ((range === 'today' ? localData?.hourly : localData?.daily) ?? [])
+    : trendOwn;
   const trendData = enrichTrendWithSubscriptionCost(
-    trendDataRaw, trendMode, subCost, trendDays,
+    trendDataRaw, trendMode, trendFromLocal ? (localData?.subscription_cost ?? 0) : subCost, trendDays,
   );
   const trendTitle = range === 'today'
     ? t('dashboard.trend')
@@ -705,14 +746,12 @@ export default function Dashboard() {
       ? t('dashboard.trend7d')
       : t('dashboard.trend30d');
   const byProvider = Object.fromEntries(
-    (localData?.providers ?? []).map(p => [p.id, { calls: p.calls, tier: p.tier }])
+    (v?.providers ?? []).map(p => [p.id, { calls: p.calls, tier: p.tier }])
   );
 
-  const modelStats    = localData?.models ?? [];
-  const maxModel      = modelStats[0]?.calls || 1;
-  const modelByTokens = [...modelStats].filter(m => m.tokens > 0).sort((a, b) => b.tokens - a.tokens);
-  const maxModelTokens = modelByTokens[0]?.tokens || 1;
-  const modelByCost   = enrichModelCostBilling(
+  const modelStats    = [...(v?.models ?? [])].sort((a, b) => (b.calls || 0) - (a.calls || 0));
+  // 费用：本机按账户折算订阅；云端已在汇总时算好
+  const modelByCost   = useLocal ? enrichModelCostBilling(
     modelStats, billableSubs, RANGE_DAYS[range],
     billingAccounts.subscription_catalog || [],
     {
@@ -721,8 +760,10 @@ export default function Dashboard() {
       direct_source_instances: billingAccounts.direct_source_instances,
       user_subscriptions: billingAccounts.user_subscriptions,
     },
-  );
-  const maxModelCost  = modelByCost[0]?.cost_usd || 1;
+  ) : modelStats.map(m => ({ ...m, cost_usd: Number(m.cost_usd) || 0 }));
+  const appRows = useLocal ? appsUsage : (v?.app_usage || []);
+  const comp = useLocal ? compStats : (scope === 'all' ? cloud?.compression : null);
+  const localOnlyNote = useLocal ? '' : t('dashboard.localOnly');
 
   const rangeLabel = t(`profile.range.${range}`);
 
@@ -751,31 +792,29 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
-        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1 flex flex-wrap items-center gap-2">
-          {/* 看的是哪些设备：一眼能看出来 */}
-          {user && merged?.source === 'cloud' ? (
-            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-              {t('dashboard.scopeMerged', { n: merged.device_count ?? (merged.devices || []).length ?? 0 })}
-            </span>
+        {/* 看哪些设备：登录且云端有数时可切；默认全部设备合在一起 */}
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+          {cloud ? (
+            <>
+              {[['all', t('dashboard.scopeAll', { n: cloud.device_count ?? devices.length })],
+                ['local', t('dashboard.scopeThisDevice')],
+                ...devices.filter(d => !isThis(d)).map(d => [d.device_id, formatDeviceTitle(d)])].map(([id, label]) => (
+                <button key={id} type="button" onClick={() => setScopePick(id)} aria-pressed={scope === id}
+                  className={`px-2.5 py-1 rounded-full border transition-colors ${scope === id
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 font-medium'
+                    : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300'}`}>
+                  {label}
+                </button>
+              ))}
+            </>
           ) : (
-            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-              {t('dashboard.scopeThisDevice')}
-            </span>
+            <>
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{t('dashboard.scopeThisDevice')}</span>
+              <span className="text-zinc-400 dark:text-zinc-500">{t('dashboard.scopeLocal')}</span>
+            </>
           )}
-          <span>{user && merged?.source === 'cloud' ? t('dashboard.subtitle') : t('dashboard.scopeLocal')}</span>
-        </p>
-      </div>
-
-      {/* 登录后：多台设备合并（云端汇总），按设备看分布 */}
-      {/* 云端取不到时它会退回这台电脑的数，和下面重复，所以只在拿到云端数据时显示 */}
-      {user && (
-        <div className={merged?.source === 'cloud' ? '' : 'hidden'}>
-          <MultiDeviceUsage range={range} onData={setMerged} />
         </div>
-      )}
-      {user && merged?.source === 'cloud' && (
-        <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 pt-2">{t('dashboard.thisDevice')}</h2>
-      )}
+      </div>
 
       {/* Summary cards — 5列 */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
@@ -792,7 +831,7 @@ export default function Dashboard() {
             label: t('dashboard.totalRequests'),
             value: totalCalls,
             valueCls: 'text-zinc-900 dark:text-zinc-50',
-            hint: t('dashboard.totalRequestsHint', { range: rangeLabel }),
+            hint: scope === 'all' ? t('dashboard.requestsHintAll', { range: rangeLabel, n: devices.length }) : pickedDevice && !useLocal ? t('dashboard.requestsHintDevice', { range: rangeLabel, name: formatDeviceTitle(pickedDevice) }) : t('dashboard.totalRequestsHint', { range: rangeLabel }),
           },
           {
             label: t('dashboard.freeHitRate'),
@@ -814,10 +853,10 @@ export default function Dashboard() {
           },
           {
             label: t('profile.compression.saved'),
-            value: compStats?.count > 0 ? fmtCost(compStats.saved_usd || 0) : '—',
-            valueCls: compStats?.count > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400',
-            hint: compStats?.count > 0
-              ? t('dashboard.compressHint', { n: compStats.count, tokens: fmtN(compStats.saved), ratio: (compStats.ratio * 100).toFixed(1) })
+            value: comp?.count > 0 ? fmtCost(comp.saved_usd || 0) : '—',
+            valueCls: comp?.count > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400',
+            hint: comp?.count > 0
+              ? t('dashboard.compressHint', { n: comp.count, tokens: fmtN(comp.saved), ratio: ((comp.ratio || 0) * 100).toFixed(1) })
               : t('dashboard.compressEmpty'),
           },
         ].map((c) => (
@@ -836,13 +875,16 @@ export default function Dashboard() {
           <TierDonut byProvider={byProvider} t={t} />
         </div>
         <div className="md:col-span-3 tb-soft-card rounded-2xl p-5">
-          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-4">{trendTitle}</div>
+          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-4">
+            {trendTitle}
+            {trendFromLocal && <span className="ml-2 text-[11px] font-normal text-zinc-400">{t('dashboard.localOnly')}</span>}
+          </div>
           <TrendBars mode={trendMode} data={trendData} t={t} fmtCost={fmtCost} fmtN={fmtN} />
         </div>
       </div>
 
       <AppUsageSection
-        rows={appsUsage}
+        rows={appRows}
         rangeLabel={rangeLabel}
         loading={loading}
         sortBy={usageSort}
@@ -850,14 +892,6 @@ export default function Dashboard() {
         t={t}
       />
 
-      <SkillToolUsageSection
-        skillUsage={skillUsage}
-        toolUsage={toolUsage}
-        mcpUsage={mcpUsage}
-        rangeLabel={rangeLabel}
-        loading={loading}
-        t={t}
-      />
 
       {/* 用了哪些模型：一张表，可按调用 / Token / 费用排 */}
       {(() => {
@@ -915,6 +949,60 @@ export default function Dashboard() {
           </div>
         );
       })()}
+
+
+      <SkillToolUsageSection
+        skillUsage={skillUsage}
+        toolUsage={toolUsage}
+        mcpUsage={mcpUsage}
+        rangeLabel={localOnlyNote ? `${rangeLabel} · ${localOnlyNote}` : rangeLabel}
+        loading={loading}
+        t={t}
+      />
+
+      {/* 设备：各台用了多少，点一行只看那台 */}
+      {cloud && devices.length > 0 && (
+        <div className="tb-soft-card rounded-2xl p-5">
+          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-3">{t('dashboard.devices')}</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-[11px] text-zinc-400 dark:text-zinc-500 text-left">
+                  <th className="font-normal py-1.5 pr-3">{t('dashboard.col.device')}</th>
+                  <th className="font-normal py-1.5 pr-3">{t('dashboard.col.state')}</th>
+                  <th className="font-normal py-1.5 pr-3 text-right">{t('dashboard.col.calls')}</th>
+                  <th className="font-normal py-1.5 pr-3 text-right">Token</th>
+                  <th className="font-normal py-1.5 pr-3 text-right">{t('dashboard.col.cost')}</th>
+                  <th className="font-normal py-1.5 text-right">{t('dashboard.col.share')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {devices.map(d => {
+                  const id = isThis(d) ? 'local' : d.device_id;
+                  return (
+                    <tr key={d.device_id} onClick={() => setScopePick(id)}
+                      className={`border-t border-zinc-100 dark:border-white/[0.06] cursor-pointer hover:bg-black/[0.03] dark:hover:bg-white/[0.04] ${scope === id ? 'bg-emerald-50/60 dark:bg-emerald-900/10' : ''}`}>
+                      <td className="py-1.5 pr-3 text-zinc-800 dark:text-zinc-100">
+                        {formatDeviceTitle(d)}{isThis(d) && <span className="ml-1.5 text-[10px] text-zinc-400">{t('dashboard.thisOne')}</span>}
+                      </td>
+                      <td className="py-1.5 pr-3">
+                        <span className={`inline-flex items-center gap-1 ${d.online ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400'}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${d.online ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} />
+                          {d.online ? t('profile.online') : t('profile.offline')}
+                        </span>
+                      </td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{(d.calls || 0).toLocaleString()}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{fmtN(d.tokens || 0)}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{d.cost > 0 ? fmtCost(d.cost) : '—'}</td>
+                      <td className="py-1.5 text-right tabular-nums">{d.share_pct ?? 0}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
     </div>
   );

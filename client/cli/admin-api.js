@@ -830,6 +830,19 @@ async function handleRequest(req, res) {
           daily: [],
           models: [], keys: [], providers: [], agent_sources: [],
         };
+    // 按应用聚合（网关实时 + 会话补录），和桌面版 localStats:query 一样，盘点页的「应用用量」要用
+    try {
+      const apps = (listAppsWithDetected() || []).filter(a => !a.draft && !a._virtual_apikey);
+      data.app_usage = apps.map(app => {
+        const st = localStats.queryAppStatsInPeriod({
+          appId: app.id,
+          apiKey: app.api_key,
+          dataSources: appsUsage.resolveAppDataSources(app),
+          days,
+        });
+        return { id: app.id, name: app.name, icon: app.icon || '🔧', calls: st.calls, tokens: st.tokens, proxyCalls: st.proxyCalls, sessionCalls: st.sessionCalls };
+      }).filter(a => a.calls > 0).sort((a, b) => b.calls - a.calls);
+    } catch { data.app_usage = data.app_usage || []; }
     return json(res, 200, data);
   }
 
