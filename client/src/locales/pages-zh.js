@@ -769,6 +769,15 @@ export default {
   'gateway.log.copied': '已复制',
 
   // ── 来源 Providers ──
+  "providers.sec.sources": "来源",
+  "providers.sec.sourcesHint": "自己的 Key、订阅、本机模型和社区网络，点一行看设置",
+  "providers.sec.models": "模型",
+  "providers.sec.modelsHint": "每个模型挂在哪些来源上；挂了几个就是一条降级链，前一个不行换下一个",
+  "providers.list.community": "社区分享网络",
+  "providers.list.communityHint": "别人共享的模型，用积分，不另外计价",
+  "providers.list.communityType": "社区 · 积分",
+  "providers.list.communityOn": "已开启",
+  "providers.list.rentMoreShort": "去租",
   'providers.title': '模型',
   'providers.subtitle': '模型从哪来：你自己的 API Key / 订阅，或社区共享网络。启用后网关自动按场景挑选',
   'providers.link.usedBy': '谁在用它',

@@ -3719,14 +3719,6 @@ export default function Providers() {
   const [directInstances, setDirectInstances] = useState([]);   // 直连源实例（仅统计的应用）
   const [directBilling, setDirectBilling] = useState({});        // 直连源计费（按 agent_id）
   const [accountsData, setAccountsData] = useState(null);        // 完整账户快照（统计视图用）
-  // 个人源视图：list（我的来源，默认）| model（按模型看、整理降级链）。记住上次选的
-  const [sourcesView, setSourcesViewRaw] = useState(() => {
-    try { return localStorage.getItem('tb.models.view') === 'model' ? 'model' : 'list'; } catch { return 'list'; }
-  });
-  const setSourcesView = useCallback((v) => {
-    setSourcesViewRaw(v);
-    try { localStorage.setItem('tb.models.view', v); } catch { /* 存不了就只在本次生效 */ }
-  }, []);
   const [todayStats, setTodayStats] = useState(null);           // 今天各来源的请求数、花费
   const [sourceIssues, setSourceIssues] = useState({});         // 管家记下的来源问题（Key 失效、额度用完）
   const [gatewayPort, setGatewayPort] = useState(null);
@@ -5045,7 +5037,6 @@ export default function Providers() {
     const hit = personalSourceRows.map(sourceSummary).find(sm => (sm.modelNames || []).includes(model));
     // 账户尚未加载完：保留跳转请求，等数据到了再定位
     if (!hit && !accountsData) return;
-    setSourcesView('list');
     if (hit) setSelectedSourceKey(hit.key);
     navigate(provLocation.pathname, { replace: true, state: null });
   }, [provLocation.state, personalSourceRows, accountsData]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -5436,14 +5427,43 @@ export default function Providers() {
     return null;
   }
 
-  function renderSourcesViewTabs() {
+  /** 社区分享网络：和自己的来源同一种行，点开在右边看设置 */
+  function renderCommunityRow(p, sel) {
+    const key = `p2p:${p.id}`;
+    const on = p.enabled !== false;
+    const td = sourceToday({ gwIds: [p.id] });
+    const modelN = (p.models || []).length;
     return (
-      <div className="inline-flex rounded-lg border border-zinc-300 dark:border-zinc-700 overflow-hidden text-xs shrink-0">
-        <button type="button" onClick={() => setSourcesView('model')}
-          className={`px-2.5 py-1 ${sourcesView === 'model' ? 'bg-zinc-100 dark:bg-zinc-700 font-medium' : 'text-zinc-400'}`}>{t('psrc.view.model')}</button>
-        <button type="button" onClick={() => setSourcesView('list')}
-          className={`px-2.5 py-1 ${sourcesView === 'list' ? 'bg-zinc-100 dark:bg-zinc-700 font-medium' : 'text-zinc-400'}`}>{t('psrc.view.list')}</button>
-      </div>
+      <li
+        key={key}
+        role="option"
+        aria-selected={sel}
+        onClick={() => setSelectedSourceKey(sel ? null : key)}
+        className={`${libRowCls(sel)} grid-cols-[minmax(0,1fr)_auto] ${SOURCE_GRID}`}
+      >
+        <LibraryRowTitle
+          logo={<span className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-base" aria-hidden>🌐</span>}
+          name={t('providers.list.community')}
+          sub={t('providers.list.communityHint')}
+        />
+        <div className="hidden md:flex items-center gap-1.5 min-w-0 text-[11px] text-zinc-600 dark:text-zinc-300">
+          <span className="truncate">{t('providers.list.communityType')}</span>
+        </div>
+        <span className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{modelN || '—'}</span>
+        <span className="hidden md:block text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300 truncate">
+          {td.calls > 0 ? t('providers.list.todayCalls', { n: td.calls.toLocaleString() }) : t('providers.list.todayNone')}
+        </span>
+        <span className="flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300">
+          <span className={`w-1.5 h-1.5 rounded-full ${on ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} aria-hidden />
+          {on ? t('providers.list.communityOn') : t('providers.list.disabled')}
+        </span>
+        <span className="hidden md:flex justify-end">
+          <button type="button" onClick={(e) => { e.stopPropagation(); navigate('/contribute', { state: { tradeTab: 'hire' } }); }}
+            className="text-[11px] px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20">
+            {t('providers.list.rentMoreShort')}
+          </button>
+        </span>
+      </li>
     );
   }
 
@@ -5475,71 +5495,38 @@ export default function Providers() {
             );
           })()}
         </div>
-        <button type="button" onClick={() => { setSourcesView('list'); setPickerOpen(true); }}
+        <button type="button" onClick={() => setPickerOpen(true)}
           className="shrink-0 text-xs px-3 py-1.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-medium">
           {t('providers.summary.add')}
         </button>
       </div>
 
       <>
-      {/* 个人源：标题独立于 panel；统计 + 已添加卡片 + 添加源 */}
+      {/* 来源：自己的 Key / 订阅 / 本机，和社区网络放在同一张表里；点一行在右边看设置 */}
       <section className="space-y-3">
-        <SourceSectionHeader
-          dot={tierConfig.local.dot}
-          title={tierConfig.local.label}
-          hint={tierConfig.local.hint}
-        />
-
-        {/* 不套外层玻璃：子卡直接浮在主区，立体与毛玻璃才看得见（Apple：勿叠浅色半透明） */}
-        <div className="space-y-4">
-        {sourcesView !== 'model' && (
+        <SourceSectionHeader dot={tierConfig.local.dot} title={t('providers.sec.sources')} hint={t('providers.sec.sourcesHint')} />
+        <div className="space-y-3">
           <div className="flex items-center justify-between gap-x-3 gap-y-2 min-w-0 flex-wrap">
             <PersonalFilterBar value={personalFilter} onChange={setPersonalFilter} t={t} />
-            <div className="flex items-center gap-2 shrink-0">
-              <button type="button" onClick={refreshModelsFromServer} disabled={refreshingModels}
-                className="tb-press text-xs px-2.5 py-1 rounded-lg border border-zinc-300/80 dark:border-zinc-700 bg-white/50 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-400 hover:bg-white/80 dark:hover:bg-zinc-700/80 transition-colors disabled:opacity-50">
-                {refreshingModels ? '…' : t('providers.billing.refreshModels')}
-              </button>
-              {renderSourcesViewTabs()}
-            </div>
+            <button type="button" onClick={refreshModelsFromServer} disabled={refreshingModels}
+              className="tb-press shrink-0 text-xs px-2.5 py-1 rounded-lg border border-zinc-300/80 dark:border-zinc-700 bg-white/50 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-400 hover:bg-white/80 dark:hover:bg-zinc-700/80 transition-colors disabled:opacity-50">
+              {refreshingModels ? '…' : t('providers.billing.refreshModels')}
+            </button>
           </div>
-        )}
-
-        {accountsData && (
-          <SyncDiffBanner syncDiff={accountsData.sync_diff} t={t}
-            onAdoptServer={adoptServerTemplate} onDismissDrift={adoptServerTemplate} />
-        )}
-
-        {accountSyncHint && (
-          <p className="text-xs text-zinc-500">{accountSyncHint}</p>
-        )}
-        {sourcesView === 'model' ? (
-          <PersonalSourceModelView
-            instances={modelViewInstances}
-            t={t}
-            modelTypeMap={personalModelTypeMap}
-            latencyMap={personalLatencyMap}
-            onRefreshLatency={loadPersonalLatency}
-            trailing={renderSourcesViewTabs()}
-            probeTargets={personalProbeTargets}
-            cooldownFor={cooldownFor}
-            sceneRoutes={sceneRoutes}
-            onSaveListRoute={saveListRoute}
-            onDeleteListRoute={deleteListRoute}
-            onEmptyAdd={() => { setSourcesView('list'); setPickerOpen(true); }}
-            onEmptySync={syncAccountsFromOtherDevices}
-            syncing={accountSyncing}
-            syncSecrets={syncAccountSecrets}
-          />
-        ) : (
-        <>
+          {accountsData && (
+            <SyncDiffBanner syncDiff={accountsData.sync_diff} t={t}
+              onAdoptServer={adoptServerTemplate} onDismissDrift={adoptServerTemplate} />
+          )}
+          {accountSyncHint && <p className="text-xs text-zinc-500">{accountSyncHint}</p>}
         {(() => {
           const summaries = personalSourceRows.map(sourceSummary);
           const sel = summaries.find(x => x.key === selectedSourceKey);
+          const p2pList = providers.filter(p => p.type === 'p2p');
+          const selP2p = p2pList.find(p => `p2p:${p.id}` === selectedSourceKey);
           return (
             <div className="flex gap-4 items-start">
               <div className="flex-1 min-w-0">
-                {summaries.length === 0 ? (
+                {summaries.length === 0 && p2pList.length === 0 ? (
                   <div className={`${LIB_LIST_CLS} text-xs text-zinc-400 text-center py-8`}>{t('providers.filter.empty')}</div>
                 ) : (
                   <div className={LIB_LIST_CLS}>
@@ -5553,10 +5540,19 @@ export default function Providers() {
                     </div>
                     <ul role="listbox" aria-label={tierConfig.local.label}>
                       {summaries.map(sm => renderSourceRow(sm, sm.key === selectedSourceKey))}
+                      {p2pList.map(p => renderCommunityRow(p, `p2p:${p.id}` === selectedSourceKey))}
                     </ul>
                   </div>
                 )}
               </div>
+              {selP2p && (
+                <LibraryPanel title={t('providers.list.detail')} closeLabel={t('providers.list.close')} onClose={() => setSelectedSourceKey(null)}>
+                  <P2PNetworkCard provider={selP2p} onUpdate={updateProvider} onPersistEnabled={persistProviderEnabled}
+                    cooldowns={cooldowns} onRetryCooldown={handleRetryCooldown} />
+                  <button type="button" onClick={() => navigate('/contribute', { state: { tradeTab: 'hire' } })}
+                    className="mt-3 text-[11px] text-blue-600 dark:text-blue-400 hover:underline">{t('providers.community.rentMore')}</button>
+                </LibraryPanel>
+              )}
               {sel && (
                 <LibraryPanel title={t('providers.list.detail')} closeLabel={t('providers.list.close')} onClose={() => setSelectedSourceKey(null)}>
                   {sel.modelNames?.length > 0 && (
@@ -5575,67 +5571,30 @@ export default function Providers() {
             </div>
           );
         })()}
-        {renderAddSourcePicker()}
-        </>
-        )}
+          {(pickerOpen || personalSourceRows.length === 0) && renderAddSourcePicker()}
         </div>
       </section>
 
-      {/* 模型降级链：同一个模型挂在几个来源上，前一个不行换下一个。这里只读，顺序在「按模型看」里调 */}
-      {(() => {
-        const nameOf = (m) => (typeof m === 'string' ? m : m?.name);
-        const srcName = (inst) => inst?.name || inst?.label || inst?.gateway_id || inst?.id;
-        const bySource = {};
-        for (const inst of modelViewInstances) {
-          for (const m of (inst.models || []).map(nameOf).filter(Boolean)) {
-            const list = bySource[m] || (bySource[m] = []);
-            if (!list.includes(inst)) list.push(inst);
-          }
-        }
-        const saved = new Map(sceneRoutes.filter(r => r?.list_route && r.model_key).map(r => [r.model_key, r]));
-        const chains = [];
-        for (const [model, insts] of Object.entries(bySource)) {
-          const route = saved.get(model);
-          let order = insts;
-          if (route?.steps?.length) {
-            const byGw = new Map(insts.map(i => [i.gateway_id || i.id, i]));
-            const picked = route.steps.map(s => byGw.get(s.provider)).filter(Boolean);
-            order = [...picked, ...insts.filter(i => !picked.includes(i))];
-          }
-          if (order.length < 2 && !route) continue;
-          const head = order[0];
-          const cooling = head ? !!cooldownFor(head.gateway_id, head.id, head.source_id) : false;
-          const broken = head ? (head.gateway_id && sourceIssues[head.gateway_id]) : null;
-          chains.push({ model, order, degraded: cooling || !!broken, saved: !!route });
-        }
-        if (!chains.length) return null;
-        chains.sort((a, b) => (b.degraded - a.degraded) || a.model.localeCompare(b.model));
-        return (
-          <section id="model-chains" className="space-y-3 pt-4 scroll-mt-3">
-            <SourceSectionHeader dot="bg-violet-500" title={t('providers.chains.title')} hint={t('providers.chains.hint')} />
-            <div className={LIB_LIST_CLS}>
-              <ul className="list-none m-0 p-0">
-                {chains.map(c => (
-                  <li key={c.model} className="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(8rem,14rem)_minmax(0,1fr)_auto] gap-x-4 gap-y-1 items-center px-4 py-2.5 border-b last:border-b-0 border-zinc-100 dark:border-white/[0.05]">
-                    <span className="text-xs font-medium text-zinc-800 dark:text-zinc-100 truncate font-mono" title={c.model}>{c.model}</span>
-                    <span className="col-span-2 md:col-span-1 order-3 md:order-none text-[11px] text-zinc-600 dark:text-zinc-300 min-w-0 flex flex-wrap items-center gap-1.5">
-                      <span className="min-w-0">{t('providers.chains.order', { list: c.order.map(srcName).join(' → ') })}</span>
-                      {c.degraded && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">{t('providers.chains.degraded')}</span>
-                      )}
-                    </span>
-                    <button type="button"
-                      onClick={() => { setSourcesView('model'); requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' })); }}
-                      className="justify-self-end text-[11px] px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800">
-                      {t('providers.chains.adjust')}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </section>
-        );
-      })()}
+      {/* 模型：每个模型挂在哪些来源上、按什么顺序降级，在这里看和调 */}
+      <section id="model-chains" className="space-y-3 pt-4 scroll-mt-3">
+        <SourceSectionHeader dot="bg-violet-500" title={t('providers.sec.models')} hint={t('providers.sec.modelsHint')} />
+          <PersonalSourceModelView
+            instances={modelViewInstances}
+            t={t}
+            modelTypeMap={personalModelTypeMap}
+            latencyMap={personalLatencyMap}
+            onRefreshLatency={loadPersonalLatency}
+            probeTargets={personalProbeTargets}
+            cooldownFor={cooldownFor}
+            sceneRoutes={sceneRoutes}
+            onSaveListRoute={saveListRoute}
+            onDeleteListRoute={deleteListRoute}
+            onEmptyAdd={() => setPickerOpen(true)}
+            onEmptySync={syncAccountsFromOtherDevices}
+            syncing={accountSyncing}
+            syncSecrets={syncAccountSecrets}
+          />
+      </section>
 
       {/* 自定义路由（原网关页「场景路由」）：按规则或模型链组合出的路由 */}
       <section id="custom-routes" className="space-y-3 pt-4 scroll-mt-3">
@@ -5643,26 +5602,6 @@ export default function Providers() {
         <CustomRoutesPanel />
       </section>
 
-      {/* 社区源：未登录可浏览，启用/配置 Key 需登录 */}
-      <section className="space-y-3 pt-4">
-        <SourceSectionHeader
-          dot={tierConfig.p2p.dot}
-          title={t('providers.group.remote')}
-          hint={tierConfig.p2p.hint}
-          trailing={(
-            <button type="button" onClick={() => navigate('/contribute', { state: { tradeTab: 'hire' } })}
-              className="ml-auto text-[11px] text-blue-600 dark:text-blue-400 hover:underline">
-              {t('providers.community.rentMore')}
-            </button>
-          )}
-        />
-        <div className={`grid ${tierConfig.p2p.cols} gap-3`}>
-          {providers.filter(p => p.type === 'p2p').map(p => (
-            <P2PNetworkCard key={p.id} provider={p} onUpdate={updateProvider} onPersistEnabled={persistProviderEnabled}
-              cooldowns={cooldowns} onRetryCooldown={handleRetryCooldown} />
-          ))}
-        </div>
-      </section>
       </>
 
       {syncDeviceChoices && (

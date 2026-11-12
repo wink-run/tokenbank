@@ -769,6 +769,15 @@ export default {
   'gateway.log.copied': 'Copied',
 
   // ── Models (model sources) ──
+  "providers.sec.sources": "Sources",
+  "providers.sec.sourcesHint": "Your keys, subscriptions, local models and the community network; click a row for settings",
+  "providers.sec.models": "Models",
+  "providers.sec.modelsHint": "Which sources serve each model; several sources form a fallback chain",
+  "providers.list.community": "Community network",
+  "providers.list.communityHint": "Models others share, paid in credits",
+  "providers.list.communityType": "Community · credits",
+  "providers.list.communityOn": "On",
+  "providers.list.rentMoreShort": "Rent",
   'providers.title': 'Models',
   'providers.subtitle': 'Where your models come from — your own API keys / subscriptions, or the community network. The gateway picks one per scenario',
   'providers.link.usedBy': 'Used by',
