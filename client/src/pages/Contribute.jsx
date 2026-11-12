@@ -982,8 +982,12 @@ function CommunityModelsCard() {
     Promise.all([fromGateway, fromNetwork]).then(([gw, count]) => {
       if (cancelled) return;
       const all = new Map();
-      for (const [id, n] of Object.entries(count)) all.set(id, { id, suppliers: n });
-      for (const id of gw) if (!all.has(id)) all.set(id, { id, suppliers: 0 });
+      // 登录后以网关拿到的为准：那是你此刻真能租的（不含你自己上架的）；没登录才看公开网络
+      if (user) {
+        for (const id of gw) all.set(id, { id, suppliers: count[id] || 0 });
+      } else {
+        for (const [id, n] of Object.entries(count)) all.set(id, { id, suppliers: n });
+      }
       setModels([...all.values()].sort((a, b) => (b.suppliers - a.suppliers) || a.id.localeCompare(b.id)));
     });
     return () => { cancelled = true; };
