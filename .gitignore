@@ -12,6 +12,10 @@ build/
 # 落地页提供下载的二进制（由运维放到 server/static/downloads/，勿提交）
 server/static/downloads/*
 !server/static/downloads/.gitkeep
+
+# 宣传片渲染产物（由 promo/render.mjs 生成，大体积二进制，勿提交）
+promo/*.mp4
+server/static/video/*.mp4
 *.egg
 .wheels/
 

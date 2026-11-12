@@ -5401,129 +5401,31 @@ function registerIPC() {
         return { ok: true, file, envCount: 0, codex: true, officialLogin,
           ...(officialLogin ? {} : { warning: 'codex-no-official-login' }) };
       }
-      // DeepSeek Harness：settings.yaml 是 dsh 活文档（hot-reload + web Models 页也写），
-      // 必须合并式写入（保留 ui-onboarding 等用户段），并动态注入全量网关模型到
-      // llm-pi-ai.providers.tokenbank.models；key 写 $DSH_HOME/.credentials.yaml（扁平 mapping）。
-      if (handlerId === 'deepseek-harness-cli') {
-        const yaml = require('js-yaml');
-        const dshHome = path.dirname(file);
-        if (!fs.existsSync(file)) {
-          if (!allowCreateMissingProxyConfig(handlerId)) return { ok: false, error: 'config-missing', file };
-          try { fs.mkdirSync(dshHome, { recursive: true }); }
-          catch (e) { return { ok: false, error: e.message || 'mkdir-failed', file }; }
-        }
-        // 备份原始 settings.yaml（仅首次、非托管态），供取消纳管整份还原
-        const bak = file + '.tokenbank-bak';
-        if (fs.existsSync(file) && !fs.existsSync(bak) && !isTokenbankManagedConfig(file)) {
-          try { fs.copyFileSync(file, bak); } catch {}
-        }
-        const deepSetDot = (obj, dotKey, val) => {
-          const parts = String(dotKey).split('.');
-          let cur = obj;
-          for (let i = 0; i < parts.length - 1; i++) {
-            if (!cur[parts[i]] || typeof cur[parts[i]] !== 'object') cur[parts[i]] = {};
-            cur = cur[parts[i]];
-          }
-          cur[parts[parts.length - 1]] = val;
-        };
-        // 读现有文档（保留用户段）；settings.yaml 是普通 YAML（!!js 只在 cordis.patch.yml）
-        let doc = {};
-        try { if (fs.existsSync(file)) doc = yaml.load(fs.readFileSync(file, 'utf8')) || {}; } catch {}
-        if (!doc || typeof doc !== 'object' || Array.isArray(doc)) doc = {};
-        for (const [k, v] of Object.entries(resolvedPatch || {})) deepSetDot(doc, k, v);
-        // 旧云端快照可能仍带 TOKENBANK_API_KEY；强制独立名，避免撞 Codex 的 shell env
-        deepSetDot(doc, 'llm-pi-ai.providers.tokenbank.apiKeyEnv', require('./dsh-config').DSH_API_KEY_ENV);
-        // 模型列表：绑了路由（patch_route 策略 tokenbank_models 已填 models）→ 保留所选；
-        // 未绑路由 → 兜底注入全量网关模型（/v1/models 按模态重复，须去重后写 [{ id }]）。
-        if (!resolvedPatch['llm-pi-ai.providers.tokenbank.models']) {
-          try {
-            const res = await fetch(`${patchCtx.base}/v1/models`, {
-              headers: patchCtx.key ? { Authorization: `Bearer ${patchCtx.key}` } : {},
-            });
-            if (res.ok) {
-              const json = await res.json();
-              const ids = [...new Set(
-                (Array.isArray(json?.data) ? json.data : [])
-                  .map(m => m?.id).filter(x => typeof x === 'string' && x.trim()),
-              )];
-              if (ids.length) deepSetDot(doc, 'llm-pi-ai.providers.tokenbank.models', ids.map(id => ({ id })));
-            }
-          } catch (e) { console.warn('[dsh] fetch /v1/models failed:', e.message); }
-        }
-        // key → $DSH_HOME/.credentials.yaml（独立 TOKENBANK_DSH_API_KEY，避免撞 Codex 的 shell env）
-        if (patchCtx.key) {
-          try { require('./dsh-config').writeDshCredentials(dshHome, patchCtx.key); }
-          catch (e) { console.warn('[dsh] write .credentials.yaml failed:', e.message); }
-        }
-        fs.writeFileSync(file, yaml.dump(doc, { lineWidth: 120 }), 'utf8');
-        setAppHosted(app_id, true);
-        return { ok: true, file, envCount: 0 };
-      }
-      // Pi 家族：只合并 tokenbank 提供商（实现在 app-config-write.js，与 Docker 共用）
+      // DeepSeek Harness / Pi 家族 / OpenClaw / WorkBuddy / 通用 config-file：
+      // 走与 Docker 共用的共享写入路径，确保前后端行为一致。
       {
-        const piResult = await require('./app-config-write').writePiFamilyConfig(handlerId, resolvedPatch, {
-          base: patchCtx.base,
-          key: patchCtx.key,
-          allowCreate: allowCreateMissingProxyConfig(handlerId),
-        });
-        if (piResult) {
-          if (piResult.ok) setAppHosted(app_id, true);
-          return piResult;
-        }
-      }
-      // Trae：模型配置由用户在 IDE 内手工填写，此处不写入 state.vscdb
-      // 纳管 = 备份原配置文件（整份，仅首次），再写入我们的配置（整份替换）。
-      // 不合并、不检测冲突、不预扫描内容——状态完全跟随用户操作。
-      // 缺配置默认不新建（避免自写后再被判已安装）；强信号应用（WorkBuddy /
-      // OpenClaw / Claude Desktop）允许首次创建——探测已不认这些配置文件。
-      {
-        const ensured = ensureProxyConfigWritable(file, {
+        const writer = require('./config-file-write');
+        const r = await writer.writeConfigFile({
+          appRec,
+          config_file: file,
+          patch: resolvedPatch,
+          env: resolvedEnv,
+          route_id,
+          route_ids,
           allowCreate: allowCreateMissingProxyConfig(handlerId, { isClaudeDesktop }),
+          injectEnv: true,
         });
-        if (!ensured.ok) return { ok: false, error: ensured.error || 'config-missing', file };
-      }
-      const bak = file + '.tokenbank-bak';
-      // 只备份"真正的原始配置"：既有文件若已是 tokenbank 托管配置，绝不备份——否则会把网关配置
-      // 存成 .tokenbank-bak，还原时又写回网关配置，导致 Claude Desktop 还原后仍走网关。
-      if (!fs.existsSync(bak) && !isTokenbankManagedConfig(file)) {
-        try { fs.copyFileSync(file, bak); } catch {}
-      }
-      if (/\.json$/i.test(file)) {
-        fs.writeFileSync(file, JSON.stringify(patchToObject(resolvedPatch), null, 2), 'utf8');
-      } else if (/\.ya?ml$/i.test(file)) {
-        fs.writeFileSync(file, require('js-yaml').dump(patchToObject(resolvedPatch), { lineWidth: 120 }), 'utf8');
-      } else {
-        fs.writeFileSync(file, patchToToml(resolvedPatch), 'utf8');
-      }
-      // 附带的环境变量（如存放 key 的 env_key）一并写入系统
-      let envCount = 0;
-      const entries = Object.entries(resolvedEnv || {}).filter(([k]) => k && k.trim());
-      if (entries.length) {
-        if (process.platform === 'win32') {
-          const { execFileSync } = require('child_process');
-          for (const [k, v] of entries) execFileSync('setx', [k, String(v)], { stdio: ['ignore', 'ignore', 'ignore'] });
-        } else {
-          const home = os.homedir();
-          const targets = ['.zshrc', '.bashrc', '.bash_profile', '.profile'].map(f => path.join(home, f)).filter(f => fs.existsSync(f));
-          if (!targets.length) targets.push(path.join(home, '.profile'));
-          const block = '\n# >>> tokenbank env >>>\n' + entries.map(([k, v]) => `export ${k}=${JSON.stringify(String(v))}`).join('\n') + '\n# <<< tokenbank env <<<\n';
-          for (const f of targets) {
-            let txt = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '';
-            txt = txt.replace(/\n?# >>> tokenbank env >>>[\s\S]*?# <<< tokenbank env <<<\n?/g, '');
-            fs.writeFileSync(f, txt + block, 'utf8');
+        if (r?.ok) {
+          setAppHosted(app_id, true);
+          // Claude Desktop：写入后补齐 _meta.json，否则网关配置 Claude 读不到
+          if (isClaudeDesktop || isClaude3pConfigLibraryFile(file)) {
+            ensureClaude3pMeta(claudeConfigId || path.basename(file, '.json'));
           }
+          // Claude Desktop 接管后立即同步一次（定期同步另有 30s 兜底）
+          if (isClaudeDesktop) runClaude3pSync('takeover');
         }
-        envCount = entries.length;
+        return r;
       }
-      // 状态跟随操作：标记该应用已纳管
-      setAppHosted(app_id, true);
-      // Claude Desktop：写入后补齐 _meta.json，否则网关配置 Claude 读不到
-      if (isClaudeDesktop || isClaude3pConfigLibraryFile(file)) {
-        ensureClaude3pMeta(claudeConfigId || path.basename(file, '.json'));
-      }
-      // Claude Desktop 接管后立即同步一次（定期同步另有 30s 兜底）
-      if (isClaudeDesktop) runClaude3pSync('takeover');
-      return { ok: true, file, envCount };
     } catch (e) { return { ok: false, error: (e.stderr ? e.stderr.toString() : e.message).slice(0, 300) }; }
   });
 
@@ -6145,28 +6047,8 @@ app.whenReady().then(() => {
     }
     syncAgentProviderModelsFromAccounts();
   } catch (e) { console.warn('[main] provider migration skipped:', e.message); }
-  // shim 写脚本时按 toolId 取该 shim 应用的 api_key（解析 inject.env 的 {KEY}）
-  agentLinker.setKeyResolver((toolId) => {
-    const apps = readLocalConfig().apps || [];
-    const a = apps.find(x => x.link_method === 'shim' && x.agent_id === toolId);
-    if (!a || a.hosted === false) return null;
-    // 未绑路由 = 纳管但直连，不走网关（与 apps:list configured 口径一致）
-    const hasRoute = !!(a.route_id || (Array.isArray(a.route_ids) && a.route_ids.length));
-    if (!hasRoute) return null;
-    return a.api_key || null;
-  });
-  // 多账号实例列表（供 shim 目录分发）：该工具所有带 instance 段的 shim 记录
-  agentLinker.setInstancesResolver((toolId) => {
-    const apps = readLocalConfig().apps || [];
-    return apps
-      .filter(x => x.link_method === 'shim' && x.agent_id === toolId && x.instance && !x.instance.invalid)
-      .map(x => ({
-        config_dir: x.instance.config_dir, api_key: x.api_key, dir_glob: x.instance.dir_glob,
-        is_default: !!x.instance.is_default,
-        // 路由态：已托管 + 绑了路由 → 走网关；否则直连（shim 只切账号、不注网关）
-        routed: !!(x.hosted && (x.route_id || (Array.isArray(x.route_ids) && x.route_ids.length))),
-      }));
-  });
+  // shim 写脚本时按 toolId 取该 shim 应用的 api_key（与 Docker gateway 共用 bootstrap）
+  require('../shared/shim-linker-bootstrap').installShimLinkerResolvers(readLocalConfig);
   // 端口占用检测：被占则弹框提示 + 退出，避免网关静默起不来后 app 假装在运行。
   const GATEWAY_PORT = 11430;
   let _portFatalShown = false;

@@ -36,19 +36,31 @@ function managedEnv(gatewayOrigin) {
   };
 }
 
+/** 解析 settings.json 所在目录：多实例用 instance.config_dir，否则 Docker/单实例用 ~/.claude */
+function resolveClaudeSettingsDir(app, opts = {}) {
+  const expandHome = opts.expandHome || ((p) => p);
+  if (app.instance && app.instance.config_dir) {
+    return expandHome(String(app.instance.config_dir));
+  }
+  if (app.agent_id === 'claude-code') {
+    return path.join(expandHome('~'), '.claude');
+  }
+  return null;
+}
+
 /**
  * 同步单个 Claude Code 实例的 settings.json（OAuth / 兼容端点统一处理）。
- * @param app  应用记录（需 link_method==='shim' + instance.config_dir + hosted + route_id/route_ids）
+ * @param app  应用记录（link_method==='shim'；目录见 resolveClaudeSettingsDir）
  * @param opts { expandHome:(p)=>string, gatewayOrigin:string, forceDirect?:boolean }
  * @returns 'routed' | 'direct' | 'skip'（便于测试与日志）
  */
 function syncCliInstanceEndpointConfig(app, opts = {}) {
-  if (!app || app.link_method !== 'shim' || !app.instance || !app.instance.config_dir) return 'skip';
+  if (!app || app.link_method !== 'shim') return 'skip';
   // 目前仅 Claude Code 读 settings.json 的 ANTHROPIC_*；Codex 走 CODEX_HOME，勿误写
   if (app.agent_id && app.agent_id !== 'claude-code') return 'skip';
 
-  const expandHome = opts.expandHome || ((p) => p);
-  const dir = expandHome(String(app.instance.config_dir));
+  const dir = resolveClaudeSettingsDir(app, opts);
+  if (!dir) return 'skip';
   const file = path.join(dir, 'settings.json');
   const bak = file + '.tokenbank-bak';
 
@@ -106,6 +118,7 @@ function syncCliInstanceEndpointConfig(app, opts = {}) {
 
 module.exports = {
   syncCliInstanceEndpointConfig,
+  resolveClaudeSettingsDir,
   isGatewayBaseUrl,
   readJsonSafe,
   PROXY_MANAGED_TOKEN,
