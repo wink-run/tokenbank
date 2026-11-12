@@ -374,7 +374,11 @@ pm2 start cli/gateway.js -- start
 git clone https://github.com/wink-run/tokenbank.git
 cd tokenbank
 
-docker compose up gateway -d
+# 首次部署
+./deploy.sh gateway
+
+# 或使用传统命令
+docker compose up -d gateway
 ```
 
 配置目录 `gateway-data/` 由 Compose 自动挂载；**`local-config.json` 在首次启动时由程序创建**，路由与应用在 `:11431` Web UI 中配置。请求记录在 `gateway-data/tokenbank/`，容器重启后保留。说明见 [`gateway-data/README.md`](./gateway-data/README.md)。
@@ -383,6 +387,19 @@ docker compose up gateway -d
 |---|---|
 | `11430` | LLM 请求入口（`OPENAI_BASE_URL=http://host:11430/v1`） |
 | `11431` | Web 管理界面 |
+
+**独立部署：** 支持分别部署和更新服务端/Gateway，详见 [DEPLOY.md](./DEPLOY.md)。
+
+```bash
+# 首次部署服务端
+./deploy.sh server --https --with-deps
+
+# 更新服务端（不重启数据库）
+./deploy.sh server
+
+# 更新Gateway（不影响服务端）
+./deploy.sh gateway
+```
 
 ---
 

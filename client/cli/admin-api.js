@@ -296,7 +296,14 @@ function listAppsWithDetected() {
   } catch (e) {
     console.warn('[admin-api] detect config-file agents failed:', e.message);
   }
-  return [...saved, ...detected];
+  // 与桌面版 apps:list 对齐：已保存的 config-file 应用补 host_method，
+  // 否则 Docker Web UI 改下拉时因 app.host_method 缺失跳过 write-config-file。
+  const withHostMethod = saved.map((app) => {
+    if (app.host_method) return app;
+    if (app.config_file || app.inject === 'config-file') return { ...app, host_method: 'config-file' };
+    return app;
+  });
+  return [...withHostMethod, ...detected];
 }
 
 ipcBridge.setAppsGetter(listAppsWithDetected);
@@ -1007,38 +1014,27 @@ async function handleRequest(req, res) {
     return json(res, 200, r);
   }
 
-  // 写配置文件类应用的纳管（Docker 目前支持 Pi 家族；实现与桌面版共用 electron/app-config-write.js）
+  // 写配置文件类应用的纳管（Docker 与桌面版共用 electron/config-file-write.js）
   if (method === 'POST' && url === '/api/apps/write-config-file') {
     const body = await readBody(req);
     const cfg = readAppsCfg();
     const appRec = cfg.apps.find(a => a.id === body.app_id);
     if (!appRec) return json(res, 404, { ok: false, error: 'app-not-found' });
+    if (!appRec.config_file && appRec.inject !== 'config-file') {
+      return json(res, 200, { ok: false, error: 'not-config-file-app' });
+    }
     try {
-      const shared = require('../electron/app-config-write');
-      const { applyRouteToProxyPatch, resolveHandlerId } = require('../electron/app-handlers');
-      const gctx = configLoader.gatewayCtx();
-      const ctx = { ...gctx, base: `http://${gctx.reverse}`, key: appRec.api_key || '' };
-      let resolvedPatch = shared.resolvePatchDeep(body.patch || appRec.patch || {}, ctx);
-      const handlerId = resolveHandlerId(appRec);
-      const routeIds = Array.isArray(body.route_ids) && body.route_ids.length ? body.route_ids
-        : (body.route_id ? [body.route_id]
-          : (Array.isArray(appRec.route_ids) && appRec.route_ids.length ? appRec.route_ids
-            : (appRec.route_id ? [appRec.route_id] : [])));
-      if (handlerId && routeIds.length) {
-        let claudeModels = [];
-        try { claudeModels = configLoader.claudeModels() || []; } catch { /* ignore */ }
-        resolvedPatch = applyRouteToProxyPatch(handlerId, resolvedPatch, {
-          routeIds,
-          routes: (readLocalConfig() || {}).scene_routes || [],
-          providers: (readAgentConfig() || {}).providers || [],
-          marker: appRec.marker,
-          claudeName: claudeModels[0] || 'claude-sonnet-4-5',
-          claudeModels,
-        });
-      }
-      const r = await shared.writePiFamilyConfig(handlerId, resolvedPatch, { base: ctx.base, key: ctx.key });
-      if (!r) return json(res, 200, { ok: false, error: 'docker-unsupported-app' });
-      if (r.ok) {
+      const writer = require('../electron/config-file-write');
+      const r = await writer.writeConfigFile({
+        appRec,
+        config_file: body.config_file,
+        patch: body.patch,
+        env: body.env,
+        route_id: body.route_id,
+        route_ids: body.route_ids,
+        allowCreate: true,
+      });
+      if (r?.ok) {
         const next = readAppsCfg();
         const idx = next.apps.findIndex(a => a.id === appRec.id);
         if (idx >= 0) { next.apps[idx] = { ...next.apps[idx], hosted: true }; persistAppsCfg(next); }
@@ -1053,8 +1049,9 @@ async function handleRequest(req, res) {
     const body = await readBody(req);
     const appRec = readAppsCfg().apps.find(a => a.id === body.app_id);
     try {
-      require('../electron/app-config-write').revertPiFamilyConfig(body.app_id, appRec);
-      return json(res, 200, { ok: true });
+      const writer = require('../electron/config-file-write');
+      const r = writer.revertConfigFile({ appRec, config_file: body.config_file });
+      return json(res, 200, r);
     } catch (e) {
       return json(res, 200, { ok: false, error: e.message });
     }
@@ -1131,10 +1128,32 @@ async function handleRequest(req, res) {
       const cfg = readAppsCfg();
       const idx = cfg.apps.findIndex(a => a.id === appId);
       if (idx === -1) return json(res, 404, { error: 'not found' });
+      const oldRouteIds = cfg.apps[idx].route_ids || (cfg.apps[idx].route_id ? [cfg.apps[idx].route_id] : []);
       const { api_key: _drop, id: _id, ...patch } = body;
       cfg.apps[idx] = { ...cfg.apps[idx], ...patch };
       persistAppsCfg(cfg);
-      return json(res, 200, cfg.apps[idx]);
+      const updated = cfg.apps[idx];
+      // 服务端兜底：config-file 应用路由变化后同步重写本地配置，不依赖前端 host_method。
+      const isConfigFile = updated.config_file || updated.inject === 'config-file';
+      if (isConfigFile) {
+        const newRouteIds = updated.route_ids || (updated.route_id ? [updated.route_id] : []);
+        const routeChanged = JSON.stringify(oldRouteIds) !== JSON.stringify(newRouteIds);
+        if (routeChanged) {
+          try {
+            const writer = require('../electron/config-file-write');
+            const wr = await writer.writeConfigFile({
+              appRec: updated,
+              route_id: updated.route_id,
+              route_ids: updated.route_ids,
+              allowCreate: false,
+            });
+            if (!wr?.ok) console.warn('[admin-api] route-changed rewrite failed:', wr?.error);
+          } catch (e) {
+            console.warn('[admin-api] route-changed rewrite error:', e.message);
+          }
+        }
+      }
+      return json(res, 200, updated);
     }
 
     if (method === 'DELETE') {
