@@ -118,6 +118,11 @@ function isPiFamilyApp(app) {
   return id === 'pi' || id === 'omo' || id === 'prime' || id === 'omp';
 }
 
+/** config-file 类应用：有配置文件路径或 inject 标记。不只看 host_method，兼容 Docker 列表未补字段的场景。 */
+function isConfigFileApp(app) {
+  return !!(app && (app.config_file || app.inject === 'config-file' || app.host_method === 'config-file'));
+}
+
 // ── PolicyManager：策略组管理 UI ──────────────────────────────────────────────
 function strategyOptions(t) {
   return [
@@ -3140,10 +3145,10 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
     setSettings(app);
   }
 
-  // 默认路由：新应用自动绑当前可用模型的第一个（P2P 在线 > 付费 > 免费）。
-  // 否则「直连」会把客户端原始模型名（claude-*/gpt-*）直发，P2P 后端没有这些名字必 502。
+  // 默认路由：新应用自动绑当前可用模型的第一个（付费/免费 > P2P）。
+  // 优先用已验证或本地绑定的非 P2P 模型，避免首次纳管就写到不可用的 P2P 名字。
   function defaultRouteId() {
-    const order = { p2p: 0, paid: 1, free: 2 };
+    const order = { paid: 0, free: 1, p2p: 2 };
     const pick = [...availableModels].sort(
       (a, b) => (order[a.tier] ?? 9) - (order[b.tier] ?? 9))[0];
     return pick ? encodeTierModelRoute(pick.tier, pick.id) : '';
@@ -3199,8 +3204,8 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
     }
     if (on) {
       setBusyId(appId);
-      // Pi 家族没有官方账号：纳管即写入网关密钥和默认模型。其余应用仍走官方订阅。
-      if (app.host_method === 'config-file' && isPiFamilyApp(app)) {
+      // config-file 类应用（含 Pi 家族）纳管即写入网关密钥和默认模型；其余应用仍走官方订阅。
+      if (isConfigFileApp(app) && isPiFamilyApp(app)) {
         const kept = effectiveRouteIds(app);
         const routeId = kept[0] || defaultRouteId() || null;
         const routeIds = kept.length ? kept : (routeId ? [routeId] : []);
@@ -3212,7 +3217,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
       } else {
         // 纳管默认官方订阅：清空路由，确保不注入网关
         await appsApi.update({ id: appId, hosted: true, route_id: null, route_ids: null }).catch(() => {});
-        if (app.host_method === 'config-file') {
+        if (isConfigFileApp(app)) {
           await appsApi.revertConfigFile({ app_id: appId, config_file: app.config_file }).catch(() => {});
           showNotice(appId, t('gateway.apps.restartToApply'));
         } else if (app.link_method === 'shim' && app.agent_id) {
@@ -3233,7 +3238,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
       if (app.link_method === 'shim' && app.agent_id) {
         await window.electronAPI.agents?.revert(app.agent_id).catch(() => {});
         showNotice(appId, t('gateway.apps.restartToApply'));
-      } else if (app.host_method === 'config-file') {
+      } else if (isConfigFileApp(app)) {
         await appsApi.revertConfigFile({ app_id: appId, config_file: app.config_file }).catch(() => {});
         showNotice(appId, t('gateway.apps.restartToApply'));
       } else if (app.link_method === 'direct') {
@@ -3401,7 +3406,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
     const routeIds = Array.isArray(selected) && selected.length ? selected : (val ? [val] : []);
     const primary = routeIds[0] || null;
     setBusyId(app.id);
-    if (app.host_method === 'config-file') {
+    if (isConfigFileApp(app)) {
       await appsApi.update({
         id: app.id, route_id: primary, route_ids: routeIds.length ? routeIds : null,
         ...(primary ? { hosted: true } : {}),
@@ -3451,11 +3456,11 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
   }
 
   // API Key 应用（虚拟行）「纳管」：建条目 + 标记 hosted。
-  // Pi 家族没有官方登录，同时写入网关密钥；其余应用默认直连，要走网关再在路由下拉选模型。
+  // config-file 类应用（含 Pi 家族）首次纳管即写入网关密钥和绑定路由；其余应用默认直连。
   async function addApiKeyApp(d) {
     setBusyId(d.id);
-    const piFamily = isPiFamilyApp(d);
-    const routeId = piFamily ? (defaultRouteId() || null) : null;
+    const cfgFile = isConfigFileApp(d);
+    const routeId = cfgFile ? (defaultRouteId() || null) : null;
     const routeIds = routeId ? [routeId] : [];
     const created = await appsApi.create({
       name: d.name, icon: d.icon, link_method: 'api-key',
@@ -3466,7 +3471,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
       await appsApi.update({
         id: created.id, hosted: true, route_id: routeId, route_ids: routeIds.length ? routeIds : null,
       }).catch(() => {});
-      if (piFamily) {
+      if (cfgFile) {
         await writeApiKeyConfig({
           ...created,
           host_method: 'config-file',
