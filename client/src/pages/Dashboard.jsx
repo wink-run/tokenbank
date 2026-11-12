@@ -607,6 +607,7 @@ export default function Dashboard() {
   const [billableSubs, setBillableSubs] = useState([]);
   const [billingAccounts, setBillingAccounts] = useState({});
   const [usageSort, setUsageSort] = useState('calls');
+  const [modelSort, setModelSort] = useState('calls');
   const [gwStatus, setGwStatus]   = useState(null);
   const [compStats, setCompStats] = useState(null);
   const [loading, setLoading]     = useState(true);
@@ -750,12 +751,18 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
-        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-          {t('dashboard.subtitle')}
-          {' · '}
-          {user && merged?.source === 'cloud'
-            ? t('dashboard.scopeMerged', { n: merged.device_count ?? (merged.devices || []).length ?? 0 })
-            : t('dashboard.scopeLocal')}
+        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1 flex flex-wrap items-center gap-2">
+          {/* 看的是哪些设备：一眼能看出来 */}
+          {user && merged?.source === 'cloud' ? (
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+              {t('dashboard.scopeMerged', { n: merged.device_count ?? (merged.devices || []).length ?? 0 })}
+            </span>
+          ) : (
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+              {t('dashboard.scopeThisDevice')}
+            </span>
+          )}
+          <span>{user && merged?.source === 'cloud' ? t('dashboard.subtitle') : t('dashboard.scopeLocal')}</span>
         </p>
       </div>
 
@@ -771,8 +778,16 @@ export default function Dashboard() {
       )}
 
       {/* Summary cards — 5列 */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
         {[
+          {
+            label: t('dashboard.estCost'),
+            value: fmtCost(totalCost),
+            valueCls: totalCost > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400',
+            hint: totalCost > 0
+              ? t('profile.costSub', { sub: subCost > 0 ? fmtCost(subCost) : '—', payg: paygCost > 0 ? fmtCost(paygCost) : '—' })
+              : t('dashboard.estCostHint'),
+          },
           {
             label: t('dashboard.totalRequests'),
             value: totalCalls,
@@ -798,12 +813,12 @@ export default function Dashboard() {
             hint: t('dashboard.paidCallsHint', { paid: paidCalls, p2p: p2pCalls }),
           },
           {
-            label: t('dashboard.estCost'),
-            value: fmtCost(totalCost),
-            valueCls: totalCost > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400',
-            hint: totalCost > 0
-              ? t('profile.costSub', { sub: subCost > 0 ? fmtCost(subCost) : '—', payg: paygCost > 0 ? fmtCost(paygCost) : '—' })
-              : t('dashboard.estCostHint'),
+            label: t('profile.compression.saved'),
+            value: compStats?.count > 0 ? fmtCost(compStats.saved_usd || 0) : '—',
+            valueCls: compStats?.count > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400',
+            hint: compStats?.count > 0
+              ? t('dashboard.compressHint', { n: compStats.count, tokens: fmtN(compStats.saved), ratio: (compStats.ratio * 100).toFixed(1) })
+              : t('dashboard.compressEmpty'),
           },
         ].map((c) => (
           <div key={c.label} className="tb-soft-card rounded-2xl px-3.5 py-3.5">
@@ -844,108 +859,62 @@ export default function Dashboard() {
         t={t}
       />
 
-      {/* 压缩节省（无损 JSON 压缩，本机实测） */}
-      {compStats && (
-        <div className="tb-soft-card rounded-2xl p-5">
-          <div className="mb-3">
-            <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{t('profile.compression.title')}</div>
+      {/* 用了哪些模型：一张表，可按调用 / Token / 费用排 */}
+      {(() => {
+        const costBy = Object.fromEntries(modelByCost.map(m => [m.model, m.cost_usd || 0]));
+        const rows = [...modelStats].map(m => ({ ...m, cost: costBy[m.model] || 0 }));
+        rows.sort((a, b) => (modelSort === 'tokens' ? (b.tokens || 0) - (a.tokens || 0)
+          : modelSort === 'cost' ? b.cost - a.cost : (b.calls || 0) - (a.calls || 0)));
+        const tierOf = (m) => {
+          const tr = m.provider_id ? (byProvider[m.provider_id]?.tier || tierFromProvider(m.provider_id)) : null;
+          return tr === 'free' || tr === 'p2p' || tr === 'paid' ? t(`dashboard.tier.${tr}`) : '—';
+        };
+        return (
+          <div className="tb-soft-card rounded-2xl p-5">
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{t('dashboard.modelsTable')}</div>
+              <div className="ml-auto tb-glass-chip flex gap-0.5 rounded-xl p-0.5">
+                {[['calls', t('dashboard.sortCalls')], ['tokens', t('dashboard.sortTokens')], ['cost', t('dashboard.sortCost')]].map(([k, label]) => (
+                  <button key={k} type="button" onClick={() => setModelSort(k)} aria-pressed={modelSort === k}
+                    className={`px-2.5 py-1 text-xs rounded-lg ${modelSort === k ? 'bg-white/80 dark:bg-white/10 font-semibold text-zinc-800 dark:text-zinc-100 shadow-sm' : 'text-zinc-500 dark:text-zinc-400'}`}>{label}</button>
+                ))}
+              </div>
+            </div>
+            {rows.length === 0 ? (
+              <p className="text-xs text-zinc-500">{t('common.noData')}</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-[11px] text-zinc-400 dark:text-zinc-500 text-left">
+                      <th className="font-normal py-1.5 pr-3">{t('dashboard.col.model')}</th>
+                      <th className="font-normal py-1.5 pr-3">{t('dashboard.col.source')}</th>
+                      <th className="font-normal py-1.5 pr-3">{t('dashboard.col.tier')}</th>
+                      <th className="font-normal py-1.5 pr-3 text-right">{t('dashboard.col.calls')}</th>
+                      <th className="font-normal py-1.5 pr-3 text-right">Token</th>
+                      <th className="font-normal py-1.5 text-right">{t('dashboard.col.cost')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(m => (
+                      <tr key={m.model} className="border-t border-zinc-100 dark:border-white/[0.06]">
+                        <td className="py-1.5 pr-3 font-mono text-zinc-800 dark:text-zinc-100 max-w-[16rem] truncate" title={m.model}>{m.model}</td>
+                        <td className="py-1.5 pr-3 text-zinc-600 dark:text-zinc-300 max-w-[12rem] truncate" title={(m.provider_ids || []).join('、')}>
+                          {m.provider_id || '—'}{(m.provider_ids || []).length > 1 ? t('dashboard.moreSources', { n: m.provider_ids.length - 1 }) : ''}
+                        </td>
+                        <td className="py-1.5 pr-3 text-zinc-500 dark:text-zinc-400">{tierOf(m)}</td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums">{(m.calls || 0).toLocaleString()}</td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums">{fmtN(m.tokens || 0)}</td>
+                        <td className="py-1.5 text-right tabular-nums">{m.cost > 0 ? fmtCost(m.cost) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-          {compStats.count > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div>
-                <div className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">{t('profile.compression.requests')}</div>
-                <div className="text-2xl font-bold text-zinc-800 dark:text-zinc-100">{compStats.count}</div>
-              </div>
-              <div className="border-l border-zinc-200/70 dark:border-zinc-700/70 pl-4">
-                <div className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">{t('profile.compression.saved')}</div>
-                <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtN(compStats.saved)}</div>
-              </div>
-              <div className="border-l border-zinc-200/70 dark:border-zinc-700/70 pl-4">
-                <div className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">{t('profile.compression.savedCost')}</div>
-                <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{fmtCost(compStats.saved_usd || 0)}</div>
-              </div>
-              <div className="border-l border-zinc-200/70 dark:border-zinc-700/70 pl-4">
-                <div className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">{t('profile.compression.ratio')}</div>
-                <div className="text-2xl font-bold text-zinc-800 dark:text-zinc-100">{(compStats.ratio * 100).toFixed(1)}%</div>
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-zinc-400 dark:text-zinc-500">{t('profile.compression.empty')}</p>
-          )}
-        </div>
-      )}
-
-      {/* Model rankings — 3 columns */}
-      <div className="grid grid-cols-3 gap-4">
-        {/* Call count */}
-        <div className="tb-soft-card rounded-2xl p-5">
-          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-4">{t('dashboard.modelRank')}</div>
-          {modelStats.length === 0 ? (
-            <p className="text-xs text-zinc-600">{t('common.noData')}</p>
-          ) : (
-            <div className="space-y-3">
-              {modelStats.map(m => (
-                <div key={m.model}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-mono text-zinc-700 dark:text-zinc-300 truncate max-w-[140px]" title={m.model}>{m.model}</span>
-                    <span className="text-xs text-zinc-600 dark:text-zinc-400 shrink-0 ml-2">{m.calls} {t('common.times')}</span>
-                  </div>
-                  <div className="h-1.5 rounded-full overflow-hidden bg-black/[0.06] dark:bg-white/[0.08]">
-                    <div className="h-full rounded-full transition-[width] duration-200 ease-out bg-green-500"
-                      style={{ width: `${Math.round(m.calls / maxModel * 100)}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Token consumption */}
-        <div className="tb-soft-card rounded-2xl p-5">
-          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-4">{t('dashboard.modelTokenRank')}</div>
-          {modelByTokens.length === 0 ? (
-            <p className="text-xs text-zinc-600">{t('common.noData')}</p>
-          ) : (
-            <div className="space-y-3">
-              {modelByTokens.map(m => (
-                <div key={m.model}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-mono text-zinc-700 dark:text-zinc-300 truncate max-w-[140px]" title={m.model}>{m.model}</span>
-                    <span className="text-xs text-purple-600 dark:text-purple-400 shrink-0 ml-2">{fmtN(m.tokens)} tok</span>
-                  </div>
-                  <div className="h-1.5 rounded-full overflow-hidden bg-black/[0.06] dark:bg-white/[0.08]">
-                    <div className="h-full rounded-full transition-[width] duration-200 ease-out bg-purple-500"
-                      style={{ width: `${Math.round((m.tokens||0) / maxModelTokens * 100)}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Cost ranking */}
-        <div className="tb-soft-card rounded-2xl p-5">
-          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-4">{t('dashboard.modelCostRank')}</div>
-          {modelByCost.length === 0 ? (
-            <p className="text-xs text-zinc-600 dark:text-zinc-500">{t('dashboard.modelCostEmpty')}</p>
-          ) : (
-            <div className="space-y-3">
-              {modelByCost.map(m => (
-                <div key={m.model}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-mono text-zinc-700 dark:text-zinc-300 truncate max-w-[140px]" title={m.model}>{m.model}</span>
-                    <span className="text-xs text-emerald-600 dark:text-emerald-400 shrink-0 ml-2">{fmtCost(m.cost_usd)}</span>
-                  </div>
-                  <div className="h-1.5 rounded-full overflow-hidden bg-black/[0.06] dark:bg-white/[0.08]">
-                    <div className="h-full rounded-full transition-[width] duration-200 ease-out bg-emerald-500"
-                      style={{ width: `${Math.round((m.cost_usd||0) / maxModelCost * 100)}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+        );
+      })()}
 
     </div>
   );
