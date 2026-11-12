@@ -148,7 +148,7 @@ async function listHarnesses() {
   for (const agent of agents) {
     if (!agent || agent.guardian) continue;
     if (agent.type === 'cli' && agent.installed) out.push({ id: agent.id, name: agent.name || agent.id, kind: 'app' });
-    else if (agent.type === 'assistant') out.push({ id: agent.id, name: agent.name || agent.id, kind: 'assistant', runs_on: agent.runtimeAgentId || null });
+    else if (agent.type === 'assistant') out.push({ id: agent.id, name: agent.name || agent.id, kind: 'assistant' });   // 对外不暴露它跑在哪个应用上
     else if (agent.type === 'external') out.push({ id: agent.id, name: agent.name || agent.id, kind: 'external', online: !!agent.online });
   }
   try {

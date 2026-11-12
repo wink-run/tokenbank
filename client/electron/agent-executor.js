@@ -300,6 +300,7 @@ const {
   parseAssistantConfig,
   resolveAssistantContext,
   resolveAssistantRuntimeAgent,
+  projectedRuntimeIds,
   buildAssistantLaunch,
   ASSISTANT_ID_PREFIX,
   hasAssistantEnableProjection,
@@ -867,6 +868,8 @@ class AgentExecutor extends EventEmitter {
         execRuntimeName: execName,
         description: resource.description || '',
         skillCount: Array.isArray(config.skills) ? config.skills.length : 0,
+        // 它投射过、本机能用的应用：多于一个时网关页让用户选默认在哪跑
+        projectedRuntimes: projectedRuntimeIds(resource.projections || [], availableCliIds),
         custom: true,
         // 显式模型优先；未写模型且运行时是 Cursor 时，用 CLI 当前选中模型
         modelLabel: explicitModel || (runtimeAgentId === 'cursor' ? readCursorCliModelLabel() : ''),

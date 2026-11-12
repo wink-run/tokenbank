@@ -133,8 +133,16 @@ function ProApiCard({ rows, appName, picked, onPick, open, setOpen, t }) {
 export function ProfessionalAgents() {
   const { t } = useLang();
   const navigate = useNavigate();
-  const { agents, blocked, stats, rentIds } = useAgentData(0);
+  const [reload, setReload] = useState(0);
+  const { agents, blocked, stats, rentIds } = useAgentData(reload);
   const [picked, setPicked] = useState('');
+  const [runtimeErr, setRuntimeErr] = useState('');
+  const setDefaultApp = async (a, runtimeAgentId) => {
+    setRuntimeErr('');
+    const r = await agentApi().setAssistantRuntime?.(a.resourceId, runtimeAgentId);
+    if (!r?.success) setRuntimeErr(r?.error || t('gw2.pro.runtimeFailed'));
+    setReload(v => v + 1);
+  };
   const [apiOpen, setApiOpen] = useState(false);   // 默认收起，点某行的「接口示例」时展开
   const rows = useMemo(() => {
     const list = agents.filter(a => a.type === 'assistant' && !a.guardian && a.id !== 'assistant:tb-guardian');
@@ -171,6 +179,7 @@ export function ProfessionalAgents() {
         <p className="px-3 py-3 text-xs text-zinc-500 dark:text-zinc-400">{t('gw2.pro.empty')}</p>
       ) : (
         <>
+          {runtimeErr && <p className="m-0 px-1 text-xs text-red-600 dark:text-red-400">{runtimeErr}</p>}
           <ProApiCard rows={rows.filter(r => !blocked[r.id])} appName={appName} picked={picked} onPick={setPicked} open={apiOpen} setOpen={setApiOpen} t={t} />
           {groups.map(([appId, list]) => {
             const app = appOf(appId);
@@ -198,6 +207,16 @@ export function ProfessionalAgents() {
                       <span className="min-w-0">
                         <span className="block text-sm md:text-xs font-medium text-zinc-800 dark:text-zinc-100 truncate" title={a.name}>{a.name}</span>
                         <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">{a.skillCount ? t('gw2.pro.skills', { n: a.skillCount }) : t('gw2.pro.noSkills')}</span>
+                        {(a.projectedRuntimes || []).length > 1 && (
+                          <label className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                            {t('gw2.pro.defaultOn')}
+                            <select value={a.runtimeAgentId} onChange={e => setDefaultApp(a, e.target.value)}
+                              title={t('gw2.pro.defaultHint')}
+                              className="min-h-[44px] md:min-h-[26px] px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm md:text-[11px] text-zinc-800 dark:text-zinc-100">
+                              {a.projectedRuntimes.map(id => <option key={id} value={id}>{appName(id)}</option>)}
+                            </select>
+                          </label>
+                        )}
                       </span>
                       <span className="text-xs min-w-0">
                         {b ? (

@@ -260,6 +260,15 @@ function registerAgentHandlers() {
     catch (error) { return { success: false, error: error.message }; }
   });
 
+  ipcMain.handle('agent:setAssistantRuntime', async (_event, { resourceId, runtimeAgentId } = {}) => {
+    try {
+      const rm = require('./resource-manager');
+      rm.init();
+      rm.setAssistantRuntime(resourceId, runtimeAgentId);
+      return { success: true };
+    } catch (error) { return { success: false, error: error.message }; }
+  });
+
   ipcMain.handle('agent:taskMessages', async (_event, taskIds = []) => {
     try { return { success: true, byTask: agentExecutor.listTaskMessages(taskIds) }; }
     catch (error) { return { success: false, error: error.message }; }

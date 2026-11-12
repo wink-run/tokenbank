@@ -259,13 +259,17 @@ function resolveAssistantRuntimeAgent(config, projections = [], availableIds = n
   const configured = String(config?.runtime_agent || DEFAULT_RUNTIME_AGENT).trim() || DEFAULT_RUNTIME_AGENT;
   const fromProj = [];
   const seen = new Set();
+  let projectedRuntime = false;
   for (const p of projections || []) {
     const id = p?.agentId || p?.agent_id;
     if (!ASSISTANT_RUNTIME_IDS.has(id) || seen.has(id)) continue;
+    projectedRuntime = true;
     if (availableIds && !availableIds.has(id)) continue;
     seen.add(id);
     fromProj.push(id);
   }
+  // 投射到了能跑它的应用、但这些应用现在都用不了：算跑不起来，不换到没投射过的应用上
+  if (projectedRuntime && !fromProj.length && availableIds) return null;
   if (!fromProj.length) {
     // 仅 WorkBuddy 等启用投射：优先配置的运行时；未安装则任选可用 CLI
     if (!availableIds) return configured;
@@ -277,6 +281,18 @@ function resolveAssistantRuntimeAgent(config, projections = [], availableIds = n
   }
   if (fromProj.includes(configured)) return configured;
   return fromProj[0];
+}
+
+/** 投射过、能跑它的应用（按投射顺序；availableIds 给了就只留本机能用的） */
+function projectedRuntimeIds(projections = [], availableIds = null) {
+  const out = [];
+  for (const p of projections || []) {
+    const id = p?.agentId || p?.agent_id;
+    if (!ASSISTANT_RUNTIME_IDS.has(id) || out.includes(id)) continue;
+    if (availableIds && !availableIds.has(id)) continue;
+    out.push(id);
+  }
+  return out;
 }
 
 /** 写入 runtime_agent 到智能体 content（保持 soul/skills/prompts） */
@@ -318,6 +334,7 @@ function assistantContentNeedsMigration(content) {
 }
 
 module.exports = {
+  projectedRuntimeIds,
   ASSISTANT_ID_PREFIX,
   DEFAULT_RUNTIME_AGENT,
   ASSISTANT_ENABLE_AGENT_IDS,
