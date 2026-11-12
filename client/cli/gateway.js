@@ -114,6 +114,9 @@ async function cmdStart(port, adminPort) {
   const cc = lc.cloud_config || {};
   const serverUrl = cc.url || defaultServerUrlFromEnv() || null;
 
+  // 与 Electron main.js 一致：供 enabledProviders /v1/models 按个人页登记过滤付费 catalog 模板
+  gateway.setLocalConfigReader(readLocalConfig);
+
   // Start HTTP gateway
   gateway.start(port, readAgentConfig, undefined, bindHost);
   console.log(`[gateway] HTTP gateway started on port ${port}`);
