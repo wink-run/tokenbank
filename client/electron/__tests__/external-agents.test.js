@@ -142,3 +142,22 @@ test('the skill carries a content-hash version, and an agent on an old version i
   ext.authenticate(token, Date.now(), { heartbeat: true, skillVersion: version });
   assert.equal(ext.get('external:old').skillOutdated, false);
 });
+
+test('a waiting pull hears at once when the agent is disabled or removed; a removed token is recognised', async () => {
+  const { code } = ext.newPairingCode();
+  const { token } = ext.register({ code, name: 'Gone' });
+  ext.approve('external:gone');
+  const t0 = Date.now();
+  const p1 = ext.pull('external:gone', 20000);
+  ext.disable('external:gone');
+  assert.deepEqual(await p1, { status: 'disabled' });
+  assert.ok(Date.now() - t0 < 2000, 'no wait for the long poll to time out');
+  ext.enable('external:gone');
+  const p2 = ext.pull('external:gone', 20000);
+  assert.equal(ext.wasRemoved(token), false);
+  ext.remove('external:gone');
+  assert.deepEqual(await p2, { status: 'removed' });
+  assert.equal(ext.authenticate(token), null);
+  assert.equal(ext.wasRemoved(token), true);
+  assert.equal(ext.wasRemoved('tbx_never'), false);
+});

@@ -238,19 +238,30 @@ async function handleExternal(req, res, method, cleanPath) {
     const agent = ext.authenticate(callerKey(req), Date.now(), { heartbeat: isPull, intervalSec: Number(qs.get('interval')) || 0, skillVersion: qs.get('skill_version') || '' });
     if (!agent) {
       req.resume();
-      sendJson(res, 401, { error: { message: 'invalid external agent token', type: 'auth_error' } });
+      if (ext.wasRemoved(callerKey(req))) {
+        sendJson(res, 410, { error: { message: '用户已在 Token Bank 里移除了你：删掉保存的 token，停掉你这边和 Token Bank 有关的定时任务', type: 'removed' }, status: 'removed', ...skillMeta() });
+      } else {
+        sendJson(res, 401, { error: { message: 'invalid external agent token', type: 'auth_error' } });
+      }
       return true;
     }
     if (agent.status !== 'active') {
       req.resume();
-      sendJson(res, 403, { error: { message: agent.status === 'pending' ? '还在等用户允许' : '已被停用', type: 'forbidden' }, status: agent.status, ...skillMeta() });
+      sendJson(res, 403, { error: { message: agent.status === 'pending' ? '还在等用户允许' : '用户已停用你：暂停推送，降低取任务的频率，等用户重新启用', type: agent.status === 'pending' ? 'pending' : 'disabled' }, status: agent.status, ...skillMeta() });
       return true;
     }
     if (isPull) {
       req.resume();
       const wait = Number(qs.get('wait') ?? 25) * 1000;
       const task = await ext.pull(agent.id, wait);
-      sendJson(res, 200, { task: task ? { id: task.id, input: task.prompt } : null, ...skillMeta() });
+      // 等的过程中被停用或移除：立刻告诉它
+      if (task && task.status === 'disabled') {
+        sendJson(res, 403, { error: { message: '用户已停用你：暂停推送，降低取任务的频率，等用户重新启用', type: 'disabled' }, status: 'disabled', ...skillMeta() });
+      } else if (task && task.status === 'removed') {
+        sendJson(res, 410, { error: { message: '用户已在 Token Bank 里移除了你：删掉保存的 token，停掉你这边和 Token Bank 有关的定时任务', type: 'removed' }, status: 'removed', ...skillMeta() });
+      } else {
+        sendJson(res, 200, { task: task ? { id: task.id, input: task.prompt } : null, status: 'active', ...skillMeta() });
+      }
       return true;
     }
     const m = String(cleanPath).match(/^\/v1\/agent\/external\/tasks\/([^/]+)\/result$/);

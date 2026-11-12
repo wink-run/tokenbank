@@ -93,8 +93,8 @@ function push(agentId, taskId, { output } = {}) {
 function read() {
   try {
     const d = JSON.parse(fs.readFileSync(file(), 'utf8'));
-    return { pairing: d.pairing || null, agents: Array.isArray(d.agents) ? d.agents : [] };
-  } catch { return { pairing: null, agents: [] }; }
+    return { pairing: d.pairing || null, agents: Array.isArray(d.agents) ? d.agents : [], removed: Array.isArray(d.removed) ? d.removed : [] };
+  } catch { return { pairing: null, agents: [], removed: [] }; }
 }
 
 function write(d) {
@@ -200,6 +200,13 @@ function register({ code, name, description } = {}, now = Date.now()) {
   return { agent_id: id, token, status: 'pending' };
 }
 
+/** 正在长轮询的取任务请求立刻收到状态变化（停用、移除），不用等到超时 */
+function notifyPollers(id, status) {
+  const list = pollers.get(id) || [];
+  pollers.delete(id);
+  for (const hand of list) hand({ status });
+}
+
 function setStatus(id, status) {
   const d = read();
   const a = d.agents.find(x => x.id === id);
@@ -207,7 +214,10 @@ function setStatus(id, status) {
   a.status = status;
   if (status !== 'pending') delete a.pairingCode;
   write(d);
-  if (status !== 'active') failQueued(id, status === 'disabled' ? '外部智能体已停用' : '外部智能体不可用');
+  if (status !== 'active') {
+    failQueued(id, status === 'disabled' ? '外部智能体已停用' : '外部智能体不可用');
+    notifyPollers(id, status);
+  }
   return publicView(a);
 }
 
@@ -215,14 +225,24 @@ function approve(id) { return setStatus(id, 'active'); }
 function disable(id) { return setStatus(id, 'disabled'); }
 function enable(id) { return setStatus(id, 'active'); }
 
-function remove(id) {
+function remove(id, now = Date.now()) {
   const d = read();
-  const next = d.agents.filter(a => a.id !== id);
-  if (next.length === d.agents.length) return false;
-  d.agents = next;
+  const gone = d.agents.find(a => a.id === id);
+  if (!gone) return false;
+  d.agents = d.agents.filter(a => a.id !== id);
+  // 记下移除过的 token：它再来时告诉它「你被移除了」，而不是笼统的认证失败
+  d.removed = [...(d.removed || []).filter(r => r.tokenHash !== gone.tokenHash), { tokenHash: gone.tokenHash, id, removedAt: now }].slice(-100);
   write(d);
   failQueued(id, '外部智能体已移除');
+  notifyPollers(id, 'removed');
   return true;
+}
+
+/** 这个 token 对应的智能体被移除过吗 */
+function wasRemoved(token) {
+  if (!token) return false;
+  const h = hashToken(token);
+  return read().removed.some(r => r.tokenHash === h);
 }
 
 /** 用 token 认出是哪个外部智能体；顺带记下「最近来过」。
@@ -345,6 +365,6 @@ module.exports = {
   newPairingCode, currentPairing, register,
   approve, disable, enable, remove,
   authenticate, dispatch, pull, complete,
-  setResultHandler, setPushHandler, push, restore, isOnline, skillInfo,
+  setResultHandler, setPushHandler, push, restore, isOnline, skillInfo, wasRemoved,
   _internal: { file, tasksFile, queue, waiting, pollers, ONLINE_MS, reset() { restored = false; resultHandler = null; pushHandler = null; for (const t of deadlineTimers.values()) clearTimeout(t); deadlineTimers.clear(); } },
 };
