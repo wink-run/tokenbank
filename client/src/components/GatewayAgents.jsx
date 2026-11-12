@@ -274,6 +274,26 @@ export function ProfessionalAgents() {
   );
 }
 
+/** 下划线式标签栏：网关页「智能体」三个分组和「路由」里两个分组共用 */
+export function SubTabBar({ items, value, onChange }) {
+  return (
+    <div role="tablist" className="flex gap-1 px-2.5 pt-2.5 border-b border-zinc-100 dark:border-white/[0.06] overflow-x-auto">
+      {items.map(it => (
+        <button key={it.id} type="button" role="tab" aria-selected={value === it.id} onClick={() => onChange(it.id)}
+          className={`${it.right ? 'ml-auto ' : ''}shrink-0 inline-flex items-center gap-1.5 min-h-[44px] md:min-h-[36px] px-3 -mb-px border-b-2 text-xs font-medium ${value === it.id
+            ? 'border-blue-500 text-zinc-900 dark:text-white'
+            : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'}`}>
+          {it.label}
+          {it.badge ? <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${it.tone === 'amber' ? 'bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>{it.badge}</span> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** 工具栏主按钮样式（同「新建应用」），给网关页其它地方复用 */
+export const MAIN_BUTTON_CLASS = BTN_MAIN;
+
 /** 「智能体」标签里的三个分组：一次只看一组，页面不会太长 */
 export function AgentsSubTabs({ tab, onTab, renderApps, renderRoutes }) {
   const { t } = useLang();
@@ -302,17 +322,7 @@ export function AgentsSubTabs({ tab, onTab, renderApps, renderRoutes }) {
   ];
   return (
     <div>
-      <div role="tablist" className="flex gap-1 px-2.5 pt-2.5 border-b border-zinc-100 dark:border-white/[0.06] overflow-x-auto">
-        {items.map(it => (
-          <button key={it.id} type="button" role="tab" aria-selected={tab === it.id} onClick={() => setTab(it.id)}
-            className={`${it.right ? 'ml-auto ' : ''}shrink-0 inline-flex items-center gap-1.5 min-h-[44px] md:min-h-[36px] px-3 -mb-px border-b-2 text-xs font-medium ${tab === it.id
-              ? 'border-blue-500 text-zinc-900 dark:text-white'
-              : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'}`}>
-            {it.label}
-            {it.badge ? <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${it.tone === 'amber' ? 'bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>{it.badge}</span> : null}
-          </button>
-        ))}
-      </div>
+      <SubTabBar items={items} value={tab} onChange={setTab} />
       {tab === 'apps' && (
         <div>
           {renderApps()}
@@ -602,9 +612,9 @@ export function AgentRoutesPanel() {
   const gateway = (() => { try { return `${window.location.protocol}//${window.location.hostname}:11430`; } catch { return 'http://127.0.0.1:11430'; } })();
   const curl = `curl ${gateway}/v1/agent/responses \\\n  -H "Authorization: Bearer [智能体接口 Key]" \\\n  -H "Content-Type: application/json" \\\n  -d '{"input": "帮我评审这个 PR", "metadata": {"harness_id": "${routes[1]?.id || 'agent-router-default'}"}}'`;
   return (
-    <section className="space-y-1.5 px-2.5 pt-2 pb-4">
-      <GroupHead title={t('gw2.route.title')} hint={t('gw2.route.hint')}
-        right={<button type="button" className={BTN_PRIMARY} onClick={() => setEditing('new')}>{t('gw2.route.new')}</button>} />
+    <section className="px-2.5 py-3 min-w-0 space-y-3">
+      <Toolbar main={<button type="button" className={BTN_MAIN} onClick={() => setEditing(editing === 'new' ? null : 'new')}>{t('gw2.route.newPlus')}</button>}
+        hint={t('gw2.route.hint')} />
       {err && <p className="px-1 text-xs text-red-600 dark:text-red-400">{err}</p>}
       {editing === 'new' && (
         <RouteEditor route={{ id: '', name: '', rules: [], candidates: null, allowHired: false, whenNone: 'self', mainAgentId: '' }}

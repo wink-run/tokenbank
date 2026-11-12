@@ -11,7 +11,7 @@ import claudeDevModeImg2 from '../assets/claude-devmode-2.webp';
 import { brandIconFor, resolveBrandIcon } from '../lib/brandIcons';
 import { APP_ICONS, isAppIcon, appIconSvg } from '../lib/appIcons';
 import { useLang } from '../store/lang';
-import { AgentsSubTabs, AgentRoutesPanel, AgentApiKey } from '../components/GatewayAgents';
+import { AgentsSubTabs, AgentRoutesPanel, AgentApiKey, SubTabBar, MAIN_BUTTON_CLASS } from '../components/GatewayAgents';
 import { useAuth } from '../store/index';
 import RouteSelect, { tierOptgroups, usableSceneRoutes, formatModelDropdownLabel } from '../components/RouteSelect';
 import {
@@ -5186,6 +5186,9 @@ export default function Gateway() {
   const [gwTab, setGwTabRaw] = useState(() => { try { return localStorage.getItem('tb.gw.agentsTab') || 'apps'; } catch { return 'apps'; } });
   const setGwTab = (v) => { setGwTabRaw(v); try { localStorage.setItem('tb.gw.agentsTab', v); } catch { /* 只在本次 */ } };
   const mainTab = gwTab === 'routes' ? 1 : 0;   // 0=智能体 1=路由
+  // 「路由」里的两个分组：模型路由 / 智能体路由
+  const [routesSub, setRoutesSubRaw] = useState(() => { try { return localStorage.getItem('tb.gw.routesTab') || 'model'; } catch { return 'model'; } });
+  const setRoutesSub = (v) => { setRoutesSubRaw(v); try { localStorage.setItem('tb.gw.routesTab', v); } catch { /* 只在本次 */ } };
   const setMainTab = (i) => setGwTab(i === 1 ? 'routes' : 'apps');
   const routeLogRef = useRef(null);
   const pendingRouteLogScroll = useRef(false);
@@ -5507,22 +5510,24 @@ export default function Gateway() {
             <AppManager externalRoutes={routes} availableModels={availableModels} onActivity={refresh} />
           )} renderRoutes={() => (
         <div>
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-5 pt-3">
-          <h3 className="m-0 text-sm font-semibold text-zinc-800 dark:text-zinc-100">{t('gw2.model.title')}</h3>
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">{t('gw2.model.hint')}</span>
-        </div>
+        <SubTabBar value={routesSub} onChange={setRoutesSub} items={[
+          { id: 'model', label: t('gw2.model.title') },
+          { id: 'agent', label: t('gw2.route.title') },
+        ]} />
+        {routesSub === 'agent' ? <AgentRoutesPanel /> : (
+        <div className="px-2.5 py-3 min-w-0">
         {/* 操作栏：新建（蓝色，最左）｜说明｜在线同步（最右）——布局与应用列表一致 */}
-        <div className="flex items-center gap-2 px-5 py-3 border-b border-white/40 dark:border-white/[0.06] flex-wrap">
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
           <button
             onClick={() => { if (newRoute) { setNewRoute(null); } else { setExpandedRoute(null); setNewRoute({ scene_name: '', icon: 'icon:shuffle', steps: [] }); } }}
-            className="text-xs px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:hover:bg-[#4a73a8] text-white transition-colors"
+            className={MAIN_BUTTON_CLASS}
           >{t('gateway.route.new')}</button>
           <span className="text-xs text-zinc-400 dark:text-zinc-500">{t('gateway.route.hint')}</span>
           <div className="ml-auto">
             <ImportConfigButton onImported={() => { refresh(); loadSceneData(); loadAvailableModels(); }} endpoint="/api/config/scenes" />
           </div>
         </div>
-        <div className="space-y-2 px-3 pb-3">
+        <div className="space-y-2">
           {/* 新建路由编辑器：放在列表最上面 */}
           {newRoute && (
             <SceneRouteEditor key="new-route-editor" route={newRoute} availableModels={availableModels} network={network} sources={sources} onSave={saveRoute} onCancel={() => setNewRoute(null)} />
@@ -5642,9 +5647,8 @@ export default function Gateway() {
             <div className="px-5 py-8 text-xs text-zinc-400 text-center">{t('gateway.route.empty')}</div>
           )}
         </div>
-        <div className="border-t border-white/40 dark:border-white/[0.06]">
-          <AgentRoutesPanel />
         </div>
+        )}
         </div>
         )} />
 

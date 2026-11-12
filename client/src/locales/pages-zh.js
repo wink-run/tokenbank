@@ -3139,6 +3139,7 @@ export default {
   'gw2.ext.pushRejected': '上次推送被拒（{when}）：{msg}',
   'gw2.pro.newPlus': '+ 新建专业智能体',
   'gw2.ext.connectPlus': '+ 接入外部智能体',
+  'gw2.route.newPlus': '+ 新建智能体路由',
   'gw2.kind.pro': '专业',
   'gw2.kind.ext': '外部',
   'gw2.kind.app': '应用',
