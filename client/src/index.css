@@ -1415,7 +1415,7 @@ html.tb-electron .tb-scroll-layer {
     max-width: none;
   }
   /*
-   * 应用列表：6 列栅格（应用 / 状态 / 今天 / 路由 / 操作）在窄屏会把路由和操作裁出屏幕。
+   * 应用列表：9 列栅格会把路由和操作裁出屏幕。
    * 窄屏改成卡片，字段换行排开，不再依赖横向滚动。
    */
   html.tb-web .tb-apps-scroll,
@@ -1429,13 +1429,13 @@ html.tb-electron .tb-scroll-layer {
   }
   html.tb-web .tb-apps-grid {
     width: 100%;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas:
-      "icon name"
-      "state state"
-      "today today"
-      "route route"
-      "actions actions";
+      "icon name status"
+      "link calls tokens"
+      "used used used"
+      "route route route"
+      "actions actions actions";
     column-gap: 0.5rem;
     row-gap: 0.4rem;
     align-items: center;
@@ -1443,10 +1443,13 @@ html.tb-electron .tb-scroll-layer {
   }
   html.tb-web .tb-apps-grid > :nth-child(1) { grid-area: icon; margin-left: 0; margin-right: 0; justify-self: start; }
   html.tb-web .tb-apps-grid > :nth-child(2) { grid-area: name; }
-  html.tb-web .tb-apps-grid > :nth-child(3) { grid-area: state; }
-  html.tb-web .tb-apps-grid > :nth-child(4) { grid-area: today; }
-  html.tb-web .tb-apps-grid > :nth-child(5) { grid-area: route; min-width: 0; width: 100%; }
-  html.tb-web .tb-apps-grid > :nth-child(6) { grid-area: actions; min-width: 0; }
+  html.tb-web .tb-apps-grid > :nth-child(3) { grid-area: status; justify-self: end; }
+  html.tb-web .tb-apps-grid > :nth-child(4) { grid-area: link; }
+  html.tb-web .tb-apps-grid > :nth-child(5) { grid-area: calls; }
+  html.tb-web .tb-apps-grid > :nth-child(6) { grid-area: tokens; justify-self: end; }
+  html.tb-web .tb-apps-grid > :nth-child(7) { grid-area: used; }
+  html.tb-web .tb-apps-grid > :nth-child(8) { grid-area: route; min-width: 0; width: 100%; }
+  html.tb-web .tb-apps-grid > :nth-child(9) { grid-area: actions; min-width: 0; }
   html.tb-web .tb-apps-grid > :empty,
   html.tb-web .tb-app-route:not(:has(*)) {
     display: none;
@@ -1467,7 +1470,7 @@ html.tb-electron .tb-scroll-layer {
     line-height: 1.2;
     color: rgb(113 113 122);
   }
-  html.tb-web .tb-apps-grid > :nth-child(6) > .flex {
+  html.tb-web .tb-apps-grid > :nth-child(9) > .flex {
     justify-content: flex-start;
     flex-wrap: wrap;
     overflow: visible;

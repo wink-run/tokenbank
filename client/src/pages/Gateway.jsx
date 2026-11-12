@@ -24,9 +24,6 @@ import { getNetwork } from '../api/client';
 import { normalizeNetworkPayload, workerInfo, workersForModel } from '../lib/networkModelStats';
 import { buildInvokeText, buildMcpInvokeText } from '../lib/resource-enable';
 import { speedDotClass, statusDotBucket } from '../lib/speed';
-import AppAgentsUnder from '../components/AppAgentsUnder';
-import { routeSummary } from '../lib/route-summary';
-import { askGuardian } from '../lib/askGuardian';
 
 // tier:id 作为下拉唯一 value，避免同模型跨层选中错位
 function modelTierKey(m) {
@@ -696,16 +693,7 @@ function tildify(p) {
 // 应用列表统一栅格：固定短列 + minmax(0,fr) 弹性列，避免内容撑开导致各行列宽不一致
 // 应用列保留 modest 最小宽；不设表格 min-width，避免常态出现横向滚动条
 // 应用列加大最小宽；固定短列与路由 min 适当压缩，空间让给应用名
-const APPS_TABLE_GRID = 'tb-apps-grid grid w-full grid-cols-[1.75rem_minmax(8rem,1.3fr)_minmax(11rem,2.2fr)_minmax(6rem,0.9fr)_minmax(4.5rem,1.6fr)_minmax(5.5rem,auto)] gap-x-3 items-center px-2.5 [&>*]:min-w-0';
-// 「待生效」：改了配置、要重启应用或重开终端后才生效。等到这个应用有了新的请求就算生效
-const PENDING_KEY = 'tb.gw.pending';
-const PENDING_MAX_MS = 24 * 3600 * 1000;
-function readPending() {
-  try { return JSON.parse(localStorage.getItem(PENDING_KEY) || '{}') || {}; } catch { return {}; }
-}
-function writePending(v) {
-  try { localStorage.setItem(PENDING_KEY, JSON.stringify(v)); } catch { /* 存不了就只在本次生效 */ }
-}
+const APPS_TABLE_GRID = 'tb-apps-grid grid w-full grid-cols-[1.75rem_minmax(8rem,2fr)_5rem_1.75rem_3.75rem_3.5rem_3.75rem_minmax(4.5rem,1.6fr)_minmax(7.75rem,auto)] gap-x-2 items-center px-2.5 [&>*]:min-w-0';
 
 /** 应用行测试状态：成功/进行中行内短提示；失败用浮层展示完整错误（避免窄列截断） */
 function AppTestResultHint({ ts, t }) {
@@ -2325,12 +2313,12 @@ function PreferenceMiningModal({ onClose, flash, onJobStart }) {
 }
 
 /** 会话管理面板：跨 agent 聚合 + 搜索/过滤 + 收藏/标签/归档 + 导出 */
-function SessionManager({ initialAgent = 'all' }) {
+function SessionManager() {
   const { t } = useLang();
   const [rows, setRows]           = useState([]);
   const [loading, setLoading]     = useState(true);
   const [q, setQ]                 = useState('');
-  const [agentFilter, setAgent]   = useState(initialAgent || 'all');
+  const [agentFilter, setAgent]   = useState('all');
   const [favOnly, setFavOnly]     = useState(false);
   const [traceRow, setTraceRow]   = useState(null);
   const [contState, setContState] = useState(null);
@@ -3021,26 +3009,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
   const [devTipApp, setDevTipApp] = useState(null);   // 开发者模式引导弹窗对应的 app
   const [devTipMsg, setDevTipMsg] = useState('');     // 引导弹窗内「刷新检测」结果提示
   const [manualDraft, setManualDraft] = useState(null); // 手工添加的内联面板对应的 app
-  const [appStats, setAppStats] = useState({});     // id → {calls,tokens,lastTs,cost,providers}（当天用量）
-  const navigate = useNavigate();
-  const { fmtCost } = useCurrency();
-  const [rowAgents, setRowAgents] = useState([]);     // 投射在各应用上的智能体（游乐场同一份列表）
-  const [blockedAgents, setBlockedAgents] = useState([]); // 投射了但跑不起来的（应用不可用 / 技能不在了）
-  const [assetsByApp, setAssetsByApp] = useState({}); // 应用 agent_id → { skill, mcp, prompt } 启用到它上面的资产数
-  const [agentTaskStats, setAgentTaskStats] = useState({});   // 智能体 id → 今天的任务数 / 成功数
-  const [providerIssues, setProviderIssues] = useState({});   // 来源 id → 要用户处理的问题（Key 失效、额度用完）
-  const [rentIds, setRentIds] = useState(() => new Set());    // 出租中的智能体资产 id
-  const [pending, setPending] = useState(() => readPending()); // 应用 id → { at, shell }
-  const [rowMenu, setRowMenu] = useState(null);       // { id, top, right }：「⋯」菜单
-  const [apiApp, setApiApp] = useState(null);         // 点了应用旁「接口」：弹出这个应用的接口说明
-  const [sessionsFor, setSessionsFor] = useState(null); // 会话弹窗：'all' 或某个应用的会话 agent id
-  // 「⋯」菜单、会话弹窗：按 Esc 关（焦点在哪都行）
-  useEffect(() => {
-    if (!rowMenu && !sessionsFor) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') { setRowMenu(null); setSessionsFor(null); } };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [rowMenu, sessionsFor]);
+  const [appStats, setAppStats] = useState({});     // id → {calls,tokens,lastTs}（当天用量）
   const [loading,  setLoading]  = useState(true);   // 首次加载中（应用检测较慢）→ 显示加载特效而非空状态
   const [toolboxOpen, setToolboxOpen] = useState(false);       // 应用百宝箱展开态
   const [toolboxBusy, setToolboxBusy] = useState(false);       // 展开前从云端拉取目录
@@ -3091,56 +3060,12 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
       if (list.length && appsApi.stats) {
         appsApi.stats(list).then(s => setAppStats(s || {})).catch(() => {});
       }
-      loadRowExtras();
     } finally {
       setLoading(false);
     }
   }, [appsApi]);
 
   useEffect(() => { load(); }, [load]);
-
-  // 应用行要的其它信息：智能体、今天的任务、来源问题、出租中的智能体。都拿不到时行照常显示
-  async function loadRowExtras() {
-    const api = window.electronAPI;
-    try {
-      const r = await api?.agent?.listAgents?.();
-      if (r?.success) setRowAgents((r.agents || []).filter(a => a.type === 'assistant' && a.runtimeAgentId));
-    } catch { /* ignore */ }
-    try {
-      const r = await api?.agent?.taskStats?.();
-      if (r?.success) setAgentTaskStats(r.stats?.by_agent || {});
-    } catch { /* ignore */ }
-    try {
-      const r = await api?.agent?.listBlocked?.();
-      if (r?.success) setBlockedAgents(r.agents || []);
-    } catch { /* ignore */ }
-    try {
-      const r = await api?.resource?.listResources?.({});
-      const list = Array.isArray(r) ? r : (r?.resources || r?.items || []);
-      const m = {};
-      for (const res of list) {
-        if (!['skill', 'mcp', 'prompt'].includes(res.type)) continue;
-        const seen = new Set();
-        for (const p of res.projections || []) {
-          const id = p?.agentId || p?.agent_id;
-          if (!id || seen.has(id)) continue;
-          seen.add(id);
-          const row = m[id] || (m[id] = { skill: 0, mcp: 0, prompt: 0 });
-          row[res.type] += 1;
-        }
-      }
-      setAssetsByApp(m);
-    } catch { /* ignore */ }
-    try {
-      const r = await api?.guardian?.providerIssues?.();
-      if (r?.success) setProviderIssues(r.issues || {});
-    } catch { /* ignore */ }
-    try {
-      const cfg = await getConfig().read().catch(() => null);
-      const ids = (cfg?.contribute_assistants || []).map(x => (typeof x === 'string' ? x : (x?.id || x?.resource_id))).filter(Boolean);
-      setRentIds(new Set(ids));
-    } catch { /* ignore */ }
-  }
 
   // Claude 名（Claude Desktop inferenceModels 的 name 只能用 Anthropic 名）
   useEffect(() => { appsApi.claudeModels?.().then(m => setClaudeModels(Array.isArray(m) ? m : [])).catch(() => {}); }, [appsApi]);
@@ -3253,13 +3178,6 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState({});   // id → 提示文字
   const noticeTimers = useRef({});            // id → 自动隐藏定时器
-  // 改了配置、要重启才生效：行上一直显示「待生效」，直到这个应用来了新请求
-  function notePending(id, app) {
-    if (!id) return;
-    const next = { ...readPending(), [id]: { at: Date.now(), shell: app?.link_method === 'shim' } };
-    writePending(next);
-    setPending(next);
-  }
   function showNotice(id, msg, ms = 3000) {
     if (noticeTimers.current[id]) clearTimeout(noticeTimers.current[id]);
     setNotice(n => ({ ...n, [id]: msg }));
@@ -3290,20 +3208,20 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
           id: appId, hosted: true, route_id: routeId, route_ids: routeIds.length ? routeIds : null,
         }).catch(() => {});
         await writeApiKeyConfig({ ...app, id: appId, route_id: routeId, route_ids: routeIds });
-        notePending(appId, app);
+        showNotice(appId, t('gateway.apps.restartToApply'));
       } else {
         // 纳管默认官方订阅：清空路由，确保不注入网关
         await appsApi.update({ id: appId, hosted: true, route_id: null, route_ids: null }).catch(() => {});
         if (app.host_method === 'config-file') {
           await appsApi.revertConfigFile({ app_id: appId, config_file: app.config_file }).catch(() => {});
-          notePending(appId, app);
+          showNotice(appId, t('gateway.apps.restartToApply'));
         } else if (app.link_method === 'shim' && app.agent_id) {
           await window.electronAPI.agents?.revert(app.agent_id).catch(() => {});
-          notePending(appId, app);
+          showNotice(appId, t('gateway.apps.restartToApply'));
         } else if (app.link_method === 'direct') {
-          notePending(appId, app);
+          showNotice(appId, t('gateway.apps.restartToApply'));
         } else {
-          notePending(appId, app);
+          showNotice(appId, t('gateway.apps.restartToApply'));
         }
       }
     } else {
@@ -3314,10 +3232,10 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
       setBusyId(appId);
       if (app.link_method === 'shim' && app.agent_id) {
         await window.electronAPI.agents?.revert(app.agent_id).catch(() => {});
-        notePending(appId, app);
+        showNotice(appId, t('gateway.apps.restartToApply'));
       } else if (app.host_method === 'config-file') {
         await appsApi.revertConfigFile({ app_id: appId, config_file: app.config_file }).catch(() => {});
-        notePending(appId, app);
+        showNotice(appId, t('gateway.apps.restartToApply'));
       } else if (app.link_method === 'direct') {
         showNotice(appId, t('gateway.apps.untracked'));
       }
@@ -3482,17 +3400,6 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
   async function applyAppRouteSelection(app, val, selected) {
     const routeIds = Array.isArray(selected) && selected.length ? selected : (val ? [val] : []);
     const primary = routeIds[0] || null;
-    // 会改写应用配置的切换（官方订阅 ⇄ 走网关）：先说清楚改什么、何时生效、怎么还原；只是换路由不问
-    const writesConfig = app.host_method === 'config-file' || app.link_method === 'shim';
-    const wasRouted = effectiveRouteIds(app).length > 0;
-    if (writesConfig && wasRouted !== routeIds.length > 0) {
-      const name = String(app.name || '').split(' · ')[0] || app.name;
-      const when = app.link_method === 'shim' ? t('gateway.apps.confirm.whenShell') : t('gateway.apps.confirm.whenApp', { name });
-      const msg = routeIds.length
-        ? t('gateway.apps.confirm.toGateway', { name, when })
-        : t('gateway.apps.confirm.toOfficial', { name, when });
-      if (!window.confirm(msg)) return;
-    }
     setBusyId(app.id);
     if (app.host_method === 'config-file') {
       await appsApi.update({
@@ -3501,10 +3408,10 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
       }).catch(() => {});
       if (routeIds.length) {
         await writeApiKeyConfig({ ...app, route_id: primary, route_ids: routeIds });
-        notePending(app.id, app);
+        showNotice(app.id, t('gateway.apps.restartToApply'));
       } else {
         await appsApi.revertConfigFile({ app_id: app.id, config_file: app.config_file }).catch(() => {});
-        notePending(app.id, app);
+        showNotice(app.id, t('gateway.apps.restartToApply'));
       }
     } else if (app.link_method === 'shim' && app.agent_id) {
       let appId = app.id;
@@ -3521,7 +3428,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
       const keepShimOnDirect = !!(app.instance && !app.instance.is_default);
       if (primary || keepShimOnDirect) { await window.electronAPI.agents?.apply(app.agent_id).catch(() => {}); }
       else { await window.electronAPI.agents?.revert(app.agent_id).catch(() => {}); }
-      notePending(appId, app);
+      showNotice(appId, t('gateway.apps.restartToApply'));
     } else if (app.link_method === 'session') {
       await appsApi.update({
         id: app.id, route_id: primary, route_ids: routeIds.length ? routeIds : null,
@@ -3572,7 +3479,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
       }
     }
     setBusyId(null);
-    if (created?.id) notePending(created.id, d);
+    if (created?.id) showNotice(created.id, t('gateway.apps.restartToApply'));
     await load();
   }
 
@@ -3601,34 +3508,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
   // 列表只显示非草稿条目（新建面板未保存的临时条目 draft:true 不进列表）
   const visibleApps = apps.filter(a => !a.draft);
 
-  // 一行应用的状态：未纳管 / 只统计 / 走网关 / 待生效，以及要用户处理的来源问题
-  function appRowState(app) {
-    const keyApp = isKeyApp(app.link_method);
-    const isCfgApp = keyApp && app.host_method === 'config-file';
-    const isDirectOnly = app.link_method === 'direct';
-    const isSessionApp = app.link_method === 'session';
-    const hostable = app.link_method === 'shim' || isCfgApp || isDirectOnly;
-    const tracked = app.hosted === true && !app.needs_dev_mode;
-    const isManaged = isSessionApp ? tracked : (hostable ? tracked : (keyApp && !app._virtual_apikey));
-    const isGatewayRouted = isSessionApp
-      ? effectiveRouteIds(app).length > 0
-      : (hostable ? !!(tracked && effectiveRouteIds(app).length) : !!(keyApp && effectiveRouteIds(app).length));
-    const st = appStats[app.id] || {};
-    const used = new Set(st.providers || []);
-    const usedModels = new Set(st.models || []);
-    const issue = isManaged && isGatewayRouted
-      ? Object.entries(providerIssues).find(([pid, v]) => used.has(pid) || (v.models || []).some(m => usedModels.has(m)))?.[1] || null
-      : null;
-    const pend = pending[app.id];
-    const pendingOn = !!(isManaged && pend && Date.now() - pend.at < PENDING_MAX_MS
-      && !(st.lastTs && st.lastTs * 1000 > pend.at));
-    let state = 'untracked';
-    if (isManaged) state = issue ? 'issue' : pendingOn ? 'pending' : isGatewayRouted ? 'gateway' : 'statsOnly';
-    return { keyApp, isCfgApp, isDirectOnly, isSessionApp, hostable, tracked, isManaged, isGatewayRouted, issue, pend, state };
-  }
-
   // CLI 多账号分组：同 agent_id 的 shim 实例 ≥2 → 插一条父行 + 子行；单实例(或非实例)照旧一行。
-  // 已纳管的在前（要用户处理的置顶，其余按今天的请求数）；没纳管的另起一组放在后面。
   const renderList = (() => {
     const cnt = {};
     for (const a of visibleApps) if (a.link_method === 'shim' && a.agent_id && a.instance) cnt[a.agent_id] = (cnt[a.agent_id] || 0) + 1;
@@ -3641,48 +3521,14 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
         if (done.has(gid)) continue;
         done.add(gid);
         const members = visibleApps.filter(x => x.agent_id === gid && x.link_method === 'shim' && x.instance);
-        const block = [{ __parent: true, agentId: gid, count: members.length, sample: members[0] }];
-        members.forEach((m, i) => block.push({ app: m, isChild: true, lastChild: i === members.length - 1 }));
-        out.push(block);
+        out.push({ __parent: true, agentId: gid, count: members.length, sample: members[0] });
+        for (const m of members) out.push({ app: m, isChild: true });
       } else {
-        out.push([{ app }]);
+        out.push({ app });
       }
     }
-    const appsOf = (b) => b.filter(e => e.app).map(e => e.app);
-    const managed = (b) => appsOf(b).some(a => appRowState(a).isManaged);
-    const rank = (b) => (appsOf(b).some(a => appRowState(a).state === 'issue') ? 1e12 : 0)
-      + appsOf(b).reduce((n, a) => n + ((appStats[a.id] || {}).calls || 0), 0);
-    const on = out.filter(managed).sort((a, b) => rank(b) - rank(a));
-    const off = out.filter(b => !managed(b));
-    const flat = on.flat();
-    if (off.length) flat.push({ __untrackedHead: true, apps: off.flatMap(appsOf) }, ...off.flat());
-    return flat;
+    return out;
   })();
-  // 投射的智能体按它跑在哪个应用上分组（应用 agent_id = 智能体运行时）
-  const agentsByRuntime = (() => {
-    const m = {};
-    const blockedById = new Map(blockedAgents.map(b => [b.id, b]));
-    for (const a of rowAgents) {
-      const b = blockedById.get(a.id);
-      (m[a.runtimeAgentId] = m[a.runtimeAgentId] || []).push({ ...a, builtin: a.id === 'assistant:tb-guardian', blocked: b || null });
-      blockedById.delete(a.id);
-    }
-    for (const b of blockedById.values()) {
-      (m[b.runtimeAgentId] = m[b.runtimeAgentId] || []).push({ id: b.id, name: b.name, resourceId: b.resourceId, runtimeAgentId: b.runtimeAgentId, blocked: b });
-    }
-    return m;
-  })();
-  const agentStatsFor = (list) => Object.fromEntries((list || []).map(a => [a.id, {
-    tasks: agentTaskStats[a.id]?.tasks || 0, ok: agentTaskStats[a.id]?.ok || 0,
-  }]));
-  async function manageAll(list) {
-    for (const a of list) {
-      const rs = appRowState(a);
-      if (rs.isManaged || a.needs_dev_mode) continue;
-      if (a._virtual_apikey) await addApiKeyApp(a);
-      else if (rs.hostable || rs.isSessionApp) await setTracked(a, true);
-    }
-  }
 
   return (
     <>
@@ -3746,12 +3592,11 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
       <div className="px-2.5 py-3 min-w-0">
             {/* 操作栏 */}
             <div className="flex items-center gap-2 mb-3 flex-wrap">
-              <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100 m-0">{t('gateway.apps.sectionTitle')}</h2>
-              <span className="text-[11px] text-zinc-500 dark:text-zinc-400 min-w-0 flex-1">{t('gateway.apps.sectionHint')}</span>
-              <button type="button" onClick={() => setSessionsFor('all')}
-                className="text-xs px-2.5 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800">
-                {t('gateway.sessions.allButton')}
+              <button onClick={() => manualDraft ? cancelManualDraft() : addCustom()}
+                className="text-xs px-3 py-1.5 rounded-xl bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:hover:bg-[#4a73a8] active:bg-blue-700 text-white transition-colors font-medium shadow-sm shadow-blue-500/20">
+                {t('gateway.apps.new')}
               </button>
+              <span className="text-xs text-zinc-400 dark:text-zinc-500">{t('gateway.apps.newHint')}</span>
               <AppToolbox
                 open={toolboxOpen}
                 busy={toolboxBusy}
@@ -3760,23 +3605,19 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                 refreshKey={toolboxRefresh}
                 syncError={toolboxSyncError}
               />
-              <button onClick={() => manualDraft ? cancelManualDraft() : addCustom()} title={t('gateway.apps.newHint')}
-                className="text-xs px-3 py-1.5 rounded-xl bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:hover:bg-[#4a73a8] active:bg-blue-700 text-white transition-colors font-medium shadow-sm shadow-blue-500/20">
-                {t('gateway.apps.new')}
-              </button>
             </div>
 
-            {/* Docker：命令行智能体装在容器里，首次使用要在容器里登录。默认收起，只占一行 */}
+            {/* Docker：命令行智能体装在容器里，首次使用要在容器里登录 */}
             {isWebBridge() && (
-              <details className="mb-3 min-w-0 rounded-xl border border-sky-200/80 dark:border-sky-900/50 bg-sky-50/70 dark:bg-sky-950/20 px-3 py-2 text-[11px] text-sky-800 dark:text-sky-200 break-words [&[open]>*+*]:mt-1">
-                <summary className="font-medium cursor-pointer">{t('gateway.docker.agentsTitle')}</summary>
+              <div className="mb-3 min-w-0 rounded-xl border border-sky-200/80 dark:border-sky-900/50 bg-sky-50/70 dark:bg-sky-950/20 px-3 py-2 text-[11px] text-sky-800 dark:text-sky-200 space-y-1 break-words">
+                <p className="font-medium">{t('gateway.docker.agentsTitle')}</p>
                 <p className="text-sky-700/90 dark:text-sky-300/80">{t('gateway.docker.agentsInstall')}</p>
                 <p className="text-sky-700/90 dark:text-sky-300/80">
                   {t('gateway.docker.agentsLogin')}{' '}
                   <code className="mt-1 block font-mono px-1.5 py-1 rounded bg-white/80 dark:bg-zinc-900/60 select-all break-all">docker exec -it -u node {'<容器名>'} claude</code>
                 </p>
                 <p className="text-sky-700/90 dark:text-sky-300/80">{t('gateway.docker.agentsWorkspace')}</p>
-              </details>
+              </div>
             )}
 
             {/* 手工添加 → 弹层（ManualAddPanel，portal 到 body，避免被应用列表卡片裁切）*/}
@@ -3805,27 +3646,15 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                 <div className={`${APPS_TABLE_GRID} tb-table-head py-2.5 sticky top-0 z-10`}>
                   <span className="text-base text-center shrink-0 invisible">🔧</span>
                   <div className="min-w-0">{t('gateway.apps.colApp')}</div>
-                  <div className="min-w-0">{t('gateway.apps.colState')}</div>
-                  <div className="min-w-0">{t('gateway.apps.colToday')}</div>
+                  <div className="text-center min-w-0">{t('gateway.apps.colStatus')}</div>
+                  <div className="text-center min-w-0">{t('gateway.apps.colLink')}</div>
+                  <div className="text-center min-w-0">{t('gateway.apps.colCalls')}</div>
+                  <div className="text-center min-w-0">{t('gateway.apps.colTokens')}</div>
+                  <div className="text-center min-w-0">{t('gateway.apps.colLastUsed')}</div>
                   <div className="text-center min-w-0">{t('gateway.apps.colRoute')}</div>
-                  <div className="text-right min-w-0">{t('gateway.apps.colActions')}</div>
+                  <div className="text-center min-w-0">{t('gateway.apps.colActions')}</div>
                 </div>
                 {renderList.map(entry => {
-                  if (entry.__untrackedHead) {
-                    const canAll = entry.apps.some(a => !a.needs_dev_mode && (a._virtual_apikey || appRowState(a).hostable || appRowState(a).isSessionApp));
-                    return (
-                      <div key="__untracked" className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2.5 pt-4 pb-2 border-t border-zinc-200/80 dark:border-zinc-800">
-                        <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">{t('gateway.apps.untrackedTitle')}</span>
-                        <span className="text-[11px] text-zinc-500 dark:text-zinc-400">{t('gateway.apps.untrackedHint')}</span>
-                        {canAll && (
-                          <button type="button" onClick={() => manageAll(entry.apps)} disabled={!!busyId}
-                            className="ml-auto text-[11px] px-2.5 py-1 rounded-lg border border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-40">
-                            {t('gateway.apps.manageAll')}
-                          </button>
-                        )}
-                      </div>
-                    );
-                  }
                   // CLI 多账号父行：轻量头行，标「N 账号」+ 添加账号（重扫）；不占状态/路由列
                   if (entry.__parent) {
                     const s = entry.sample;
@@ -3840,7 +3669,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                           <span className="truncate">{toolName}</span>
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-700/60 text-zinc-500 dark:text-zinc-400 shrink-0">{t('gateway.apps.instanceCount', { n: entry.count })}</span>
                         </div>
-                        <div /><div />
+                        <div /><div /><div /><div /><div />
                         <div className="text-center text-[10px] text-zinc-400">{t('gateway.apps.byInstance')}</div>
                         <div className="flex justify-end">
                           <button onClick={() => rescanInstances()} title={t('gateway.apps.addAccount')}
@@ -3865,10 +3694,20 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                     if (diff < 7*86400) return t('gateway.common.daysAgo', { n: Math.floor(diff/86400) });
                     return new Date(ts*1000).toLocaleDateString('zh-CN',{month:'short',day:'numeric'});
                   };
-                  // 状态：未纳管 / 只统计 / 走网关 / 待生效；用到的来源出问题时是「要你处理」
-                  const rs = appRowState(app);
-                  const { keyApp, isDirectOnly, isSessionApp, hostable, tracked, isManaged, isGatewayRouted } = rs;
+                  // 状态列：在线(已纳管) / 未纳管；经网关与否由路由下拉区分
+                  const keyApp = isKeyApp(app.link_method);
+                  const isCfgApp = keyApp && app.host_method === 'config-file';
                   const isManual = app.link_method === 'manual';
+                  const isDirectOnly = app.link_method === 'direct';        // 仅官方订阅（cursor 等）
+                  const isSessionApp = app.link_method === 'session';       // 可绑路由的会话统计（WorkBuddy 等）
+                  const hostable = app.link_method === 'shim' || isCfgApp || isDirectOnly;
+                  // needs_dev_mode（Claude Desktop 开发者模式未就绪）时无法真正纳管：
+                  // 强制按未纳管显示，避免「已纳管」与「启用开发者模式」并存的矛盾状态。
+                  const tracked  = app.hosted === true && !app.needs_dev_mode;
+                  const isManaged = isSessionApp ? tracked : (hostable ? tracked : (keyApp && !app._virtual_apikey));
+                  const isGatewayRouted = isSessionApp
+                    ? effectiveRouteIds(app).length > 0
+                    : (hostable ? !!(tracked && effectiveRouteIds(app).length) : !!(keyApp && effectiveRouteIds(app).length));
                   const routeKnown = (val) => {
                     if (!val) return false;
                     // 场景路由始终可识别（按 model_key / id）
@@ -3905,6 +3744,12 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                   const routeLocked = isDirectOnly || !canBindRoute || ((hostable && !tracked) && !isSessionApp);
                   const showGatewayRoutes = canBindRoute && !isDirectOnly;
                   const isApiLink = app.link_method === 'manual';
+                  const statusLabel = !isManaged
+                    ? t('gateway.apps.statusUntracked')
+                    : isApiLink
+                      ? t('gateway.apps.statusApiOnline')
+                      : t('gateway.apps.statusOnline');
+                  const statusText = isManaged ? 'text-green-600 dark:text-green-400' : 'text-zinc-400';
                   return (
                     // 离线不整行压暗（否则操作按钮看着像禁用）；离线感由灰底/灰点/「离线」标签/
                     // 图标灰度/灰名体现，操作按钮保持全亮可点（含「测试」）。
@@ -3919,80 +3764,34 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                       })()}
                       {isChild ? (
                         <div className="min-w-0 pl-4 border-l border-zinc-200 dark:border-zinc-800" title={app.name + (app.instance?.dir_glob ? '  ·  ' + app.instance.dir_glob : '')}>
-                          <div className={`text-xs font-medium tracking-tight text-zinc-800 dark:text-zinc-100 truncate flex items-center gap-1.5 ${isActive ? '' : 'opacity-50'}`}>
-                            <span className="truncate">{String(app.name || '').split(' · ').slice(1).join(' · ') || app.name}</span>
-                            {app.api_key && (
-                              <button type="button" onClick={() => setApiApp(app)} title={t('gateway.api.chipTitle')}
-                              className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-300">
-                              {t('gateway.api.chip')}
-                            </button>
-                            )}
+                          <div className={`text-xs font-medium tracking-tight text-zinc-800 dark:text-zinc-100 truncate ${isActive ? '' : 'opacity-50'}`}>
+                            {String(app.name || '').split(' · ').slice(1).join(' · ') || app.name}
                           </div>
                           {app.instance?.dir_glob && <div className="tb-table-cell-meta font-mono truncate">{tildify(app.instance.dir_glob)}</div>}
                           {app.instance?.account_email && <div className="tb-table-cell-meta truncate">{app.instance.account_email}</div>}
                         </div>
                       ) : (
-                        <div className="min-w-0 flex items-center gap-1.5">
-                          <span
-                            className={`text-xs font-medium tracking-tight text-zinc-800 dark:text-zinc-100 truncate min-w-0 ${isActive ? '' : 'opacity-50'}`}
-                            title={app.name}
-                          >{app.name}</span>
-                          {app.api_key && !app._virtual_apikey && (
-                            <button type="button" onClick={() => setApiApp(app)} title={t('gateway.api.chipTitle')}
-                              className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-300">
-                              {t('gateway.api.chip')}
-                            </button>
-                          )}
-                        </div>
+                        <div
+                          className={`text-xs font-medium tracking-tight text-zinc-800 dark:text-zinc-100 truncate min-w-0 ${isActive ? '' : 'opacity-50'}`}
+                          title={app.name}
+                        >{app.name}</div>
                       )}
 
-                      {/* 状态：一个词 + 一句话；要用户处理时给出去处 */}
-                      {(() => {
-                        const pill = {
-                          untracked: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300',
-                          statsOnly: 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-                          gateway: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-                          pending: 'bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
-                          issue: 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-                        }[rs.state];
-                        const toolName = String(app.name || '').split(' · ')[0] || app.name;
-                        const desc = rs.state === 'issue' ? `${rs.issue.text}${t('gateway.apps.issue.moreText')}`
-                          : rs.state === 'pending' ? (rs.pend?.shell ? t('gateway.apps.desc.pendingShell') : t('gateway.apps.desc.pendingApp', { name: toolName }))
-                          : rs.state === 'gateway' ? t('gateway.apps.desc.gateway')
-                          : rs.state === 'statsOnly' ? (isDirectOnly ? t('gateway.apps.desc.directOnly') : t('gateway.apps.desc.statsOnly'))
-                          : app.needs_dev_mode ? t('gateway.apps.desc.devMode')
-                          : (app._virtual_apikey ? t('gateway.apps.desc.untrackedApi') : t('gateway.apps.desc.untracked'));
-                        return (
-                          <div data-label={t('gateway.apps.colState')} className="min-w-0 flex flex-col gap-0.5 overflow-hidden">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${pill}`}>{t(`gateway.apps.state.${rs.state}`)}</span>
-                              {isApiLink && <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-zinc-200 dark:border-zinc-700 text-zinc-500 shrink-0">{t('gateway.apps.tagApi')}</span>}
-                            </div>
-                            <div className="text-[11px] leading-snug text-zinc-500 dark:text-zinc-400 whitespace-normal break-words" title={desc}>{desc}</div>
-                            {rs.state === 'issue' && (
-                              <div className="flex flex-wrap gap-x-2">
-                                <button type="button" onClick={() => navigate('/providers')} className="text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:underline">
-                                  {rs.issue.kind === 'quota' ? t('gateway.apps.issue.fixQuota') : t('gateway.apps.issue.fix')}
-                                </button>
-                                <button type="button" onClick={() => askGuardian(navigate, rs.issue.text)} className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline">
-                                  {t('gateway.apps.issue.ask')}
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
+                      {/* 状态列：应用=已纳管/未纳管，API=在线 */}
+                      <div className="min-w-0 flex items-center gap-1.5 overflow-hidden">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${statusDot}`} />
+                        <span className={`text-xs font-medium truncate ${statusText}`}>{statusLabel}</span>
+                      </div>
 
-                      {/* 今天：请求数 · 花费；下面是最近一次使用（点击打开用量明细）*/}
-                      <button type="button" data-label={t('gateway.apps.colToday')} onClick={() => setDetailApp(app)} title={t('gateway.apps.statsTitle')}
-                        className="min-w-0 text-left rounded px-1 py-0.5 hover:bg-zinc-500/[0.06] dark:hover:bg-white/[0.06]">
-                        <div className="text-[11px] font-medium tabular-nums text-zinc-700 dark:text-zinc-200 truncate">
-                          {st.calls > 0
-                            ? (st.cost > 0 ? t('gateway.apps.today', { calls: st.calls.toLocaleString(), cost: fmtCost(st.cost) }) : t('gateway.apps.todayNoCost', { calls: st.calls.toLocaleString() }))
-                            : t('gateway.apps.todayNone')}
-                        </div>
-                        {st.lastTs ? <div className="tb-table-cell-meta truncate">{t('gateway.apps.lastUsed', { when: fmtTime(st.lastTs) })}</div> : null}
-                      </button>
+                      {/* 接入方式列（居中，与表头对齐）*/}
+                      <div className="min-w-0 tb-table-cell-meta truncate text-center" data-label={t('gateway.apps.colLink')}>
+                        {linkMethodLabel(app.link_method, t)}
+                      </div>
+
+                      {/* 统计：请求数 / token / 最后使用（点击打开用量明细）*/}
+                      <div data-label={t('gateway.apps.colCalls')} className="text-center overflow-hidden text-[11px] font-medium tabular-nums tracking-tight text-zinc-600 dark:text-zinc-300 rounded hover:bg-zinc-500/[0.06] dark:hover:bg-white/[0.06] cursor-pointer" title={t('gateway.apps.statsTitle')} onClick={() => setDetailApp(app)}>{st.calls > 0 ? st.calls.toLocaleString() : '—'}</div>
+                      <div data-label={t('gateway.apps.colTokens')} className="text-center overflow-hidden text-[11px] font-medium tabular-nums tracking-tight text-zinc-600 dark:text-zinc-300 rounded hover:bg-zinc-500/[0.06] dark:hover:bg-white/[0.06] cursor-pointer" title={t('gateway.apps.statsTitle')} onClick={() => setDetailApp(app)}>{st.tokens > 0 ? fmtTokens(st.tokens) : '—'}</div>
+                      <div data-label={t('gateway.apps.colLastUsed')} className="text-center overflow-hidden tb-table-cell-meta rounded hover:bg-zinc-500/[0.06] dark:hover:bg-white/[0.06] cursor-pointer" title={t('gateway.apps.statsTitle')} onClick={() => setDetailApp(app)}>{fmtTime(st.lastTs)}</div>
 
                       {/* 路由下拉：同一控件；不可绑路由时灰色禁用（与仅官方订阅应用一致） */}
                       <div className="tb-app-route min-w-0 overflow-visible">
@@ -4023,34 +3822,102 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                       {/* 操作区 */}
                       <div className="relative min-w-0">
                         <div className="flex items-center justify-end gap-1.5 min-w-0 max-w-full overflow-hidden">
-                      {(() => {
-                        const busy = busyId === app.id || busyId === app.agent_id;
-                        const primary = 'text-[11px] px-2.5 py-1 rounded-lg bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:hover:bg-[#4a73a8] active:bg-blue-700 text-white disabled:opacity-40 shrink-0 font-medium transition-colors';
-                        if (app.host_method === 'config-file' && app.needs_dev_mode) {
-                          return (
-                            <button type="button" onClick={() => { setDevTipMsg(''); setDevTipApp(app); }} title={t('gateway.app.devModeTitle')}
-                              className="text-[11px] px-2.5 py-1 rounded-lg border border-amber-300 dark:border-amber-700/60 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors shrink-0 font-medium">
-                              {t('gateway.apps.enableDevMode')}
+                      {(app.api_key || isDirectOnly) && (() => {
+                        const ts = testState[app.id];
+                        const harnessForTest = runnableHarnessId(app);
+                        const menuOpen = testMenuId === app.id;
+                        return (
+                          <div className="relative shrink-0">
+                            <button onClick={(e) => {
+                              if (menuOpen) { setTestMenuId(null); setTestMenuBox(null); return; }
+                              const r = e.currentTarget.getBoundingClientRect();
+                              setTestMenuId(app.id);
+                              setTestMenuBox({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
+                            }} disabled={ts?.busy}
+                              className={`text-[11px] px-1.5 py-1 rounded-lg border transition-colors shrink-0 ${ts?.busy
+                                ? 'border-zinc-300 dark:border-zinc-600 text-zinc-400 opacity-60 cursor-wait'
+                                : 'border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:border-blue-400 hover:text-blue-500'} disabled:opacity-40 disabled:cursor-not-allowed`}>
+                              {ts?.busy ? t('gateway.common.testing') : t('gateway.common.test')}
                             </button>
-                          );
-                        }
-                        if (app._virtual_apikey) {
-                          return <button type="button" onClick={() => addApiKeyApp(app)} disabled={busy} className={primary}>{busy ? '…' : t('gateway.common.manage')}</button>;
-                        }
-                        if (!tracked && (isDirectOnly || isSessionApp || app.link_method === 'shim' || app.host_method === 'config-file')) {
-                          return <button type="button" onClick={() => setTracked(app, true)} disabled={busy} className={primary}>{busy ? '…' : t('gateway.common.manage')}</button>;
-                        }
-                        return null;
+                            {menuOpen && !ts?.busy && testMenuBox && createPortal(
+                              <div className="fixed z-[90] min-w-[6.5rem] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg py-1"
+                                style={{ top: testMenuBox.top, right: testMenuBox.right }}>
+                                <button type="button" disabled={!isGatewayRouted}
+                                  onClick={() => { setTestMenuId(null); setTestMenuBox(null); runAppTest(app); }}
+                                  className="block w-full text-left px-2.5 py-1 text-[11px] text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 disabled:opacity-40 disabled:hover:bg-transparent">
+                                  {t('gateway.test.model')}
+                                </button>
+                                <button type="button" disabled={!harnessForTest || !app.api_key}
+                                  onClick={() => { setTestMenuId(null); setTestMenuBox(null); runAgentTest(app); }}
+                                  className="block w-full text-left px-2.5 py-1 text-[11px] text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 disabled:opacity-40 disabled:hover:bg-transparent">
+                                  {t('gateway.test.agent')}
+                                </button>
+                              </div>,
+                              document.body,
+                            )}
+                          </div>
+                        );
                       })()}
-                      {testState[app.id]?.busy && <span className="text-[11px] text-zinc-400 shrink-0">{t('gateway.common.testing')}</span>}
-                      {!app._virtual_apikey && (
-                        <button type="button" aria-label={t('gateway.apps.more', { name: app.name })} aria-haspopup="menu" aria-expanded={rowMenu?.id === app.id}
-                          onClick={(e) => {
-                            if (rowMenu?.id === app.id) { setRowMenu(null); return; }
-                            const r = e.currentTarget.getBoundingClientRect();
-                            setRowMenu({ id: app.id, top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
-                          }}
-                          className="text-[13px] leading-none w-7 h-7 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 shrink-0">⋯</button>
+                      {!app._virtual_apikey ? (
+                        <button onClick={() => openAppSettings(app)}
+                          className="text-[11px] px-1.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors shrink-0">
+                          {t('gateway.common.settings')}
+                        </button>
+                      ) : null}
+                      {isDirectOnly || isSessionApp ? (
+                        tracked ? (
+                          <button onClick={() => setTracked(app, false)} disabled={busyId === app.id}
+                            title={t('gateway.apps.revertTitle')}
+                            className="text-[11px] px-1.5 py-1 rounded-lg border border-red-200 dark:border-red-800/60 text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40 shrink-0">
+                            {busyId === app.id ? '…' : t('gateway.common.revert')}
+                          </button>
+                        ) : (
+                          <button onClick={() => setTracked(app, true)} disabled={busyId === app.id}
+                            className="text-[11px] px-2.5 py-1 rounded-lg bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:hover:bg-[#4a73a8] active:bg-blue-700 text-white disabled:opacity-40 shrink-0 font-medium transition-colors">
+                            {busyId === app.id ? '…' : t('gateway.common.manage')}
+                          </button>
+                        )
+                      ) : app.link_method === 'shim' ? (
+                        tracked ? (
+                          <button onClick={() => setTracked(app, false)} disabled={busyId === app.agent_id || busyId === app.id}
+                            className="text-[11px] px-1.5 py-1 rounded-lg border border-red-200 dark:border-red-800/60 text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40 shrink-0">
+                            {(busyId === app.agent_id || busyId === app.id) ? '…' : t('gateway.common.revert')}
+                          </button>
+                        ) : (
+                          <button onClick={() => setTracked(app, true)} disabled={busyId === app.agent_id || busyId === app.id}
+                            className="text-[11px] px-2.5 py-1 rounded-lg bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:hover:bg-[#4a73a8] active:bg-blue-700 text-white disabled:opacity-40 shrink-0 font-medium transition-colors">
+                            {(busyId === app.agent_id || busyId === app.id) ? '…' : t('gateway.common.manage')}
+                          </button>
+                        )
+                      ) : app._virtual_apikey ? (
+                        <button onClick={() => addApiKeyApp(app)} disabled={busyId === app.id}
+                          className="text-[11px] px-2.5 py-1 rounded-lg bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:hover:bg-[#4a73a8] active:bg-blue-700 text-white disabled:opacity-40 shrink-0 font-medium transition-colors">
+                          {busyId === app.id ? '…' : t('gateway.common.manage')}
+                        </button>
+                      ) : app.host_method === 'config-file' ? (
+                        app.needs_dev_mode ? (
+                          // 开发者模式未就绪：弹出「如何启用」的步骤提示（非设置窗口），绝不显示危险的「删除」
+                          <button onClick={() => { setDevTipMsg(''); setDevTipApp(app); }}
+                            title={t('gateway.app.devModeTitle')}
+                            className="text-[11px] px-2.5 py-1 rounded-lg border border-amber-300 dark:border-amber-700/60 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors shrink-0 font-medium">
+                            {t('gateway.apps.enableDevMode')}
+                          </button>
+                        ) : tracked ? (
+                          <button onClick={() => setTracked(app, false)} disabled={busyId === app.id}
+                            className="text-[11px] px-1.5 py-1 rounded-lg border border-red-200 dark:border-red-800/60 text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40 shrink-0">
+                            {busyId === app.id ? '…' : t('gateway.common.revert')}
+                          </button>
+                        ) : (
+                          <button onClick={() => setTracked(app, true)} disabled={busyId === app.id}
+                            className="text-[11px] px-2.5 py-1 rounded-lg bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:hover:bg-[#4a73a8] active:bg-blue-700 text-white disabled:opacity-40 shrink-0 font-medium transition-colors">
+                            {busyId === app.id ? '…' : t('gateway.common.manage')}
+                          </button>
+                        )
+                      ) : (
+                        <button onClick={() => handleDeleteApp(app.id)}
+                          className="text-[11px] px-1.5 py-1 rounded-lg border border-red-200 dark:border-red-800/60 text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0">
+                          {t('gateway.common.delete')}
+                        </button>
                       )}
                         </div>
                       {(app.api_key || isDirectOnly) && (
@@ -4073,18 +3940,6 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                     {(app.api_key || isDirectOnly) && testState[app.id]?.ok === false && !testState[app.id]?.busy && (
                       <AppTestErrorFloat error={testState[app.id].error} />
                     )}
-                    {isManaged && !isChild && (
-                      <AppAgentsUnder appKey={app.agent_id || app.id} app={app}
-                        assets={app.agent_id ? assetsByApp[app.agent_id] : null}
-                        onSessions={() => setSessionsFor(app.agent_id || 'all')}
-                        onUsage={() => setDetailApp(app)}
-                        agents={app.agent_id ? (agentsByRuntime[app.agent_id] || []) : []}
-                        stats={agentStatsFor(agentsByRuntime[app.agent_id])} rentIds={rentIds} />
-                    )}
-                    {isChild && entry.lastChild && app.agent_id && agentsByRuntime[app.agent_id]?.length > 0 && (
-                      <AppAgentsUnder appKey={app.agent_id} agents={agentsByRuntime[app.agent_id]}
-                        stats={agentStatsFor(agentsByRuntime[app.agent_id])} rentIds={rentIds} />
-                    )}
                     </React.Fragment>
                   );
                 })}
@@ -4092,131 +3947,8 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                 </div>
               </div>
             )}
-            {rowMenu && (() => {
-              const app = visibleApps.find(a => a.id === rowMenu.id);
-              if (!app) return null;
-              const rs = appRowState(app);
-              const close = () => setRowMenu(null);
-              const items = [];
-              if (app.api_key || rs.isDirectOnly) {
-                items.push({ key: 'tm', label: t('gateway.apps.menu.testModel'), hint: t('gateway.apps.menu.testModelHint'), disabled: !rs.isGatewayRouted, run: () => runAppTest(app) });
-              }
-              if (app.api_key && runnableHarnessId(app)) {
-                items.push({ key: 'ta', label: t('gateway.apps.menu.testAgent'), hint: t('gateway.apps.menu.testAgentHint'), run: () => runAgentTest(app) });
-              }
-              if (traceAgentIdForApp(app)) {
-                items.push({ key: 'ss', label: t('gateway.apps.menu.sessions'), hint: t('gateway.apps.menu.sessionsHint'), run: () => setSessionsFor(traceAgentIdForApp(app)) });
-              }
-              items.push({ key: 'set', label: t('gateway.apps.menu.settings'), hint: t('gateway.apps.menu.settingsHint'), run: () => openAppSettings(app) });
-              const revertable = rs.isDirectOnly || rs.isSessionApp || app.link_method === 'shim' || app.host_method === 'config-file';
-              if (revertable && rs.tracked) {
-                items.push({ key: 'rv', label: t('gateway.apps.menu.revert'), hint: t('gateway.apps.menu.revertHint'), danger: true, run: () => setTracked(app, false) });
-              } else if (!revertable) {
-                items.push({ key: 'del', label: t('gateway.apps.menu.delete'), hint: t('gateway.apps.menu.deleteHint'), danger: true, run: () => handleDeleteApp(app.id) });
-              }
-              return createPortal(
-                <>
-                  <div className="fixed inset-0 z-[89]" onClick={close} aria-hidden="true" />
-                  <div role="menu" className="fixed z-[90] w-64 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg p-1"
-                    style={{ top: rowMenu.top, right: rowMenu.right }}
-                    onKeyDown={(e) => { if (e.key === 'Escape') close(); }}>
-                    {items.map(it => (
-                      <button key={it.key} type="button" role="menuitem" disabled={it.disabled}
-                        onClick={() => { close(); it.run(); }}
-                        className="block w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-700/60 disabled:opacity-40 disabled:hover:bg-transparent">
-                        <span className={`block text-xs font-medium ${it.danger ? 'text-red-600 dark:text-red-400' : 'text-zinc-800 dark:text-zinc-100'}`}>{it.label}</span>
-                        <span className="block text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">{it.hint}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>,
-                document.body,
-              );
-            })()}
-            {sessionsFor && createPortal(
-              <div className="electron-no-drag fixed inset-0 z-[80] flex items-start justify-center bg-black/40 p-4 overflow-y-auto" onClick={() => setSessionsFor(null)}>
-                <div role="dialog" aria-modal="true" aria-labelledby="gw-sessions-title"
-                  className="w-full max-w-5xl my-8 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-2xl"
-                  onClick={e => e.stopPropagation()}
-                  onKeyDown={e => { if (e.key === 'Escape') setSessionsFor(null); }}>
-                  <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-200 dark:border-zinc-700">
-                    <h2 id="gw-sessions-title" className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">{t('gateway.tab.sessions')}</h2>
-                    <button type="button" onClick={() => setSessionsFor(null)} aria-label={t('gateway.common.close')}
-                      className="ml-auto w-8 h-8 rounded-lg text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800">✕</button>
-                  </div>
-                  <SessionManager key={sessionsFor} initialAgent={sessionsFor} />
-                </div>
-              </div>,
-              document.body,
-            )}
-            {apiApp && (
-              <AppApiDialog app={apiApp} routes={routes} availableModels={availableModels} localBase={localBase} onClose={() => setApiApp(null)} />
-            )}
           </div>
     </>
-  );
-}
-
-/** 应用旁「接口」：这个应用用自己的 Key 怎么接入网关（模型接口 + 智能体接口），示例里填好了它的 Key */
-function AppApiDialog({ app, routes = [], availableModels = [], localBase = '', onClose }) {
-  const { t } = useLang();
-  const base = (localBase || resolveLocalGatewayBase()).replace(/\/$/, '');
-  const origin = base.replace(/\/v1$/, '');
-  const key = app.api_key || '$TOKENBANK_KEY';
-  const model = exampleModelFromRoute(effectiveRouteIds(app)[0] || '', routes, availableModels).model || 'gpt-4o';
-  const modelCurl = `curl ${origin}/v1/chat/completions \\\n  -H "Authorization: Bearer ${key}" \\\n  -H "content-type: application/json" \\\n  -d '{"model":"${model}","messages":[{"role":"user","content":"Hello!"}]}'`;
-  const harnessId = runnableHarnessId(app);
-  const agentCurl = agentDebugCurl(origin, key, harnessId);
-  const masked = app.api_key ? `${app.api_key.slice(0, 9)}····${app.api_key.slice(-4)}` : '';
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  // 路径整段不拆行；地址可能很长，单独允许折行
-  const code = 'font-mono text-[11px] px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-700/60 text-zinc-700 dark:text-zinc-200 whitespace-nowrap';
-  return createPortal(
-    <div className="electron-no-drag fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-labelledby="app-api-title"
-        className="bg-white dark:bg-zinc-800 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-700 w-full max-w-2xl mx-auto flex flex-col max-h-[min(88vh,760px)]"
-        onClick={e => e.stopPropagation()}>
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-200 dark:border-zinc-700 shrink-0">
-          <h2 id="app-api-title" className="text-sm font-semibold text-zinc-800 dark:text-zinc-100 truncate">{t('gateway.api.dialogTitle', { name: app.name })}</h2>
-          <button type="button" onClick={onClose} aria-label={t('gateway.common.close')}
-            className="ml-auto w-8 h-8 rounded-lg text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700">✕</button>
-        </div>
-        <div className="px-4 py-4 space-y-4 overflow-y-auto min-h-0 text-xs text-zinc-700 dark:text-zinc-200">
-          <p className="leading-relaxed text-zinc-600 dark:text-zinc-300">{t('gateway.api.dialogIntro')}</p>
-          <div className="grid gap-2 sm:grid-cols-[6rem_1fr] items-center">
-            <span className="text-zinc-500">{t('gateway.api.base')}</span>
-            <div className="flex items-center gap-2 min-w-0"><code className={`${code} !whitespace-normal break-all`}>{base}</code><CopyButton text={base} label={t('gateway.common.copy')} className="py-1 text-xs" /></div>
-            {masked && <>
-              <span className="text-zinc-500">{t('gateway.api.key')}</span>
-              <div className="flex items-center gap-2 min-w-0"><code className={code}>{masked}</code><CopyButton text={app.api_key} label={t('gateway.common.copy')} className="py-1 text-xs" /></div>
-            </>}
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <div className="font-medium">{t('gateway.api.modelTitle')}</div>
-              <div>{t('gateway.api.openai')} <code className={code}>/v1/chat/completions</code></div>
-              <div>{t('gateway.api.anthropic')} <code className={code}>/v1/messages</code></div>
-              <div>{t('gateway.api.codex')} <code className={code}>/v1/responses</code></div>
-              <div>{t('gateway.api.models')} <code className={code}>/v1/models</code></div>
-            </div>
-            <div className="space-y-1.5">
-              <div className="font-medium">{t('gateway.api.agentTitle')}</div>
-              <div>{t('gateway.api.agentList')} <code className={code}>GET /v1/agent/harnesses</code></div>
-              <div>{t('gateway.api.agentRun')} <code className={code}>POST /v1/agent/responses</code></div>
-            </div>
-          </div>
-          <CallMethodBlock title={t('gateway.app.callModel')} path="POST /v1/chat/completions" curl={modelCurl} t={t} />
-          {agentCurl
-            ? <CallMethodBlock title={t('gateway.app.callAgent')} path="POST /v1/agent/responses" curl={agentCurl} t={t} />
-            : <p className="text-zinc-500">{t('gateway.app.callAgentUnavailable')}</p>}
-        </div>
-      </div>
-    </div>,
-    document.body,
   );
 }
 
@@ -5438,191 +5170,6 @@ function RouteLogDetailModal({ entry, onClose }) {
   );
 }
 
-// ── 自定义路由（原「场景路由」）：放在模型页。列表、编辑器、健康度都在这里 ─────────────────
-/** 模型页「自定义路由」：按规则或模型链组合出的路由，在应用的路由选择里直接选 */
-export function CustomRoutesPanel({ apps = [] } = {}) {
-  const { t } = useLang();
-  const { user } = useAuth();
-  const here = useLocation();
-  const [routes, setRoutes] = useState([]);
-  const [expandedRoute, setExpandedRoute] = useState(null);
-  const [newRoute, setNewRoute] = useState(null);
-  const [availableModels, setAvailableModels] = useState([]);
-  const [sources, setSources] = useState([]);
-  const [network, setNetwork] = useState(null);
-  const [logEntries, setLog] = useState([]);
-
-  const loadRoutes = useCallback(async () => {
-    try { setRoutes((await getLocalConfig().get())?.scene_routes || []); }
-    catch (e) { console.error('loadRoutes', e); }
-  }, []);
-  const loadAvailableModels = useCallback(async () => {
-    try { setAvailableModels(await loadGatewayAvailableModels({ includeCommunity: !!user })); }
-    catch (e) { console.error('loadAvailableModels', e); }
-    try {
-      const cfg = await getConfig().read();
-      setSources((cfg?.providers || []).filter(p => p.enabled && p.base_url));
-    } catch { /* ignore */ }
-  }, [user]);
-  const loadLog = useCallback(async () => {
-    try { setLog(((await getGateway().getLog()) || []).slice(0, 50)); } catch { /* 网关没起来 */ }
-  }, []);
-  const loadNetwork = useCallback(async () => {
-    if (!user) { setNetwork(null); return; }
-    try { setNetwork(normalizeNetworkPayload(await getNetwork())); } catch { /* 离线 */ }
-  }, [user]);
-
-  // 页面被缓存：只在模型页可见时加载和轮询
-  useEffect(() => {
-    if (here.pathname !== '/providers') return undefined;
-    loadRoutes(); loadAvailableModels(); loadLog(); loadNetwork();
-    const logId = setInterval(loadLog, 15000);
-    const modelsId = setInterval(loadAvailableModels, 60000);
-    return () => { clearInterval(logId); clearInterval(modelsId); };
-  }, [here.pathname, loadRoutes, loadAvailableModels, loadLog, loadNetwork]);
-
-  // 每条路由最近一次请求的结果（健康点、降级中、首字耗时）
-  const routeHealth = useMemo(() => {
-    const map = {};
-    for (const key of routes.map(r => r.model_key).filter(Boolean)) {
-      const entries = logEntries.filter(e => e.requested_model === key);
-      if (!entries.length) { map[key] = { status: null, activeStep: null, triedSteps: [], degraded: false }; continue; }
-      const last = entries[0];
-      map[key] = {
-        status: last.status,
-        activeStep: last.status === 'ok' ? last.model : null,
-        triedSteps: Array.isArray(last.tried) ? last.tried : [],
-        degraded: last.status === 'ok' && Array.isArray(last.tried) && last.tried.length > 0,
-        first_token_ms: last.first_token_ms ?? null,
-      };
-    }
-    return map;
-  }, [logEntries, routes]);
-
-  const saveRoute = async (route) => {
-    try {
-      const body = {
-        scene_name: route.scene_name, icon: route.icon, steps: route.steps, rules: route.rules, classifier: route.classifier,
-        flow: route.flow, caveman_level: route.caveman_level, scope: route.scope, tier: route.tier,
-      };
-      if (route.id) await getLocalConfig().updateSceneRoute({ id: route.id, ...body });
-      else await getLocalConfig().createSceneRoute(body);
-      setNewRoute(null);
-      setExpandedRoute(null);
-      await loadRoutes();
-    } catch (e) {
-      alert(t('gateway.common.saveFailed', { msg: e.message }));
-    }
-  };
-  const removeRoute = async (id) => {
-    if (!confirm(t('gateway.route.confirmDelete'))) return;
-    try { await getLocalConfig().deleteSceneRoute(id); await loadRoutes(); }
-    catch { alert(t('gateway.common.deleteFailed')); }
-  };
-  // 降级链在模型列表里调整，不进这里
-  const sceneRouteRows = useMemo(() => (routes || []).filter(route => !route.list_route), [routes]);
-
-  return (
-    <div className="tb-soft-panel rounded-2xl overflow-hidden min-w-0">
-        <div>
-        {/* 操作栏：新建（蓝色，最左）｜说明｜在线同步（最右）——布局与应用列表一致 */}
-        <div className="flex items-center gap-2 px-5 py-3 border-b border-white/40 dark:border-white/[0.06] flex-wrap">
-          <span className="text-xs text-zinc-400 dark:text-zinc-500 min-w-0 flex-1">{t('gateway.route.hint')}</span>
-          <ImportConfigButton onImported={() => { loadRoutes(); loadAvailableModels(); }} endpoint="/api/config/scenes" />
-          <button
-            onClick={() => { if (newRoute) { setNewRoute(null); } else { setExpandedRoute(null); setNewRoute({ scene_name: '', icon: 'icon:shuffle', steps: [] }); } }}
-            className="text-xs px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
-          >{t('gateway.route.new')}</button>
-        </div>
-        <div>
-          {/* 新建路由编辑器：放在列表最上面 */}
-          {newRoute && (
-            <SceneRouteEditor key="new-route-editor" route={newRoute} availableModels={availableModels} network={network} sources={sources} onSave={saveRoute} onCancel={() => setNewRoute(null)} />
-          )}
-          {sceneRouteRows.map(route => {
-            const health = routeHealth[route.model_key] ?? { status: null, activeStep: null, degraded: false };
-            const ftMs = health.first_token_ms;
-            // 本地供给源是否缺少该路由用到的模型（缺则名称前的点也标红）
-            const availSet = new Set(availableModels.map(m => m.id));
-            const _allSteps = [...(route.steps || []), ...(route.rules || []).flatMap(r => r.steps || [])];
-            // strategy-only 步无 model，不参与"模型缺失"判定
-            const routeMissing = _allSteps.some(s => (s.model || s.label) && !availSet.has(s.model || s.label));
-            const healthDot = speedDotClass(statusDotBucket({
-              ms: ftMs,
-              failed: routeMissing || health.status === 'error',
-              ok: health.status === 'ok',
-            }));
-            const ftLabel = ftMs != null ? t('gateway.route.firstToken', { s: (ftMs / 1000).toFixed(1) }) : null;
-            const healthTitle =
-              routeMissing ? t('gateway.route.missingModels') :
-              health.status === 'error' ? t('gateway.route.recentFailed') :
-              health.status === 'ok'
-                ? [health.degraded ? t('gateway.route.degradedShort') : t('gateway.route.runningOk'), ftLabel].filter(Boolean).join(' · ')
-                : t('gateway.route.noRequests');
-            // 任一步配置了识图增强 → 列表显示标识，方便一眼辨认
-            const hasVisionAssist = _allSteps.some(s => s?.vision_assist?.model);
-            return (
-            <div key={route.id}>
-              {/* 一行：名称（下面是给应用填的模型名）｜去哪｜谁在用｜修改 */}
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(8rem,12rem)_minmax(0,1fr)_minmax(0,10rem)_auto] gap-x-4 gap-y-1 items-center px-4 py-2.5 border-b border-zinc-100 dark:border-white/[0.05]">
-                <span className="min-w-0">
-                  <span className="flex items-center gap-1.5 min-w-0">
-                    <span title={healthTitle} className={`w-2 h-2 rounded-full shrink-0 ${healthDot}`} />
-                    <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100 truncate">{route.scene_name}</span>
-                    {health.degraded && (
-                      <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">{t('gateway.route.degraded')}</span>
-                    )}
-                    {routeMissing && (
-                      <span title={t('gateway.route.missingModels')} className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">{t('gateway.route.needReset')}</span>
-                    )}
-                  </span>
-                  {route.model_key && (
-                    <button type="button" onClick={() => navigator.clipboard?.writeText(route.model_key)} title={t('gateway.common.copy')}
-                      className="block max-w-full truncate text-[10px] font-mono text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">{route.model_key}</button>
-                  )}
-                </span>
-                <span className="col-span-2 md:col-span-1 order-3 md:order-none text-[11px] text-zinc-600 dark:text-zinc-300 min-w-0 truncate" title={routeSummary(route, t)}>
-                  {routeSummary(route, t)}
-                  {hasVisionAssist ? ` · ${t('gateway.route.visionAssistBadge')}` : ''}
-                  {route.caveman_level ? ` · ${t('gateway.route.compressBadge')}` : ''}
-                </span>
-                {(() => {
-                  const using = apps.filter(a => {
-                    const ids = Array.isArray(a.route_ids) && a.route_ids.length ? a.route_ids : (a.route_id ? [a.route_id] : []);
-                    return ids.some(r => r === route.model_key || r === route.id);
-                  }).map(a => String(a.name || '').split(' · ')[0] || a.name);
-                  return (
-                    <span className="hidden md:block text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
-                      {using.length ? t('gateway.route.usedBy', { names: using.slice(0, 2).join('、') + (using.length > 2 ? t('gateway.route.andMore', { n: using.length }) : '') }) : t('gateway.route.notUsed')}
-                    </span>
-                  );
-                })()}
-                <span className="flex items-center gap-1.5 justify-end">
-                  <button type="button" onClick={() => setExpandedRoute(expandedRoute === route.id ? null : route.id)} aria-expanded={expandedRoute === route.id}
-                    className="text-[11px] px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800">
-                    {expandedRoute === route.id ? t('gateway.route.collapseEdit') : t('gateway.route.edit')}
-                  </button>
-                  <button type="button" onClick={() => removeRoute(route.id)} aria-label={t('gateway.common.delete')}
-                    className="text-[11px] px-2 py-1 rounded-lg text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20">
-                    {t('gateway.common.delete')}
-                  </button>
-                </span>
-              </div>
-              {expandedRoute === route.id && (
-                <SceneRouteEditor key={'editor-' + route.id} route={route} availableModels={availableModels} network={network} sources={sources} onSave={saveRoute} onCancel={() => setExpandedRoute(null)} />
-              )}
-            </div>
-            );
-          })}
-          {sceneRouteRows.length === 0 && !newRoute && (
-            <div className="px-5 py-8 text-xs text-zinc-400 text-center">{t('gateway.route.empty')}</div>
-          )}
-        </div>
-        </div>
-    </div>
-  );
-}
-
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function Gateway() {
@@ -5635,6 +5182,7 @@ export default function Gateway() {
   const [network, setNetwork]   = useState(null);   // /public/network 快照：路由日志把 worker_id join 成分享者
   const [selectedLog, setSelectedLog] = useState(null);
   const [restarting, setRestarting] = useState(false);
+  const [mainTab, setMainTab]   = useState(0);   // 0=应用列表 1=场景路由 2=会话
   const routeLogRef = useRef(null);
   const pendingRouteLogScroll = useRef(false);
   // 其它页跳转到场景路由：navigate('/gateway', { state: { gatewayTab: 'routes' } })
@@ -5643,24 +5191,30 @@ export default function Gateway() {
   useEffect(() => {
     const want = gwLocation.state?.gatewayTab;
     if (!want) return;
-    if (want === 'routes') { gwNavigate('/providers', { replace: true, state: { focus: 'customRoutes' } }); return; }
+    if (want === 'routes') setMainTab(1);
+    else if (want === 'apps') setMainTab(0);
     gwNavigate(gwLocation.pathname, { replace: true, state: null });
   }, [gwLocation.state]); // eslint-disable-line react-hooks/exhaustive-deps
-  // 顶部「请求 / 任务」点进来：展开请求明细并滚过去
-  const [showLog, setShowLog] = useState(false);
+  // 顶部「请求 / 任务」点进来：先切到场景路由（明细只挂在这个 Tab），再滚到列表。
   const jumpToRouteLog = () => {
-    if (showLog) { routeLogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    if (mainTab === 1) {
+      routeLogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     pendingRouteLogScroll.current = true;
-    setShowLog(true);
+    setMainTab(1);
   };
   useEffect(() => {
-    if (!showLog || !pendingRouteLogScroll.current) return;
+    if (mainTab !== 1 || !pendingRouteLogScroll.current) return;
     pendingRouteLogScroll.current = false;
     routeLogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [showLog]);
+  }, [mainTab]);
+  const [sessionsMounted, setSessionsMounted] = useState(false); // 首次进入会话 Tab 后保持挂载
 
   // Scene routing
   const [routes, setRoutes]               = useState([]);
+  const [expandedRoute, setExpandedRoute] = useState(null);
+  const [newRoute, setNewRoute]           = useState(null);
   const [availableModels, setAvailableModels] = useState([]);
   const [sources, setSources] = useState([]);   // 已启用供给源（路由里"某模型下锁具体源"用）
   // 应用列表汇总（与表格「今日请求/Token」列求和一致）
@@ -5802,6 +5356,37 @@ export default function Gateway() {
     return map;
   }, [logEntries, routes, keysScene]);
 
+  // ── Scene route actions ────────────────────────────────────────────────────
+
+  const saveRoute = async (route) => {
+    try {
+      if (route.id) {
+        await getLocalConfig().updateSceneRoute({
+          id: route.id, scene_name: route.scene_name, icon: route.icon, steps: route.steps, rules: route.rules, classifier: route.classifier,
+          flow: route.flow, caveman_level: route.caveman_level, scope: route.scope, tier: route.tier,
+        });
+      } else {
+        await getLocalConfig().createSceneRoute({
+          scene_name: route.scene_name, icon: route.icon, steps: route.steps, rules: route.rules, classifier: route.classifier,
+          flow: route.flow, caveman_level: route.caveman_level, scope: route.scope, tier: route.tier,
+        });
+      }
+      setNewRoute(null);
+      setExpandedRoute(null);
+      await loadSceneData();
+    } catch (e) {
+      alert(t('gateway.common.saveFailed', { msg: e.message }));
+    }
+  };
+
+  const removeRoute = async (id) => {
+    if (!confirm(t('gateway.route.confirmDelete'))) return;
+    try { await getLocalConfig().deleteSceneRoute(id); await loadSceneData(); }
+    catch (e) { alert(t('gateway.common.deleteFailed')); }
+  };
+
+  // ── App key actions ────────────────────────────────────────────────────────
+
   async function handleCreateAppKey() {
     if (!appNote.trim()) return;
     setAppBusy(true);
@@ -5828,6 +5413,11 @@ export default function Gateway() {
     catch (e) { alert(t('gateway.common.deleteFailed')); }
   }
 
+  // 降级链在模型列表里调整，不进场景路由。
+  const sceneRouteRows = useMemo(
+    () => (routes || []).filter(route => !route.list_route),
+    [routes],
+  );
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -5908,18 +5498,192 @@ export default function Gateway() {
 
       {/* 应用列表 / 场景路由 Tab — 大面板用更透的 soft-panel */}
       <div className="tb-soft-panel rounded-2xl overflow-hidden min-w-0">
-        {/* 应用列表；会话从应用的「⋯ → 会话」或「全部会话」打开 */}
-        <AppManager externalRoutes={routes} availableModels={availableModels} onActivity={refresh} />
+        {/* Tab bar（macOS 分段控件）+ Endpoint 合并一行 */}
+        <div className="flex items-center gap-3 px-2.5 py-2 border-b border-white/40 dark:border-white/[0.06] overflow-x-auto">
+          <div className="tb-glass-chip inline-flex items-center gap-0.5 p-0.5 rounded-[10px] shrink-0">
+          {[
+            { label: t('gateway.tab.apps'), icon: (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="w-[15px] h-[15px] shrink-0">
+                <path d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
+              </svg>
+            )},
+            { label: t('gateway.tab.routes'), icon: (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="w-[15px] h-[15px] shrink-0">
+                <path d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+              </svg>
+            )},
+            { label: t('gateway.tab.sessions'), icon: (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="w-[15px] h-[15px] shrink-0">
+                <path d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
+              </svg>
+            )},
+          ].map(({ label, icon }, i) => (
+            <button key={i} onClick={() => {
+              setMainTab(i);
+              if (i === 2) setSessionsMounted(true);
+            }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-medium whitespace-nowrap transition-[background-color,color,box-shadow] duration-150 ease-out ${mainTab === i
+                ? 'bg-white/80 dark:bg-white/10 text-zinc-900 dark:text-white shadow-sm'
+                : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'}`}>
+              {icon}
+              {label}
+            </button>
+          ))}
+          </div>
+        </div>
+
+        {/* Tab0: 应用列表 & 托管 */}
+        {mainTab === 0 && (
+          <AppManager externalRoutes={routes} availableModels={availableModels} onActivity={refresh} />
+        )}
+
+        {/* Tab1: 场景路由 */}
+        {mainTab === 1 && (
+        <div>
+        {/* 操作栏：新建（蓝色，最左）｜说明｜在线同步（最右）——布局与应用列表一致 */}
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-white/40 dark:border-white/[0.06] flex-wrap">
+          <button
+            onClick={() => { if (newRoute) { setNewRoute(null); } else { setExpandedRoute(null); setNewRoute({ scene_name: '', icon: 'icon:shuffle', steps: [] }); } }}
+            className="text-xs px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:hover:bg-[#4a73a8] text-white transition-colors"
+          >{t('gateway.route.new')}</button>
+          <span className="text-xs text-zinc-400 dark:text-zinc-500">{t('gateway.route.hint')}</span>
+          <div className="ml-auto">
+            <ImportConfigButton onImported={() => { refresh(); loadSceneData(); loadAvailableModels(); }} endpoint="/api/config/scenes" />
+          </div>
+        </div>
+        <div className="space-y-2 px-3 pb-3">
+          {/* 新建路由编辑器：放在列表最上面 */}
+          {newRoute && (
+            <SceneRouteEditor key="new-route-editor" route={newRoute} availableModels={availableModels} network={network} sources={sources} onSave={saveRoute} onCancel={() => setNewRoute(null)} />
+          )}
+          {sceneRouteRows.map(route => {
+            const health = routeHealth[route.model_key] ?? { status: null, activeStep: null, degraded: false };
+            const ftMs = health.first_token_ms;
+            // 本地供给源是否缺少该路由用到的模型（缺则名称前的点也标红）
+            const availSet = new Set(availableModels.map(m => m.id));
+            const _allSteps = [...(route.steps || []), ...(route.rules || []).flatMap(r => r.steps || [])];
+            // strategy-only 步无 model，不参与"模型缺失"判定
+            const routeMissing = _allSteps.some(s => (s.model || s.label) && !availSet.has(s.model || s.label));
+            const healthDot = speedDotClass(statusDotBucket({
+              ms: ftMs,
+              failed: routeMissing || health.status === 'error',
+              ok: health.status === 'ok',
+            }));
+            const ftLabel = ftMs != null ? t('gateway.route.firstToken', { s: (ftMs / 1000).toFixed(1) }) : null;
+            const healthTitle =
+              routeMissing ? t('gateway.route.missingModels') :
+              health.status === 'error' ? t('gateway.route.recentFailed') :
+              health.status === 'ok'
+                ? [health.degraded ? t('gateway.route.degradedShort') : t('gateway.route.runningOk'), ftLabel].filter(Boolean).join(' · ')
+                : t('gateway.route.noRequests');
+            // 任一步配置了识图增强 → 列表显示标识，方便一眼辨认
+            const hasVisionAssist = _allSteps.some(s => s?.vision_assist?.model);
+            return (
+            <div key={route.id}>
+              <div
+                className="tb-soft-tile flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer"
+                onClick={() => setExpandedRoute(expandedRoute === route.id ? null : route.id)}
+                title={t('gateway.common.edit')}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+                  className={`w-3.5 h-3.5 shrink-0 text-zinc-400 transition-transform ${expandedRoute === route.id ? 'rotate-90' : ''}`}>
+                  <path d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                </svg>
+                {isAppIcon(route.icon)
+                  ? appIconSvg(route.icon, 'w-5 h-5 shrink-0')
+                  : String(route.icon || '').startsWith('icon:')
+                    ? appIconSvg('icon:shuffle', 'w-5 h-5 shrink-0')
+                    : <span className="text-base shrink-0">{route.icon}</span>}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span title={healthTitle} className={`w-2 h-2 rounded-full shrink-0 ${healthDot}`} />
+                    <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200">{route.scene_name}</span>
+                    {hasVisionAssist && (
+                      <span
+                        title={t('gateway.route.visionAssistBadgeHint')}
+                        className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-900/25 border border-sky-200/80 dark:border-sky-800/50 text-sky-600 dark:text-sky-400 shrink-0"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 shrink-0" aria-hidden>
+                          <path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                          <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                        </svg>
+                        {t('gateway.route.visionAssistBadge')}
+                      </span>
+                    )}
+                    {route.caveman_level && (
+                      <span
+                        title={t('gateway.route.compressBadgeHint')}
+                        className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded bg-violet-50 dark:bg-violet-900/25 border border-violet-200/80 dark:border-violet-800/50 text-violet-600 dark:text-violet-400 shrink-0"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 shrink-0" aria-hidden>
+                          <path d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" />
+                        </svg>
+                        {{
+                          lite: t('gateway.route.compressBadgeLite'),
+                          full: t('gateway.route.compressBadgeFull'),
+                          ultra: t('gateway.route.compressBadgeUltra'),
+                        }[route.caveman_level] || t('gateway.route.compressBadge')}
+                      </span>
+                    )}
+                    {route.model_key && (
+                      <>
+                        <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-zinc-100/70 dark:bg-zinc-800/60 text-zinc-400 dark:text-zinc-500 shrink-0">
+                          {route.model_key}
+                        </span>
+                        <span onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(route.model_key); }}
+                          className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 cursor-pointer transition-colors shrink-0">{t('gateway.common.copy')}</span>
+                      </>
+                    )}
+                    {routeMissing && (
+                      <span title={t('gateway.route.missingModels')} className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 text-amber-600 dark:text-amber-400 shrink-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 shrink-0">
+                          <path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                        </svg>
+                        {t('gateway.route.needReset')}
+                      </span>
+                    )}
+                    {health.degraded && (
+                      <span className="text-xs px-1 py-0.5 rounded bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800/40 text-rose-600 dark:text-rose-400 shrink-0">
+                        {t('gateway.route.degraded')}
+                      </span>
+                    )}
+                    {route.rules?.length > 0 && (
+                      <span title={t('gateway.route.rulesTitle')} className="text-xs px-1 py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/40 text-indigo-600 dark:text-indigo-400 shrink-0">
+                        {t('gateway.route.rulesCount', { n: route.rules.length })}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                  <button onClick={() => removeRoute(route.id)}
+                    className="text-xs px-2 py-1 rounded-lg border border-red-200 dark:border-red-800/60 text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                    {t('gateway.common.delete')}
+                  </button>
+                </div>
+              </div>
+              {expandedRoute === route.id && (
+                <SceneRouteEditor key={'editor-' + route.id} route={route} availableModels={availableModels} network={network} sources={sources} onSave={saveRoute} onCancel={() => setExpandedRoute(null)} />
+              )}
+            </div>
+            );
+          })}
+          {sceneRouteRows.length === 0 && !newRoute && (
+            <div className="px-5 py-8 text-xs text-zinc-400 text-center">{t('gateway.route.empty')}</div>
+          )}
+        </div>
+        </div>
+        )}
+
+        {/* Tab2: 会话管理 — 首次进入后保持挂载，避免切 Tab 反复扫盘 */}
+        {sessionsMounted && (
+          <div className={mainTab === 2 ? '' : 'hidden'}>
+            <SessionManager />
+          </div>
+        )}
       </div>
 
-      {/* 请求明细：默认收起；点顶部「请求 / 任务」或这里展开 */}
-      <div className="flex justify-end -mt-1">
-        <button type="button" onClick={() => setShowLog(v => !v)} aria-expanded={showLog}
-          className="text-xs px-2 py-1 rounded-lg text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-white/60 dark:hover:bg-white/5">
-          {showLog ? t('gateway.log.hide') : t('gateway.log.show')}
-        </button>
-      </div>
-      {showLog && (
+      {/* 路由明细 — 仅在「场景路由」Tab 显示，应用列表 Tab 不显示 */}
+      {mainTab === 1 && (
       <div ref={routeLogRef} tabIndex={-1} className="tb-soft-card rounded-2xl p-5 scroll-mt-3 outline-none">
         <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-3">{t('gateway.log.title')}</h2>
         {logEntries.length === 0 ? (

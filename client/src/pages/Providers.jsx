@@ -28,9 +28,6 @@ import {
 import { alignSyncAccountSecretsFromCloud } from '../lib/sync-account-secrets';
 import { formatDeviceSubtitle, formatDeviceTitle } from '../lib/device-display';
 import UsageMeter, { UsageInline, usageProviderForDirect } from '../components/UsageMeter';
-import { CustomRoutesPanel } from './Gateway';
-import { useCurrency } from '../store/currency';
-
 
 /** Ollama 本地实例不校验 API Key。与 shared/provider-test.js 一致，不引 CJS，避免渲染进程白屏。 */
 function isOllamaProvider(provider) {
@@ -3698,7 +3695,6 @@ function ProviderCard({ provider, meta, onUpdate, onRemove, onTest, onSilentPers
 
 export default function Providers() {
   const { t } = useLang();
-  const { fmtCost } = useCurrency();
   const navigate = useNavigate();
   const tierConfig = useMemo(() => getTierConfig(t), [t]);
   const oauthById = useMemo(() => getOAuthById(t), [t]);
@@ -3717,18 +3713,7 @@ export default function Providers() {
   const [directInstances, setDirectInstances] = useState([]);   // 直连源实例（仅统计的应用）
   const [directBilling, setDirectBilling] = useState({});        // 直连源计费（按 agent_id）
   const [accountsData, setAccountsData] = useState(null);        // 完整账户快照（统计视图用）
-  const [todayStats, setTodayStats] = useState(null);           // 今天各来源的请求数、花费
-  const [sourceIssues, setSourceIssues] = useState({});         // 管家记下的来源问题（Key 失效、额度用完）
-  const [gatewayPort, setGatewayPort] = useState(null);
-  const [rentedNames, setRentedNames] = useState(() => new Set()); // 上架出租的模型名（交易 · 卖）
-  const [appList, setAppList] = useState([]);                      // 应用：看哪条降级链 / 路由在被谁用
-  const [p2pOpen, setP2pOpen] = useState(false);                   // 社区网络设置弹层
-  useEffect(() => {
-    if (!p2pOpen) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setP2pOpen(false); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [p2pOpen]);
+  const [sourcesView, setSourcesView] = useState('model');       // 个人源视图：model | list（账户）
   const [sceneRoutes, setSceneRoutes] = useState([]);            // 用户调整过的模型降级链
   const [refreshingModels, setRefreshingModels] = useState(false);
   const [accountSyncing, setAccountSyncing] = useState(false);
@@ -4580,11 +4565,6 @@ export default function Providers() {
   /** 「谁在用它」：场景路由 + 绑定了模型的智能体（打开详情时加载） */
   const [dependents, setDependents] = useState({ routes: [], assistants: [] });
   const provLocation = useLocation();
-  // 其它页带 focus: 'customRoutes' 过来：滚到「自定义路由」
-  useEffect(() => {
-    if (provLocation.state?.focus !== 'customRoutes') return;
-    setTimeout(() => document.getElementById('custom-routes')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
-  }, [provLocation.state]); // eslint-disable-line react-hooks/exhaustive-deps
   const [personalLatencyMap, setPersonalLatencyMap] = useState({});
 
   // 从设置页返回后刷新「同步账户密钥」（页面被 KeepAlive 挂住，不会重新挂载）
@@ -4947,22 +4927,6 @@ export default function Providers() {
   }, []);
   useEffect(() => { loadSceneRoutes(); }, [loadSceneRoutes]);
 
-  // 页头一句话和来源行要的：今天的用量、来源问题、网关端口。拿不到时那几列留空
-  useEffect(() => {
-    let alive = true;
-    Promise.resolve(getGateway().getDailyStats?.(1)).then(d => { if (alive && d) setTodayStats(d); }).catch(() => {});
-    Promise.resolve(window.electronAPI?.guardian?.providerIssues?.())
-      .then(r => { if (alive && r?.success) setSourceIssues(r.issues || {}); }).catch(() => {});
-    Promise.resolve(getGateway().status?.()).then(s => { if (alive && s?.port) setGatewayPort(s.port); }).catch(() => {});
-    Promise.resolve(getConfig().read()).then(cfg => {
-      if (!alive) return;
-      const names = (cfg?.model_groups || []).flatMap(g => g.models || []).map(m => (typeof m === 'string' ? m : m?.name)).filter(Boolean);
-      setRentedNames(new Set(names));
-    }).catch(() => {});
-    Promise.resolve(getApps().list?.()).then(list => { if (alive && Array.isArray(list)) setAppList(list.filter(a => !a.draft && !a._virtual_apikey)); }).catch(() => {});
-    return () => { alive = false; };
-  }, []);
-
   // 和场景路由同一种步骤：每步一个模型，多个账户时才写 provider。
   // 不写 provider 时网关按订阅再按量自动换，也不会套进该模型自己的下一级链。
   // flow 用 fallback，保证步骤顺序就是尝试顺序。
@@ -5050,6 +5014,7 @@ export default function Providers() {
     const hit = personalSourceRows.map(sourceSummary).find(sm => (sm.modelNames || []).includes(model));
     // 账户尚未加载完：保留跳转请求，等数据到了再定位
     if (!hit && !accountsData) return;
+    setSourcesView('list');
     if (hit) setSelectedSourceKey(hit.key);
     navigate(provLocation.pathname, { replace: true, state: null });
   }, [provLocation.state, personalSourceRows, accountsData]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -5211,7 +5176,7 @@ export default function Providers() {
       return {
         key: `x:${p.id}`, row, name: m.label || p.label || p.id,
         iconProps: { id: p.id, icon: m.icon, baseUrl: p.base_url },
-        tag: getPersonalSourceTag(p, meta, userPayg, userSubscriptions), tier: p.type,
+        tag: getPersonalSourceTag(p, meta, userPayg, userSubscriptions),
         enabled: p.enabled !== false, models: (p.models || []).length,
         cooldown: cooldownFor(p.id, inst?.gateway_id, inst?.source_id), verified: p.test_verified === true,
         gwIds: [p.id], modelNames: modelNameList(p.models),
@@ -5229,7 +5194,7 @@ export default function Providers() {
     return {
       key: `i:${inst.id}`, row, name: inst.name || inst.label || gw || inst.id,
       iconProps: { id: inst.source_id || inst.provider_id || gw, icon: inst.icon, baseUrl: prov?.base_url },
-      tag: inst.tag, tier: prov?.type || (inst.tag === 'payg' ? 'paid' : null),
+      tag: inst.tag,
       enabled: direct ? true : prov?.enabled !== false,
       models: models.length,
       cooldown: direct ? cooldownFor(direct.agent_id, direct.source_id, direct.id) : cooldownFor(gw, prov?.id, inst.source_id),
@@ -5281,7 +5246,7 @@ export default function Providers() {
           <div className="flex flex-wrap gap-1.5">
             {routes.map(r => (
               <button key={`r-${r.id || r.model_key}`} type="button"
-                onClick={() => { setSelectedSourceKey(null); document.getElementById('custom-routes')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+                onClick={() => navigate('/gateway', { state: { gatewayTab: 'routes' } })}
                 title={t('providers.link.routeHint')}
                 className="text-[11px] px-2 py-0.5 rounded-md bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 hover:underline">
                 {t('providers.link.route')} · {r.scene_name || r.model_key || r.id}
@@ -5311,125 +5276,51 @@ export default function Providers() {
     );
   }
 
-  function sourceIssueOf(sm) {
-    for (const id of sm.gwIds || []) if (sourceIssues[id]) return sourceIssues[id];
-    return null;
-  }
-
-  function sourceToday(sm) {
-    const ids = new Set(sm.gwIds || []);
-    let calls = 0; let cost = 0;
-    for (const p of todayStats?.providers || []) {
-      if (!ids.has(p.id)) continue;
-      calls += p.calls || 0; cost += p.cost_usd || 0;
-    }
-    return { calls, cost };
-  }
-
   function sourceStatus(sm) {
-    const issue = sourceIssueOf(sm);
-    if (issue) return { dot: 'bg-red-500', label: issue.kind === 'quota' ? t('providers.list.issueQuota') : t('providers.list.issueAuth'), issue };
     if (sm.cooldown) return { dot: 'bg-amber-400', label: t('providers.list.cooling') };
     if (!sm.enabled) return { dot: 'bg-zinc-300 dark:bg-zinc-600', label: t('providers.list.disabled') };
     if (sm.verified) return { dot: 'bg-emerald-500', label: t('providers.list.ready') };
     return { dot: 'bg-sky-400', label: t('providers.list.enabled') };
   }
 
-  /** 某个来源最近的平均首字时间（按调用数加权） */
-  function sourceLatencyMs(sm) {
-    const ids = new Set(sm.gwIds || []);
-    let sum = 0; let n = 0;
-    for (const byProv of Object.values(todayStats?.model_provider_latency || {})) {
-      for (const [pid, v] of Object.entries(byProv || {})) {
-        if (!ids.has(pid) || !(v?.avg_ttft_ms > 0)) continue;
-        const w = v.calls || 1;
-        sum += v.avg_ttft_ms * w; n += w;
-      }
-    }
-    return n ? sum / n : null;
-  }
-
-  /** 哪些应用在用这条路由 / 这个模型（应用绑的路由 id 等于它，或是「层:模型」） */
-  function appsUsing(ids) {
-    const want = new Set(ids.filter(Boolean));
-    return appList.filter(a => {
-      const rs = Array.isArray(a.route_ids) && a.route_ids.length ? a.route_ids : (a.route_id ? [a.route_id] : []);
-      return rs.some(r => want.has(r) || want.has(String(r).replace(/^(free|paid|p2p):/, '')));
-    });
-  }
-  function usedByText(apps, empty) {
-    if (!apps.length) return empty;
-    const names = apps.map(a => String(a.name || '').split(' · ')[0] || a.name);
-    return names.length > 2 ? t('providers.usedByMany', { names: names.slice(0, 2).join('、'), n: names.length }) : t('providers.usedBy', { names: names.join('、') });
-  }
-
-  // 来源一行：名称（类型 · 层 · 模型数）｜状态｜今天｜出租｜主操作 + ⋯
-  const SRC_ROW = 'grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.7fr)_minmax(0,1fr)_minmax(0,0.8fr)_8.5rem] gap-x-4 gap-y-1 items-center';
   function renderSourceRow(sm, sel) {
     const st = sourceStatus(sm);
-    const td = sourceToday(sm);
-    const ms = sourceLatencyMs(sm);
-    const renting = (sm.modelNames || []).some(n => rentedNames.has(n));
-    const typeLabel = t(`providers.filter.${(PERSONAL_TYPE_BADGE[sm.tag] || PERSONAL_TYPE_BADGE.payg).filterKey}`);
-    const tierLabel = sm.tier === 'free' ? t('providers.row.tierFree') : sm.tier === 'paid' ? t('providers.row.tierPaid') : '';
-    const sub = [typeLabel, tierLabel, sm.models ? t('providers.row.models', { n: sm.models }) : ''].filter(Boolean).join(' · ');
-    const subBilled = sm.tag === 'app_sub' || sm.tag === 'api_sub' || sm.tag === 'sub_to_api';
-    const todayText = td.calls > 0
-      ? t('providers.row.today', { n: td.calls.toLocaleString(), cost: td.cost > 0 ? fmtCost(td.cost) : (subBilled ? t('providers.row.inSub') : t('providers.row.noCost')) })
-      : t('providers.list.todayNone');
-    const btn = 'text-[11px] px-2.5 py-1 rounded-lg';
     return (
       <li
         key={sm.key}
         role="option"
         aria-selected={sel}
         onClick={() => setSelectedSourceKey(sel ? null : sm.key)}
-        className={`${libRowCls(sel)} ${SRC_ROW}`}
+        className={`${libRowCls(sel)} grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1fr)_9rem_4rem_6.5rem]`}
       >
         <LibraryRowTitle
           logo={(
-            <ServiceIcon id={sm.iconProps.id} name={sm.name} icon={sm.iconProps.icon} baseUrl={sm.iconProps.baseUrl}
-              boxClass="w-9 h-9 !bg-zinc-100/80 dark:!bg-zinc-800/80 !rounded-xl" imgClass="w-5 h-5" />
+            <ServiceIcon
+              id={sm.iconProps.id}
+              name={sm.name}
+              icon={sm.iconProps.icon}
+              baseUrl={sm.iconProps.baseUrl}
+              boxClass="w-9 h-9 !bg-zinc-100/80 dark:!bg-zinc-800/80 !rounded-xl"
+              imgClass="w-5 h-5"
+            />
           )}
           name={sm.name}
-          sub={sub}
+          chips={!sm.cooldown && sm.usageProvider && sm.enabled ? (
+            <span className="ml-1.5 shrink-0 text-[11px] text-zinc-500 dark:text-zinc-400 empty:hidden">
+              <UsageInline provider={sm.usageProvider} />
+            </span>
+          ) : undefined}
+          sub={sm.cooldown ? t('providers.list.coolingHint') : undefined}
+          subClass="text-amber-600 dark:text-amber-400"
         />
-        <span className="hidden md:flex items-center gap-1.5 min-w-0 text-[11px] text-zinc-600 dark:text-zinc-300" title={st.issue?.text}>
-          {st.issue ? (
-            <>
-              <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300">{st.label}</span>
-              <span className="truncate">{t('providers.row.issueFallback')}</span>
-            </>
-          ) : sm.cooldown ? (
-            <span className="truncate text-amber-700 dark:text-amber-300">{t('providers.list.coolingHint')}</span>
-          ) : !sm.enabled ? (
-            <span className="text-zinc-400">{t('providers.list.disabled')}</span>
-          ) : (
-            <span className="truncate">{ms ? t('providers.row.okLatency', { s: Math.max(0.1, ms / 1000).toFixed(1) }) : t('providers.row.ok')}</span>
-          )}
-        </span>
-        <span className="hidden md:block text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300 truncate">{todayText}</span>
-        <span className={`hidden md:block text-[11px] truncate ${renting ? 'font-medium text-emerald-700 dark:text-emerald-300' : 'text-zinc-500 dark:text-zinc-400'}`}>
-          {renting ? t('providers.row.renting') : t('providers.row.selfOnly')}
-        </span>
-        <span className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
-          {st.issue ? (
-            <button type="button" onClick={() => setSelectedSourceKey(sm.key)} className={`${btn} font-medium bg-blue-600 text-white hover:bg-blue-500`}>
-              {st.issue.kind === 'quota' ? t('providers.list.fixQuota') : t('providers.list.fixKey')}
-            </button>
-          ) : renting ? (
-            <button type="button" onClick={() => navigate('/contribute', { state: { tradeTab: 'supply' } })}
-              className={`${btn} border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800`}>
-              {t('providers.row.manageRent')}
-            </button>
-          ) : sm.modelNames?.length > 0 && sm.enabled ? (
-            <button type="button" onClick={() => navigate('/contribute', { state: { tradeTab: 'supply', offerModels: sm.modelNames } })}
-              className={`${btn} font-medium bg-blue-600 text-white hover:bg-blue-500`}>
-              {t('providers.rent.button')}
-            </button>
-          ) : null}
-          <button type="button" aria-label={t('providers.row.more', { name: sm.name })} onClick={() => setSelectedSourceKey(sel ? null : sm.key)}
-            className="w-7 h-7 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-[13px] leading-none">⋯</button>
+        <div className="hidden md:flex items-center gap-1.5 min-w-0 text-[11px] text-zinc-600 dark:text-zinc-300">
+          <PersonalTypeIcon tag={sm.tag} />
+          <span className="truncate">{t(`providers.filter.${(PERSONAL_TYPE_BADGE[sm.tag] || PERSONAL_TYPE_BADGE.payg).filterKey}`)}</span>
+        </div>
+        <span className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{sm.models || '—'}</span>
+        <span className="flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300">
+          <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} aria-hidden />
+          {st.label}
         </span>
       </li>
     );
@@ -5474,55 +5365,80 @@ export default function Providers() {
     return null;
   }
 
+  function renderSourcesViewTabs() {
+    return (
+      <div className="inline-flex rounded-lg border border-zinc-300 dark:border-zinc-700 overflow-hidden text-xs shrink-0">
+        <button type="button" onClick={() => setSourcesView('model')}
+          className={`px-2.5 py-1 ${sourcesView === 'model' ? 'bg-zinc-100 dark:bg-zinc-700 font-medium' : 'text-zinc-400'}`}>{t('psrc.view.model')}</button>
+        <button type="button" onClick={() => setSourcesView('list')}
+          className={`px-2.5 py-1 ${sourcesView === 'list' ? 'bg-zinc-100 dark:bg-zinc-700 font-medium' : 'text-zinc-400'}`}>{t('psrc.view.list')}</button>
+      </div>
+    );
+  }
+
   return (
     <div className="px-4 py-4 space-y-5">
 
       {/* Header：与资源页同构（标题 + 副标题 + 下划线 Tab） */}
-      <div className="flex items-start gap-3 flex-wrap">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50 tracking-tight">{t('providers.title')}</h1>
-          {(() => {
-            // 一句话：几个来源、几个模型、今天用了多少；再给出模型接口地址
-            const modelSet = new Set(modelViewInstances.flatMap(i => (i.models || []).map(m => (typeof m === 'string' ? m : m?.name)).filter(Boolean)));
-            const calls = todayStats?.total_calls || 0;
-            const cost = todayStats?.total_cost || 0;
-            const base = `http://127.0.0.1:${gatewayPort || 11430}/v1`;
-            return (
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                <span>
-                  {t('providers.summary.sources', { n: personalSourceRows.length, m: modelSet.size })}
-                  {calls > 0 ? (cost > 0 ? t('providers.summary.todayCost', { n: calls.toLocaleString(), cost: fmtCost(cost) }) : t('providers.summary.today', { n: calls.toLocaleString() })) : t('providers.summary.todayNone')}
-                </span>
-                <button type="button" onClick={() => { navigator.clipboard?.writeText(base).catch(() => {}); }}
-                  title={t('providers.summary.copyApi')}
-                  className="font-mono text-blue-600 dark:text-blue-400 hover:underline">
-                  {t('providers.summary.api', { url: base })}
-                </button>
-              </p>
-            );
-          })()}
-        </div>
-        <button type="button" onClick={() => setPickerOpen(true)}
-          className="shrink-0 text-xs px-3 py-1.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-medium">
-          {t('providers.summary.add')}
-        </button>
+      <div>
+        <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50 tracking-tight">{t('providers.title')}</h1>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+          {t('providers.subtitle')}
+        </p>
       </div>
 
       <>
-      {/* 我的来源：每个来源一行（类型 · 层 · 模型数｜状态｜今天｜出租｜操作）；点 ⋯ 在右边看设置 */}
+      {/* 个人源：标题独立于 panel；统计 + 已添加卡片 + 添加源 */}
       <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 m-0">{t('providers.sec.mine')}</h2>
-          <button type="button" onClick={refreshModelsFromServer} disabled={refreshingModels}
-            className="ml-auto text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 disabled:opacity-50">
-            {refreshingModels ? '…' : t('providers.billing.refreshModels')}
-          </button>
-        </div>
+        <SourceSectionHeader
+          dot={tierConfig.local.dot}
+          title={tierConfig.local.label}
+          hint={tierConfig.local.hint}
+        />
+
+        {/* 不套外层玻璃：子卡直接浮在主区，立体与毛玻璃才看得见（Apple：勿叠浅色半透明） */}
+        <div className="space-y-4">
+        {sourcesView !== 'model' && (
+          <div className="flex items-center justify-between gap-x-3 gap-y-2 min-w-0 flex-wrap">
+            <PersonalFilterBar value={personalFilter} onChange={setPersonalFilter} t={t} />
+            <div className="flex items-center gap-2 shrink-0">
+              <button type="button" onClick={refreshModelsFromServer} disabled={refreshingModels}
+                className="tb-press text-xs px-2.5 py-1 rounded-lg border border-zinc-300/80 dark:border-zinc-700 bg-white/50 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-400 hover:bg-white/80 dark:hover:bg-zinc-700/80 transition-colors disabled:opacity-50">
+                {refreshingModels ? '…' : t('providers.billing.refreshModels')}
+              </button>
+              {renderSourcesViewTabs()}
+            </div>
+          </div>
+        )}
+
         {accountsData && (
           <SyncDiffBanner syncDiff={accountsData.sync_diff} t={t}
             onAdoptServer={adoptServerTemplate} onDismissDrift={adoptServerTemplate} />
         )}
-        {accountSyncHint && <p className="text-xs text-zinc-500">{accountSyncHint}</p>}
+
+        {accountSyncHint && (
+          <p className="text-xs text-zinc-500">{accountSyncHint}</p>
+        )}
+        {sourcesView === 'model' ? (
+          <PersonalSourceModelView
+            instances={modelViewInstances}
+            t={t}
+            modelTypeMap={personalModelTypeMap}
+            latencyMap={personalLatencyMap}
+            onRefreshLatency={loadPersonalLatency}
+            trailing={renderSourcesViewTabs()}
+            probeTargets={personalProbeTargets}
+            cooldownFor={cooldownFor}
+            sceneRoutes={sceneRoutes}
+            onSaveListRoute={saveListRoute}
+            onDeleteListRoute={deleteListRoute}
+            onEmptyAdd={() => { setSourcesView('list'); setPickerOpen(true); }}
+            onEmptySync={syncAccountsFromOtherDevices}
+            syncing={accountSyncing}
+            syncSecrets={syncAccountSecrets}
+          />
+        ) : (
+        <>
         {(() => {
           const summaries = personalSourceRows.map(sourceSummary);
           const sel = summaries.find(x => x.key === selectedSourceKey);
@@ -5533,6 +5449,12 @@ export default function Providers() {
                   <div className={`${LIB_LIST_CLS} text-xs text-zinc-400 text-center py-8`}>{t('providers.filter.empty')}</div>
                 ) : (
                   <div className={LIB_LIST_CLS}>
+                    <div className="hidden md:grid md:grid-cols-[minmax(0,1fr)_9rem_4rem_6.5rem] gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]">
+                      <span>{t('providers.list.name')}</span>
+                      <span>{t('providers.list.type')}</span>
+                      <span className="text-right">{t('providers.list.models')}</span>
+                      <span>{t('providers.list.status')}</span>
+                    </div>
                     <ul role="listbox" aria-label={tierConfig.local.label}>
                       {summaries.map(sm => renderSourceRow(sm, sm.key === selectedSourceKey))}
                     </ul>
@@ -5541,15 +5463,6 @@ export default function Providers() {
               </div>
               {sel && (
                 <LibraryPanel title={t('providers.list.detail')} closeLabel={t('providers.list.close')} onClose={() => setSelectedSourceKey(null)}>
-                  {sel.modelNames?.length > 0 && (
-                    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-zinc-100 dark:border-white/[0.06] px-3 py-2.5">
-                      <span className="text-[11px] text-zinc-500 dark:text-zinc-400 flex-1 min-w-0">{t('providers.rent.hint')}</span>
-                      <button type="button" onClick={() => navigate('/contribute', { state: { tradeTab: 'supply', offerModels: sel.modelNames } })}
-                        className="shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-500">
-                        {t('providers.rent.button')}
-                      </button>
-                    </div>
-                  )}
                   {renderDependents(sel)}
                   {renderSourceCard(sel.row)}
                 </LibraryPanel>
@@ -5557,138 +5470,26 @@ export default function Providers() {
             </div>
           );
         })()}
-        {(pickerOpen || personalSourceRows.length === 0) && renderAddSourcePicker()}
+        {renderAddSourcePicker()}
+        </>
+        )}
+        </div>
       </section>
 
-      {/* 模型降级链：同一个模型挂在几个来源上，前一个不行换下一个。这里只读，顺序在「按模型看」里调 */}
-      {(() => {
-        const nameOf = (m) => (typeof m === 'string' ? m : m?.name);
-        const srcName = (inst) => inst?.name || inst?.label || inst?.gateway_id || inst?.id;
-        const bySource = {};
-        for (const inst of modelViewInstances) {
-          for (const m of (inst.models || []).map(nameOf).filter(Boolean)) {
-            const list = bySource[m] || (bySource[m] = []);
-            if (!list.includes(inst)) list.push(inst);
-          }
-        }
-        const saved = new Map(sceneRoutes.filter(r => r?.list_route && r.model_key).map(r => [r.model_key, r]));
-        const chains = [];
-        for (const [model, insts] of Object.entries(bySource)) {
-          const route = saved.get(model);
-          let order = insts;
-          if (route?.steps?.length) {
-            const byGw = new Map(insts.map(i => [i.gateway_id || i.id, i]));
-            const picked = route.steps.map(s => byGw.get(s.provider)).filter(Boolean);
-            order = [...picked, ...insts.filter(i => !picked.includes(i))];
-          }
-          if (order.length < 2 && !route) continue;
-          const head = order[0];
-          const cooling = head ? !!cooldownFor(head.gateway_id, head.id, head.source_id) : false;
-          const broken = head ? (head.gateway_id && sourceIssues[head.gateway_id]) : null;
-          chains.push({ model, order, degraded: cooling || !!broken, saved: !!route });
-        }
-        chains.sort((a, b) => (b.degraded - a.degraded) || a.model.localeCompare(b.model));
-        return (
-          <section id="model-chains" className="space-y-3 pt-4 scroll-mt-3">
-            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 m-0">{t('providers.chains.title')}</h2>
-            <div className={LIB_LIST_CLS}>
-              {chains.length === 0 && <p className="px-4 py-4 text-xs text-zinc-400">{t('providers.chains.empty')}</p>}
-              <ul className="list-none m-0 p-0">
-                {chains.map(c => (
-                  <li key={c.model} className="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(8rem,14rem)_minmax(0,1fr)_minmax(0,10rem)_auto] gap-x-4 gap-y-1 items-center px-4 py-2.5 border-b last:border-b-0 border-zinc-100 dark:border-white/[0.05]">
-                    <span className="text-xs font-medium text-zinc-800 dark:text-zinc-100 truncate font-mono" title={c.model}>{c.model}</span>
-                    <span className="col-span-2 md:col-span-1 order-3 md:order-none text-[11px] text-zinc-600 dark:text-zinc-300 min-w-0 flex flex-wrap items-center gap-1.5">
-                      <span className="min-w-0">{t('providers.chains.order', { list: c.order.map(srcName).join(' → ') })}</span>
-                      {c.degraded && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">{t('providers.chains.degraded')}</span>
-                      )}
-                    </span>
-                    <span className="hidden md:block text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
-                      {usedByText(appsUsing([c.model]), t('providers.notUsed'))}
-                    </span>
-                    <button type="button"
-                      onClick={() => { const el = document.getElementById('model-view'); if (el) { el.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }}
-                      className="justify-self-end text-[11px] px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800">
-                      {t('providers.chains.adjust')}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <details id="model-view" className="group">
-              <summary className="cursor-pointer text-[11px] text-blue-600 dark:text-blue-400 hover:underline px-1">{t('providers.chains.byModel')}</summary>
-              <div className="mt-3">
-'''+modelView.replace("
-          ","
-                ")+'''              </div>
-            </details>
-          </section>
-        );
-      })()}
-
-      {/* 自定义路由（原网关页「场景路由」）：按规则或模型链组合出的路由 */}
-      <section id="custom-routes" className="space-y-3 pt-4 scroll-mt-3">
-        <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 m-0">{t('providers.customRoutes.title')}</h2>
-        <CustomRoutesPanel apps={appList} />
+      {/* 社区源：未登录可浏览，启用/配置 Key 需登录 */}
+      <section className="space-y-3 pt-4">
+        <SourceSectionHeader
+          dot={tierConfig.p2p.dot}
+          title={t('providers.group.remote')}
+          hint={tierConfig.p2p.hint}
+        />
+        <div className={`grid ${tierConfig.p2p.cols} gap-3`}>
+          {providers.filter(p => p.type === 'p2p').map(p => (
+            <P2PNetworkCard key={p.id} provider={p} onUpdate={updateProvider} onPersistEnabled={persistProviderEnabled}
+              cooldowns={cooldowns} onRetryCooldown={handleRetryCooldown} />
+          ))}
+        </div>
       </section>
-
-      {/* 租来的模型：用社区的模型，按积分算 */}
-      {(() => {
-        const rows = (todayStats?.models || []).filter(m => (m.provider_ids || [m.provider_id]).some(id => providers.find(p => p.id === id)?.type === 'p2p'));
-        const p2p = providers.find(p => p.type === 'p2p');
-        return (
-          <section className="space-y-3 pt-4">
-            <div className="flex items-center gap-3">
-              <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 m-0">{t('providers.rented.title')}</h2>
-              {p2p && (
-                <button type="button" onClick={() => setP2pOpen(true)} className="text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
-                  {t('providers.rented.network', { state: p2p.enabled !== false ? t('providers.list.communityOn') : t('providers.list.disabled') })}
-                </button>
-              )}
-              <button type="button" onClick={() => navigate('/contribute', { state: { tradeTab: 'hire' } })}
-                className="ml-auto text-[11px] text-blue-600 dark:text-blue-400 hover:underline">{t('providers.community.rentMore')}</button>
-            </div>
-            <div className={LIB_LIST_CLS}>
-              {rows.length === 0 ? (
-                <p className="px-4 py-4 text-xs text-zinc-400">{t('providers.rented.empty')}</p>
-              ) : (
-                <ul className="list-none m-0 p-0">
-                  {rows.map(m => {
-                    const lat = Object.entries(todayStats?.model_provider_latency?.[m.model] || {})
-                      .filter(([id]) => providers.find(p => p.id === id)?.type === 'p2p').map(([, v]) => v?.avg_ttft_ms).filter(x => x > 0)[0];
-                    return (
-                      <li key={m.model} className="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(8rem,14rem)_minmax(0,1fr)_minmax(0,8rem)_minmax(0,8rem)_auto] gap-x-4 gap-y-1 items-center px-4 py-2.5 border-b last:border-b-0 border-zinc-100 dark:border-white/[0.05]">
-                        <span className="text-xs font-medium text-zinc-800 dark:text-zinc-100 truncate font-mono">{m.model}</span>
-                        <span className="hidden md:block text-[11px] text-zinc-600 dark:text-zinc-300">{lat ? t('providers.rented.sharedLatency', { s: (lat / 1000).toFixed(1) }) : t('providers.rented.shared')}</span>
-                        <span className="hidden md:block text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{t('providers.rented.today', { n: m.calls || 0 })}</span>
-                        <span className="hidden md:block text-[11px] font-medium text-violet-700 dark:text-violet-300">{t('providers.rented.credits')}</span>
-                        <button type="button" onClick={() => setP2pOpen(true)}
-                          className="justify-self-end text-[11px] px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800">
-                          {t('providers.rented.settings')}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-            {p2pOpen && p2p && createPortal(
-              <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[10vh]" onClick={() => setP2pOpen(false)}>
-                <div className="w-full max-w-xl" onClick={e => e.stopPropagation()}>
-                  <div className="flex items-center justify-between px-1 pb-2">
-                    <span className="text-sm font-semibold text-white">{t('providers.rented.networkTitle')}</span>
-                    <button type="button" onClick={() => setP2pOpen(false)} className="text-white/80 hover:text-white text-lg leading-none" aria-label={t('providers.list.close')}>×</button>
-                  </div>
-                  <P2PNetworkCard provider={p2p} onUpdate={updateProvider} onPersistEnabled={persistProviderEnabled}
-                    cooldowns={cooldowns} onRetryCooldown={handleRetryCooldown} />
-                </div>
-              </div>,
-              document.body,
-            )}
-          </section>
-        );
-      })()}
-
       </>
 
       {syncDeviceChoices && (
