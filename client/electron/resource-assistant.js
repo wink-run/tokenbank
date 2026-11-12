@@ -152,6 +152,7 @@ function resolveAssistantContext(config, resourceManager) {
  * 生成底层 CLI Agent 的启动参数
  * @param {object} [opts]
  * @param {boolean} [opts.includeDelivery=false] 是否附带产物落盘规则。本地默认关；仅显式打开时加
+ * @param {boolean} [opts.includePartial=false] Claude 是否附带 --include-partial-messages，让正文按片段出来
  * @returns {{ runtimeAgentId: string, claudeExtraArgs?: string[], promptPrefix?: string }}
  */
 function buildAssistantLaunch(runtimeAgentId, systemText, model, opts = {}) {
@@ -173,6 +174,7 @@ function buildAssistantLaunch(runtimeAgentId, systemText, model, opts = {}) {
       '--output-format', 'stream-json',
       '--verbose',
     ];
+    if (opts.includePartial) extra.push('--include-partial-messages');
     if (mdl) extra.push('--model', mdl); // 用纳管智能体绑定的模型,而非运行时环境默认
     if (system) extra.push('--append-system-prompt', system);
     else if (includeDelivery) extra = withClaudeDeliverySystemArgs(extra);

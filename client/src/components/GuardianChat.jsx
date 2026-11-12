@@ -64,14 +64,15 @@ export default function GuardianChat() {
     }).catch(() => {});
   }, [api, apply]);
 
-  // 有回答在路上时轮询；平时慢一点看有没有新推送
+  // 有回答在路上时跟得紧一点，正文才能一段段长出来；平时慢一点看有没有新推送
   const waiting = messages.some(m => m.pending);
   useEffect(() => {
-    const timer = setInterval(refresh, waiting ? 1500 : 15000);
+    const timer = setInterval(refresh, waiting ? 200 : 15000);
     return () => clearInterval(timer);
   }, [refresh, waiting]);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [messages.length, waiting]);
+  const lastLen = messages.length ? String(messages[messages.length - 1]?.text || '').length : 0;
+  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [messages.length, waiting, lastLen]);
 
   if (!api?.convoOpen) return null;
 
@@ -128,8 +129,8 @@ export default function GuardianChat() {
               <Spark className="w-3.5 h-3.5" />
             </span>
             <div className="min-w-0 flex-1 space-y-2">
-              {m.pending ? (
-                <p className="text-[15px] leading-relaxed text-zinc-400">{t('guardian.chat.thinking')}</p>
+              {m.pending && m.live !== 'text' ? (
+                <p className="text-[15px] leading-relaxed text-zinc-600 dark:text-zinc-300 whitespace-pre-wrap">{m.text || t('guardian.chat.thinking')}</p>
               ) : (
                 <RichText text={m.text} />
               )}

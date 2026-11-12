@@ -231,3 +231,20 @@ test('questions the data can answer come back as a table, a list or a chart, wit
   assert.equal(spec.type, 'bar');
   assert.deepEqual(spec.data.find(d => d.name === 'dead-src'), { name: 'dead-src', ok: 0, fail: 2 });
 });
+
+test('while a reply is still running, the chat shows how far the lookup got, and a timeout is said in plain words', () => {
+  const { liveLine, explainFail } = convo._internal;
+  assert.equal(liveLine({ steps: [] }), '');
+  assert.equal(liveLine({ steps: [{ step_type: 'thinking', content: 'checking files' }] }), '还在想，马上说。');
+  assert.equal(liveLine({ steps: [{ step_type: 'tool_call' }, { step_type: 'tool_result' }, { step_type: 'tool_call' }] }), '还在查，已经看了 2 处。');
+  const detailed = liveLine({ steps: [{ step_type: 'tool_call', content: JSON.stringify({ command: 'node tb-guardian.js diagnose \'{"resourceId":"res-assistant-video-gen-agent"}\'' }) }] });
+  assert.match(detailed, /诊断/);
+  assert.match(detailed, /video-gen-agent/);
+  assert.match(liveLine({ steps: [{ step_type: 'tool_call', content: JSON.stringify({ command: 'cat ~/.tokenbank/guardian/agent-api.json' }) }] }), /密钥不显示/);
+  assert.match(explainFail('子任务超时 (assistant:tb-guardian)'), /查了很久还没查完/);
+  assert.match(explainFail(''), /执行应用没有返回内容/);
+  const { mergeChunk } = convo._internal;
+  assert.equal(mergeChunk('查', '过了', { isDelta: true }), '查过了');
+  assert.equal(mergeChunk('查过了', '查过了，情况是这样：', { isSnapshot: true }), '查过了，情况是这样：');
+  assert.equal(mergeChunk('先看一下', '查过了，情况是这样。', { isSnapshot: true }), '先看一下\n\n查过了，情况是这样。');
+});

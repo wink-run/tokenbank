@@ -35,6 +35,12 @@ test('buildAssistantLaunch for claude-code uses stream-json and append-system-pr
   assert.ok(!launch.claudeExtraArgs.includes('--include-partial-messages'));
 });
 
+test('buildAssistantLaunch can stream partial Claude messages when asked', () => {
+  const launch = buildAssistantLaunch('claude-code', 'hello', '', { includePartial: true });
+  assert.ok(launch.claudeExtraArgs.includes('--include-partial-messages'));
+  assert.ok(launch.claudeExtraArgs.includes('stream-json'));
+});
+
 test('resolveAssistantRuntimeAgent prefers projection over default runtime', () => {
   const { resolveAssistantRuntimeAgent } = require('../resource-assistant');
   const config = parseAssistantConfig(JSON.stringify({ soul: 'x', runtime_agent: 'claude-code' }));

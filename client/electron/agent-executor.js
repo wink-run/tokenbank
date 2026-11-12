@@ -492,6 +492,26 @@ function sleep(ms) {
 }
 
 /**
+ * 子任务还要不要等。
+ * 停住超过 idleMs，或从开始算超过 hardMs，就不再等。
+ * 中间一直有新进展时，由调用方把 lastActivity 往后推。
+ */
+function taskWaitAlive({ now, start, lastActivity, idleMs, hardMs }) {
+  if (now - start >= hardMs) return false;
+  if (now - lastActivity >= idleMs) return false;
+  return true;
+}
+
+/** 这一轮有没有新进展：新步骤、步骤内容变长、或已经有输出 */
+function taskActivityMark(status) {
+  const steps = Array.isArray(status?.steps) ? status.steps : [];
+  const last = steps[steps.length - 1];
+  const tail = last ? String(last.content || '').length : 0;
+  const out = String(status?.result?.output || status?.result?.summary || '').length;
+  return `${status?.status || ''}|${steps.length}|${last?.id || ''}|${tail}|${out}`;
+}
+
+/**
  * 云端回传的成品。优先用中转地址；旧的 data URL 仍可展示。不把出租方磁盘路径当本地文件。
  */
 function normalizeCommunityArtifacts(raw) {
@@ -889,7 +909,8 @@ class AgentExecutor extends EventEmitter {
     if (guardianChat.isGuardianAgent(agentId)) {
       const st = require('./guardian/engine').status();
       if (!st.ready || !AGENT_CLI[st.runtime]) throw new Error('智能管家还没有执行应用：到智能管家页设置一个');
-      const launch = buildAssistantLaunch(st.runtime, guardianChat.systemText(), '');
+      // 智能管家的回复要边生成边显示，所以打开 partial messages
+      const launch = buildAssistantLaunch(st.runtime, guardianChat.systemText(), '', { includePartial: true });
       return { agentId: st.runtime, assistant: { virtualId: agentId, resource: null, config: {}, launch } };
     }
 
@@ -1025,6 +1046,16 @@ class AgentExecutor extends EventEmitter {
       parentTaskId,
     });
 
+    // 进程启动后马上听步骤。stdout 在下一个事件循环才到，这里还赶得上第一个字
+    let stepListener = null;
+    if (typeof options.onStep === 'function') {
+      stepListener = (evt) => {
+        if (!evt || evt.taskId !== taskId) return;
+        try { options.onStep(evt); } catch { /* 流式回调失败不影响任务 */ }
+      };
+      this.on('task:step', stepListener);
+    }
+
     // 通知前端：子任务已派发，便于当前窗口展示派发卡片
     this.emit('task:dispatched', {
       parentTaskId,
@@ -1048,12 +1079,21 @@ class AgentExecutor extends EventEmitter {
       });
     }
 
-    const timeoutMs = options.timeoutMs || 10 * 60 * 1000;
+    // 空闲超时：一直有新步骤就续上，避免查到一半被墙钟掐掉。停住超过 idleMs，或总时长到 hardMs，才取消。
+    const idleMs = options.timeoutMs || 10 * 60 * 1000;
+    const hardMs = options.hardTimeoutMs || idleMs * 3;
     const start = Date.now();
+    let lastActivity = start;
+    let lastMark = '';
 
     try {
-      while (Date.now() - start < timeoutMs) {
+      while (taskWaitAlive({ now: Date.now(), start, lastActivity, idleMs, hardMs })) {
         const status = await this.getTaskStatus(taskId);
+        const mark = taskActivityMark(status);
+        if (mark !== lastMark) {
+          lastMark = mark;
+          lastActivity = Date.now();
+        }
         if (['completed', 'failed', 'cancelled'].includes(status.status)) {
           if (parentTaskId) {
             const summary = status.result?.summary
@@ -1075,6 +1115,9 @@ class AgentExecutor extends EventEmitter {
           this._notifyTaskTerminal(taskId, status);
           return status;
         }
+        if (typeof options.onProgress === 'function') {
+          try { options.onProgress(status); } catch { /* 进度写失败不影响任务本身 */ }
+        }
         await sleep(400);
       }
       await this.cancel(taskId);
@@ -1093,6 +1136,8 @@ class AgentExecutor extends EventEmitter {
         });
       }
       throw err;
+    } finally {
+      if (stepListener) this.off('task:step', stepListener);
     }
   }
 
@@ -1743,6 +1788,17 @@ class AgentExecutor extends EventEmitter {
       // 出租接单：系统定义里说明自己是在给雇佣方干活，不能报本机路径
       if (confined) {
         args = applyRentalDefinition(args);
+      }
+
+      // 智能管家跑在任何一个已纳管的执行应用上，都带上 Token Bank 的接口。不改用户自己的配置。
+      if (require('./guardian/chat').isGuardianAgent(agentId)) {
+        try {
+          const attached = require('./guardian/mcp-launch').attach(effectiveAgentId, args, { workingDir: runDir });
+          args = attached.args;
+          if (attached.cwd) runDir = attached.cwd;
+        } catch (e) {
+          console.warn('[guardian] attach mcp:', e.message);
+        }
       }
 
       const result = await this._runAgentProcess(taskId, effectiveAgentId, launch.executable, args, {
@@ -2590,6 +2646,8 @@ module.exports = new AgentExecutor();
 module.exports.AGENT_CLI = AGENT_CLI;
 module.exports.canonicalBuiltinAgentId = canonicalBuiltinAgentId;
 module.exports.invalidateAgentListCache = invalidateAgentListCache;
+module.exports.taskWaitAlive = taskWaitAlive;
+module.exports.taskActivityMark = taskActivityMark;
 module.exports.buildClaudeCodeArgs = buildClaudeCodeArgs;
 module.exports.buildClaudeContinueArgs = buildClaudeContinueArgs;
 module.exports.buildClaudeStreamFlags = buildClaudeStreamFlags;

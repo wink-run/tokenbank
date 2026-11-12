@@ -208,6 +208,124 @@ async function undoLatest() {
   return { ok: !!r.ok };
 }
 
+const LOOK_OPS = {
+  diagnose: '诊断',
+  check: '重新检查资产',
+  records: '看处理记录',
+  command: '试了一条操作',
+  hire: '看雇佣任务',
+};
+
+function clipLook(s, n = 110) {
+  const t = String(s || '').replace(/\s+/g, ' ').trim();
+  return t.length > n ? `${t.slice(0, n)}…` : t;
+}
+
+/** 从一次工具调用里抽出「看了什么」。不贴命令原文，也不带出密钥。 */
+function describeLook(raw) {
+  let command = '';
+  const text = String(raw || '');
+  try {
+    const o = JSON.parse(text);
+    command = String(o.command || o.cmd || o.input || '');
+  } catch {
+    command = text;
+  }
+  if (!command.trim()) return '';
+  if (/agent-api\.json|Authorization|Bearer\s+[A-Za-z0-9]/i.test(command)) {
+    return '调用了智能管家接口（密钥不显示）';
+  }
+
+  const home = command.replace(/\/Users\/[^/\s'"]+/g, '~');
+  const op = home.match(/tb-guardian\.js["']?\s+([a-z]+)/);
+  const opName = op ? LOOK_OPS[op[1]] : '';
+  let action = opName;
+  if (!action) {
+    if (/\bsqlite3\b/.test(home)) action = '查数据库';
+    else if (/\bgrep\b/.test(home)) action = '搜索';
+    else if (/\bls\b/.test(home)) action = '列目录';
+    else if (/\bcp\b/.test(home)) action = '复制';
+    else if (/\bcat\b/.test(home)) action = '读文件';
+    else if (/\bfind\b/.test(home)) action = '查找文件';
+  }
+
+  const targets = [];
+  const push = (v) => {
+    const t = String(v || '').replace(/\/+$/, '');
+    if (!t || t === '~' || /tb-guardian\.js$/.test(t) || targets.includes(t) || targets.length >= 4) return;
+    targets.push(t);
+  };
+  const shortPath = (p) => {
+    const parts = String(p || '').replace(/\/+$/, '').split('/').filter(Boolean);
+    const tilde = parts[0] === '~';
+    const body = (tilde ? parts.slice(1) : parts).slice(-3);
+    if (!body.length) return '';
+    return `${tilde ? '~/' : ''}${body.join('/')}`;
+  };
+  for (const m of home.matchAll(/\bres-(?:assistant|skill|prompt)-[a-z0-9.-]+/g)) {
+    push(m[0].replace(/^res-(?:assistant|skill|prompt)-/, ''));
+  }
+  for (const m of home.matchAll(/\b[a-z0-9]+(?:-[a-z0-9]+){2,}\b/g)) {
+    if (/tb-guardian|^res-/.test(m[0])) continue;
+    push(m[0]);
+  }
+  for (const m of home.matchAll(/(?:~\/|\.\/)[^\s'";|&$]+/g)) push(shortPath(m[0]));
+  for (const m of home.matchAll(/\b[\w.-]+\.(?:json|yaml|yml|md|db)\b/g)) {
+    if (/tb-guardian/.test(m[0])) continue;
+    push(m[0]);
+  }
+
+  const line = [action, targets.join('、')].filter(Boolean).join(' ');
+  return clipLook(line);
+}
+
+/** 还在跑、正文还没出来时说明正在看什么。思考过程多半是英文，不原样贴出来。 */
+function liveLine(status) {
+  const steps = Array.isArray(status?.steps) ? status.steps : [];
+  const calls = steps.filter(s => (s.step_type || s.stepType) === 'tool_call');
+  if (!calls.length) {
+    if (steps.some(s => (s.step_type || s.stepType) === 'thinking')) return '还在想，马上说。';
+    return '';
+  }
+  const items = [];
+  const seen = new Set();
+  for (const step of calls) {
+    const line = describeLook(step.content);
+    if (!line || seen.has(line)) continue;
+    seen.add(line);
+    items.push(line);
+  }
+  if (!items.length) return `还在查，已经看了 ${calls.length} 处。`;
+  const recent = items.slice(-8);
+  const head = items.length > recent.length
+    ? `还在查，已经看了 ${calls.length} 处，最近这些：`
+    : `还在查，已经看了 ${calls.length} 处：`;
+  return `${head}\n${recent.map(x => `- ${x}`).join('\n')}`;
+}
+
+/**
+ * 把流式片段拼成一篇正文。
+ * 增量接在后面；完整快照若已包含前文就换上，避免 token 和全文各贴一遍。
+ */
+function mergeChunk(prev, next, { isDelta = false, isSnapshot = false } = {}) {
+  const a = String(prev || '');
+  const b = String(next || '');
+  if (!b) return a;
+  if (!a) return b;
+  if (a === b || a.startsWith(b)) return a;
+  if (b.startsWith(a) || b.includes(a)) return b;
+  if (isSnapshot && !isDelta) return `${a.replace(/\s+$/, '')}\n\n${b.replace(/^\s+/, '')}`;
+  return a + b;
+}
+
+/** 失败时说人话。超时是查太久，不是执行应用没登录。 */
+function explainFail(reason) {
+  const s = String(reason || '').trim();
+  if (/子任务超时/.test(s)) return '查了很久还没查完，我先停了。你再发一次，我接着看。';
+  const brief = (s || '执行应用没有返回内容').slice(0, 200).replace(/[。.\s]+$/, '');
+  return `我这次没能回答：${brief}。登录好之后再问我，或者换一个应用来运行我。`;
+}
+
 /** 交给智能管家（用模型）。后台跑，结果回来后补进对话 */
 function askModel(text) {
   const st = require('./engine').status();
@@ -222,23 +340,61 @@ function askModel(text) {
   const pending = add({ from: 'guardian', read: true, text: '', pending: true });
   const executor = require('../agent-executor');
   const os = require('os');
+  let streamed = '';
+  let shown = '';
+  let writeTimer = null;
+  // 正文按片段写进对话；查资料还没开口时才用进度句
+  const publish = (line, live) => {
+    if (!line || line === shown) return;
+    if (writeTimer) clearTimeout(writeTimer);
+    writeTimer = setTimeout(() => {
+      writeTimer = null;
+      const cur = all().find(m => m.id === pending.id);
+      if (!cur?.pending) return;
+      patch(pending.id, { text: line, live });
+      shown = line;
+    }, 80);
+  };
+  const stopPublish = () => {
+    if (writeTimer) { clearTimeout(writeTimer); writeTimer = null; }
+  };
   Promise.resolve()
     .then(() => executor.dispatchAndWait(require('./chat').AGENT_ID, text, {
       workingDir: os.homedir(), sessionKey: 'guardian-chat', continueSession: !!state().chatStarted, clientId: 'guardian-chat',
+      onStep: (evt) => {
+        if (evt.stepType !== 'output' || !String(evt.content || '').trim()) return;
+        streamed = mergeChunk(streamed, evt.content, { isDelta: !!evt.is_delta, isSnapshot: !!evt.is_snapshot });
+        publish(streamed, 'text');
+      },
+      onProgress: (status) => {
+        if (streamed) return;
+        publish(liveLine(status), 'note');
+      },
     }))
     .then((status) => {
+      stopPublish();
       setState({ chatStarted: true });
-      const out = String(status?.result?.summary || status?.result?.output || '').trim();
+      // summary 会把每个 token 用空行拼起来。已经流式拼好的正文优先
+      const summary = String(status?.result?.summary || status?.result?.output || '').trim();
+      const out = streamed.trim() || summary;
       const failed = status?.status !== 'completed' || !out;
       patch(pending.id, {
         pending: false,
-        text: failed
-          ? `我这次没能回答：${String(status?.error || '执行应用没有返回内容').slice(0, 200).replace(/[。.\s]+$/, '')}。登录好之后再问我，或者换一个应用来运行我。`
-          : out,
+        live: undefined,
+        text: failed ? explainFail(status?.error) : out,
         ...(failed ? { replies: runtimeReplies() } : {}),
       });
     })
-    .catch((e) => patch(pending.id, { pending: false, text: `我这次没能回答：${String(e.message || e).slice(0, 200).replace(/[。.\s]+$/, '')}。`, replies: runtimeReplies() }));
+    .catch((e) => {
+      stopPublish();
+      const partial = streamed.trim();
+      patch(pending.id, {
+        pending: false,
+        live: undefined,
+        text: partial ? `${partial}\n\n${explainFail(e && e.message)}` : explainFail(e && e.message),
+        replies: runtimeReplies(),
+      });
+    });
   return { ok: true, pending: pending.id };
 }
 
@@ -379,4 +535,4 @@ function list({ limit = 80 } = {}) {
   return all().slice(-limit);
 }
 
-module.exports = { push, open, list, say, quick, unread, brief, chooseRuntime, add, remind, cancelReminders, armReminders, _internal: { all, state, setState, awaiting, OPEN } };
+module.exports = { push, open, list, say, quick, unread, brief, chooseRuntime, add, remind, cancelReminders, armReminders, _internal: { all, state, setState, awaiting, OPEN, liveLine, explainFail, mergeChunk, describeLook } };

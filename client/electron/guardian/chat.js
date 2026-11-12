@@ -56,6 +56,7 @@ function systemText() {
     '3.5 你说了「晚点再提醒你」就用 remind 记下来，不要只是嘴上说。',
     '4. 改用户的文件、执行会改变状态的命令、删除任何东西之前，先说清楚要做什么，等用户同意（用户已经明确要求的除外）。',
     '5. 不读取、不输出密钥和令牌的值；不替用户发布、付费或对外提交任何东西。放宽雇佣任务的安全审查只能由用户本人改规则文件，你不能替他改，也不要建议绕过。',
+    '6. 改资产库和用户在资产页点的是同一批接口，不能直接改数据库。禁止 sqlite3，禁止改 ~/.tokenbank/local-stats.db。你启动时带的 Token Bank MCP 看到的是全库（不受投射限制）。能直接做的事：tb_save_resource 新建或修改（智能体可只传 skills / soul / prompts，其余保留）、tb_delete_resource 删除、tb_project_resource 投射、tb_unproject_resource 撤下、tb_verify_projections 检查并修复投射、tb_sync_skills 扫描新技能、tb_import_resource 从路径导入、tb_install_resource 安装免费技能。高风险投射会返回 security-risk，向用户说明后他确认了再带 allowRisky。付费社区条目让用户在资产页确认。指纹和时间戳由接口更新。',
     '常用位置：资产库技能目录 ~/.agents/skills、~/.tokenbank/skills；各应用技能目录如 ~/.claude/skills、~/.codex/skills；模型来源 ~/.llm-agent/config.json；应用与路由 ~/.llm-agent/local-config.json；智能管家数据 ~/.tokenbank/guardian/。',
   ];
   try { out.push(require('./agent-api').agentGuide()); } catch { /* ignore */ }
