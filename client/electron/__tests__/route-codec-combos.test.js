@@ -11,7 +11,13 @@ const CFG = { providers: [
   { id: 'freeglm', type: 'free', enabled: true, base_url: 'http://f',                 models: [{ name: 'glm-5', type: 'chat' }, { name: 'qwen', type: 'chat' }] },
   { id: 'paidgpt', type: 'paid', enabled: true, base_url: 'http://g', source: 'payg', models: [{ name: 'gpt-4o', type: 'chat' }] },
 ] };
-const LOCALCFG = { user_payg_providers: [{ id: 'pg1', provider_id: 'paidglm', models: ['glm-5'] }] };  // 个人源集 = { glm-5 }
+// glm-5 为个人模型；paidgpt 仅登记账户（无 models）以便 gpt-4o 可出现在全量/付费候选
+const LOCALCFG = {
+  user_payg_providers: [
+    { id: 'pg1', provider_id: 'paidglm', models: ['glm-5'] },
+    { id: 'pg2', provider_id: 'paidgpt', models: [] },
+  ],
+};
 const RP = '/v1/chat/completions';
 
 before(() => { gw.start(19873, () => CFG, null); gw.setLocalConfigReader(() => LOCALCFG); });
