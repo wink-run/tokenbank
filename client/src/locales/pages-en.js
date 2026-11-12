@@ -3078,6 +3078,8 @@ export default {
   'gw2.pro.runtimeFailed': 'Could not change it',
   'gw2.ext.pushes': '{n} pushes · last {when}',
   'gw2.ext.pushRejected': 'Last push rejected ({when}): {msg}',
+  'gw2.pro.newPlus': '+ New specialist agent',
+  'gw2.ext.connectPlus': '+ Connect external agent',
   'gw2.kind.pro': 'specialist',
   'gw2.kind.ext': 'external',
   'gw2.kind.app': 'app',

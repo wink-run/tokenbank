@@ -8,12 +8,29 @@ import { resolveBrandIcon } from '../lib/brandIcons';
 
 const agentApi = () => window.electronAPI?.agent || {};
 
-const BTN = 'min-h-[44px] md:min-h-[30px] px-3 md:px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/70 dark:bg-zinc-800/60 text-xs text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50';
-const BTN_PRIMARY = 'min-h-[44px] md:min-h-[30px] px-3 md:px-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium disabled:opacity-50';
-const BTN_DANGER = 'min-h-[44px] md:min-h-[30px] px-3 md:px-2.5 rounded-lg border border-red-200 dark:border-red-900/60 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20';
-// 一行：窄屏上下排成卡片，宽屏按列排
-const ROW = 'flex flex-col gap-2 p-3 rounded-xl bg-white/70 dark:bg-zinc-900/50 md:rounded-none md:bg-transparent md:dark:bg-transparent md:grid md:items-center md:gap-3 md:px-3 md:py-2.5 md:border-t md:border-zinc-100 md:dark:border-white/[0.05]';
-const HEAD = 'hidden md:grid md:gap-3 px-3 py-2 text-[11px] text-zinc-400 dark:text-zinc-500';
+// 样式和「通用智能体」的应用表一致：表格卡片 tb-table-shell、表头 tb-table-head、行 tb-table-row、小边框按钮
+const BTN = 'max-md:min-h-[40px] text-[11px] px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:border-blue-400 hover:text-blue-500 transition-colors disabled:opacity-40';
+const BTN_PRIMARY = 'max-md:min-h-[40px] text-[11px] px-2 py-1 rounded-lg border border-blue-500 bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:border-[#3f6699] text-white font-medium transition-colors disabled:opacity-40';
+const BTN_DANGER = 'max-md:min-h-[40px] text-[11px] px-2 py-1 rounded-lg border border-red-200 dark:border-red-900/60 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors';
+// 工具栏主按钮：同「新建应用」
+const BTN_MAIN = 'max-md:min-h-[40px] text-xs px-3 py-1.5 rounded-xl bg-blue-500 hover:bg-blue-600 dark:bg-[#3f6699] dark:hover:bg-[#4a73a8] active:bg-blue-700 text-white transition-colors font-medium shadow-sm shadow-blue-500/20';
+const SHELL = 'tb-table-shell rounded-xl overflow-hidden';
+// 一行：窄屏上下排，宽屏按列排
+const ROW = 'tb-table-row flex flex-col gap-1.5 px-3 py-3 md:grid md:items-center md:gap-x-2 md:px-2.5';
+const HEAD = 'tb-table-head hidden md:grid md:items-center md:gap-x-2 px-2.5 py-2.5';
+const NAME = 'text-xs font-medium tracking-tight text-zinc-800 dark:text-zinc-100 truncate';
+const META = 'tb-table-cell-meta';
+
+/** 工具栏：主按钮 + 一句说明，同「通用智能体」的「新建应用」那一行 */
+function Toolbar({ main, hint, right }) {
+  return (
+    <div className="flex items-center gap-2 mb-3 flex-wrap">
+      {main}
+      {hint ? <span className="text-xs text-zinc-400 dark:text-zinc-500">{hint}</span> : null}
+      {right ? <span className="ml-auto">{right}</span> : null}
+    </div>
+  );
+}
 
 function Code({ children }) {
   return <code className="inline-block max-w-full overflow-x-auto whitespace-nowrap align-middle font-mono text-[11px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{children}</code>;
@@ -171,42 +188,42 @@ export function ProfessionalAgents() {
   };
   const GRID = 'md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.8fr)_15rem]';
   return (
-    <section className="space-y-2 px-2.5 pb-4">
-      <GroupHead title={t('gw2.pro.title', { n: rows.length })} hint={t('gw2.pro.hint')}
-        badge={brokenN ? t('gw2.pro.broken', { n: brokenN }) : ''}
-        right={<button type="button" className={BTN} onClick={() => navigate('/resources', { state: { resourceType: 'assistant' } })}>{t('gw2.pro.new')}</button>} />
+    <section className="px-2.5 py-3 min-w-0">
+      <Toolbar main={<button type="button" className={BTN_MAIN} onClick={() => navigate('/resources', { state: { resourceType: 'assistant' } })}>{t('gw2.pro.newPlus')}</button>}
+        hint={t('gw2.pro.hint')} />
       {rows.length === 0 ? (
-        <p className="px-3 py-3 text-xs text-zinc-500 dark:text-zinc-400">{t('gw2.pro.empty')}</p>
+        <div className="py-6 text-center text-xs text-zinc-400">{t('gw2.pro.empty')}</div>
       ) : (
-        <>
+        <div className="space-y-3">
           {runtimeErr && <p className="m-0 px-1 text-xs text-red-600 dark:text-red-400">{runtimeErr}</p>}
           <ProApiCard rows={rows.filter(r => !blocked[r.id])} appName={appName} picked={picked} onPick={setPicked} open={apiOpen} setOpen={setApiOpen} t={t} />
+          <div className={SHELL}>
+          <div className={`${HEAD} ${GRID}`}>
+            <span>{t('gw2.col.agent')}</span><span>{t('gw2.col.state')}</span><span>{t('gw2.col.today')}</span><span>{t('gw2.col.rent')}</span><span className="text-right">{t('gw2.col.actions')}</span>
+          </div>
           {groups.map(([appId, list]) => {
             const app = appOf(appId);
             const appOk = !!app && app.installed !== false;
             const icon = resolveBrandIcon(`${appId} ${app?.name || ''}`);
             return (
-              <div key={appId || 'none'} className="space-y-2 md:space-y-0 md:rounded-xl md:border md:border-zinc-100 md:dark:border-white/[0.06] overflow-hidden">
-                {/* 组头：它们跑在哪个应用上 */}
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 rounded-xl md:rounded-none bg-zinc-50/90 dark:bg-white/[0.03]">
+              <React.Fragment key={appId || 'none'}>
+                {/* 组头行：它们跑在哪个应用上（同应用表里多账号的父行） */}
+                <div className="tb-table-row flex flex-wrap items-center gap-x-2 gap-y-1 px-3 md:px-2.5 py-2.5 bg-zinc-50/60 dark:bg-white/[0.02]">
                   {icon ? <img src={icon} alt="" className="w-4 h-4 shrink-0" /> : <span className="w-4 h-4 shrink-0 rounded bg-zinc-200 dark:bg-zinc-700" />}
                   <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">{t('gw2.pro.onApp', { app: appName(appId) })}</span>
                   <span className="text-[11px] text-zinc-500 dark:text-zinc-400">{t('gw2.pro.groupN', { n: list.length })}</span>
                   <span className={`text-[11px] ${appOk ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>● {appOk ? t('gw2.pro.appOk') : t('gw2.pro.appMissing')}</span>
                   <span className="basis-full md:basis-auto md:ml-auto text-[11px] text-zinc-500 dark:text-zinc-400">{t('gw2.pro.groupHint', { app: appName(appId) })}</span>
                 </div>
-                <div className={`${HEAD} ${GRID}`}>
-                  <span>{t('gw2.col.agent')}</span><span>{t('gw2.col.state')}</span><span>{t('gw2.col.today')}</span><span>{t('gw2.col.rent')}</span><span className="text-right">{t('gw2.col.actions')}</span>
-                </div>
                 {list.map(a => {
                   const b = blocked[a.id];
                   const st = stats[a.id] || {};
                   const renting = a.resourceId && rentIds.has(a.resourceId);
                   return (
-                    <div key={a.id} className={`${ROW} ${GRID} ${b ? 'border border-red-200 dark:border-red-900/50 md:border-0 bg-red-50/60 md:bg-red-50/40 dark:md:bg-red-950/10' : ''}`}>
+                    <div key={a.id} className={`${ROW} ${GRID} ${b ? 'bg-red-50/50 dark:bg-red-950/10' : ''}`}>
                       <span className="min-w-0">
-                        <span className="block text-sm md:text-xs font-medium text-zinc-800 dark:text-zinc-100 truncate" title={a.name}>{a.name}</span>
-                        <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">{a.skillCount ? t('gw2.pro.skills', { n: a.skillCount }) : t('gw2.pro.noSkills')}</span>
+                        <span className={`block ${NAME}`} title={a.name}>{a.name}</span>
+                        <span className={`block ${META}`}>{a.skillCount ? t('gw2.pro.skills', { n: a.skillCount }) : t('gw2.pro.noSkills')}</span>
                         {(a.projectedRuntimes || []).length > 1 && (
                           <label className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                             {t('gw2.pro.defaultOn')}
@@ -247,10 +264,11 @@ export function ProfessionalAgents() {
                     </div>
                   );
                 })}
-              </div>
+              </React.Fragment>
             );
           })}
-        </>
+          </div>
+        </div>
       )}
     </section>
   );
@@ -297,7 +315,6 @@ export function AgentsSubTabs({ tab, onTab, renderApps, renderRoutes }) {
       </div>
       {tab === 'apps' && (
         <div>
-          <p className="m-0 px-3.5 pt-2.5 text-xs text-zinc-500 dark:text-zinc-400">{t('gw2.generic.hint')}</p>
           {renderApps()}
         </div>
       )}
@@ -351,13 +368,12 @@ export function ExternalAgents() {
   const skillUrl = `${gateway}/v1/agent/external/skill`;
   const GRID = 'md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_10.5rem]';
   return (
-    <section className="space-y-1.5 px-2.5 pb-4">
-      <GroupHead title={t('gw2.ext.title', { n: list.length })} hint={t('gw2.ext.hint')}
-        badge={pendingN ? t('gw2.ext.pendingN', { n: pendingN }) : ''} badgeTone="amber"
-        right={<button type="button" className="min-h-[44px] md:min-h-[30px] px-3 rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50 dark:bg-blue-950/30 text-xs font-medium text-blue-700 dark:text-blue-300" onClick={() => (open ? setOpen(false) : newCode())}>{t('gw2.ext.connect')}</button>} />
+    <section className="px-2.5 py-3 min-w-0">
+      <Toolbar main={<button type="button" className={BTN_MAIN} aria-expanded={open} onClick={() => (open ? setOpen(false) : newCode())}>{t('gw2.ext.connectPlus')}</button>}
+        hint={t('gw2.ext.hint')} />
 
       {open && (
-        <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/60 dark:bg-blue-950/20 p-3 space-y-2 text-xs text-zinc-700 dark:text-zinc-200">
+        <div className="mb-3 rounded-xl border border-sky-200/80 dark:border-sky-900/50 bg-sky-50/70 dark:bg-sky-950/20 px-3 py-2.5 space-y-2 text-xs text-zinc-700 dark:text-zinc-200">
           <ol className="m-0 pl-4 space-y-2 leading-relaxed">
             <li>{t('gw2.ext.step1')} <Code>tokenbank-connect</Code>
               <span className="flex flex-wrap items-center gap-2 mt-1"><Code>{skillUrl}</Code><CopyText text={skillUrl} t={t} /></span>
@@ -391,9 +407,9 @@ export function ExternalAgents() {
       )}
 
       {rows.length === 0 ? (
-        <p className="px-3 py-3 text-xs text-zinc-500 dark:text-zinc-400">{t('gw2.ext.empty')}</p>
+        <div className="py-6 text-center text-xs text-zinc-400">{t('gw2.ext.empty')}</div>
       ) : (
-        <div className="space-y-2 md:space-y-0 md:rounded-xl md:border md:border-zinc-100 md:dark:border-white/[0.06]">
+        <div className={SHELL}>
           <div className={`${HEAD} ${GRID}`}>
             <span>{t('gw2.col.agent')}</span><span>{t('gw2.col.link')}</span><span>{t('gw2.col.today')}</span>
             <span>harness_id</span><span>{t('gw2.col.can')}</span><span className="text-right">{t('gw2.col.actions')}</span>
@@ -402,10 +418,10 @@ export function ExternalAgents() {
             const st = stats[a.id] || {};
             const pending = a.status === 'pending';
             return (
-              <div key={a.id} className={`${ROW} ${GRID} ${pending ? 'border border-amber-200 dark:border-amber-900/50 md:border-0 bg-amber-50/70 md:bg-amber-50/40 dark:md:bg-amber-950/10' : ''}`}>
+              <div key={a.id} className={`${ROW} ${GRID} ${pending ? 'bg-amber-50/50 dark:bg-amber-950/10' : ''}`}>
                 <span className="min-w-0">
-                  <span className="block text-sm md:text-xs font-medium text-zinc-800 dark:text-zinc-100 truncate">{a.name}</span>
-                  <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">{pending ? t('gw2.ext.applied', { code: a.pairingCode || '' }) : t('gw2.ext.since', { when: new Date(a.createdAt).toLocaleDateString() })}</span>
+                  <span className={`block ${NAME}`}>{a.name}</span>
+                  <span className={`block ${META}`}>{pending ? t('gw2.ext.applied', { code: a.pairingCode || '' }) : t('gw2.ext.since', { when: new Date(a.createdAt).toLocaleDateString() })}</span>
                 </span>
                 <span className="text-xs">
                   {pending ? <span className="font-semibold text-amber-800 dark:text-amber-300">● {t('gw2.ext.pending')}</span>
@@ -594,7 +610,7 @@ export function AgentRoutesPanel() {
         <RouteEditor route={{ id: '', name: '', rules: [], candidates: null, allowHired: false, whenNone: 'self', mainAgentId: '' }}
           agents={agents} t={t} onSave={save} onCancel={() => setEditing(null)} />
       )}
-      <div className="space-y-2 md:space-y-0 md:rounded-xl md:border md:border-zinc-100 md:dark:border-white/[0.06]">
+      <div className={SHELL}>
         <div className={`${HEAD} ${GRID}`}>
           <span>{t('gw2.route.name')}</span><span>{t('gw2.route.how')}</span><span>{t('gw2.route.who')}</span><span className="text-right">{t('gw2.col.actions')}</span>
         </div>

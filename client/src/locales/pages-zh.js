@@ -3137,6 +3137,8 @@ export default {
   'gw2.pro.runtimeFailed': '没改成',
   'gw2.ext.pushes': '推送 {n} 条 · 上次 {when}',
   'gw2.ext.pushRejected': '上次推送被拒（{when}）：{msg}',
+  'gw2.pro.newPlus': '+ 新建专业智能体',
+  'gw2.ext.connectPlus': '+ 接入外部智能体',
   'gw2.kind.pro': '专业',
   'gw2.kind.ext': '外部',
   'gw2.kind.app': '应用',
