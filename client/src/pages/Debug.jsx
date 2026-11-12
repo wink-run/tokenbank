@@ -2480,7 +2480,8 @@ export default function Debug() {
     const workDir = normalizeWorkingDir(
       getStoreSession(execKey).sessionWorkingDir || agentWorkingDir.trim(),
     );
-    if (!workDir) {
+    // 雇来的社区智能体在对方设备上执行，本机目录用不上，不拦
+    if (!workDir && !communityAgent) {
       setDirError(t('debug.agent.needWorkingDir'));
       return;
     }
@@ -3305,7 +3306,8 @@ export default function Debug() {
                 <span className="flex items-baseline gap-2 min-w-0">
                   <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 truncate">{name}</span>
                   <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate" title={dir || undefined}>
-                    {dir ? t('debug.header.inDir', { dir }) : t('debug.header.noDir')}
+                    {isCommunityPlaygroundAgent(selectedAgent) ? t('debug.header.remote')
+                      : dir ? t('debug.header.inDir', { dir }) : t('debug.header.noDir')}
                   </span>
                 </span>
               );

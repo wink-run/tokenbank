@@ -23,6 +23,9 @@ const NOISE_PATTERNS = [
   /worker quit with fatal/i,
   /failed to connect to websocket/i,
   /^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s+ERROR\s/i,
+  // Codex --json：开场事件和「忽略了某项配置」的提示不是失败原因
+  /^\{"type":"(thread\.started|turn\.started)"/,
+  /Codex is ignoring \d+ unrecognized configuration setting/i,
 ];
 
 function isNoise(line) {
@@ -1838,7 +1841,8 @@ function formatAgentExitError(rawStderr, rawStdout, exitCode, agentId = 'claude-
   }
 
   if (lines.length) {
-    const summary = lines.slice(0, 3).join('\n');
+    // 真正的报错通常在最后：取最后几行
+    const summary = lines.slice(-3).join('\n');
     const truncated = summary.length > 600 ? `${summary.slice(0, 600)}…` : summary;
     return `Agent 异常退出 (code ${exitCode})：\n${truncated}`;
   }

@@ -1703,7 +1703,8 @@ function queryAppStatsInPeriod({ appId, apiKey, dataSource, dataSources, days = 
   };
   const match = _appMatchParts({ appId, apiKey, dataSource, dataSources, includeSessionImport });
   if (!db || !match) return empty;
-  const since = sinceTs != null ? sinceTs : Math.floor(Date.now() / 1000) - days * 86400;
+  // 和盘点总数同一个口径：1 天 = 本地 0 点至今，多天 = 滚动窗口。否则「今天」的应用用量会多出昨天的
+  const since = sinceTs != null ? sinceTs : sinceTsForDays(days);
   const where = `${match.where} AND ts >= @since`;
   const p = { ...match.params, since };
   try {

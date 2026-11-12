@@ -94,3 +94,30 @@ test("agents projected onto an app that can't run are listed with the reason", (
     rm.listResources = orig;
   }
 });
+
+test('per-app usage for one day starts at local midnight, like the dashboard total', () => {
+  const db = localStats.getDb();
+  const now = Math.floor(Date.now() / 1000);
+  const midnight = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return Math.floor(d.getTime() / 1000); })();
+  const ins = db.prepare("INSERT INTO requests (ts, model, app_id, data_source, input_tokens, output_tokens, cache_create_tokens, cache_read_tokens, status_code) VALUES (?, 'm', 'app-day', 'proxy', 1, 1, 0, 0, 200)");
+  ins.run(now - 10);
+  ins.run(midnight - 60); // 昨天最后一分钟：今天不该算进来
+  const st = localStats.queryAppStatsInPeriod({ appId: 'app-day', days: 1 });
+  assert.equal(st.calls, 1);
+  const wide = localStats.queryAppStatsInPeriod({ appId: 'app-day', days: 2 });
+  assert.equal(wide.calls, 2);
+});
+
+test("the butler's own model calls stay on the user's own sources", () => {
+  // 后台自己判断时不能花社区积分：默认路由只走个人来源
+  assert.equal(require('../guardian/model-call').DEFAULT_MODEL, 'auto:personal');
+});
+
+test('codex exit message skips the start event and config warnings and shows the real error', () => {
+  const { formatAgentExitError } = require('../agent-output-parser');
+  const warn = '{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings."}}';
+  const stdout = ['{"type":"thread.started","thread_id":"x"}', warn, '{"type":"error","message":"stream disconnected before completion: model gpt-9 not found"}'].join('\n');
+  const msg = formatAgentExitError('', stdout, 1, 'codex');
+  assert.match(msg, /model gpt-9 not found/);
+  assert.doesNotMatch(msg, /thread\.started|unrecognized configuration/);
+});
