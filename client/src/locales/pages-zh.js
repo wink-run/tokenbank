@@ -1184,7 +1184,7 @@ export default {
   'providers.p2p.totalLatencyShort': '总{s}s',
   'providers.p2p.noTtftYet': '暂无访问',
   'providers.p2p.noProviderNodes': '暂无在线节点',
-  'providers.p2p.gatewayKey': '🔑 网关转发 API Key',
+  'providers.p2p.gatewayKey': '🔑 社区转发 Key',
   'providers.p2p.configured': '已配置',
   'providers.p2p.notConfigured': '未配置',
   'providers.p2p.keyHint': '选择一个 API Key 用于本地网关转发 P2P 请求时鉴权。',

@@ -1184,7 +1184,7 @@ export default {
   'providers.p2p.totalLatencyShort': 'tot {s}s',
   'providers.p2p.noTtftYet': 'No visits yet',
   'providers.p2p.noProviderNodes': 'No online nodes',
-  'providers.p2p.gatewayKey': '🔑 Gateway relay API Key',
+  'providers.p2p.gatewayKey': '🔑 Community relay key',
   'providers.p2p.configured': 'Configured',
   'providers.p2p.notConfigured': 'Not configured',
   'providers.p2p.keyHint': 'Select an API key for local gateway P2P relay authentication.',

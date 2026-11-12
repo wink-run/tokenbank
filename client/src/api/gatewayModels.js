@@ -1,4 +1,5 @@
 // 本地网关可选模型：统一从 /v1/models 拉取（OpenAI 列表格式），网关页与调试页共用
+import { readHiddenModels } from '../lib/hidden-models';
 import { getConfig, getGateway, getLocalConfig, getApps, isElectron } from './adapter';
 import { getServerUrl, normalizeServerBase } from '../config';
 import { loadUserAccounts } from './userAccounts';
@@ -265,6 +266,11 @@ export async function loadGatewayAvailableModels(opts = {}) {
     models = models.filter(m => m.tier !== 'p2p');
   }
   models = filterClaudeMaskModels(models, maskSet);
+  // 模型页里关了「在别处可选」的个人模型：选模型时不列出（社区模型不受影响）
+  if (!opts.includeHidden) {
+    const hidden = readHiddenModels(cfg);
+    if (hidden.size) models = models.filter(m => m?.tier === 'p2p' || !hidden.has(modelId(m)));
+  }
   return attachProviderNames(enrichModelsWithType(models, cfg, acc), provById);
 }
 
