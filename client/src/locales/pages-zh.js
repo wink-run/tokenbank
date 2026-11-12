@@ -1380,6 +1380,10 @@ export default {
   'common.sourceSessionImport': '订阅直连',
 
   // ── 盘点 ──
+  "dashboard.deviceLabel": "设备",
+  "dashboard.allDevices": "全部设备（{n} 台）",
+  "dashboard.deviceOffline": "离线",
+  "dashboard.scopeNoCloud": "其它设备的数还没同步上来，先只看这台",
   "dashboard.scopeThisDevice": "这台电脑",
   "dashboard.modelsTable": "用了哪些模型",
   "dashboard.sortCalls": "按调用",

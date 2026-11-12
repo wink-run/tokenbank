@@ -601,22 +601,21 @@ export default function Dashboard() {
             </select>
           </label>
         </div>
-        {/* 看的是哪些设备：登录且云端有数时全部设备合在一起；在下面「设备」表里点一台只看它 */}
+        {/* 看哪台设备：登录且云端有数时可选全部 / 某一台；没有云端数据时只有这台电脑 */}
         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-          {cloud ? (
-            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-              {t('dashboard.scopeMerged', { n: cloud.device_count ?? devices.length })}
-            </span>
-          ) : (
-            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{t('dashboard.scopeThisDevice')}</span>
-          )}
-          <span className="text-zinc-400 dark:text-zinc-500">{t('dashboard.scopeNote')}</span>
-          {cloud && scope !== 'all' && (
-            <span className="inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300">
-              {t('dashboard.onlyThis', { name: scope === 'local' ? t('dashboard.scopeThisDevice') : formatDeviceTitle(pickedDevice) })}
-              <button type="button" onClick={() => setScopePick('all')} className="text-blue-600 dark:text-blue-400 hover:underline">{t('dashboard.backToAll')}</button>
-            </span>
-          )}
+          <label className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400">
+            {t('dashboard.deviceLabel')}
+            <select value={scope} disabled={!cloud} onChange={e => setScopePick(e.target.value)}
+              aria-label={t('dashboard.deviceLabel')}
+              className="tb-soft-field text-xs px-2.5 py-1.5 rounded-lg text-zinc-800 dark:text-zinc-100 disabled:opacity-70">
+              {cloud && <option value="all">{t('dashboard.allDevices', { n: cloud.device_count ?? devices.length })}</option>}
+              <option value="local">{t('dashboard.scopeThisDevice')}</option>
+              {devices.filter(d => !isThis(d)).map(d => (
+                <option key={d.device_id} value={d.device_id}>{formatDeviceTitle(d)}{d.online ? '' : ` · ${t('dashboard.deviceOffline')}`}</option>
+              ))}
+            </select>
+          </label>
+          {!cloud && <span className="text-zinc-400 dark:text-zinc-500">{user ? t('dashboard.scopeNoCloud') : t('dashboard.scopeNote')}</span>}
         </div>
       </div>
 

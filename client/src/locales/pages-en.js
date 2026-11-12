@@ -1378,6 +1378,10 @@ export default {
   'common.sourceProxy': 'Gateway live',
   'common.sourceSessionImport': 'Session import',
 
+  "dashboard.deviceLabel": "Device",
+  "dashboard.allDevices": "All devices ({n})",
+  "dashboard.deviceOffline": "offline",
+  "dashboard.scopeNoCloud": "Other devices have not synced yet, showing this computer",
   "dashboard.scopeThisDevice": "This computer",
   "dashboard.modelsTable": "Models used",
   "dashboard.sortCalls": "By calls",

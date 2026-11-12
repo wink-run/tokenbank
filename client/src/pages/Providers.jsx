@@ -1640,10 +1640,6 @@ function P2PNetworkCard({ provider, onUpdate, onPersistEnabled, cooldowns = [], 
               className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 disabled:opacity-50 flex items-center gap-1 whitespace-nowrap">
               {probing ? t('providers.probe.running', { done: probing.done, total: probing.total }) : t('providers.probe.all')}
             </button>
-            <button onClick={() => navigate('/network')}
-              className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 flex items-center gap-1 whitespace-nowrap">
-              {t('providers.p2p.globalNetwork')}
-            </button>
           </div>
         </div>
         {modelStats.length === 0 && !loading ? (
