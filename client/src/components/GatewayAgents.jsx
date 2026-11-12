@@ -36,10 +36,10 @@ function Code({ children }) {
   return <code className="inline-block max-w-full overflow-x-auto whitespace-nowrap align-middle font-mono text-[11px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{children}</code>;
 }
 
-function CopyText({ text, t }) {
+function CopyText({ text, t, small = false }) {
   const [done, setDone] = useState(false);
   return (
-    <button type="button" className={BTN} onClick={() => {
+    <button type="button" className={small ? 'text-xs px-2 py-0.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:border-blue-400 hover:text-blue-500 transition-colors' : BTN} onClick={() => {
       navigator.clipboard?.writeText(text).then(() => { setDone(true); setTimeout(() => setDone(false), 1200); }).catch(() => {});
     }}>{done ? t('gw2.copied') : t('gw2.copy')}</button>
   );
@@ -60,7 +60,7 @@ function GroupHead({ title, hint, badge, badgeTone = 'red', right }) {
 }
 
 /** 智能体接口的本机钥匙：外部系统调用 /v1/agent 时用 */
-export function AgentApiKey({ inline = false } = {}) {
+export function AgentApiKey({ inline = false, bare = false } = {}) {
   const { t } = useLang();
   const [key, setKey] = useState('');
   const [show, setShow] = useState(false);
@@ -70,12 +70,12 @@ export function AgentApiKey({ inline = false } = {}) {
   if (!key) return null;
   return (
     <div className={`${inline ? '' : 'mt-1.5 '}flex items-center gap-2 min-w-0 text-xs text-zinc-500 dark:text-zinc-400`}>
-      <span className="shrink-0">{t('gw2.agentKey')}</span>
+      {!bare && <span className="shrink-0">{t('gw2.agentKey')}</span>}
       <Code>{show ? key : `${key.slice(0, 12)}••••••••`}</Code>
       <button type="button" className="shrink-0 min-h-[32px] px-1.5 text-blue-600 dark:text-blue-400 hover:underline" onClick={() => setShow(v => !v)}>
         {show ? t('gw2.hide') : t('gw2.show')}
       </button>
-      <CopyText text={key} t={t} />
+      <CopyText text={key} t={t} small={bare} />
     </div>
   );
 }
@@ -107,7 +107,7 @@ function gatewayBase() {
 function ProApiInline({ agent, appName, t }) {
   const gw = gatewayBase();
   const curl = `curl ${gw}/v1/agent/responses \\
-  -H "Authorization: Bearer [智能体接口 Key]" \\
+  -H "Authorization: Bearer [网关 Key]" \\
   -H "Content-Type: application/json" \\
   -d '{"input": "你的任务", "metadata": {"harness_id": "${agent.id}"}}'`;
   return (
@@ -586,7 +586,7 @@ export function AgentRoutesPanel() {
   };
   const GRID = 'md:grid-cols-[minmax(0,1fr)_minmax(0,2.4fr)_minmax(0,0.9fr)_17rem]';
   const gateway = (() => { try { return `${window.location.protocol}//${window.location.hostname}:11430`; } catch { return 'http://127.0.0.1:11430'; } })();
-  const curl = `curl ${gateway}/v1/agent/responses \\\n  -H "Authorization: Bearer [智能体接口 Key]" \\\n  -H "Content-Type: application/json" \\\n  -d '{"input": "帮我评审这个 PR", "metadata": {"harness_id": "${routes[1]?.id || 'agent-router-default'}"}}'`;
+  const curl = `curl ${gateway}/v1/agent/responses \\\n  -H "Authorization: Bearer [网关 Key]" \\\n  -H "Content-Type: application/json" \\\n  -d '{"input": "帮我评审这个 PR", "metadata": {"harness_id": "${routes[1]?.id || 'agent-router-default'}"}}'`;
   return (
     <section className="px-2.5 py-3 min-w-0 space-y-3">
       <Toolbar main={<button type="button" className={BTN_MAIN} onClick={() => setEditing(editing === 'new' ? null : 'new')}>{t('gw2.route.newPlus')}</button>}
