@@ -2370,6 +2370,7 @@ export default {
   "resources.row.whyDormant": "Unused for 7 days",
   "resources.row.whyCold": "Unused for 30 days",
   "resources.row.whyShelf": "Not on any app",
+  "resources.row.askGuardian": "My {type} “{name}” has a problem: {why}. Please look into it and fix it if you can; if not, tell me what to do. (asset id: {id})",
   "resources.row.look": "Review",
   "resources.row.seeUpdate": "Update",
   "resources.row.enableTo": "Turn on for…",

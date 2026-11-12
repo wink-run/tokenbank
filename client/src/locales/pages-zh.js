@@ -2377,6 +2377,7 @@ export default {
   "resources.row.whyDormant": "7 天没用",
   "resources.row.whyCold": "30 天没用",
   "resources.row.whyShelf": "没启用到应用",
+  "resources.row.askGuardian": "我的资产里有个{type}「{name}」有问题：{why}。请帮我看看怎么回事，能直接修好就修好，修不了告诉我该怎么做。（资产 id：{id}）",
   "resources.row.look": "看一下",
   "resources.row.seeUpdate": "更新",
   "resources.row.enableTo": "启用到…",

@@ -3467,7 +3467,14 @@ export default function Resources() {
           {rs.act === 'look' ? (
             <button
               type="button"
-              onClick={() => setSelectedKey(li.key)}
+              onClick={() => {
+                // 有问题：带着问题去智能管家对话页，由它直接处理；看更新仍打开详情
+                if (rs.kind === 'issue') {
+                  navigate('/guardian', { state: { autoSend: true, prompt: t('resources.row.askGuardian', {
+                    type: typeBadge(li.type, t), name: li.name, why: rs.why || rs.word, id: li.resourceId || li.key,
+                  }) } });
+                } else setSelectedKey(li.key);
+              }}
               className={`tb-press text-[11px] px-2.5 py-1 rounded-lg ${rs.kind === 'issue' ? 'bg-blue-600 text-white hover:bg-blue-500' : 'border border-zinc-200 dark:border-zinc-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20'}`}
             >
               {rs.kind === 'update' ? t('resources.row.seeUpdate') : t('resources.row.look')}

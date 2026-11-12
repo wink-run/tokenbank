@@ -27,11 +27,14 @@ export default function GuardianChat() {
   const endRef = useRef(null);
   const location = useLocation();
 
-  // 从别的页面带着问题过来（比如资产诊断里的「问问智能管家」）：放进输入框，用户自己发
+  // 从别的页面带着问题过来：一般放进输入框由用户自己发；带 autoSend（资产页「看一下」）时直接发出，管家马上处理
+  const pendingAutoSend = useRef('');
+  const sendRef = useRef(null);   // 打开对话后自动发问题用（send 定义在后面）
   useEffect(() => {
     const p = location.state?.prompt;
     if (typeof p === 'string' && p.trim()) {
-      setText(p);
+      if (location.state?.autoSend) pendingAutoSend.current = p.trim();
+      else setText(p);
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -52,6 +55,11 @@ export default function GuardianChat() {
     if (!api?.convoOpen) return;
     api.convoOpen().then((r) => {
       apply(r);
+      if (pendingAutoSend.current) {
+        const v = pendingAutoSend.current;
+        pendingAutoSend.current = '';
+        setTimeout(() => sendRef.current?.(v), 0);
+      }
       try { window.dispatchEvent(new Event('tb-guardian-changed')); } catch { /* ignore */ }
     }).catch(() => {});
   }, [api, apply]);
@@ -80,6 +88,7 @@ export default function GuardianChat() {
     setMessages(list => [...list, { id: `local-${Date.now()}`, from: 'user', text: v }]);
     try { await after(await api.convoSay(v)); } finally { setSending(false); }
   };
+  sendRef.current = send;
 
   const pick = async (m, i) => {
     if (sending) return;
