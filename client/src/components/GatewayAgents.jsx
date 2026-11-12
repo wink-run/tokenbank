@@ -257,10 +257,9 @@ export function ProfessionalAgents() {
 }
 
 /** 「智能体」标签里的三个分组：一次只看一组，页面不会太长 */
-export function AgentsSubTabs({ renderApps }) {
+export function AgentsSubTabs({ tab, onTab, renderApps, renderRoutes }) {
   const { t } = useLang();
-  const [tab, setTabRaw] = useState(() => { try { return localStorage.getItem('tb.gw.agentsTab') || 'apps'; } catch { return 'apps'; } });
-  const setTab = (v) => { setTabRaw(v); try { localStorage.setItem('tb.gw.agentsTab', v); } catch { /* 只在本次 */ } };
+  const setTab = onTab;
   const [counts, setCounts] = useState({ pro: 0, broken: 0, ext: 0, pending: 0 });
   useEffect(() => {
     const api = agentApi();
@@ -280,13 +279,15 @@ export function AgentsSubTabs({ renderApps }) {
     { id: 'apps', label: t('gw2.generic.title'), hint: t('gw2.generic.hint') },
     { id: 'pro', label: t('gw2.sub.pro', { n: counts.pro }), badge: counts.broken ? t('gw2.pro.broken', { n: counts.broken }) : '', tone: 'red' },
     { id: 'ext', label: t('gw2.sub.ext', { n: counts.ext }), badge: counts.pending ? t('gw2.ext.pendingN', { n: counts.pending }) : '', tone: 'amber' },
+    // 路由放在最右侧
+    { id: 'routes', label: t('gw2.tab.routes'), right: true },
   ];
   return (
     <div>
       <div role="tablist" className="flex gap-1 px-2.5 pt-2.5 border-b border-zinc-100 dark:border-white/[0.06] overflow-x-auto">
         {items.map(it => (
           <button key={it.id} type="button" role="tab" aria-selected={tab === it.id} onClick={() => setTab(it.id)}
-            className={`shrink-0 inline-flex items-center gap-1.5 min-h-[44px] md:min-h-[36px] px-3 -mb-px border-b-2 text-xs font-medium ${tab === it.id
+            className={`${it.right ? 'ml-auto ' : ''}shrink-0 inline-flex items-center gap-1.5 min-h-[44px] md:min-h-[36px] px-3 -mb-px border-b-2 text-xs font-medium ${tab === it.id
               ? 'border-blue-500 text-zinc-900 dark:text-white'
               : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'}`}>
             {it.label}
@@ -302,6 +303,7 @@ export function AgentsSubTabs({ renderApps }) {
       )}
       {tab === 'pro' && <div className="pt-1"><ProfessionalAgents /></div>}
       {tab === 'ext' && <div className="pt-1"><ExternalAgents /></div>}
+      {tab === 'routes' && renderRoutes && renderRoutes()}
     </div>
   );
 }

@@ -5182,7 +5182,11 @@ export default function Gateway() {
   const [network, setNetwork]   = useState(null);   // /public/network 快照：路由日志把 worker_id join 成分享者
   const [selectedLog, setSelectedLog] = useState(null);
   const [restarting, setRestarting] = useState(false);
-  const [mainTab, setMainTab]   = useState(0);   // 0=应用列表 1=场景路由 2=会话
+  // 网关页只有一排标签：通用 / 专业 / 外部（智能体）……右侧「路由」
+  const [gwTab, setGwTabRaw] = useState(() => { try { return localStorage.getItem('tb.gw.agentsTab') || 'apps'; } catch { return 'apps'; } });
+  const setGwTab = (v) => { setGwTabRaw(v); try { localStorage.setItem('tb.gw.agentsTab', v); } catch { /* 只在本次 */ } };
+  const mainTab = gwTab === 'routes' ? 1 : 0;   // 0=智能体 1=路由
+  const setMainTab = (i) => setGwTab(i === 1 ? 'routes' : 'apps');
   const routeLogRef = useRef(null);
   const pendingRouteLogScroll = useRef(false);
   // 其它页跳转到场景路由：navigate('/gateway', { state: { gatewayTab: 'routes' } })
@@ -5498,43 +5502,10 @@ export default function Gateway() {
 
       {/* 应用列表 / 场景路由 Tab — 大面板用更透的 soft-panel */}
       <div className="tb-soft-panel rounded-2xl overflow-hidden min-w-0">
-        {/* Tab bar（macOS 分段控件）+ Endpoint 合并一行 */}
-        <div className="flex items-center gap-3 px-2.5 py-2 border-b border-white/40 dark:border-white/[0.06] overflow-x-auto">
-          <div className="tb-glass-chip inline-flex items-center gap-0.5 p-0.5 rounded-[10px] shrink-0">
-          {[
-            { label: t('gw2.tab.agents'), icon: (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="w-[15px] h-[15px] shrink-0">
-                <path d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
-              </svg>
-            )},
-            { label: t('gw2.tab.routes'), icon: (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="w-[15px] h-[15px] shrink-0">
-                <path d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-              </svg>
-            )},
-          ].map(({ label, icon }, i) => (
-            <button key={i} onClick={() => {
-              setMainTab(i);
-            }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-xs font-medium whitespace-nowrap transition-[background-color,color,box-shadow] duration-150 ease-out ${mainTab === i
-                ? 'bg-white/80 dark:bg-white/10 text-zinc-900 dark:text-white shadow-sm'
-                : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'}`}>
-              {icon}
-              {label}
-            </button>
-          ))}
-          </div>
-        </div>
-
         {/* Tab0: 应用列表 & 托管 */}
-        {mainTab === 0 && (
-          <AgentsSubTabs renderApps={() => (
+        <AgentsSubTabs tab={gwTab} onTab={setGwTab} renderApps={() => (
             <AppManager externalRoutes={routes} availableModels={availableModels} onActivity={refresh} />
-          )} />
-        )}
-
-        {/* Tab1: 场景路由 */}
-        {mainTab === 1 && (
+          )} renderRoutes={() => (
         <div>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-5 pt-3">
           <h3 className="m-0 text-sm font-semibold text-zinc-800 dark:text-zinc-100">{t('gw2.model.title')}</h3>
@@ -5675,7 +5646,7 @@ export default function Gateway() {
           <AgentRoutesPanel />
         </div>
         </div>
-        )}
+        )} />
 
       </div>
 
