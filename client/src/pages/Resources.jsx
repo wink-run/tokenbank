@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ServiceIcon from '../components/ServiceIcon';
 import {
-  FilterMenu, AppIconStack, LIFE_DOT,
+  FilterMenu, LIFE_DOT,
   LIB_LIST_CLS, libRowCls, LibrarySectionHead, LibraryRowTitle,
   LibraryInspector, InspectorSection, InspectorPreview,
 } from '../components/LibraryControls';
@@ -72,8 +72,9 @@ const STATE_DOT = { active: 'bg-emerald-500', idle: 'bg-zinc-400', issue: 'bg-ro
 const LIST_SORT_KEY = 'tokenbank.resources.listSort';
 const DEFAULT_IDLE_DAYS = 60;
 /** 资产库列表列宽：名称 | 投射到 | 使用 | 状态 | 操作 */
-const LIB_GRID = 'grid-cols-[minmax(0,1fr)_7rem_3.5rem_6.5rem_8rem]';
-const LIB_GRID_MD = 'md:grid-cols-[minmax(0,1fr)_7rem_3.5rem_6.5rem_8rem]';
+// 名称 | 启用到 | 使用 | 状态（一个词 + 一句原因）| 操作
+const LIB_GRID = 'grid-cols-[minmax(0,1fr)_9rem_3.5rem_11rem_8rem]';
+const LIB_GRID_MD = 'md:grid-cols-[minmax(0,1fr)_9rem_3.5rem_11rem_8rem]';
 
 const LIST_SORT_OPTIONS = [
   { id: 'time', labelKey: 'resources.sort.time' },
@@ -939,11 +940,17 @@ export default function Resources() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [addMenuOpen]);
+  // 投射了但跑不起来的智能体（要用的技能不在了 / 没有能跑它的应用），按资源 id 索引
+  const [blockedAssistants, setBlockedAssistants] = useState({});
   const loadAssetFlags = useCallback(async () => {
     try {
       const r = await window.electronAPI?.guardian?.assetFlags?.();
       if (r?.flags) setAssetFlags(r.flags);
     } catch { /* 没有看护时不显示 */ }
+    try {
+      const r = await window.electronAPI?.agent?.listBlocked?.();
+      if (r?.success) setBlockedAssistants(Object.fromEntries((r.agents || []).map(a => [a.resourceId, a])));
+    } catch { /* 拿不到就不标 */ }
   }, []);
 
   const loadAll = useCallback(async ({ silent = false } = {}) => {
@@ -2604,8 +2611,9 @@ export default function Resources() {
   // 管家体检里要用户处理的：有风险、需完善、有新版本
   const hasAssetIssue = useCallback((id) => {
     const f = id && assetFlags[id];
+    if (id && blockedAssistants[id]) return true;
     return !!(f && (f.security === 'high' || f.quality === 'warn' || f.updateAvailable));
-  }, [assetFlags]);
+  }, [assetFlags, blockedAssistants]);
   const layerCounts = useMemo(() => {
     const counts = { active: 0, pending: 0, dormant: 0, cold: 0, shelf: 0, idle: 0, issue: 0 };
     for (const r of resourcesInType) {
@@ -3340,8 +3348,8 @@ export default function Resources() {
             <p className="text-[11px] text-zinc-400 truncate" title={shortNames.join(' · ')}>{shortNames.join(' · ')}</p>
           </div>
         </div>
-        <div className="hidden md:block min-w-0"><AppIconStack apps={apps} emptyLabel="—" /></div>
-        <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{uses || <span className="text-zinc-300 dark:text-zinc-600">—</span>}</div>
+        <div className="hidden md:block min-w-0">{renderAppNames(apps)}</div>
+        <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{t('resources.row.uses', { n: uses || 0 })}</div>
         <div className="hidden md:flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300 min-w-0">
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${idleN ? 'bg-amber-400' : activeN ? 'bg-emerald-500' : 'bg-zinc-300'}`} aria-hidden />
           <span className="truncate">
@@ -3383,9 +3391,43 @@ export default function Resources() {
     );
   }
 
+  /** 启用到哪些应用：写名字，多了只写前两个 */
+  function renderAppNames(apps) {
+    if (!apps.length) return <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('resources.row.notEnabled')}</span>;
+    const names = apps.map(a => a.label);
+    const text = names.length > 2 ? t('resources.row.appsMore', { names: names.slice(0, 2).join('、'), n: names.length }) : names.join('、');
+    return <span className="block text-[11px] text-zinc-600 dark:text-zinc-300 truncate" title={names.join('、')}>{text}</span>;
+  }
+
+  /** 行的状态：有问题（管家体检或依赖缺失）> 有新版本 > 在用 > 没在用，带一句原因 */
+  function rowState(li) {
+    const f = (li.resourceId && assetFlags[li.resourceId]) || {};
+    if (f.security === 'high') return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyRisk'), act: 'look' };
+    const blocked = li.type === 'assistant' ? blockedAssistants[li.resourceId] : null;
+    if (blocked?.reason === 'skills') return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyDepsNamed', { skills: blocked.missing.join('、') }), act: 'look' };
+    if (blocked?.reason === 'runtime') return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyRuntime'), act: 'look' };
+    if (li.type === 'assistant' && li.item.depsBroken) return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyDeps'), act: 'look' };
+    if (f.quality === 'warn') return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyQuality'), act: 'look' };
+    if (f.updateAvailable) return { kind: 'update', word: t('resources.row.update'), why: t('resources.row.whyUpdate', { to: f.updateAvailable.to }), act: 'look' };
+    if (li.life.layer === 'exempt') return { kind: 'active', word: t('resources.source.builtin'), why: '', act: 'project' };
+    if (li.life.layer === 'active') {
+      return { kind: 'active', word: t('resources.state.active'), why: li.apps.length ? t('resources.row.onApps', { n: li.apps.length }) : '', act: 'project' };
+    }
+    const why = { pending: t('resources.row.whyPending'), dormant: t('resources.row.whyDormant'), cold: t('resources.row.whyCold'), shelf: t('resources.row.whyShelf') }[li.life.layer] || '';
+    return { kind: 'idle', word: t('resources.state.idle'), why, act: 'project' };
+  }
+
   function renderLibraryRow(li, sel, nested = '') {
     const visual = typeVisual(li.type);
     const it = li.item;
+    const rs = rowState(li);
+    const stateCls = {
+      issue: 'font-medium text-rose-700 dark:text-rose-300',
+      update: 'font-medium text-amber-700 dark:text-amber-300',
+      active: 'font-medium text-emerald-700 dark:text-emerald-300',
+      idle: 'text-zinc-500 dark:text-zinc-400',
+    }[rs.kind];
+    const stateDot = { issue: 'bg-rose-500', update: 'bg-amber-400', active: 'bg-emerald-500', idle: 'bg-zinc-300 dark:bg-zinc-600' }[rs.kind];
     return (
       <li
         key={li.key}
@@ -3412,24 +3454,32 @@ export default function Resources() {
             </>
           )}
         />
-        <div className="hidden md:block min-w-0"><AppIconStack apps={li.apps} emptyLabel="—" /></div>
-        <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{li.useCount || <span className="text-zinc-300 dark:text-zinc-600">—</span>}</div>
-        <div className="hidden md:flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300 min-w-0">
-          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${LIFE_DOT[li.life.layer] || 'bg-zinc-300'}`} aria-hidden />
-          <span className="truncate">{lifeLabel(li.life)}</span>
+        <div className="hidden md:block min-w-0">{renderAppNames(li.apps)}</div>
+        <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{t('resources.row.uses', { n: li.useCount || 0 })}</div>
+        <div className="hidden md:flex items-start gap-1.5 text-[11px] min-w-0">
+          <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${stateDot}`} aria-hidden />
+          <span className="min-w-0">
+            <span className={`block truncate ${stateCls}`}>{rs.word}</span>
+            {rs.why && <span className="block truncate text-zinc-400 dark:text-zinc-500" title={rs.why}>{rs.why}</span>}
+          </span>
         </div>
-        <div
-          className={`flex items-center justify-end gap-1.5 transition-opacity ${sel ? '' : 'md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100'}`}
-          onClick={e => e.stopPropagation()}
-        >
-          {li.resourceId && (
+        <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
+          {rs.act === 'look' ? (
+            <button
+              type="button"
+              onClick={() => setSelectedKey(li.key)}
+              className={`tb-press text-[11px] px-2.5 py-1 rounded-lg ${rs.kind === 'issue' ? 'bg-blue-600 text-white hover:bg-blue-500' : 'border border-zinc-200 dark:border-zinc-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20'}`}
+            >
+              {rs.kind === 'update' ? t('resources.row.seeUpdate') : t('resources.row.look')}
+            </button>
+          ) : li.resourceId && (
             <button
               type="button"
               disabled={!!busy && busy !== li.resourceId}
               onClick={(e) => openProjectMenu(e, li.resourceId)}
-              className="tb-press text-[11px] px-2.5 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-45"
+              className="tb-press text-[11px] px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-45"
             >
-              {busy === li.resourceId ? t('resources.busy') : t('resources.projectShort')}
+              {busy === li.resourceId ? t('resources.busy') : t('resources.row.enableTo')}
             </button>
           )}
           <AssetMoreMenu label={t('resources.moreActions')} items={libraryMenuItems(li)} />
