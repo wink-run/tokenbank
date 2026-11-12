@@ -147,6 +147,57 @@ export function modelTypeBtnClass(type) {
   return 'bg-blue-50 dark:bg-blue-900/20 text-blue-500 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40';
 }
 
+// ── 模型多时的整理：按厂商分组、去掉厂商前缀、日期/档位版本折叠到主模型下 ──
+const MODEL_VENDORS = [
+  ['DeepSeek', /^deepseek/i, /^deepseek[-_]?/i],
+  ['豆包', /^(doubao|seed|ark|skylark)/i, /^doubao[-_]?/i],
+  ['GLM', /^(glm|chatglm|cogview|cogvideo|charglm|codegeex)/i, /^glm[-_]?/i],
+  ['OpenAI', /^(gpt|o\d|chatgpt|codex|dall-e|text-embedding|whisper|tts)/i, /^gpt[-_]?/i],
+  ['Claude', /^claude/i, /^claude[-_]?/i],
+  ['Gemini', /^(gemini|gemma|imagen)/i, /^gemini[-_]?/i],
+  ['通义', /^(qwen|qwq|qvq|tongyi|wan)/i, /^qwen[-_]?/i],
+  ['Kimi', /^(kimi|moonshot)/i, /^(kimi|moonshot)[-_]?/i],
+  ['MiniMax', /^(minimax|abab|hailuo)/i, /^minimax[-_]?/i],
+  ['Grok', /^grok/i, /^grok[-_]?/i],
+  ['Llama', /^(llama|meta-llama)/i, null],
+  ['Mistral', /^(mistral|mixtral|codestral|devstral|magistral)/i, null],
+];
+
+/** 模型归哪个厂商：org/model 写法按 org，其余按名字开头 */
+export function modelVendor(name) {
+  const raw = String(name || '').trim();
+  const [org, rest] = raw.includes('/') ? raw.split('/', 2) : ['', raw];
+  for (const [label, re] of MODEL_VENDORS) if (re.test(rest)) return label;
+  if (org) return org.charAt(0).toUpperCase() + org.slice(1);
+  return '其它';
+}
+
+/** 卡片上显示的短名：去掉 org/ 和厂商前缀（deepseek-v4-flash → v4-flash） */
+export function modelShortName(name) {
+  const raw = String(name || '').trim();
+  const rest = raw.includes('/') ? raw.split('/').slice(1).join('/') : raw;
+  for (const [, re, strip] of MODEL_VENDORS) {
+    if (re.test(rest) && strip) {
+      const short = rest.replace(strip, '');
+      return short || rest;
+    }
+  }
+  return rest;
+}
+
+/** 日期、档位版本归到哪个主模型（deepseek-v4-flash-ga-260731 → deepseek-v4-flash） */
+export function modelBaseName(name) {
+  let n = String(name || '').trim();
+  for (let i = 0; i < 3; i++) {
+    const next = n
+      .replace(/[-_@](\d{4}-\d{2}-\d{2}|\d{6,8})$/, '')
+      .replace(/[-_](ga|economy|eco|preview|latest|exp|beta|turbo-\d+)$/i, '');
+    if (next === n) break;
+    n = next;
+  }
+  return n;
+}
+
 /** 模型名旁的来源标记：同步 = 服务端目录；手工 = 本地添加或改过 */
 function ModelOriginBadge({ origin, t }) {
   if (origin !== 'manual' && origin !== 'synced') return null;
@@ -944,6 +995,9 @@ export function PersonalSourceModelView({
   const [chainModel, setChainModel] = useState(null);
   // 点「降级链整理」后，已进链的模型不再单独占卡。添加列表仍用全部模型。
   const [chainTidied, setChainTidied] = useState(false);
+  const [modelQuery, setModelQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [openVendors, setOpenVendors] = useState(() => new Set());   // 展开了「其余」的厂商
   const [latencyMapLocal, setLatencyMapLocal] = useState({});
   const latencyMap = latencyMapProp ?? latencyMapLocal;
   const [probing, setProbing] = useState(null);     // null | { done, total, current }
@@ -1193,77 +1247,23 @@ export function PersonalSourceModelView({
           {trailing}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        {displayModels.map(([model, srcs]) => {
-          const mType = modelTypeMap[model];
-          const skipSpeed = mType === 'image';
-          // 速度 + 服务质量(最近成功/失败) 都来自我们的请求历史；按速度(TTFT)升序，折叠取最快源。
-          const rowOf = new Map(srcs.map(s => [s, resolveAccountLatencyRow(latencyMap, model, s)]));
-          const sortedSrcs = [...srcs].sort((a, b) => (rowOf.get(a)?.ttft ?? 9e9) - (rowOf.get(b)?.ttft ?? 9e9));
-          const fastRow = skipSpeed ? null : rowOf.get(sortedSrcs[0]);
-          const fastMs = fastRow?.ttft > 0 ? fastRow.ttft : null;
-          const probingThis = !skipSpeed && !!(probing?.current && probeTargetBare(probing.current) === String(model).trim().toLowerCase());
-          const anyFail = !skipSpeed && !fastMs && sortedSrcs.some(s => {
-            const code = rowOf.get(s)?.statusCode;
-            return code != null && (code < 200 || code >= 300);
-          });
-          // 降级成功不是失败：链头红了、后面接上了，圆点用黄。
-          const route = routeForModel(model);
-          const degraded = !skipSpeed && !!route && chainServingLater(model, srcs, route, latencyMap);
-          const cardBucket = skipSpeed ? 'unknown' : (probingThis ? 'fast' : degraded ? 'slow' : statusDotBucket({ ms: fastMs, failed: anyFail, ok: !!fastMs }));
-          return (
-          <div key={model} className="min-w-0">
-            <button
-              type="button"
-              onClick={() => setChainModel(model)}
-              className={`w-full bg-zinc-100 dark:bg-zinc-800 border rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-1.5 min-w-0 text-left transition-colors ${
-                chainModel === model
-                  ? 'border-blue-400/60 dark:border-blue-500/50'
-                  : 'border-zinc-300/50 dark:border-zinc-700/50 hover:border-zinc-400/70 dark:hover:border-zinc-600/70'
-              }`}
-            >
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span
-                  role="button"
-                  title={probingThis ? '测速中' : (skipSpeed ? t('providers.probe.skipImage') : (degraded ? '已降级 · 点击测速' : (fastMs ? `最快 ${(fastMs / 1000).toFixed(1)}s · 点击测速` : (anyFail ? '最近请求失败 · 点击测速' : '暂无速度 · 点击测速'))))}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    if (!skipSpeed) probeOneModel(model);
-                  }}
-                  className={`inline-flex items-center justify-center w-3.5 h-3.5 -ml-0.5 shrink-0 ${skipSpeed ? '' : 'cursor-pointer'}`}
-                >
-                  <span className={`w-2 h-2 rounded-full ${probingThis ? 'bg-green-400 tb-probe-pulse' : speedDotClass(cardBucket)}`} />
-                </span>
-                <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200 truncate" title={model}>{model}</span>
-                {isModelRoute(model) && (
-                  <span className={`shrink-0 text-[9px] leading-none px-1 py-px rounded ${degraded ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' : 'bg-zinc-200/80 dark:bg-zinc-700 text-zinc-500'}`}>{t('psrc.route.custom')}</span>
-                )}
-                {mType && mType !== 'chat' && (
-                  <span
-                    className={`shrink-0 text-[9px] font-sans leading-none px-1 py-px rounded border border-transparent ${modelTypeBtnClass(mType)}`}
-                    title={mType === 'image' ? t('providers.models.image') : t('providers.models.embedding')}
-                  >
-                    {modelTypeLabel(mType, t)}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-0.5 shrink-0">
-                {(route ? chainIconInsts(model, srcs, route, modelSources) : srcs).map((s, i) => (
-                  <SourceProviderLogo key={(s.id || s.agent_id || s.source_id) + ':' + i} inst={s} />
-                ))}
-                {fastMs != null && (
-                  <span className="text-[10px] text-zinc-400 tabular-nums ml-0.5">
-                    {t('providers.p2p.ttftShort', { s: (fastMs / 1000).toFixed(1) })}
-                  </span>
-                )}
-                <span className="text-[10px] text-zinc-400">▸</span>
-              </div>
-            </button>
-          </div>
-          );
-        })}
-      </div>
+      <ModelChipGroups
+        displayModels={displayModels}
+        modelTypeMap={modelTypeMap}
+        latencyMap={latencyMap}
+        probing={probing}
+        chainModel={chainModel}
+        isModelRoute={isModelRoute}
+        routeForModel={routeForModel}
+        query={modelQuery}
+        setQuery={setModelQuery}
+        typeFilter={typeFilter}
+        setTypeFilter={setTypeFilter}
+        openVendors={openVendors}
+        setOpenVendors={setOpenVendors}
+        onOpen={setChainModel}
+        t={t}
+      />
       {chainModel && (
         <ChainDrawer
           model={chainModel}
@@ -1282,6 +1282,169 @@ export function PersonalSourceModelView({
           onReset={onDeleteListRoute}
         />
       )}
+    </div>
+  );
+}
+
+/** 模型按厂商一行，每个模型一个小芯片；没在用的折到「+N」，版本折到主模型「×N」 */
+function ModelChipGroups({
+  displayModels, modelTypeMap, latencyMap, probing, chainModel, isModelRoute, routeForModel,
+  query, setQuery, typeFilter, setTypeFilter, openVendors, setOpenVendors, onOpen, t,
+}) {
+  // 每个模型的状态：圆点颜色、最快速度、是否在用（进了降级链，或最近有请求/测速）
+  const info = useMemo(() => {
+    const m = new Map();
+    for (const [model, srcs] of displayModels) {
+      const mType = modelTypeMap[model];
+      const skipSpeed = mType === 'image';
+      const rows = srcs.map(s => resolveAccountLatencyRow(latencyMap, model, s));
+      const ttfts = rows.map(r => (r?.ttft > 0 ? r.ttft : null)).filter(Boolean);
+      const fastMs = skipSpeed || !ttfts.length ? null : Math.min(...ttfts);
+      const anyFail = !skipSpeed && !fastMs && rows.some(r => r?.statusCode != null && (r.statusCode < 200 || r.statusCode >= 300));
+      // 在用：进了降级链，或最近 7 天有成功的请求（只有失败的不算，测速失败也不算）
+      const okRecently = rows.some(r => r && (r.ttft > 0 || (r.statusCode >= 200 && r.statusCode < 300)));
+      const route = routeForModel(model);
+      const degraded = !skipSpeed && !!route && chainServingLater(model, srcs, route, latencyMap);
+      const probingThis = !skipSpeed && !!(probing?.current && probeTargetBare(probing.current) === String(model).trim().toLowerCase());
+      const bucket = skipSpeed ? 'unknown' : (probingThis ? 'fast' : degraded ? 'slow' : statusDotBucket({ ms: fastMs, failed: anyFail, ok: !!fastMs }));
+      m.set(model, { srcs, mType, fastMs, anyFail, bucket, probingThis, inChain: isModelRoute(model), used: isModelRoute(model) || okRecently });
+    }
+    return m;
+  }, [displayModels, modelTypeMap, latencyMap, probing, isModelRoute, routeForModel]);
+
+  // 版本折叠：同一主模型下的日期/档位版本，主模型在就挂在它下面
+  const { heads, variantsOf } = useMemo(() => {
+    const names = displayModels.map(([n]) => n);
+    // v4-1 和 v4.1 当成同一个版本号
+    const norm = (n) => String(n).toLowerCase().replace(/(\d)-(\d)/g, '$1.$2');
+    const headByNorm = new Map(names.map(n => [norm(n), n]));
+    const vOf = new Map();
+    const hs = [];
+    for (const n of names) {
+      const head = headByNorm.get(norm(modelBaseName(n)));
+      if (head && head !== n) {
+        if (!vOf.has(head)) vOf.set(head, []);
+        vOf.get(head).push(n);
+      } else hs.push(n);
+    }
+    return { heads: hs, variantsOf: vOf };
+  }, [displayModels]);
+
+  const types = useMemo(() => {
+    const seen = new Set();
+    for (const [n] of displayModels) seen.add(modelTypeMap[n] || 'chat');
+    return ['chat', 'vision', 'embedding', 'image'].filter(x => seen.has(x));
+  }, [displayModels, modelTypeMap]);
+
+  const q = query.trim().toLowerCase();
+  const matches = (name) => {
+    if (typeFilter && (modelTypeMap[name] || 'chat') !== typeFilter) return false;
+    if (!q) return true;
+    const group = [name, ...(variantsOf.get(name) || [])];
+    return group.some(n => n.toLowerCase().includes(q));
+  };
+
+  // 按厂商分组；在用的多的厂商排前面
+  const groups = useMemo(() => {
+    const g = new Map();
+    for (const n of heads) {
+      if (!matches(n)) continue;
+      const v = modelVendor(n);
+      if (!g.has(v)) g.set(v, []);
+      g.get(v).push(n);
+    }
+    const used = (n) => info.get(n)?.used || (variantsOf.get(n) || []).some(x => info.get(x)?.used);
+    const out = [...g.entries()].map(([vendor, list]) => {
+      const sorted = [...list].sort((a, b) => (info.get(b)?.inChain - info.get(a)?.inChain) || (used(b) - used(a)) || a.localeCompare(b));
+      return { vendor, shown: sorted.filter(used), rest: sorted.filter(n => !used(n)) };
+    });
+    return out.sort((a, b) => (b.shown.length - a.shown.length) || (b.rest.length - a.rest.length) || a.vendor.localeCompare(b.vendor));
+  }, [heads, variantsOf, info, q, typeFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [idleOpen, setIdleOpen] = useState(false);
+  // 一个在用的都没有的厂商：合成最后一行「其余 N 个厂商」，搜索/筛选时展开
+  const activeGroups = groups.filter(g => g.shown.length > 0);
+  const idleGroups = groups.filter(g => g.shown.length === 0);
+  const idleModels = idleGroups.reduce((s, g) => s + g.rest.length, 0);
+  const usedTotal = groups.reduce((s, g) => s + g.shown.length, 0);
+  const allTotal = groups.reduce((s, g) => s + g.shown.length + g.rest.length, 0);
+  const searching = !!q || !!typeFilter;
+
+  const chip = (name, dim = false) => {
+    const it = info.get(name) || {};
+    const vars = variantsOf.get(name) || [];
+    const tip = [
+      name,
+      vars.length ? `${t('psrc.chips.versions', { n: vars.length + 1 })}：${vars.join('、')}` : '',
+      it.probingThis ? '测速中' : it.fastMs ? `最快 ${(it.fastMs / 1000).toFixed(1)}s` : (it.anyFail ? '最近请求失败' : ''),
+      (it.srcs || []).length > 1 ? t('psrc.chips.accounts', { n: it.srcs.length }) : '',
+    ].filter(Boolean).join(' · ');
+    return (
+      <button key={name} type="button" title={tip} onClick={() => onOpen(name)}
+        className={`inline-flex items-center gap-1.5 max-w-full min-h-[30px] md:min-h-[26px] px-2 rounded-lg border text-xs transition-colors ${
+          chainModel === name ? 'border-blue-400/70 bg-blue-50/60 dark:bg-blue-950/30'
+            : it.inChain ? 'border-zinc-400/70 dark:border-zinc-500/70 bg-white/80 dark:bg-zinc-800'
+              : 'border-zinc-200 dark:border-zinc-700/70 bg-white/60 dark:bg-zinc-800/60 hover:border-zinc-400/70'
+        } ${dim ? 'opacity-70' : ''}`}>
+        <span className={`w-2 h-2 rounded-full shrink-0 ${it.probingThis ? 'bg-green-400 tb-probe-pulse' : speedDotClass(it.bucket)}`} />
+        <span className="truncate text-zinc-800 dark:text-zinc-200">{modelShortName(name)}</span>
+        {vars.length > 0 && <span className="shrink-0 text-[10px] text-zinc-400">×{vars.length + 1}</span>}
+        {it.mType && it.mType !== 'chat' && (
+          <span className={`shrink-0 text-[9px] leading-none px-1 py-px rounded ${modelTypeBtnClass(it.mType)}`}>{modelTypeLabel(it.mType, t)}</span>
+        )}
+        {it.inChain && <span className="shrink-0 text-[9px] leading-none px-1 py-px rounded bg-zinc-200/80 dark:bg-zinc-700 text-zinc-500">{t('psrc.route.chainMark')}</span>}
+      </button>
+    );
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder={t('psrc.chips.search')}
+          className="min-h-[36px] md:min-h-[30px] w-full md:w-56 px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/80 dark:bg-zinc-900 text-sm md:text-xs text-zinc-900 dark:text-zinc-100" />
+        <div className="flex flex-wrap gap-1">
+          {['', ...types].map(tp => (
+            <button key={tp || 'all'} type="button" onClick={() => setTypeFilter(tp)}
+              className={`min-h-[32px] md:min-h-[26px] px-2 rounded-lg text-xs border ${typeFilter === tp
+                ? 'border-blue-400 text-blue-600 dark:text-blue-300 bg-blue-50/70 dark:bg-blue-950/30'
+                : 'border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400'}`}>
+              {tp ? modelTypeLabel(tp, t) : t('psrc.chips.all')}
+            </button>
+          ))}
+        </div>
+        <span className="md:ml-auto text-[11px] text-zinc-400">{t('psrc.chips.summary', { used: usedTotal, all: allTotal })}</span>
+      </div>
+      <div className="tb-table-shell rounded-xl overflow-hidden">
+        {groups.length === 0 && <div className="py-6 text-center text-xs text-zinc-400">{t('psrc.chips.none')}</div>}
+        {[...activeGroups, ...((searching || idleOpen) ? idleGroups : [])].map(({ vendor, shown, rest }) => {
+          const open = searching || openVendors.has(vendor) || shown.length === 0;
+          return (
+            <div key={vendor} className="tb-table-row flex flex-col md:flex-row md:items-start gap-1.5 md:gap-3 px-3 py-2.5">
+              <span className="md:w-24 shrink-0 pt-1 flex items-baseline gap-1 min-w-0 text-xs font-semibold text-zinc-700 dark:text-zinc-200" title={vendor}>
+                <span className="truncate">{vendor}</span><span className="shrink-0 font-normal text-zinc-400">{shown.length + rest.length}</span>
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
+                {shown.map(n => chip(n))}
+                {open && rest.map(n => chip(n, true))}
+                {rest.length > 0 && !searching && shown.length > 0 && (
+                  <button type="button" onClick={() => setOpenVendors(prev => { const n = new Set(prev); if (n.has(vendor)) n.delete(vendor); else n.add(vendor); return n; })}
+                    className="min-h-[30px] md:min-h-[26px] px-2 rounded-lg text-[11px] text-blue-600 dark:text-blue-400 hover:bg-blue-50/70 dark:hover:bg-blue-950/30">
+                    {openVendors.has(vendor) ? t('psrc.chips.less') : t('psrc.chips.more', { n: rest.length })}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {!searching && idleGroups.length > 0 && (
+          <button type="button" onClick={() => setIdleOpen(v => !v)}
+            className="tb-table-row w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs text-zinc-500 dark:text-zinc-400 hover:bg-white/40 dark:hover:bg-white/[0.03]">
+            <span className="font-semibold text-zinc-600 dark:text-zinc-300">{idleOpen ? t('psrc.chips.idleLess') : t('psrc.chips.idle', { v: idleGroups.length, n: idleModels })}</span>
+            <span className="text-zinc-400 truncate">{idleOpen ? '' : idleGroups.map(g => g.vendor).join('、')}</span>
+            <span className="ml-auto text-blue-600 dark:text-blue-400 shrink-0">{idleOpen ? '▴' : '▾'}</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 }
