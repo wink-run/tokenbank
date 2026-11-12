@@ -3046,6 +3046,8 @@ export default {
   'gw2.ext.apiResult': 'Send result',
   'gw2.ext.apiPush': 'Push messages',
   'gw2.ext.apiNote': 'interval is how many seconds between pulls; it shows offline only after two missed pulls. Push is for the agent’s own scheduled jobs: send any number of messages to the original task; they show in the conversation that started it. See the skill for details.',
+  'gw2.ext.skillOld': 'Old skill version; it updates on its next pull',
+  'gw2.ext.skillOldHint': 'Its tokenbank-connect version differs from the current one; every gateway reply carries the new version and it re-downloads',
   'gw2.kind.pro': 'specialist',
   'gw2.kind.ext': 'external',
   'gw2.kind.app': 'app',

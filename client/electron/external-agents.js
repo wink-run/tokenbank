@@ -102,6 +102,14 @@ function write(d) {
   fs.writeFileSync(file(), JSON.stringify(d, null, 2), { mode: 0o600 });
 }
 
+/** tokenbank-connect 技能：版本号就是内容的哈希，改了技能就自动变；外部智能体发现版本不同会重新下载 */
+function skillInfo() {
+  const raw = fs.readFileSync(path.join(__dirname, 'skills', 'tokenbank-connect', 'SKILL.md'), 'utf8');
+  const version = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 8);
+  const text = raw.replace(/^(---\r?\nname: [^\n]*\n)/, `$1version: ${version}\n`);
+  return { version, text };
+}
+
 function hashToken(t) { return crypto.createHash('sha256').update(String(t)).digest('hex'); }
 
 function slug(name) {
@@ -140,6 +148,9 @@ function publicView(a, now = Date.now()) {
     intervalMs: a.lastSeenAt ? intervalOf(a) : 0,
     queued: (queue.get(a.id) || []).length,
     pairingCode: a.status === 'pending' ? a.pairingCode : undefined,
+    skillVersion: a.skillVersion || '',
+    // 它报的技能版本和当前不一样：说明它还在用旧说明（没报过的不算）
+    skillOutdated: !!a.skillVersion && (() => { try { return a.skillVersion !== skillInfo().version; } catch { return false; } })(),
   };
 }
 
@@ -216,7 +227,7 @@ function remove(id) {
 
 /** 用 token 认出是哪个外部智能体；顺带记下「最近来过」。
  *  heartbeat：这次是来取任务，记下和上次的间隔；intervalSec：它自己报的心跳间隔 */
-function authenticate(token, now = Date.now(), { heartbeat = false, intervalSec = 0 } = {}) {
+function authenticate(token, now = Date.now(), { heartbeat = false, intervalSec = 0, skillVersion = '' } = {}) {
   if (!token) return null;
   const h = hashToken(token);
   const d = read();
@@ -230,6 +241,8 @@ function authenticate(token, now = Date.now(), { heartbeat = false, intervalSec 
     a.lastPollAt = now;
     const iv = Number(intervalSec) || 0;
     if (iv > 0) a.declaredIntervalMs = Math.min(MAX_INTERVAL_MS, iv * 1000);
+    const sv = String(skillVersion || '').trim().slice(0, 16);
+    if (sv) a.skillVersion = sv;
   }
   a.lastSeenAt = now;
   write(d);
@@ -332,6 +345,6 @@ module.exports = {
   newPairingCode, currentPairing, register,
   approve, disable, enable, remove,
   authenticate, dispatch, pull, complete,
-  setResultHandler, setPushHandler, push, restore, isOnline,
+  setResultHandler, setPushHandler, push, restore, isOnline, skillInfo,
   _internal: { file, tasksFile, queue, waiting, pollers, ONLINE_MS, reset() { restored = false; resultHandler = null; pushHandler = null; for (const t of deadlineTimers.values()) clearTimeout(t); deadlineTimers.clear(); } },
 };

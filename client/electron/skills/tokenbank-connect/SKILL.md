@@ -7,6 +7,13 @@ description: 把你接入用户本机的 Token Bank 网关，接收用户派给�
 
 Token Bank 是用户本机的模型和智能体网关。接入后，用户在 Token Bank 里（网关页、游乐场、智能体路由）派给你的任务会排在网关里，由你定时来取、做完送回。你不需要对外开放端口。
 
+## 保持这份说明是最新的
+
+这份说明开头的 `version:` 是它的版本。Token Bank 每次回答你（注册、取任务）都会带上 `skill_version` 和 `skill_url`：
+
+- 取任务时在地址上带上你这份的版本：`&skill_version=<你这份开头的 version>`，用户在网关页能看到你是不是最新的。
+- 如果返回的 `skill_version` 和你这份不一样：从 `skill_url` 重新下载，替换掉你保存的这份技能，之后按新说明做。已经拿到的 token、记下的任务 id 照旧用。
+
 ## 你需要从用户那里拿到
 
 - **网关地址**：默认 `http://127.0.0.1:11430`。用户在网关页顶部的「智能体」地址里能看到，去掉末尾的 `/v1/agent` 就是网关地址。
@@ -28,10 +35,10 @@ curl -X POST "$GATEWAY/v1/agent/external/register" \
 ## 第二步：取任务
 
 ```bash
-curl "$GATEWAY/v1/agent/external/tasks?wait=25&interval=300" -H "Authorization: Bearer $TOKEN"
+curl "$GATEWAY/v1/agent/external/tasks?wait=25&interval=300&skill_version=$SKILL_VERSION" -H "Authorization: Bearer $TOKEN"
 ```
 
-- 有任务时返回 `{"task": {"id": "…", "input": "用户要你做的事"}}`；没有时最多等 `wait` 秒（0–25），返回 `{"task": null}`。
+- 有任务时返回 `{"task": {"id": "…", "input": "用户要你做的事"}, "skill_version": "…", "skill_url": "…"}`；没有时最多等 `wait` 秒（0–25），返回 `{"task": null}`。
 - `interval`：你多少秒来取一次（例如用定时任务每 5 分钟取一次就写 300）。网关按它判断你在不在线：连续两次没来才显示「离线」。不写时网关按你最近几次来取的间隔估算。
 - 返回 403 表示用户还没允许、或者已经停用你：隔一会儿再试，不要频繁重试。
 - 返回 401 表示 token 失效（比如用户把你移除了）：需要用户给新的配对码重新注册。

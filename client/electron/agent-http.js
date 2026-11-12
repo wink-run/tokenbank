@@ -217,20 +217,25 @@ async function handleExternal(req, res, method, cleanPath) {
   try {
     if (method === 'GET' && cleanPath === '/v1/agent/external/skill') {
       req.resume();
-      const text = fs.readFileSync(path.join(__dirname, 'skills', 'tokenbank-connect', 'SKILL.md'), 'utf8');
-      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' });
+      const { text, version } = ext.skillInfo();
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'X-TokenBank-Skill-Version': version });
       res.end(text);
       return true;
     }
+    // 每个回给外部智能体的回答都带上当前技能版本，它发现和自己那份不同就重新下载
+    const skillMeta = () => {
+      try { return { skill_version: ext.skillInfo().version, skill_url: `http://${req.headers.host || '127.0.0.1:11430'}/v1/agent/external/skill` }; }
+      catch { return {}; }
+    };
     if (method === 'POST' && cleanPath === '/v1/agent/external/register') {
       const { body } = await readBody(req);
       const out = ext.register({ code: body.pairing_code || body.code, name: body.name, description: body.description });
-      sendJson(res, 200, out);
+      sendJson(res, 200, { ...out, ...skillMeta() });
       return true;
     }
     const qs = new URL(req.url || '/', 'http://x').searchParams;
     const isPull = method === 'GET' && cleanPath === '/v1/agent/external/tasks';
-    const agent = ext.authenticate(callerKey(req), Date.now(), { heartbeat: isPull, intervalSec: Number(qs.get('interval')) || 0 });
+    const agent = ext.authenticate(callerKey(req), Date.now(), { heartbeat: isPull, intervalSec: Number(qs.get('interval')) || 0, skillVersion: qs.get('skill_version') || '' });
     if (!agent) {
       req.resume();
       sendJson(res, 401, { error: { message: 'invalid external agent token', type: 'auth_error' } });
@@ -238,14 +243,14 @@ async function handleExternal(req, res, method, cleanPath) {
     }
     if (agent.status !== 'active') {
       req.resume();
-      sendJson(res, 403, { error: { message: agent.status === 'pending' ? '还在等用户允许' : '已被停用', type: 'forbidden' }, status: agent.status });
+      sendJson(res, 403, { error: { message: agent.status === 'pending' ? '还在等用户允许' : '已被停用', type: 'forbidden' }, status: agent.status, ...skillMeta() });
       return true;
     }
     if (isPull) {
       req.resume();
       const wait = Number(qs.get('wait') ?? 25) * 1000;
       const task = await ext.pull(agent.id, wait);
-      sendJson(res, 200, { task: task ? { id: task.id, input: task.prompt } : null });
+      sendJson(res, 200, { task: task ? { id: task.id, input: task.prompt } : null, ...skillMeta() });
       return true;
     }
     const m = String(cleanPath).match(/^\/v1\/agent\/external\/tasks\/([^/]+)\/result$/);

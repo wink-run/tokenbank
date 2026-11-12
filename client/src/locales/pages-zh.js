@@ -3105,6 +3105,8 @@ export default {
   'gw2.ext.apiResult': '回传结果',
   'gw2.ext.apiPush': '主动推送',
   'gw2.ext.apiNote': 'interval 写它多少秒来取一次，连续两次没来才算离线。主动推送用于它自己的定时任务：就当初那个任务不限次数地推，消息显示在发起任务的对话里。详细说明见技能。',
+  'gw2.ext.skillOld': '技能是旧版，它下次取任务时会自动更新',
+  'gw2.ext.skillOldHint': '它报的 tokenbank-connect 版本和当前不同；网关每次回答都带上新版本，它会自己重新下载',
   'gw2.kind.pro': '专业',
   'gw2.kind.ext': '外部',
   'gw2.kind.app': '应用',

@@ -128,3 +128,17 @@ test('after a task ends, the agent can push more messages to it; a re-sent resul
   assert.deepEqual(pushed, [['external:poet', '《五点的窗》'], ['external:poet', '《晚饭前》']]);
   ext._internal.reset();
 });
+
+test('the skill carries a content-hash version, and an agent on an old version is flagged', () => {
+  const { version, text } = ext.skillInfo();
+  assert.match(version, /^[0-9a-f]{8}$/);
+  assert.match(text, new RegExp(`^---\\nname: tokenbank-connect\\nversion: ${version}\\n`));
+  const { code } = ext.newPairingCode();
+  const { token } = ext.register({ code, name: 'Old' });
+  ext.approve('external:old');
+  assert.equal(ext.get('external:old').skillOutdated, false, 'not reported yet');
+  ext.authenticate(token, Date.now(), { heartbeat: true, skillVersion: 'deadbeef' });
+  assert.equal(ext.get('external:old').skillOutdated, true);
+  ext.authenticate(token, Date.now(), { heartbeat: true, skillVersion: version });
+  assert.equal(ext.get('external:old').skillOutdated, false);
+});
