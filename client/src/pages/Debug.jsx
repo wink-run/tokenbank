@@ -949,6 +949,14 @@ export default function Debug() {
   // 「说一句话就办」把做事的请求交过来：放进输入框，用户确认后发送
   useEffect(() => {
     const p = location.state?.prompt;
+    // 网关页路由「在游乐场试」：切到聚合入口，用这条路由
+    if (location.state?.hubRoute) {
+      setHubRouteId(location.state.hubRoute);
+      switchAgent(null);
+      setMode('agent');
+      navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
     // 网关页「去游乐场试」只带智能体：切过去就行，不动输入框
     const onlyAgent = location.state?.agentId && !(typeof p === 'string' && p.trim());
     if (onlyAgent) {
