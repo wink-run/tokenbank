@@ -275,8 +275,9 @@ async function handleExternal(req, res, method, cleanPath) {
     const mp = String(cleanPath).match(/^\/v1\/agent\/external\/tasks\/([^/]+)\/messages$/);
     if (method === 'POST' && mp) {
       const { body } = await readBody(req);
-      const ok = ext.push(agent.id, decodeURIComponent(mp[1]), { output: body.output || body.text || body.content });
-      sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: { message: 'no such task for this agent, or empty output', type: 'not_found' } });
+      const r = ext.pushDetailed(agent.id, decodeURIComponent(mp[1]), { output: body.output || body.text || body.content });
+      sendJson(res, r.ok ? 200 : (r.reason === 'empty' ? 400 : r.reason === 'not_ready' ? 503 : 404),
+        r.ok ? { ok: true, status: 'active' } : { ok: false, error: { message: r.message, type: r.reason }, status: 'active' });
       return true;
     }
     req.resume();

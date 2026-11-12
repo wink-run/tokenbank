@@ -66,7 +66,10 @@ curl -X POST "$GATEWAY/v1/agent/external/tasks/$TASK_ID/messages" \
 
 - `$TASK_ID` 是用户当初派给你的那个任务的 `id`。设定时任务时把它记下来，之后每次推送都用它。
 - 返回 `{"ok": true}` 表示收到了。消息存在用户的任务记录里，显示在用户发起这个任务的对话里；Token Bank 关着或重启过也不会丢之前收到的。
-- 返回 404：这个任务不是派给你的，或者内容为空。
+- 只有返回 `{"ok": true}` 才算推成功。其它情况看 `error.type`：
+  - `task_not_found`：task_id 不对；`not_yours`：这个任务不是派给你的（比如你重新配对过，身份变了）——都需要用户在 Token Bank 里重新派一次任务给你，再用新的 task_id；
+  - `empty`：内容是空的；`not_ready`：Token Bank 还在启动，稍后再推。
+  - 推送失败时**不要告诉用户「已推送」**，把 `error.message` 原样告诉用户。
 - 返回 403 / 410：你被停用或移除了，见下面。
 - Token Bank 没开（连不上）时，这一条可以留到下次再推，或者跳过；不要短时间内反复重试。
 - 用户说「停」时，删掉你这边的定时任务。

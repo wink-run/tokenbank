@@ -1501,7 +1501,8 @@ class AgentExecutor extends EventEmitter {
   recordTaskMessage(agentId, taskId, text) {
     const db = this._getDb();
     const row = db.prepare('SELECT id, agent_id, context FROM agent_tasks WHERE id = ?').get(taskId);
-    if (!row || row.agent_id !== agentId) return false;
+    if (!row) return 'not_found';
+    if (row.agent_id !== agentId) return 'not_yours';
     this._ensureTaskMessagesTable(db);
     let root = row;
     for (let i = 0; i < 5; i++) {

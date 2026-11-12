@@ -3076,6 +3076,8 @@ export default {
   'gw2.pro.defaultOn': 'Runs on',
   'gw2.pro.defaultHint': 'Projected onto several apps: calls through Token Bank (playground, API, hub) run here; if this app is unavailable, another app it is projected onto is used',
   'gw2.pro.runtimeFailed': 'Could not change it',
+  'gw2.ext.pushes': '{n} pushes · last {when}',
+  'gw2.ext.pushRejected': 'Last push rejected ({when}): {msg}',
   'gw2.kind.pro': 'specialist',
   'gw2.kind.ext': 'external',
   'gw2.kind.app': 'app',

@@ -87,10 +87,38 @@ function setPushHandler(fn) { pushHandler = typeof fn === 'function' ? fn : null
 function setTakenHandler(fn) { takenHandler = typeof fn === 'function' ? fn : null; }
 
 /** 外部智能体就之前接过的任务再推一条消息（定时发的、后续进展）；不限次数，存进任务记录 */
-function push(agentId, taskId, { output } = {}) {
+function push(agentId, taskId, opts = {}) { return pushDetailed(agentId, taskId, opts).ok; }
+
+/** 推送并说明结果：{ ok, reason? }；每次都记下来，网关页能看到它推了多少、最近一次有没有被拒 */
+function pushDetailed(agentId, taskId, { output } = {}) {
   const text = String(output || '').trim();
-  if (!text || !pushHandler) return false;
-  try { return !!pushHandler(agentId, taskId, text.slice(0, 20000)); } catch { return false; }
+  let res;
+  if (!text) res = { ok: false, reason: 'empty', message: '推送内容是空的' };
+  else if (!pushHandler) res = { ok: false, reason: 'not_ready', message: 'Token Bank 还没准备好，稍后再推' };
+  else {
+    let r;
+    try { r = pushHandler(agentId, taskId, text.slice(0, 20000)); } catch (e) { r = String(e.message || 'error'); }
+    if (r === true) res = { ok: true };
+    else if (r === 'not_yours') res = { ok: false, reason: 'not_yours', message: '这个任务不是派给你的（你可能重新配对过，换了身份）' };
+    else res = { ok: false, reason: 'task_not_found', message: '没有这个任务：task_id 不对' };
+  }
+  recordPush(agentId, taskId, res);
+  return res;
+}
+
+function recordPush(agentId, taskId, res, now = Date.now()) {
+  try {
+    const d = read();
+    const a = d.agents.find(x => x.id === agentId);
+    if (!a) return;
+    if (res.ok) {
+      a.pushOk = (a.pushOk || 0) + 1;
+      a.lastPushAt = now;
+    } else {
+      a.lastPushError = { at: now, taskId: String(taskId || '').slice(0, 80), reason: res.reason, message: res.message };
+    }
+    write(d);
+  } catch { /* 只是记录 */ }
 }
 
 function read() {
@@ -152,6 +180,10 @@ function publicView(a, now = Date.now()) {
     queued: (queue.get(a.id) || []).length,
     pairingCode: a.status === 'pending' ? a.pairingCode : undefined,
     skillVersion: a.skillVersion || '',
+    pushOk: a.pushOk || 0,
+    lastPushAt: a.lastPushAt || 0,
+    // 最近一次推送被拒、且之后没有成功过：网关页标红
+    lastPushError: a.lastPushError && (!a.lastPushAt || a.lastPushError.at > a.lastPushAt) ? a.lastPushError : null,
     // 它报的技能版本和当前不一样：说明它还在用旧说明（没报过的不算）
     skillOutdated: !!a.skillVersion && (() => { try { return a.skillVersion !== skillInfo().version; } catch { return false; } })(),
   };
@@ -369,6 +401,6 @@ module.exports = {
   newPairingCode, currentPairing, register,
   approve, disable, enable, remove,
   authenticate, dispatch, pull, complete,
-  setResultHandler, setPushHandler, setTakenHandler, push, restore, isOnline, skillInfo, wasRemoved,
+  setResultHandler, setPushHandler, setTakenHandler, push, pushDetailed, restore, isOnline, skillInfo, wasRemoved,
   _internal: { file, tasksFile, queue, waiting, pollers, ONLINE_MS, reset() { restored = false; resultHandler = null; pushHandler = null; takenHandler = null; for (const t of deadlineTimers.values()) clearTimeout(t); deadlineTimers.clear(); } },
 };

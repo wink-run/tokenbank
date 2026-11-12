@@ -3135,6 +3135,8 @@ export default {
   'gw2.pro.defaultOn': '默认在',
   'gw2.pro.defaultHint': '它投射在多个应用上：经 Token Bank 调用（游乐场、接口、聚合入口）时在这里跑；这个应用用不了时换到它投射过的其它应用',
   'gw2.pro.runtimeFailed': '没改成',
+  'gw2.ext.pushes': '推送 {n} 条 · 上次 {when}',
+  'gw2.ext.pushRejected': '上次推送被拒（{when}）：{msg}',
   'gw2.kind.pro': '专业',
   'gw2.kind.ext': '外部',
   'gw2.kind.app': '应用',

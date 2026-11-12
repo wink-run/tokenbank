@@ -411,6 +411,12 @@ export function ExternalAgents() {
                     : a.online ? <span className="text-emerald-700 dark:text-emerald-400">● {t('gw2.ext.online')}</span>
                     : <span className="text-zinc-500">● {t('gw2.ext.offline')}</span>}
                   {!pending && <span className="block text-zinc-500 dark:text-zinc-400">{t('gw2.ext.lastPull', { when: agoText(t, a.lastSeenAt) })}</span>}
+                  {!pending && (a.pushOk > 0 || a.lastPushError) && (
+                    <span className="block text-zinc-500 dark:text-zinc-400">{a.pushOk > 0 ? t('gw2.ext.pushes', { n: a.pushOk, when: agoText(t, a.lastPushAt) }) : ''}</span>
+                  )}
+                  {a.lastPushError && (
+                    <span className="block text-red-600 dark:text-red-400" title={a.lastPushError.taskId}>{t('gw2.ext.pushRejected', { msg: a.lastPushError.message, when: agoText(t, a.lastPushError.at) })}</span>
+                  )}
                   {a.skillOutdated && <span className="block text-amber-700 dark:text-amber-400" title={t('gw2.ext.skillOldHint')}>{t('gw2.ext.skillOld')}</span>}
                 </span>
                 <span className="text-xs tabular-nums text-zinc-600 dark:text-zinc-300">{st.tasks ? t('gw2.tasks', { n: st.tasks, ok: st.ok || 0 }) : t('gw2.noTasks')}</span>
