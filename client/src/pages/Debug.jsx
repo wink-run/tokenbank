@@ -856,6 +856,14 @@ function isRemotePlaygroundAgent(agent) {
   return isCommunityPlaygroundAgent(agent) || agent.type === 'external' || String(agent.id || '').startsWith('external:');
 }
 
+/** 输入框里的发送快捷键：Mac 写 ⌘+Enter，其它写 Ctrl+Enter，触屏不写 */
+const SEND_KEY = (() => {
+  try {
+    if (window.matchMedia?.('(pointer: coarse)').matches) return '';
+    return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '') ? '⌘+Enter' : 'Ctrl+Enter';
+  } catch { return ''; }
+})();
+
 /** 可在游乐场改路由的应用。Cursor 直连用 CLI 模型，不走网关路由。 */
 function routeAppForAgent(agent, apps) {
   if (!agent || isCommunityPlaygroundAgent(agent)) return null;
@@ -899,6 +907,8 @@ export default function Debug() {
   const [manualBaseUrl,  setManualBaseUrl] = useState('');
   const [token,          setToken]         = useState('');
   const [showToken,      setShowToken]     = useState(false);
+  // 网关地址、API Key、手动输入模型名、流式：平时收起，点「高级」才出来（自定义地址或填过 Key 时一直显示）
+  const [showAdvanced,   setShowAdvanced]  = useState(false);
   const [models,         setModels]        = useState([]);   // {name, type}[]
   const [sceneRoutes,    setSceneRoutes]   = useState([]);   // 本地网关场景路由（对话下拉用）
   const [model,          setModel]         = useState('');
@@ -3401,8 +3411,14 @@ export default function Debug() {
                 {provOpts.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
             )}
+            {mode === 'llm' && selectedId !== '__custom__' && !token && (
+              <button type="button" onClick={() => setShowAdvanced(v => !v)} aria-expanded={showAdvanced}
+                className="shrink-0 min-h-[32px] px-2 text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200">
+                {showAdvanced ? t('debug.advancedHide') : t('debug.advanced')}
+              </button>
+            )}
           </div>
-          {mode === 'llm' && (
+          {mode === 'llm' && (showAdvanced || selectedId === '__custom__' || !!token) && (
             <div className="electron-no-drag flex flex-col gap-2 md:flex-row md:items-center md:flex-wrap md:flex-1 md:min-w-0">
               {selectedId === '__custom__' ? (
                 <input value={manualBaseUrl} onChange={e => setManualBaseUrl(e.target.value)}
@@ -3458,13 +3474,13 @@ export default function Debug() {
                 placeholder={t('debug.modelPh')}
                 className="bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-1.5 text-xs font-mono text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:border-blue-500 w-44" />
             )}
-            {!loadingModels && models.length > 0 && (
+            {!loadingModels && models.length > 0 && (showAdvanced || manualModel) && (
               <button onClick={() => setManualModel(v => !v)}
                 className="text-xs text-zinc-400 hover:text-blue-500 transition-colors shrink-0">
                 {manualModel ? t('debug.pickFromList') : t('debug.manualInput')}
               </button>
             )}
-            {!imageMode && (
+            {!imageMode && (showAdvanced || !streamMode) && (
               <label className="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer select-none">
                 <input type="checkbox" checked={streamMode} onChange={e => setPanel({ streamMode: e.target.checked })} className="w-3.5 h-3.5 accent-blue-600" />
                 {t('debug.stream')}
@@ -3520,8 +3536,16 @@ export default function Debug() {
           <>
         {conversation.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center text-zinc-400 dark:text-zinc-500 select-none">
-            <p className="text-[14px] leading-normal font-medium text-zinc-500 dark:text-zinc-400 mb-1">{imageMode ? t('debug.modeImage') : t('debug.modeChat')}</p>
-            <p className="text-[14px] leading-normal max-w-sm">{imageMode ? t('debug.emptyImage') : t('debug.emptyChat')}</p>
+            <p className="text-[14px] leading-normal max-w-sm">{imageMode ? t('debug.emptyImage') : t('debug.emptyChat2')}</p>
+            {/* 点一个示例就填进输入框，改一改再发 */}
+            <div className="mt-3 flex flex-wrap justify-center gap-2 max-w-md select-auto">
+              {(imageMode ? ['debug.sampleImage1', 'debug.sampleImage2'] : ['debug.sampleChat1', 'debug.sampleChat2', 'debug.sampleChat3']).map(k => (
+                <button key={k} type="button" onClick={() => { setPanel({ input: t(k) }); textareaRef.current?.focus(); }}
+                  className="min-h-[36px] px-3 rounded-full border border-zinc-200 dark:border-zinc-700 bg-white/70 dark:bg-zinc-900/50 text-xs text-zinc-600 dark:text-zinc-300 hover:border-blue-300 hover:text-blue-600">
+                  {t(k)}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -3783,32 +3807,27 @@ export default function Debug() {
             )}
             {/* 提示词模板 / 历史 */}
             <div className="flex gap-2 items-center flex-wrap">
-              <select
-                value={selectedPromptId}
-                onChange={e => applyPromptSelection(e.target.value)}
-                title={t('debug.promptSelectTitle')}
-                className={`${fieldCls} px-2 py-1 max-w-[280px]`}
-              >
-                {(() => {
-                  // 图像模式只列图片类；对话模式只列文本类（缺省视为文本）
-                  const modePrompts = promptList.filter(p => {
-                    const kind = p?.metadata?.promptKind === 'image' ? 'image' : 'text';
-                    return imageMode ? kind === 'image' : kind === 'text';
-                  });
-                  return (
-                    <>
-                      <option value="">
-                        {modePrompts.length === 0 ? t('debug.promptEmpty') : t('debug.promptNone')}
-                      </option>
-                      {modePrompts.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.display_name || p.name}
-                        </option>
-                      ))}
-                    </>
-                  );
-                })()}
-              </select>
+              {(() => {
+                // 图像模式只列图片类；对话模式只列文本类（缺省视为文本）。一个都没有就不显示这个下拉框
+                const modePrompts = promptList.filter(p => {
+                  const kind = p?.metadata?.promptKind === 'image' ? 'image' : 'text';
+                  return imageMode ? kind === 'image' : kind === 'text';
+                });
+                if (!modePrompts.length) return null;
+                return (
+                  <select
+                    value={selectedPromptId}
+                    onChange={e => applyPromptSelection(e.target.value)}
+                    title={t('debug.promptSelectTitle')}
+                    className={`${fieldCls} px-2 py-1 max-w-[280px]`}
+                  >
+                    <option value="">{t('debug.promptNone')}</option>
+                    {modePrompts.map(p => (
+                      <option key={p.id} value={p.id}>{p.display_name || p.name}</option>
+                    ))}
+                  </select>
+                );
+              })()}
               <div className="ml-auto flex items-center gap-2 shrink-0">
                 <button type="button" onClick={() => setLlmHistoryOpen(true)} className={ghostBtn}>
                   {t('debug.agent.history')}
@@ -3886,7 +3905,7 @@ export default function Debug() {
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 onPaste={handleComposerPaste}
-                placeholder={imageMode ? t('debug.inputImagePh') : t('debug.inputChatPh')}
+                placeholder={(imageMode ? t('debug.inputImagePh2') : t('debug.inputChatPh2')) + (SEND_KEY ? t('debug.sendKeyHint', { key: SEND_KEY }) : '')}
                 rows={2}
                 style={{ resize: 'none', height: composerTextH, minHeight: COMPOSER_H_MIN }}
                 className={composerField}
@@ -4087,9 +4106,10 @@ export default function Debug() {
                 placeholder={
                   !activeAgent
                     ? t('debug.agent.needAgent')
-                    : isHubMode
+                    : (isHubMode
                       ? t('debug.agent.hubPlaceholder', { name: mainAgent?.name || '' })
-                      : t('debug.agent.directPlaceholder', { name: selectedAgent.name })
+                      : t('debug.agent.directPlaceholder', { name: selectedAgent.name }))
+                      + (SEND_KEY ? t('debug.sendKeyHint', { key: SEND_KEY }) : '')
                 }
                 rows={2}
                 style={{ resize: 'none', height: composerTextH, minHeight: COMPOSER_H_MIN }}
