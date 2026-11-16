@@ -5036,6 +5036,14 @@ export default function Providers() {
     return () => { alive = false; };
   }, [selectedSourceKey]);
 
+  // 从交易页「可以租的模型」跳来：切到账户列表并选中社区
+  useEffect(() => {
+    if (!provLocation.state?.focusCommunity) return;
+    setSourcesView('list');
+    setSelectedSourceKey('community');
+    navigate(provLocation.pathname, { replace: true, state: null });
+  }, [provLocation.state]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 从资源页「查看供给源」跳来：切到账户列表并选中提供该模型的来源
   useEffect(() => {
     const model = provLocation.state?.focusModel;

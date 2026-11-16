@@ -479,13 +479,14 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
       <div className={`rounded-2xl border px-4 py-3 ${running
         ? 'border-green-200/80 dark:border-green-900/60 bg-green-50/60 dark:bg-green-950/20'
         : 'border-zinc-200/70 dark:border-white/[0.07] bg-white/60 dark:bg-zinc-900/40'}`}>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <label className={`inline-flex items-center gap-2 text-[13px] font-semibold ${(!running && empty) ? 'opacity-50' : ''}`}>
+        <div className="flex flex-col md:flex-row md:items-center gap-x-4 gap-y-2">
+          <div className="flex flex-nowrap items-center gap-3 min-w-0 md:flex-1">
+          <label className={`shrink-0 inline-flex items-center gap-2 text-[13px] font-semibold ${(!running && empty) ? 'opacity-50' : ''}`}>
             <button type="button" role="switch" aria-checked={running} disabled={saving || (!running && empty)} onClick={toggleRunning}
               className={`relative shrink-0 w-10 h-6 rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${running ? 'bg-green-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}>
               <span className={`absolute top-[3px] left-0 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform duration-200 ${running ? 'translate-x-[19px]' : 'translate-x-[3px]'}`} />
             </button>
-            <span className="text-zinc-900 dark:text-zinc-50">{saving && !running ? t('contribute.savingAndStarting') : t('contribute.accepting')}</span>
+            <span className="text-zinc-900 dark:text-zinc-50">{saving && !running ? t('contribute.savingAndStarting') : (running ? t('contribute.accepting') : t('contribute.notAccepting'))}</span>
           </label>
           <p className="min-w-0 flex-1 text-xs text-zinc-600 dark:text-zinc-300">
             {running
@@ -494,6 +495,8 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
                 : t('contribute.heroOnline'))
               : (empty ? t('contribute.barEmpty') : t('contribute.barOff', { models: selectedNames.size, agents: selectedAssistantIds.size }))}
           </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           {savedMsg && <span className="text-xs text-green-600 dark:text-green-400">{savedMsg}</span>}
           {running && dirty && !anyFresh && (
             <button type="button" onClick={save} disabled={saving}
@@ -514,6 +517,7 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
               {t('contribute.manageCircles')}
             </button>
           )}
+          </div>
         </div>
         {circleScope === 'circle' && (
           <div className="mt-2.5 pt-2.5 border-t border-zinc-200/70 dark:border-white/[0.06] space-y-1.5">
@@ -559,8 +563,10 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
         <div className="flex items-center gap-2 px-1">
           <h3 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100 m-0">{t('contribute.listedModels')}</h3>
           <span className="text-[11px] text-zinc-400">{t('contribute.listedModelsHint')}</span>
-          <button type="button" onClick={() => setShowModelPicker(v => !v)} aria-expanded={showModelPicker}
-            className={`ml-auto ${btnCls}`}>{t('contribute.addModel')}</button>
+          {selectedNames.size > 0 && (
+            <button type="button" onClick={() => setShowModelPicker(v => !v)} aria-expanded={showModelPicker}
+              className={`ml-auto ${btnCls}`}>{t('contribute.addModelShort')}</button>
+          )}
         </div>
         {showModelPicker && (
           <div className="tb-soft-card rounded-xl p-3 space-y-2 max-h-48 overflow-y-auto">
@@ -581,7 +587,11 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
         )}
         <div className={LIB_LIST_CLS}>
           {selectedNames.size === 0 ? (
-            <p className="px-4 py-4 text-xs text-zinc-400">{t('contribute.addModelHint')}</p>
+            <div className="px-4 py-4 flex flex-wrap items-center gap-3">
+              <button type="button" onClick={() => setShowModelPicker(v => !v)} aria-expanded={showModelPicker}
+                className="tb-press text-xs font-medium px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/30">{t('contribute.addModelShort')}</button>
+              <span className="text-xs text-zinc-400">{t('contribute.addModelHint')}</span>
+            </div>
           ) : (
             <ul className="list-none m-0 p-0">
               {[...selectedNames].map(name => {
@@ -612,8 +622,10 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
         <div className="flex items-center gap-2 px-1">
           <h3 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100 m-0">{t('contribute.listedAgents')}</h3>
           <span className="text-[11px] text-zinc-400">{t('contribute.listedAgentsHint')}</span>
-          <button type="button" onClick={() => setShowAssistantPicker(v => !v)} aria-expanded={showAssistantPicker}
-            className={`ml-auto ${btnCls}`}>{t('contribute.addAssistant')}</button>
+          {selectedAssistantIds.size > 0 && (
+            <button type="button" onClick={() => setShowAssistantPicker(v => !v)} aria-expanded={showAssistantPicker}
+              className={`ml-auto ${btnCls}`}>{t('contribute.addAssistantShort')}</button>
+          )}
         </div>
         {showAssistantPicker && (
           <div className="tb-soft-card rounded-xl p-3 space-y-2 max-h-72 overflow-y-auto">
@@ -662,7 +674,11 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
         )}
         <div className={LIB_LIST_CLS}>
           {selectedAssistantIds.size === 0 ? (
-            <p className="px-4 py-4 text-xs text-zinc-400">{availableAssistants.length || availableApps.length ? t('contribute.addAssistantHint') : t('contribute.noAssistantsHint')}</p>
+            <div className="px-4 py-4 flex flex-wrap items-center gap-3">
+              <button type="button" onClick={() => setShowAssistantPicker(v => !v)} aria-expanded={showAssistantPicker}
+                className="tb-press text-xs font-medium px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/30">{t('contribute.addAssistantShort')}</button>
+              <span className="text-xs text-zinc-400">{availableAssistants.length || availableApps.length ? t('contribute.addAssistantHint') : t('contribute.noAssistantsHint')}</span>
+            </div>
           ) : (
             <ul className="list-none m-0 p-0">
               {[...selectedAssistantIds].map(id => {
@@ -706,9 +722,11 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
       </section>
 
       {/* 高级：节点名称、转发地址、开机自动接单——默认收起 */}
-      <details className={`${LIB_LIST_CLS} px-5 py-3 [&[open]]:pb-5 [&[open]>summary]:mb-3`}>
-        <summary className="cursor-pointer min-h-[32px] flex items-center text-[13px] font-semibold text-zinc-900 dark:text-zinc-50">{t('contribute.advanced')}</summary>
-        <div className="space-y-3">
+      <details className="group px-1 [&[open]]:pb-2">
+        <summary className="cursor-pointer select-none list-none min-h-[32px] flex items-center text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200">
+          <span className="inline-block transition-transform group-open:rotate-90 mr-1" aria-hidden>›</span>{t('contribute.advanced')}
+        </summary>
+        <div className={`${LIB_LIST_CLS} px-5 py-4 mt-1 space-y-3`}>
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div>
             <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1.5">{t('contribute.nodeName')}</label>
@@ -761,7 +779,7 @@ function settlementWhen(iso, t) {
 }
 
 /** 收益记录：概览 + 每次结算积分柱图 + 结算明细 + 运行日志 */
-function EarningsView({ settlements, summary, stats, logs, logRef }) {
+function EarningsView({ settlements, summary, stats, logs, logRef, balance = null }) {
   const { t } = useLang();
   const [hover, setHover] = useState(null);
   const rows = settlements || [];
@@ -772,109 +790,38 @@ function EarningsView({ settlements, summary, stats, logs, logRef }) {
   const max = Math.max(1, ...chron.map(r => Number(r.credits_awarded) || 0));
   const lastWhen = last ? settlementWhen(last.period_end, t) : null;
 
-  // 赚的：上架被用了换来的积分和供给量；花的：自己用社区算力用了多少、比刊例价省了多少
-  const groups = [
-    {
-      key: 'earn', title: t('contribute.money.earn'), tiles: [
-        {
-          k: 'credits', label: t('contribute.earnedCredits'), tone: 'text-green-600 dark:text-green-400',
-          value: summary ? `+${(summary.contrib_credits ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}` : '—',
-          sub: summary ? t('contribute.approxCny', { amount: fmtCreditCny(summary.contrib_cny) }) : '',
-        },
-        {
-          k: 'tokens', label: t('contribute.totalTokens'),
-          value: summary ? fmtContribTokens(summary.contrib_tokens) : '—',
-          sub: summary?.period_tokens > 0 ? t('contribute.periodTokens', { n: fmtContribTokens(summary.period_tokens) }) : t('contribute.totalTokensHint'),
-        },
-      ],
-    },
-    {
-      key: 'spend', title: t('contribute.money.spend'), tiles: [
-        {
-          k: 'used', label: t('contribute.money.used'),
-          value: summary ? fmtContribTokens(summary.p2p_tokens ?? 0) : '—',
-          sub: t('contribute.money.usedHint'),
-        },
-        {
-          k: 'saved', label: t('contribute.savedMoney'), tone: 'text-emerald-600 dark:text-emerald-400',
-          value: summary ? fmtCreditCny(summary.saved_cny) : '—',
-          sub: t('contribute.savedHint'),
-        },
-      ],
-    },
+  const fmt1 = (x) => (Number(x) || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
+  const nums = [
+    { k: 'earn', label: t('contribute.money.earn'), value: summary ? `+${fmt1(summary.contrib_credits)}` : '—', tone: 'text-green-600 dark:text-green-400',
+      sub: summary ? `${t('contribute.approxCny', { amount: fmtCreditCny(summary.contrib_cny) })} · ${t('contribute.totalTokens')} ${fmtContribTokens(summary.contrib_tokens)}` : '' },
+    { k: 'spend', label: t('contribute.money.spend'), value: summary ? `${fmtContribTokens(summary.p2p_tokens ?? 0)}` : '—', unit: 'Token',
+      sub: summary ? `${t('contribute.money.usedHint')} · ${t('contribute.savedMoney')} ${fmtCreditCny(summary.saved_cny)}` : '' },
+    { k: 'bal', label: t('contribute.money.balance'), value: balance != null ? Math.floor(balance).toLocaleString() : '—', unit: t('contribute.creditsUnit'),
+      sub: t('contribute.money.balanceHint') },
   ];
 
   return (
     <div className="space-y-4">
-      {/* 两张大卡：赚的、花的，各一个大数加一句说明 */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {groups.map(g => {
-          const [lead, ...rest] = g.tiles;
-          return (
-            <section key={g.key} className={`${LIB_LIST_CLS} px-5 py-4`}>
-              <h3 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100">{g.title}</h3>
-              <div className="mt-2 flex flex-wrap items-baseline gap-x-2">
-                <span className={`text-3xl font-semibold tabular-nums tracking-tight ${lead.tone || 'text-zinc-900 dark:text-zinc-50'}`}>{lead.value}</span>
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">{lead.label}</span>
+      {/* 一张总览：赚的、花的、余额；下面一行是近 7 天分享资产的收入 */}
+      <section className={`${LIB_LIST_CLS} px-5 py-4`}>
+        <div className="grid gap-4 sm:grid-cols-3">
+          {nums.map(n => (
+            <div key={n.k} className="min-w-0">
+              <div className="text-xs text-zinc-500 dark:text-zinc-400">{n.label}</div>
+              <div className="mt-1 flex items-baseline gap-1.5">
+                <span className={`text-2xl font-semibold tabular-nums tracking-tight ${n.tone || 'text-zinc-900 dark:text-zinc-50'}`}>{n.value}</span>
+                {n.unit && <span className="text-xs text-zinc-500 dark:text-zinc-400">{n.unit}</span>}
               </div>
-              <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-300">
-                {[lead.sub, ...rest.map(m => `${m.label} ${m.value}`)].filter(Boolean).join(' · ')}
-              </p>
-              {rest.map(m => m.sub ? <p key={m.k} className="mt-0.5 text-[11px] text-zinc-400">{m.sub}</p> : null)}
-            </section>
-          );
-        })}
-      </div>
-
-      {/* 每次结算积分：单序列柱图（无需图例），悬停看明细 */}
-      <section className="rounded-2xl border border-zinc-200/70 dark:border-white/[0.07] bg-white/55 dark:bg-zinc-900/40 px-4 pt-3.5 pb-3">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-5">
-          <h3 className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100">{t('contribute.earnChartTitle')}</h3>
-          {rows.length > 0 && (
-            <span className="text-[11px] text-zinc-500 dark:text-zinc-400 flex flex-wrap items-baseline gap-x-2">
-              <span>{t('contribute.earnRecent', { n: rows.length })} <b className="font-semibold tabular-nums text-green-600 dark:text-green-400">+{total.toFixed(1)}</b></span>
-              <span className="text-zinc-300 dark:text-zinc-600">·</span>
-              <span>{t('contribute.earnLast')} <b className="font-semibold tabular-nums text-zinc-700 dark:text-zinc-200">+{(Number(last.credits_awarded) || 0).toFixed(1)}</b>{lastWhen ? ` · ${lastWhen.day} ${lastWhen.time}` : ''}</span>
-              <span className="text-zinc-300 dark:text-zinc-600">·</span>
-              <span>{t('contribute.earnQuality')} <b className="font-semibold tabular-nums text-zinc-700 dark:text-zinc-200">{avgMult.toFixed(2)}×</b> <span className="text-yellow-600 dark:text-yellow-400">{multiplierToStars(avgMult)}</span></span>
-            </span>
-          )}
-          <span className="ml-auto text-[11px] text-zinc-400">{t('contribute.earnChartHint')}</span>
+              {n.sub && <p className="mt-1 text-[11px] text-zinc-400 leading-snug">{n.sub}</p>}
+            </div>
+          ))}
         </div>
-        {chron.length === 0 ? (
-          <div className="h-32 flex items-center justify-center text-xs text-zinc-400">{t('contribute.noSettlements')}</div>
-        ) : (
-          <div className="relative">
-            <div className="absolute inset-x-0 top-0 border-t border-dashed border-zinc-200/80 dark:border-white/[0.06]" aria-hidden />
-            <div className="absolute left-0 -top-2 text-[10px] text-zinc-400 tabular-nums bg-white/0">{max.toFixed(0)}</div>
-            <div className="h-32 flex items-end gap-[2px] border-b border-zinc-200 dark:border-zinc-700" role="img" aria-label={t('contribute.earnChartTitle')}>
-              {chron.map((r, i) => {
-                const v = Number(r.credits_awarded) || 0;
-                const on = hover === i;
-                return (
-                  <div key={r.id ?? r.period_end} className="relative flex-1 h-full flex items-end justify-center"
-                    onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
-                    <div className={`w-full max-w-[28px] rounded-t-[4px] transition-colors ${on ? 'bg-green-600 dark:bg-green-400' : 'bg-green-500/80 dark:bg-green-500/70'}`}
-                      style={{ height: `${Math.max(2, (v / max) * 100)}%` }} />
-                    {on && (
-                      <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 z-10 whitespace-nowrap rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg px-2.5 py-1.5 text-[11px] pointer-events-none">
-                        <div className="text-zinc-500">{formatSettlementTime(r.period_end)}</div>
-                        <div className="font-semibold text-zinc-900 dark:text-zinc-50 tabular-nums">+{v.toFixed(1)} {t('contribute.creditsUnit')}</div>
-                        <div className="text-zinc-500 tabular-nums">{fmtContribTokens(r.output_tokens ?? 0)} tok · {(Number(r.multiplier) || 1).toFixed(2)}×</div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="flex justify-between mt-1 text-[10px] text-zinc-400 tabular-nums">
-              <span>{formatSettlementTime(chron[0].period_end).slice(5)}</span>
-              <span>{formatSettlementTime(chron[chron.length - 1].period_end).slice(5)}</span>
-            </div>
-          </div>
-        )}
+        <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-white/[0.06]">
+          <CommunityEarningsCard compact />
+        </div>
       </section>
 
+      {/* 结算：有记录时上面一张小柱图（点柱子看明细），下面逐条列表；没有记录只一个空状态 */}
       <section>
         <LibrarySectionHead title={t('contribute.settlements')} count={rows.length || null} />
         {rows.length === 0 ? (
@@ -883,7 +830,48 @@ function EarningsView({ settlements, summary, stats, logs, logRef }) {
             <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{t('contribute.noSettlementsHint')}</p>
           </div>
         ) : (
-          <ul className={LIB_LIST_CLS}>
+          <div className={LIB_LIST_CLS}>
+            <div className="px-4 pt-3.5 pb-3 border-b border-zinc-100/90 dark:border-white/[0.05]">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-5">
+                <span className="text-[11px] text-zinc-500 dark:text-zinc-400 flex flex-wrap items-baseline gap-x-2">
+                  <span>{t('contribute.earnRecent', { n: rows.length })} <b className="font-semibold tabular-nums text-green-600 dark:text-green-400">+{total.toFixed(1)}</b></span>
+                  <span className="text-zinc-300 dark:text-zinc-600">·</span>
+                  <span>{t('contribute.earnLast')} <b className="font-semibold tabular-nums text-zinc-700 dark:text-zinc-200">+{(Number(last.credits_awarded) || 0).toFixed(1)}</b>{lastWhen ? ` · ${lastWhen.day} ${lastWhen.time}` : ''}</span>
+                  <span className="text-zinc-300 dark:text-zinc-600">·</span>
+                  <span>{t('contribute.earnQuality')} <b className="font-semibold tabular-nums text-zinc-700 dark:text-zinc-200">{avgMult.toFixed(2)}×</b> <span className="text-yellow-600 dark:text-yellow-400">{multiplierToStars(avgMult)}</span></span>
+                </span>
+                <span className="ml-auto text-[11px] text-zinc-400">{t('contribute.earnChartHint')}</span>
+              </div>
+              <div className="relative">
+                <div className="absolute inset-x-0 top-0 border-t border-dashed border-zinc-200/80 dark:border-white/[0.06]" aria-hidden />
+                <div className="absolute left-0 -top-2 text-[10px] text-zinc-400 tabular-nums bg-white/0">{max.toFixed(0)}</div>
+                <div className="h-24 flex items-end gap-[2px] border-b border-zinc-200 dark:border-zinc-700" role="img" aria-label={t('contribute.earnChartTitle')}>
+                  {chron.map((r, i) => {
+                    const v = Number(r.credits_awarded) || 0;
+                    const on = hover === i;
+                    return (
+                      <div key={r.id ?? r.period_end} className="relative flex-1 h-full flex items-end justify-center cursor-pointer"
+                        onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} onClick={() => setHover(on ? null : i)}>
+                        <div className={`w-full max-w-[28px] rounded-t-[4px] transition-colors ${on ? 'bg-green-600 dark:bg-green-400' : 'bg-green-500/80 dark:bg-green-500/70'}`}
+                          style={{ height: `${Math.max(2, (v / max) * 100)}%` }} />
+                        {on && (
+                          <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 z-10 whitespace-nowrap rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg px-2.5 py-1.5 text-[11px] pointer-events-none">
+                            <div className="text-zinc-500">{formatSettlementTime(r.period_end)}</div>
+                            <div className="font-semibold text-zinc-900 dark:text-zinc-50 tabular-nums">+{v.toFixed(1)} {t('contribute.creditsUnit')}</div>
+                            <div className="text-zinc-500 tabular-nums">{fmtContribTokens(r.output_tokens ?? 0)} tok · {(Number(r.multiplier) || 1).toFixed(2)}×</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex justify-between mt-1 text-[10px] text-zinc-400 tabular-nums">
+                  <span>{formatSettlementTime(chron[0].period_end).slice(5)}</span>
+                  <span>{formatSettlementTime(chron[chron.length - 1].period_end).slice(5)}</span>
+                </div>
+              </div>
+            </div>
+          <ul className="list-none m-0 p-0">
             {rows.map(st => {
               const resources = normalizeSettlementResources(st.resources);
               const mult = Number(st.multiplier) || 1;
@@ -925,6 +913,7 @@ function EarningsView({ settlements, summary, stats, logs, logRef }) {
               );
             })}
           </ul>
+          </div>
         )}
       </section>
 
@@ -993,28 +982,17 @@ function CommunityModelsCard() {
     return () => { cancelled = true; };
   }, [user]);
   if (!models) return null;
-  const rows = models;
+  // 模型在模型页的「社区」账户里管理和选用；这里只说一句有多少，点过去用
+  const nodes = models.reduce((n, m) => Math.max(n, m.suppliers || 0), 0);
   return (
-    <section className={`${LIB_LIST_CLS} p-5 space-y-3 mt-4`}>
-      <SupplySectionHead title={t('contribute.buyModels')} hint={t('contribute.buyModelsHint')} />
-      {rows.length === 0 ? (
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">{t('contribute.buyModelsEmpty')}</p>
-      ) : (
-        <ul className="divide-y divide-zinc-100 dark:divide-white/[0.06]">
-          {rows.slice(0, 30).map(m => (
-            <li key={m.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2">
-              <span className="flex-[2_1_12rem] min-w-0 truncate text-[13px] font-medium text-zinc-800 dark:text-zinc-100">{m.id}</span>
-              <span className="flex-[1_1_6rem] text-xs text-zinc-500 dark:text-zinc-400">{m.suppliers > 0 ? t('contribute.suppliers', { n: m.suppliers }) : t('contribute.onlineNow')}</span>
-              <span className="flex-[1_1_6rem] text-xs text-zinc-500 dark:text-zinc-400">{t('contribute.byCredits')}</span>
-              <button type="button" onClick={() => navigate('/gateway')}
-                className="shrink-0 text-xs px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800">
-                {t('contribute.useInApp')}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+    <button type="button" onClick={() => navigate('/providers', { state: { focusCommunity: true } })}
+      className={`${LIB_LIST_CLS} mt-4 w-full flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 text-left hover:bg-white/80 dark:hover:bg-zinc-900/60`}>
+      <span className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100">{t('contribute.buyModels')}</span>
+      <span className="text-xs text-zinc-500 dark:text-zinc-400">
+        {models.length ? t('contribute.buyModelsLine', { n: models.length, nodes }) : t('contribute.buyModelsEmpty')}
+      </span>
+      <span className="ml-auto text-xs text-blue-600 dark:text-blue-400">{t('contribute.buyModelsGo')} ›</span>
+    </button>
   );
 }
 
@@ -1781,7 +1759,6 @@ export default function Contribute() {
       return ['hire', 'supply', 'earnings'].includes(v) ? v : 'hire';
     } catch { return 'hire'; }
   });
-  const [buyKind, setBuyKind] = useState('all'); // 买：全部 / 智能体 / 模型
   // 圈子 = 交易范围：共享给雇佣筛选、上架范围、圈子管理
   const [myCircles, setMyCircles] = useState(null);
   const [scope, setScope] = useState('all');
@@ -1949,34 +1926,14 @@ export default function Contribute() {
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">{t('contribute.subtitle')}</p>
           </div>
           <div className="electron-no-drag relative z-50 flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => setCirclesOpen(true)}
-              className="text-xs px-2.5 py-1.5 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-white/60 dark:hover:bg-white/5">
-              {t('contribute.manageCircles')}{myCircles?.length ? ` · ${myCircles.length}` : ''}
-            </button>
-            {/* 累计积分：点击看收益记录（明细数据都在该页签） */}
-            {summary && (
+            {/* 余额：点开看收支 */}
+            {user?.credits_balance != null && (
               <button type="button" onClick={() => changeTab('earnings')}
-                className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/60 dark:bg-zinc-900/40 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100">
-                <span className="font-semibold tabular-nums text-green-600 dark:text-green-400">+{(summary.contrib_credits ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full border border-zinc-200 dark:border-zinc-700 bg-white/60 dark:bg-zinc-900/40 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100">
+                <span className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">{Math.floor(user.credits_balance).toLocaleString()}</span>
                 {t('contribute.creditsUnit')}
               </button>
             )}
-            {/* 供给状态：一眼可见，点击直达上架配置 */}
-            <button
-              type="button"
-              onClick={() => changeTab('supply')}
-              className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${
-                running
-                  ? 'border-green-200 dark:border-green-900 bg-green-50/80 dark:bg-green-950/30 text-green-700 dark:text-green-300'
-                  : 'border-zinc-200 dark:border-zinc-700 bg-white/60 dark:bg-zinc-900/40 text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'
-              }`}
-            >
-              <span className="relative flex w-2 h-2" aria-hidden>
-                {running && <span className="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-60 animate-ping" />}
-                <span className={`relative inline-flex w-2 h-2 rounded-full ${running ? 'bg-green-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} />
-              </span>
-              {running ? t('contribute.statusSupplying') : t('contribute.statusIdle')}
-            </button>
           </div>
         </div>
 
@@ -1999,29 +1956,14 @@ export default function Contribute() {
       <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
         {/* 三个页签常驻挂载：切换不丢未保存的上架配置 */}
         <div className={tab === 'hire' ? '' : 'hidden'}>
-          {/* 社区里能买的有两种：雇智能体、租模型。先选看哪种 */}
-          <div role="tablist" aria-label={t('contribute.buyKind')} className="flex flex-wrap items-center gap-1.5 mb-3">
-            {[['all', t('contribute.buyKindAll')], ['agents', t('contribute.buyKindAgents')], ['models', t('contribute.buyKindModels')]].map(([k, label]) => (
-              <button key={k} type="button" role="tab" aria-selected={buyKind === k} onClick={() => setBuyKind(k)}
-                className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${buyKind === k
-                  ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 font-medium'
-                  : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300'}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className={buyKind === 'models' ? 'hidden' : ''}>
-            <CommunityAgentsCard
-              refreshKey={agentsRefreshKey}
-              circles={myCircles || []}
-              scope={scope}
-              onScopeChange={setScope}
-              focusAgent={focusAgent}
-            />
-          </div>
-          <div className={buyKind === 'agents' ? 'hidden' : ''}>
-            <CommunityModelsCard />
-          </div>
+          <CommunityAgentsCard
+            refreshKey={agentsRefreshKey}
+            circles={myCircles || []}
+            scope={scope}
+            onScopeChange={setScope}
+            focusAgent={focusAgent}
+          />
+          <CommunityModelsCard />
         </div>
 
         <div className={tab === 'supply' ? 'space-y-2' : 'hidden'}>
@@ -2054,8 +1996,7 @@ export default function Contribute() {
         </div>
 
         <div className={tab === 'earnings' ? '' : 'hidden'}>
-          <CommunityEarningsCard />
-          <EarningsView settlements={settlements} summary={summary} stats={stats} logs={logs} logRef={logRef} />
+          <EarningsView settlements={settlements} summary={summary} stats={stats} logs={logs} logRef={logRef} balance={user?.credits_balance ?? null} />
         </div>
       </div>
     </div>

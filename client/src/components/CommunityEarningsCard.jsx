@@ -36,7 +36,7 @@ export function summarizeEarnings(transactions = [], now = Date.now()) {
   return { n, credits, top };
 }
 
-export default function CommunityEarningsCard() {
+export default function CommunityEarningsCard({ compact = false }) {
   const { t } = useLang();
   const [data, setData] = useState(null);
   const [names, setNames] = useState({});
@@ -57,6 +57,17 @@ export default function CommunityEarningsCard() {
 
   if (!data) return null;
   const fmt = (x) => x.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  if (compact) {
+    // 收支总览卡里的一行：近 7 天分享资产的收入
+    return (
+      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+        <span className="font-medium text-zinc-700 dark:text-zinc-200">{t('trade.earnings.title')}</span>
+        <span className="mx-1.5 text-zinc-300 dark:text-zinc-600">·</span>
+        {data.n ? t('trade.earnings.week', { n: data.n, credits: fmt(data.credits) }) : t('trade.earnings.none')}
+        {data.top[0] && <span className="ml-1.5 text-zinc-400">（{t('trade.earnings.top')} {names[data.top[0].id] || data.top[0].id}）</span>}
+      </p>
+    );
+  }
   return (
     <div className="tb-soft-card rounded-2xl px-5 py-4 mb-4">
       <div className="flex flex-wrap items-baseline gap-x-2">

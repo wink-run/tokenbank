@@ -669,12 +669,17 @@ export default function Dashboard() {
             value: user ? `${credit.net >= 0 ? '+' : ''}${fmtCredit(credit.net)}` : '—',
             valueCls: !user ? 'text-zinc-400' : credit.net >= 0 ? 'text-zinc-900 dark:text-zinc-50' : 'text-violet-600 dark:text-violet-400',
             hint: user ? t('dashboard.creditsHint', { inc: fmtCredit(credit.inc), out: fmtCredit(credit.out) }) : t('dashboard.creditsLogin'),
+            // 社区积分的明细在交易页「收支」，这里只给个数，点过去看
+            onClick: user ? () => navigate('/contribute', { state: { tradeTab: 'earnings' } }) : null,
+            more: user ? t('dashboard.creditsMore') : '',
           },
         ].map((c) => (
-          <div key={c.label} className="tb-soft-card rounded-2xl px-3.5 py-3.5">
+          <div key={c.label} className={`tb-soft-card rounded-2xl px-3.5 py-3.5 ${c.onClick ? 'cursor-pointer hover:ring-1 hover:ring-blue-200 dark:hover:ring-blue-800' : ''}`}
+            {...(c.onClick ? { role: 'link', tabIndex: 0, onClick: c.onClick, onKeyDown: (e) => { if (e.key === 'Enter') c.onClick(); } } : {})}>
             <div className="text-[11px] text-zinc-400 dark:text-zinc-500">{c.label}</div>
             <div className={`text-[1.65rem] font-bold leading-none tabular-nums tracking-tight mt-2 ${c.valueCls}`}>{c.value}</div>
             <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-2 leading-snug">{c.hint}</div>
+            {c.more && <div className="text-[11px] text-blue-600 dark:text-blue-400 mt-1">{c.more} ›</div>}
           </div>
         ))}
       </div>
