@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { isElectron } from '../api/adapter';
 import { enrichDashboardBilling, enrichTrendWithSubscriptionCost, enrichAppsUsageBilling, enrichModelCostBilling, resolveBillableSubscriptions } from '../utils/billing-cost';
 import { loadUserAccounts } from '../api/userAccounts';
 import { useLang } from '../store/lang';
@@ -384,7 +383,6 @@ export default function Dashboard() {
   const [billingAccounts, setBillingAccounts] = useState({});
   const [usageSort, setUsageSort] = useState('calls');
   const [modelSort, setModelSort] = useState('calls');
-  const [gwStatus, setGwStatus]   = useState(null);
   const [compStats, setCompStats] = useState(null);
   const [loading, setLoading]     = useState(true);
   const { user } = useAuth();
@@ -469,11 +467,6 @@ export default function Dashboard() {
         setCloud(null);
       }
 
-      const fetchStatus = window.electronAPI?.gateway
-        ? () => window.electronAPI.gateway.status().then(setGwStatus).catch(() => {})
-        : () => fetch('/api/gateway/status').then(r => r.json()).then(setGwStatus).catch(() => {});
-      fetchStatus();
-
       // 压缩比统计（本机：无损 JSON 压缩省下的 token）
       const cp = window.electronAPI?.localStats?.compression
         ? window.electronAPI.localStats.compression(days)
@@ -502,10 +495,22 @@ export default function Dashboard() {
   const isThis = (d) => !!thisDeviceId && String(d?.device_id) === thisDeviceId;
   const pickedDevice = scope !== 'all' && scope !== 'local' ? devices.find(d => d.device_id === scope) : null;
   const useLocal = scope === 'local' || (pickedDevice && isThis(pickedDevice));
+  // 费用一个口径：全部设备的总费用（订阅折算 + 按量；没有账户信息时就是各台上报的用量费之和），
+  // 再按各台上报的用量费（没有就按请求数）摊到每台。这样几台加起来正好是总数
+  const rawCostSum = devices.reduce((n, d) => n + (Number(d.cost) || 0), 0);
+  const callSum = devices.reduce((n, d) => n + (Number(d.calls) || 0), 0);
+  const allCost = cloud ? ((Number(cloud.total_cost) || 0) > 0 ? Number(cloud.total_cost) : rawCostSum) : 0;
+  const deviceCost = (d) => {
+    if (!d) return 0;
+    if (rawCostSum > 0) return allCost * (Number(d.cost) || 0) / rawCostSum;
+    return callSum > 0 ? allCost * (Number(d.calls) || 0) / callSum : 0;
+  };
+  const shareOf = (d) => (callSum > 0 ? Math.round((Number(d?.calls) || 0) / callSum * 100) : 0);
+  const thisRow = devices.find(isThis);
   const v = useLocal ? localData
     : scope === 'all' ? cloud
       : {
-        total_calls: pickedDevice?.calls || 0, total_tokens: pickedDevice?.tokens || 0, total_cost: pickedDevice?.cost || 0,
+        total_calls: pickedDevice?.calls || 0, total_tokens: pickedDevice?.tokens || 0, total_cost: deviceCost(pickedDevice),
         tiers: pickedDevice?.tiers || {}, providers: pickedDevice?.providers || [], models: pickedDevice?.models || [],
         app_usage: pickedDevice?.app_usage || [],
       };
@@ -513,14 +518,21 @@ export default function Dashboard() {
   // ── Derived ───────────────────────────────────────────────────────────────
   const totalCalls  = v?.total_calls  ?? 0;
   const totalTokens = v?.total_tokens ?? 0;
-  const totalCost   = v?.total_cost ?? 0;
+  // 有云端数据时一律走上面的统一口径；没登录 / 没云端才用这台电脑自己算的
+  const costShared  = !!cloud && scope !== 'all' && !(useLocal && !thisRow);
+  const totalCost   = !cloud ? (v?.total_cost ?? 0)
+    : scope === 'all' ? allCost
+      : useLocal ? (thisRow ? deviceCost(thisRow) : (v?.total_cost ?? 0))
+        : deviceCost(pickedDevice);
   const subCost     = v?.subscription_cost ?? 0;
   const paygCost    = v?.payg_cost ?? 0;
 
   const freeCalls  = v?.tiers?.free  ?? 0;
   const p2pCalls   = v?.tiers?.p2p   ?? 0;
   const paidCalls  = v?.tiers?.paid  ?? 0;
-  const freeRatio  = totalCalls > 0 ? Math.round(freeCalls / totalCalls * 100) : 0;
+  const tierSum    = freeCalls + p2pCalls + paidCalls;
+  const hasTiers   = tierSum > 0;   // 云端某台没给分层时不要显示成 0%
+  const freeRatio  = hasTiers ? Math.round(freeCalls / tierSum * 100) : 0;
 
   const trendMode = range === 'today' ? 'hourly' : 'daily';
   const trendDays = RANGE_DAYS[range];
@@ -553,10 +565,9 @@ export default function Dashboard() {
       direct_source_instances: billingAccounts.direct_source_instances,
       user_subscriptions: billingAccounts.user_subscriptions,
     },
-  ) : modelStats.map(m => ({ ...m, cost_usd: Number(m.cost_usd) || 0 }));
+  ) : modelStats.map(m => ({ ...m, cost_usd: Number(m.cost_usd ?? m.cost) || 0 }));   // 云端字段叫 cost
   const appRows = useLocal ? appsUsage : (v?.app_usage || []);
   const comp = useLocal ? compStats : (scope === 'all' ? cloud?.compression : null);
-  const localOnlyNote = useLocal ? '' : t('dashboard.localOnly');
 
   // 积分：选中时间段里的收入 / 支出（来自积分流水）
   const sinceMs = (() => {
@@ -582,67 +593,58 @@ export default function Dashboard() {
   return (
     <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-transparent text-zinc-900 dark:text-zinc-100 min-h-full">
 
-      {/* Header：标题行放 Desktop 标签与日期选择，副标题单独一行 */}
-      <div>
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2 min-w-0">
-            <h1 className="text-[17px] font-bold text-zinc-900 dark:text-zinc-100 tracking-tight shrink-0">{t('dashboard.title')}</h1>
-            <span className="tb-tag tb-tag-muted !border-solid inline-flex items-center gap-1 text-xs rounded-full px-2 py-0.5 shrink-0">
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${gwStatus?.running !== false ? 'bg-green-500' : 'bg-zinc-400'}`}/>
-              {isElectron() ? t('common.desktop') : t('common.cli')}
-              {gwStatus?.port ? ` · :${gwStatus.port}` : ''}
-            </span>
+      {/* 头部：标题 + 时间胶囊；下一行设备胶囊（每台带请求数），窄屏一行左右滑 */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-[17px] font-bold text-zinc-900 dark:text-zinc-100 tracking-tight shrink-0">{t('dashboard.title')}</h1>
+          <div role="radiogroup" aria-label={t('dashboard.timeLabel')} className="ml-auto flex flex-nowrap items-center gap-1.5">
+            {RANGE_KEYS.map(r => (
+              <button key={r} type="button" role="radio" aria-checked={range === r} onClick={() => setRange(r)}
+                className={`inline-flex shrink-0 items-center gap-1.5 min-h-[32px] md:min-h-[28px] px-3 rounded-full border text-xs whitespace-nowrap transition-colors ${range === r ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'border-zinc-200 dark:border-zinc-700 bg-white/60 dark:bg-zinc-900/40 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'}`}>
+                {t(`profile.range.${r}`)}
+              </button>
+            ))}
           </div>
-          <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 shrink-0">
-            {t('dashboard.timeLabel')}
-            <select value={range} onChange={e => setRange(e.target.value)}
-              className="tb-soft-field text-xs px-2.5 py-1.5 rounded-lg text-zinc-800 dark:text-zinc-100">
-              {RANGE_KEYS.map(r => <option key={r} value={r}>{t(`profile.range.${r}`)}</option>)}
-            </select>
-          </label>
         </div>
-        {/* 看哪台设备：登录且云端有数时可选全部 / 某一台；没有云端数据时只有这台电脑 */}
-        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-          {/* 设备胶囊平铺：全部 / 这台电脑 / 其它各台，点哪个看哪个 */}
-          <div role="radiogroup" aria-label={t('dashboard.deviceLabel')} className="flex flex-wrap items-center gap-1.5">
-            {[
-              ...(cloud ? [{ id: 'all', label: t('dashboard.allDevices', { n: cloud.device_count ?? devices.length }) }] : []),
-              { id: 'local', label: t('dashboard.scopeThisDevice'), online: true },
-              ...devices.filter(d => !isThis(d)).map(d => ({ id: d.device_id, label: formatDeviceTitle(d), online: !!d.online })),
-            ].map(o => {
-              const on = scope === o.id;
-              return (
-                <button key={o.id} type="button" role="radio" aria-checked={on} disabled={!cloud}
-                  onClick={() => setScopePick(o.id)}
-                  className={`inline-flex items-center gap-1.5 min-h-[28px] px-3 rounded-full border text-xs transition-colors disabled:cursor-default ${on
-                    ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                    : 'border-zinc-200 dark:border-zinc-700 bg-white/60 dark:bg-zinc-900/40 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'}`}>
-                  {o.id !== 'all' && <span className={`w-1.5 h-1.5 rounded-full ${o.online ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} aria-hidden />}
-                  {o.label}
-                </button>
-              );
-            })}
-          </div>
-          {!cloud && <span className="text-zinc-400 dark:text-zinc-500">{user ? t('dashboard.scopeNoCloud') : t('dashboard.scopeNote')}</span>}
+        <div role="radiogroup" aria-label={t('dashboard.deviceLabel')} className="tb-hscroll flex flex-nowrap items-center gap-1.5 overflow-x-auto -mx-1 px-1 pb-0.5">
+          {[
+            ...(cloud ? [{ id: 'all', label: t('dashboard.allDevices', { n: cloud.device_count ?? devices.length }), calls: callSum }] : []),
+            { id: 'local', label: t('dashboard.scopeThisDevice'), online: true, calls: thisRow?.calls },
+            ...devices.filter(d => !isThis(d)).map(d => ({ id: d.device_id, label: formatDeviceTitle(d), online: !!d.online, calls: d.calls })),
+          ].map(o => {
+            const on = scope === o.id;
+            return (
+              <button key={o.id} type="button" role="radio" aria-checked={on} disabled={!cloud}
+                onClick={() => setScopePick(o.id)}
+                className={`inline-flex shrink-0 items-center gap-1.5 min-h-[32px] md:min-h-[28px] px-3 rounded-full border text-xs whitespace-nowrap transition-colors disabled:cursor-default ${on ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'border-zinc-200 dark:border-zinc-700 bg-white/60 dark:bg-zinc-900/40 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'}`}>
+                {o.id !== 'all' && <span className={`w-1.5 h-1.5 rounded-full ${o.online ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} aria-hidden />}
+                {o.label}
+                {cloud && o.calls != null && <span className="tabular-nums opacity-60">{t('dashboard.pillCalls', { n: Number(o.calls || 0).toLocaleString() })}</span>}
+              </button>
+            );
+          })}
+          {!cloud && <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">{user ? t('dashboard.scopeNoCloud') : t('dashboard.scopeNote')}</span>}
         </div>
       </div>
 
       {/* Summary cards — 5列 */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+      <div className={`grid grid-cols-2 gap-2.5 ${comp?.count > 0 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}>
         {[
           {
             label: t('dashboard.estCost'),
             value: fmtCost(totalCost),
             valueCls: totalCost > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400',
-            hint: totalCost > 0
-              ? t('profile.costSub', { sub: subCost > 0 ? fmtCost(subCost) : '—', payg: paygCost > 0 ? fmtCost(paygCost) : '—' })
-              : t('dashboard.estCostHint'),
+            hint: costShared
+              ? t('dashboard.costShared', { share: shareOf(useLocal ? thisRow : pickedDevice) })
+              : totalCost > 0 && !(cloud && scope === 'all' && !(Number(cloud.total_cost) > 0))
+                ? t('profile.costSub', { sub: subCost > 0 ? fmtCost(subCost) : '—', payg: paygCost > 0 ? fmtCost(paygCost) : '—' })
+                : t('dashboard.estCostHint'),
           },
           {
             label: t('dashboard.totalRequests'),
             value: totalCalls,
             valueCls: 'text-zinc-900 dark:text-zinc-50',
-            hint: scope === 'all' ? devices.slice(0, 3).map(d => `${isThis(d) ? t('dashboard.thisOne') : formatDeviceTitle(d)} ${(d.calls || 0).toLocaleString()}`).join(' · ') : pickedDevice && !useLocal ? t('dashboard.requestsHintDevice', { range: rangeLabel, name: formatDeviceTitle(pickedDevice) }) : t('dashboard.totalRequestsHint', { range: rangeLabel }),
+            hint: scope === 'all' ? t('dashboard.requestsHintAll', { n: devices.length, range: rangeLabel }) : pickedDevice && !useLocal ? t('dashboard.requestsHintDevice', { range: rangeLabel, name: formatDeviceTitle(pickedDevice) }) : t('dashboard.totalRequestsHint', { range: rangeLabel }),
           },
           {
             label: t('dashboard.tokenUsage'),
@@ -652,41 +654,40 @@ export default function Dashboard() {
           },
           {
             label: t('dashboard.freeHitRate'),
-            value: `${freeRatio}%`,
-            valueCls: 'text-green-600 dark:text-green-400',
-            hint: t('dashboard.freeHitHint', { free: freeCalls, p2p: p2pCalls, paid: paidCalls }),
+            value: hasTiers ? `${freeRatio}%` : '—',
+            valueCls: hasTiers ? 'text-green-600 dark:text-green-400' : 'text-zinc-400',
+            hint: hasTiers ? t('dashboard.freeHitHint', { free: freeCalls, p2p: p2pCalls, paid: paidCalls }) : t('dashboard.noTiers'),
           },
-          {
+          ...(comp?.count > 0 ? [{
             label: t('profile.compression.saved'),
             value: comp?.count > 0 ? fmtCost(comp.saved_usd || 0) : '—',
             valueCls: comp?.count > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400',
             hint: comp?.count > 0
               ? t('dashboard.compressHint', { n: comp.count, tokens: fmtN(comp.saved), ratio: ((comp.ratio || 0) * 100).toFixed(1) })
               : t('dashboard.compressEmpty'),
-          },
-          {
-            label: t('dashboard.credits'),
-            value: user ? `${credit.net >= 0 ? '+' : ''}${fmtCredit(credit.net)}` : '—',
-            valueCls: !user ? 'text-zinc-400' : credit.net >= 0 ? 'text-zinc-900 dark:text-zinc-50' : 'text-violet-600 dark:text-violet-400',
-            hint: user ? t('dashboard.creditsHint', { inc: fmtCredit(credit.inc), out: fmtCredit(credit.out) }) : t('dashboard.creditsLogin'),
-            // 社区积分的明细在交易页「收支」，这里只给个数，点过去看
-            onClick: user ? () => navigate('/contribute', { state: { tradeTab: 'earnings' } }) : null,
-            more: user ? t('dashboard.creditsMore') : '',
-          },
+          }] : []),
         ].map((c) => (
           <div key={c.label} className={`tb-soft-card rounded-2xl px-3.5 py-3.5 ${c.onClick ? 'cursor-pointer hover:ring-1 hover:ring-blue-200 dark:hover:ring-blue-800' : ''}`}
             {...(c.onClick ? { role: 'link', tabIndex: 0, onClick: c.onClick, onKeyDown: (e) => { if (e.key === 'Enter') c.onClick(); } } : {})}>
             <div className="text-[11px] text-zinc-400 dark:text-zinc-500">{c.label}</div>
             <div className={`text-[1.65rem] font-bold leading-none tabular-nums tracking-tight mt-2 ${c.valueCls}`}>{c.value}</div>
-            <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-2 leading-snug">{c.hint}</div>
-            {c.more && <div className="text-[11px] text-blue-600 dark:text-blue-400 mt-1">{c.more} ›</div>}
+            <div className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-2 leading-snug line-clamp-2 md:line-clamp-none" title={c.hint}>{c.hint}</div>
           </div>
         ))}
       </div>
+      {/* 社区积分：明细在交易页「收支」，这里一行 */}
+      {user && (
+        <button type="button" onClick={() => navigate('/contribute', { state: { tradeTab: 'earnings' } })}
+          className="-mt-1 inline-flex flex-wrap items-center gap-x-1.5 text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200">
+          {t('dashboard.creditsLine', { net: `${credit.net >= 0 ? '+' : ''}${fmtCredit(credit.net)}`, inc: fmtCredit(credit.inc), out: fmtCredit(credit.out) })}
+          <span className="text-blue-600 dark:text-blue-400">{t('dashboard.creditsMore')} ›</span>
+        </button>
+      )}
 
-      {/* Row: tier donut + trend bars */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div className="md:col-span-2 tb-soft-card rounded-2xl p-5 flex flex-col gap-4">
+      {/* 请求去向 + 趋势：没有分层数据就不画去向；趋势只有这台电脑的数据时放到下面「这台电脑的明细」 */}
+      {(hasTiers || !trendFromLocal) && (
+      <div className={`grid grid-cols-1 gap-4 ${hasTiers && !trendFromLocal ? 'md:grid-cols-5' : ''}`}>
+        {hasTiers && <div className={`${!trendFromLocal ? 'md:col-span-2' : ''} tb-soft-card rounded-2xl p-5 flex flex-col gap-4`}>
           <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{t('dashboard.requestMix')}</div>
           {(() => {
             const parts = [['free', freeCalls, 'bg-sky-300'], ['p2p', p2pCalls, 'bg-amber-500'], ['paid', paidCalls, 'bg-blue-900 dark:bg-blue-700']];
@@ -709,18 +710,16 @@ export default function Dashboard() {
               </div>
             );
           })()}
-        </div>
-        <div className="md:col-span-3 tb-soft-card rounded-2xl p-5">
-          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-4">
-            {trendTitle}
-            {trendFromLocal && <span className="ml-2 text-[11px] font-normal text-zinc-400">{t('dashboard.localOnly')}</span>}
-          </div>
+        </div>}
+        {!trendFromLocal && <div className={`${hasTiers ? 'md:col-span-3' : ''} tb-soft-card rounded-2xl p-5`}>
+          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-4">{trendTitle}</div>
           <TrendBars mode={trendMode} data={trendData} t={t} fmtCost={fmtCost} fmtN={fmtN} />
-        </div>
+        </div>}
       </div>
+      )}
 
-      {/* 谁用的：应用和跑在它们上面的智能体 */}
-      <div className="tb-soft-card rounded-2xl p-5">
+      {/* 谁用的：应用和跑在它们上面的智能体（看别的设备时云端没给就不显示） */}
+      {(useLocal || appRows.length > 0) && <div className="tb-soft-card rounded-2xl p-5">
         <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-3">{t('dashboard.whoUsed')}</div>
         {appRows.length === 0 && agentRows.length === 0 ? (
           <p className="text-xs text-zinc-500">{t('dashboard.whoUsedEmpty')}</p>
@@ -763,7 +762,7 @@ export default function Dashboard() {
             </table>
           </div>
         )}
-      </div>
+      </div>}
 
 
       {/* 用了哪些模型：一张表，可按调用 / Token / 费用排 */}
@@ -824,57 +823,27 @@ export default function Dashboard() {
       })()}
 
 
-      <SkillToolUsageSection
-        skillUsage={skillUsage}
-        toolUsage={toolUsage}
-        mcpUsage={mcpUsage}
-        rangeLabel={localOnlyNote ? `${rangeLabel} · ${localOnlyNote}` : rangeLabel}
-        loading={loading}
-        t={t}
-      />
-
-      {/* 设备：各台用了多少，点一行只看那台 */}
-      {cloud && devices.length > 0 && (
-        <div className="tb-soft-card rounded-2xl p-5">
-          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-3">{t('dashboard.devices')}</div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-[11px] text-zinc-400 dark:text-zinc-500 text-left">
-                  <th className="font-normal py-1.5 pr-3">{t('dashboard.col.device')}</th>
-                  <th className="font-normal py-1.5 pr-3">{t('dashboard.col.state')}</th>
-                  <th className="font-normal py-1.5 pr-3 text-right">{t('dashboard.col.calls')}</th>
-                  <th className="font-normal py-1.5 pr-3 text-right">Token</th>
-                  <th className="font-normal py-1.5 pr-3 text-right">{t('dashboard.col.cost')}</th>
-                  <th className="font-normal py-1.5 text-right">{t('dashboard.col.share')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {devices.map(d => {
-                  const id = isThis(d) ? 'local' : d.device_id;
-                  return (
-                    <tr key={d.device_id} onClick={() => setScopePick(id)}
-                      className={`border-t border-zinc-100 dark:border-white/[0.06] cursor-pointer hover:bg-black/[0.03] dark:hover:bg-white/[0.04] ${scope === id ? 'bg-emerald-50/60 dark:bg-emerald-900/10' : ''}`}>
-                      <td className="py-1.5 pr-3 text-zinc-800 dark:text-zinc-100">
-                        {formatDeviceTitle(d)}{isThis(d) && <span className="ml-1.5 text-[10px] text-zinc-400">{t('dashboard.thisOne')}</span>}
-                      </td>
-                      <td className="py-1.5 pr-3">
-                        <span className={`inline-flex items-center gap-1 ${d.online ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400'}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${d.online ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} />
-                          {d.online ? t('profile.online') : t('profile.offline')}
-                        </span>
-                      </td>
-                      <td className="py-1.5 pr-3 text-right tabular-nums">{(d.calls || 0).toLocaleString()}</td>
-                      <td className="py-1.5 pr-3 text-right tabular-nums">{fmtN(d.tokens || 0)}</td>
-                      <td className="py-1.5 pr-3 text-right tabular-nums">{d.cost > 0 ? fmtCost(d.cost) : '—'}</td>
-                      <td className="py-1.5 text-right tabular-nums">{d.share_pct ?? 0}%</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      {useLocal ? (
+        <SkillToolUsageSection skillUsage={skillUsage} toolUsage={toolUsage} mcpUsage={mcpUsage}
+          rangeLabel={rangeLabel} loading={loading} t={t} />
+      ) : (
+        <details className="group">
+          <summary className="cursor-pointer select-none list-none min-h-[32px] flex items-center text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200">
+            <span className="inline-block transition-transform group-open:rotate-90 mr-1" aria-hidden>›</span>
+            {t('dashboard.localDetails')}
+            <span className="ml-1.5 text-zinc-400">{t('dashboard.localDetailsHint')}</span>
+          </summary>
+          <div className="mt-2 space-y-4">
+            {trendFromLocal && (
+              <div className="tb-soft-card rounded-2xl p-5">
+                <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-4">{trendTitle}</div>
+                <TrendBars mode={trendMode} data={trendData} t={t} fmtCost={fmtCost} fmtN={fmtN} />
+              </div>
+            )}
+            <SkillToolUsageSection skillUsage={skillUsage} toolUsage={toolUsage} mcpUsage={mcpUsage}
+              rangeLabel={rangeLabel} loading={loading} t={t} />
           </div>
-        </div>
+        </details>
       )}
 
       {/* 订阅：月付按天折算 */}
