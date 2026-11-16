@@ -609,8 +609,11 @@ export default function Dashboard() {
         <div role="radiogroup" aria-label={t('dashboard.deviceLabel')} className="tb-hscroll flex flex-nowrap items-center gap-1.5 overflow-x-auto -mx-1 px-1 pb-0.5">
           {[
             ...(cloud ? [{ id: 'all', label: t('dashboard.allDevices', { n: cloud.device_count ?? devices.length }), calls: callSum }] : []),
-            { id: 'local', label: t('dashboard.scopeThisDevice'), online: true, calls: thisRow?.calls },
-            ...devices.filter(d => !isThis(d)).map(d => ({ id: d.device_id, label: formatDeviceTitle(d), online: !!d.online, calls: d.calls })),
+            // 这台电脑就在设备里，胶囊上标「本机」并排在最前；云端还没有它（没同步上来 / 没登录）时才单独给一个「这台电脑」
+            ...(thisRow ? [] : [{ id: 'local', label: t('dashboard.scopeThisDevice'), online: true }]),
+            ...[...devices].sort((x, y) => isThis(y) - isThis(x)).map(d => ({
+              id: isThis(d) ? 'local' : d.device_id, label: formatDeviceTitle(d), online: !!d.online, calls: d.calls, mine: isThis(d),
+            })),
           ].map(o => {
             const on = scope === o.id;
             return (
@@ -619,6 +622,7 @@ export default function Dashboard() {
                 className={`inline-flex shrink-0 items-center gap-1.5 min-h-[32px] md:min-h-[28px] px-3 rounded-full border text-xs whitespace-nowrap transition-colors disabled:cursor-default ${on ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'border-zinc-200 dark:border-zinc-700 bg-white/60 dark:bg-zinc-900/40 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'}`}>
                 {o.id !== 'all' && <span className={`w-1.5 h-1.5 rounded-full ${o.online ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} aria-hidden />}
                 {o.label}
+                {o.mine && <span className="text-[10px] px-1.5 rounded-full bg-zinc-900/[0.06] dark:bg-white/10 text-zinc-500 dark:text-zinc-300">{t('dashboard.mineTag')}</span>}
                 {cloud && o.calls != null && <span className="tabular-nums opacity-60">{t('dashboard.pillCalls', { n: Number(o.calls || 0).toLocaleString() })}</span>}
               </button>
             );

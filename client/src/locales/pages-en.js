@@ -1389,6 +1389,7 @@ export default {
   "dashboard.creditsLine": "Community credits {net} (in {inc} · out {out})",
   "dashboard.localDetails": "This computer only",
   "dashboard.localDetailsHint": "Trend, Skill, tool and MCP calls are only kept on this computer",
+  "dashboard.mineTag": "This one",
   "dashboard.scopeThisDevice": "This computer",
   "dashboard.modelsTable": "Models used",
   "dashboard.sortCalls": "By calls",
