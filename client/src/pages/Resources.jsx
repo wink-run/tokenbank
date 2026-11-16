@@ -1122,12 +1122,14 @@ export default function Resources() {
     if (!want && !selectKey && !wantTab && wantQuery == null && !wantApp) return;
     // 看护「能力缺口」跳来：打开发现页，并按推荐条目名搜索
     if (wantTab === 'recommend' || wantTab === 'managed') changeViewTab(wantTab);
+    // 要选中某条 / 按应用筛：先切到资产库，再设类型（切页签会重置类型，顺序不能反）
+    if (selectKey || wantApp) changeViewTab('managed');
     if (typeof wantQuery === 'string') setQuery(wantQuery);
-    if (want && TYPE_OPTIONS.some(o => o.id === want)) changeTypeFilter(want);
+    if (want && TYPE_OPTIONS.some(o => o.id === want)) changeTypeFilter(want, (selectKey || wantApp) ? 'managed' : viewTab);
     // 从网关某个应用的「调整」跳来：只看启用到这个应用的
-    if (wantApp) { changeViewTab('managed'); changeAppFilter(wantApp); }
-    // 从供给源「谁在用它」跳来：打开资产库并选中该条
-    if (selectKey) { changeViewTab('managed'); setSelectedKey(selectKey); }
+    if (wantApp) changeAppFilter(wantApp);
+    // 从供给源「谁在用它」、交易页上架的智能体跳来：选中该条
+    if (selectKey) setTimeout(() => setSelectedKey(selectKey), 0);
     navigate(location.pathname, { replace: true, state: null });
   }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
 

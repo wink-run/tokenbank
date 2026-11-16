@@ -143,6 +143,21 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
   // 已安装、可按智能体同样上架的本机应用（Claude Code、Pi 等）
   const [availableApps, setAvailableApps] = useState([]);
   const [appsLoaded, setAppsLoaded] = useState(false);
+  const navigate = useNavigate();
+  // 智能体模板实际跑在哪：和网关页「默认在…跑」用同一份（agent 列表里的 runtimeAgentId）
+  const [agentRuns, setAgentRuns] = useState({ byResource: {}, names: {} });
+  useEffect(() => {
+    if (!pageActive) return;
+    Promise.resolve(window.electronAPI?.agent?.listAgents?.()).then((r) => {
+      if (!r?.success) return;
+      const byResource = {}; const names = {};
+      for (const a of r.agents || []) {
+        if (a.type === 'assistant' && a.resourceId) byResource[a.resourceId] = a.runtimeAgentId;
+        else if (a.id) names[a.id] = a.name || a.id;
+      }
+      setAgentRuns({ byResource, names });
+    }).catch(() => {});
+  }, [pageActive, availableAssistants]);
   const [selectedAssistantIds, setSelectedAssistantIds] = useState(new Set());
   const [nodeName,        setNodeName]        = useState('');
   const [autoStart,       setAutoStart]       = useState(false);
@@ -687,15 +702,26 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
                 const app = runtime ? availableApps.find(x => x.id === runtime) : null;
                 const label = app?.name || a?.display_name || a?.name || runtime || id;
                 const reason = runtime ? (app ? '' : t('contribute.appMissing')) : (a ? assistantDisabledReason(a) : '');
-                const on = (a?.projections || []).map(p => p.agentId || p.agent_id).filter(Boolean);
-                const where = runtime ? t('contribute.agentIsApp') : (on.length ? t('contribute.agentRunsOn', { apps: on.join('、') }) : '');
+                // 只写实际跑的那一个应用；网关页改了默认应用，这里跟着变
+                const runsOn = a ? agentRuns.byResource[a.id] : '';
+                const where = runtime ? t('contribute.agentIsApp')
+                  : (runsOn ? t('contribute.agentRunsOn', { apps: agentRuns.names[runsOn] || runsOn }) : '');
                 const fresh = !savedSets.agents.has(id);
                 return (
                   <li key={id} className={rowCls(fresh)}>
-                    <span className="min-w-0">
-                      <TruncTip as="span" title={label} className="block text-xs font-medium text-zinc-800 dark:text-zinc-100">{label}</TruncTip>
-                      <span className={`block text-[11px] ${reason ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400'}`}>{reason || where}</span>
-                    </span>
+                    {a ? (
+                      // 智能体模板：点进资产页的「智能体模板」并选中它
+                      <button type="button" onClick={() => navigate('/resources', { state: { resourceType: 'assistant', selectKey: `r-${a.id}` } })}
+                        title={t('contribute.openTemplate')} className="min-w-0 text-left group/tpl">
+                        <TruncTip as="span" title={label} className="block text-xs font-medium text-zinc-800 dark:text-zinc-100 group-hover/tpl:text-blue-600 dark:group-hover/tpl:text-blue-400">{label}</TruncTip>
+                        <span className={`block text-[11px] ${reason ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400'}`}>{reason || where}</span>
+                      </button>
+                    ) : (
+                      <span className="min-w-0">
+                        <TruncTip as="span" title={label} className="block text-xs font-medium text-zinc-800 dark:text-zinc-100">{label}</TruncTip>
+                        <span className={`block text-[11px] ${reason ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400'}`}>{reason || where}</span>
+                      </span>
+                    )}
                     <span className="hidden md:block text-[11px] text-zinc-500 dark:text-zinc-400">
                       {fresh ? t('contribute.agentNewHint') : (running ? t('contribute.listedLive') : t('contribute.listedOff'))}
                     </span>

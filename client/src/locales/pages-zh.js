@@ -1624,6 +1624,7 @@ export default {
   'contribute.money.balanceHint': '雇智能体、租模型从这里扣',
   'contribute.buyModelsLine': '社区现在有 {n} 个模型可用，最多 {nodes} 个节点在供给',
   'contribute.buyModelsGo': '去模型页使用',
+  'contribute.openTemplate': '在资产里打开这个智能体模板',
   'contribute.creditsUnit': '积分',
   'contribute.noSettlementsHint': '上架供给并被调用后，这里会按周期显示结算的积分',
   'contribute.tab.network': '共享网络',

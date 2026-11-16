@@ -1621,6 +1621,7 @@ export default {
   'contribute.money.balanceHint': 'Hiring agents and renting models spend from here',
   'contribute.buyModelsLine': '{n} community models available, up to {nodes} nodes supplying',
   'contribute.buyModelsGo': 'Use on Models page',
+  'contribute.openTemplate': 'Open this agent template in Assets',
   'contribute.creditsUnit': 'credits',
   'contribute.noSettlementsHint': 'Once your listings are used, settled credits show up here each period',
   'contribute.tab.network': 'Share network',
