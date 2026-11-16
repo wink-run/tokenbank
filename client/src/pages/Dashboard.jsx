@@ -603,18 +603,26 @@ export default function Dashboard() {
         </div>
         {/* 看哪台设备：登录且云端有数时可选全部 / 某一台；没有云端数据时只有这台电脑 */}
         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-          <label className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400">
-            {t('dashboard.deviceLabel')}
-            <select value={scope} disabled={!cloud} onChange={e => setScopePick(e.target.value)}
-              aria-label={t('dashboard.deviceLabel')}
-              className="tb-soft-field text-xs px-2.5 py-1.5 rounded-lg text-zinc-800 dark:text-zinc-100 disabled:opacity-70">
-              {cloud && <option value="all">{t('dashboard.allDevices', { n: cloud.device_count ?? devices.length })}</option>}
-              <option value="local">{t('dashboard.scopeThisDevice')}</option>
-              {devices.filter(d => !isThis(d)).map(d => (
-                <option key={d.device_id} value={d.device_id}>{formatDeviceTitle(d)}{d.online ? '' : ` · ${t('dashboard.deviceOffline')}`}</option>
-              ))}
-            </select>
-          </label>
+          {/* 设备胶囊平铺：全部 / 这台电脑 / 其它各台，点哪个看哪个 */}
+          <div role="radiogroup" aria-label={t('dashboard.deviceLabel')} className="flex flex-wrap items-center gap-1.5">
+            {[
+              ...(cloud ? [{ id: 'all', label: t('dashboard.allDevices', { n: cloud.device_count ?? devices.length }) }] : []),
+              { id: 'local', label: t('dashboard.scopeThisDevice'), online: true },
+              ...devices.filter(d => !isThis(d)).map(d => ({ id: d.device_id, label: formatDeviceTitle(d), online: !!d.online })),
+            ].map(o => {
+              const on = scope === o.id;
+              return (
+                <button key={o.id} type="button" role="radio" aria-checked={on} disabled={!cloud}
+                  onClick={() => setScopePick(o.id)}
+                  className={`inline-flex items-center gap-1.5 min-h-[28px] px-3 rounded-full border text-xs transition-colors disabled:cursor-default ${on
+                    ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                    : 'border-zinc-200 dark:border-zinc-700 bg-white/60 dark:bg-zinc-900/40 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'}`}>
+                  {o.id !== 'all' && <span className={`w-1.5 h-1.5 rounded-full ${o.online ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} aria-hidden />}
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
           {!cloud && <span className="text-zinc-400 dark:text-zinc-500">{user ? t('dashboard.scopeNoCloud') : t('dashboard.scopeNote')}</span>}
         </div>
       </div>
