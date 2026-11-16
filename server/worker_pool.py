@@ -115,6 +115,8 @@ class WorkerConnection:
     user_id: Optional[int] = None
     circle_id: Optional[int] = None          # 兼容旧逻辑（单圈子）
     circle_ids: list = field(default_factory=list)  # 多圈子共享
+    # 设了圈子时，这些模型仍对所有人公开（一部分给圈子、一部分公开）；没设圈子时全部公开，此项无用
+    public_models: list = field(default_factory=list)
     # 贡献智能体名片（无正文）；visibility=public|circle
     agents: list = field(default_factory=list)
     # 出租人昵称：用于共享智能体展示名「{nickname}的{原名}」
@@ -692,8 +694,7 @@ class WorkerPool:
             )
 
         def _real_visible(w) -> bool:
-            wids = worker_circle_ids(w)
-            return not wids or bool(wids & circles)
+            return worker_model_visible(w, model, circles)
 
         def _virtual_visible(v) -> bool:
             owner = getattr(v, "owner_user_id", None)
@@ -766,9 +767,8 @@ class WorkerPool:
         circles = user_circle_ids or set()
         result: dict[str, str] = {}
         for w in self._workers:
-            wids = worker_circle_ids(w)
-            if not wids or wids & circles:
-                for m in w.models:
+            for m in w.models:
+                if worker_model_visible(w, m, circles):
                     result[m] = prefer_model_type(result.get(m), effective_model_type(w, m))
         for v in self._virtual:
             owner = getattr(v, "owner_user_id", None)
@@ -796,7 +796,8 @@ class WorkerPool:
             for cid in wids:
                 if cid in circles:
                     for m in w.models:
-                        result[m] = cid
+                        if worker_model_is_circle_only(w, m):
+                            result[m] = cid
         for v in self._virtual:
             owner = getattr(v, "owner_user_id", None)
             cid = getattr(v, "circle_id", None)
@@ -815,7 +816,8 @@ class WorkerPool:
             if getattr(w, "owner_user_id", None) is not None:
                 continue
             for m in w.models:
-                if m in seen:
+                # 标成公开的模型不算圈内共享
+                if m in seen or not worker_model_is_circle_only(w, m):
                     continue
                 seen.add(m)
                 out.append({
@@ -1037,6 +1039,21 @@ class WorkerPool:
 
 
 pool = WorkerPool()
+
+
+def worker_model_visible(w, model: str, circles: Optional[set] = None) -> bool:
+    """真实 worker 上某个模型对该用户是否可见：没设圈子 → 公开；标成公开的模型 → 公开；否则要和圈子有交集。"""
+    wids = worker_circle_ids(w)
+    if not wids:
+        return True
+    if model in (getattr(w, "public_models", None) or []):
+        return True
+    return bool(wids & (circles or set()))
+
+
+def worker_model_is_circle_only(w, model: str) -> bool:
+    """该模型只给圈内用（worker 设了圈子且没把它标成公开）。"""
+    return bool(worker_circle_ids(w)) and model not in (getattr(w, "public_models", None) or [])
 
 
 def worker_circle_ids(w) -> set[int]:

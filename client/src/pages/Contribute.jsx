@@ -83,6 +83,12 @@ function earningsByResource(settlements = [], now = Date.now()) {
   return out;
 }
 
+/** 逐项「给谁用」的指纹：只记已选项里标成圈内的，用来判断有没有没生效的改动 */
+function scopeFingerprint(scope, modelNames, agentIds) {
+  const keys = [...[...modelNames].map(n => `m:${n}`), ...[...agentIds].map(id => `a:${id}`)];
+  return keys.filter(k => scope[k] === 'circle').sort().join('|');
+}
+
 /** 积分折人民币：不到 1 分钱写「<¥0.01」，不再写四位小数 */
 function cnyApprox(credits) {
   const v = creditsToCny(credits);
@@ -204,7 +210,10 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
   const [circles,         setCircles]         = useState([]);         // 可分享的圈子
   // 交易页「圈子」页签里新建 / 加入后同步到这里
   useEffect(() => { if (circlesProp) setCircles(uniqueCircles(circlesProp)); }, [circlesProp]);
-  const [circleScope,     setCircleScope]     = useState('public');   // 'public' | 'circle'
+  // 每一项单独选给谁用：'public' 所有人 | 'circle' 只给下面选的圈子。键：m:模型名 / a:智能体 id；没写就是公开
+  const [itemScope, setItemScope] = useState({});
+  const scopeOf = (key) => (itemScope[key] === 'circle' ? 'circle' : 'public');
+  const toggleScope = (key) => setItemScope(prev => ({ ...prev, [key]: prev[key] === 'circle' ? 'public' : 'circle' }));
   const [selectedCircleIds, setSelectedCircleIds] = useState(new Set());
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showAssistantPicker, setShowAssistantPicker] = useState(false);
@@ -281,13 +290,18 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
       setSelectedNames(prevNames);
       setNodeName(cfg.name || '');
       setAutoStart(!!cfg.auto_start);
-      if (cfg.contribute_circle_ids?.length) {
-        setCircleScope('circle');
-        setSelectedCircleIds(new Set(uniqueCircleIds(cfg.contribute_circle_ids)));
-      } else if (cfg.contribute_circle_id) {
-        setCircleScope('circle');
-        setSelectedCircleIds(new Set(uniqueCircleIds([cfg.contribute_circle_id])));
+      const cfgCircles = cfg.contribute_circle_ids?.length ? cfg.contribute_circle_ids
+        : (cfg.contribute_circle_id ? [cfg.contribute_circle_id] : []);
+      if (cfgCircles.length) setSelectedCircleIds(new Set(uniqueCircleIds(cfgCircles)));
+      // 旧配置没有逐项记录：设了圈子 → 模型都算圈内；智能体按各自的 visibility
+      const publicModels = new Set(Array.isArray(cfg.contribute_public_models) ? cfg.contribute_public_models : []);
+      const loadedScope = {};
+      if (cfgCircles.length) for (const n of prevNames) if (!publicModels.has(n)) loadedScope[`m:${n}`] = 'circle';
+      for (const x of cfg.contribute_assistants || []) {
+        const aid = typeof x === 'string' ? x : x?.id;
+        if (aid && x?.visibility === 'circle') loadedScope[`a:${aid}`] = 'circle';
       }
+      setItemScope(loadedScope);
       const assistants = asstRes?.success ? (asstRes.resources || []) : (asstRes?.resources || []);
       // 内置智能体不出现在贡献列表
       const contributable = (Array.isArray(assistants) ? assistants : []).filter((a) => {
@@ -309,7 +323,7 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
       const loadedCircles = cfg.contribute_circle_ids?.length ? cfg.contribute_circle_ids
         : (cfg.contribute_circle_id ? [cfg.contribute_circle_id] : []);
       setSavedSnap(JSON.stringify([
-        [...prevNames].sort(), [...prevAsst].sort(), loadedCircles.length ? 'circle' : 'public',
+        [...prevNames].sort(), [...prevAsst].sort(), scopeFingerprint(loadedScope, prevNames, prevAsst),
         [...new Set(uniqueCircleIds(loadedCircles))].sort(), cfg.name || '', !!cfg.auto_start,
       ]));
       setHydrated(true);
@@ -337,7 +351,7 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
 
   // 当前上架内容的指纹：和保存时一样就没有要生效的改动
   const snapNow = JSON.stringify([
-    [...selectedNames].sort(), [...selectedAssistantIds].sort(), circleScope,
+    [...selectedNames].sort(), [...selectedAssistantIds].sort(), scopeFingerprint(itemScope, selectedNames, selectedAssistantIds),
     [...selectedCircleIds].sort(), nodeName, autoStart,
   ]);
   useEffect(() => {
@@ -446,7 +460,6 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
       );
       const model_groups = [{ base_url: localGw, token: '', models }];
       const current      = (await getConfig().read().catch(() => null)) || {};
-      const visibility = circleScope === 'circle' ? 'circle' : 'public';
       const contribute_assistants = [...selectedAssistantIds]
         .filter((id) => {
           if (String(id).startsWith('app:')) {
@@ -458,7 +471,7 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
           const row = availableAssistants.find((a) => a.id === id);
           return row && !assistantDisabledReason(row);
         })
-        .map((id) => ({ id, visibility }));
+        .map((id) => ({ id, visibility: scopeOf(`a:${id}`) }));
       const updated      = {
         ...current,
         model_groups,
@@ -469,9 +482,12 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
         auto_start: autoStart,
         contribute_assistants,
       };
-      const circleIds = circleScope === 'circle' ? uniqueCircleIds([...selectedCircleIds]) : [];
+      // 有一项给圈子，节点才带上圈子；标成公开的模型单独列出，服务端照样给所有人
+      const anyCircleItem = models.some(m => scopeOf(`m:${m.name}`) === 'circle') || contribute_assistants.some(a => a.visibility === 'circle');
+      const circleIds = anyCircleItem ? uniqueCircleIds([...selectedCircleIds]) : [];
       await getConfig().write({
         ...updated,
+        contribute_public_models: models.map(m => m.name).filter(n => scopeOf(`m:${n}`) === 'public'),
         contribute_circle_ids: circleIds,
         contribute_circle_id: circleIds[0] ?? null,
       });
@@ -493,6 +509,25 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
     } catch { return { models: new Set(), agents: new Set() }; }
   })();
   const empty = selectedNames.size === 0 && selectedAssistantIds.size === 0;
+  const scopeCounts = (() => {
+    const keys = [...[...selectedNames].map(n => `m:${n}`), ...[...selectedAssistantIds].map(id => `a:${id}`)];
+    const circle = keys.filter(k => scopeOf(k) === 'circle').length;
+    return { circle, pub: keys.length - circle };
+  })();
+  const anyCircle = scopeCounts.circle > 0;
+  // 行内「公开 / 圈内」切换：点一下换
+  const scopePill = (key) => {
+    const c = scopeOf(key) === 'circle';
+    return (
+      <button type="button" onClick={() => toggleScope(key)} aria-pressed={c}
+        title={c ? t('contribute.scopeToPublic') : t('contribute.scopeToCircle')}
+        className={`shrink-0 inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border transition-colors ${c
+          ? 'border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-300'
+          : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300'}`}>
+        <span aria-hidden>{c ? '◎' : '🌐'}</span>{c ? t('contribute.scopeCircleShort') : t('contribute.scopePublicShort')}
+      </button>
+    );
+  };
   const toggleRunning = () => {
     if (running) {
       if (typeof window !== 'undefined' && !window.confirm(t('contribute.stopConfirm'))) return;
@@ -554,14 +589,7 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
               {saving ? t('contribute.applying') : t('contribute.applyChanges')}
             </button>
           )}
-          <label className="inline-flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-            {t('contribute.forWhom')}
-            <select value={circleScope} onChange={e => setCircleScope(e.target.value)}
-              className="tb-soft-field text-xs px-2.5 py-1.5 rounded-lg text-zinc-800 dark:text-zinc-100">
-              <option value="public">{t('contribute.scopePublicOption')}</option>
-              <option value="circle">{t('contribute.scopeCircleOption')}</option>
-            </select>
-          </label>
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">{anyCircle ? t('contribute.scopeMixed', { pub: scopeCounts.pub, circle: scopeCounts.circle }) : t('contribute.scopeAllPublic')}</span>
           {onManageCircles && (
             <button type="button" onClick={onManageCircles} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">
               {t('contribute.manageCircles')}
@@ -569,8 +597,9 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
           )}
           </div>
         </div>
-        {circleScope === 'circle' && (
+        {anyCircle && (
           <div className="mt-2.5 pt-2.5 border-t border-zinc-200/70 dark:border-white/[0.06] space-y-1.5">
+            <p className="text-xs text-zinc-600 dark:text-zinc-300">{t('contribute.scopeCirclesTitle')}</p>
             {circles.length === 0 ? (
               <p className="text-xs text-zinc-500">
                 {t('contribute.noCircle')}
@@ -598,7 +627,9 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
                 })}
               </div>
             )}
-            <p className="text-[11px] text-zinc-400">{t('contribute.scopeHint')}</p>
+            {circles.length > 0 && selectedCircleIds.size === 0
+              ? <p className="text-[11px] text-rose-600 dark:text-rose-400">{t('contribute.scopeNoCirclePicked')}</p>
+              : <p className="text-[11px] text-zinc-400">{t('contribute.scopeHint')}</p>}
           </div>
         )}
         {agentError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{agentError}</p>}
@@ -656,9 +687,12 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
                     <span className="hidden md:block text-[11px] text-zinc-500 dark:text-zinc-400">
                       {fresh ? t('contribute.notLiveYet') : (running ? t('contribute.listedLive') : t('contribute.listedOff'))}
                     </span>
-                    {fresh ? freshActions(() => toggleModel(name)) : (
-                      <button type="button" onClick={() => toggleModel(name)} className={`justify-self-end ${btnCls}`}>{t('contribute.remove')}</button>
-                    )}
+                    <span className="flex items-center gap-1.5 justify-end">
+                      {scopePill(`m:${name}`)}
+                      {fresh ? freshActions(() => toggleModel(name)) : (
+                        <button type="button" onClick={() => toggleModel(name)} className={btnCls}>{t('contribute.remove')}</button>
+                      )}
+                    </span>
                   </li>
                 );
               })}
@@ -763,8 +797,9 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
                     <span className="hidden md:block text-[11px] text-zinc-500 dark:text-zinc-400">
                       {fresh ? t('contribute.agentNewHint') : (running ? t('contribute.listedLive') : t('contribute.listedOff'))}
                     </span>
-                    {fresh ? freshActions(() => toggleAssistant(id)) : (
+                    {fresh ? <span className="flex items-center gap-1.5 justify-end">{scopePill(`a:${id}`)}{freshActions(() => toggleAssistant(id))}</span> : (
                       <span className="flex items-center gap-1.5 justify-end">
+                        {scopePill(`a:${id}`)}
                         <button type="button" onClick={() => copyAssistantWebLink(id)} className={btnCls}>
                           {copiedAssistantId === id ? t('contribute.webLinkCopied') : t('contribute.webLink')}
                         </button>

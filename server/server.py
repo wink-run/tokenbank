@@ -1852,6 +1852,8 @@ async def worker_ws(ws: WebSocket):
             caps=[str(c) for c in (msg.get("caps") or []) if c][:16],
             circle_id=worker_circle_ids_list[0] if len(worker_circle_ids_list) == 1 else None,
             circle_ids=worker_circle_ids_list,
+            # 设了圈子时仍对所有人公开的模型（只认本次注册里真有的）
+            public_models=[m for m in dict.fromkeys(str(x).strip() for x in (msg.get("public_models") or [])) if m in models],
             client_ip=client_ip,
         )
         pool.add(worker)

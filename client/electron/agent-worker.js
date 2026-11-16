@@ -1363,6 +1363,11 @@ function connect(cfg) {
     } else if (liveCfg.contribute_circle_id) {
       regMsg.circle_ids = [liveCfg.contribute_circle_id];
     }
+    // 设了圈子时，仍对所有人公开的模型（一部分给圈子、一部分公开）
+    if (regMsg.circle_ids && Array.isArray(liveCfg.contribute_public_models)) {
+      const names = new Set(models.map((m) => (typeof m === 'string' ? m : m?.name)).filter(Boolean));
+      regMsg.public_models = liveCfg.contribute_public_models.filter((n) => names.has(n));
+    }
     // 先用缓存 IP 立即注册，不等待公网探测（最多 16s）阻塞连接
     const cachedIp = (_cachedPublicIp && Date.now() - _cachedPublicIpAt < PUBLIC_IP_TTL_MS)
       ? _cachedPublicIp : null;
