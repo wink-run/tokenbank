@@ -48,7 +48,7 @@ function isBuiltinAssistantResource(resource) {
 
 /**
  * @param {object} cfg agent config
- * @returns {{ id: string, visibility: 'public'|'circle' }[]}
+ * @returns {{ id: string, visibility: 'public'|'circle', circle_ids?: number[] }[]}
  */
 function normalizeContributeAssistants(cfg = {}) {
   const raw = Array.isArray(cfg.contribute_assistants) ? cfg.contribute_assistants : [];
@@ -57,16 +57,21 @@ function normalizeContributeAssistants(cfg = {}) {
   for (const item of raw) {
     let id = '';
     let visibility = 'public';
+    let circleIds = null;   // 新配置逐项写给哪些圈子；旧配置没有
     if (typeof item === 'string') {
       id = item.trim();
     } else if (item && typeof item === 'object') {
       id = String(item.id || item.resource_id || '').trim();
       const v = String(item.visibility || 'public').trim().toLowerCase();
       visibility = VISIBILITIES.has(v) ? v : 'public';
+      if (Array.isArray(item.circle_ids)) {
+        circleIds = [...new Set(item.circle_ids.map(Number).filter(Number.isFinite))];
+        visibility = circleIds.length ? 'circle' : 'public';
+      }
     }
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    out.push({ id, visibility });
+    out.push(circleIds ? { id, visibility, circle_ids: circleIds } : { id, visibility });
   }
   return out;
 }
@@ -159,6 +164,7 @@ function buildAgentCards(entries, resources, opts = {}) {
       display_name: resource.display_name || resource.name,
       description: buildAgentCardDescription(resource, config, runtime),
       visibility: e.visibility,
+      ...(e.circle_ids ? { circle_ids: e.circle_ids } : {}),
       runtime,
     });
   }
@@ -183,6 +189,7 @@ function buildAppCards(entries, opts = {}) {
       display_name: name,
       description: `${name}：在出租者本机的该应用里执行，调用方只拿结果，不接触配置与密钥`,
       visibility: e.visibility,
+      ...(e.circle_ids ? { circle_ids: e.circle_ids } : {}),
       runtime,
     });
   }

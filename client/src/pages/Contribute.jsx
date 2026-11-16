@@ -86,7 +86,7 @@ function earningsByResource(settlements = [], now = Date.now()) {
 /** 逐项「给谁用」的指纹：只记已选项里标成圈内的，用来判断有没有没生效的改动 */
 function scopeFingerprint(scope, modelNames, agentIds) {
   const keys = [...[...modelNames].map(n => `m:${n}`), ...[...agentIds].map(id => `a:${id}`)];
-  return keys.filter(k => scope[k] === 'circle').sort().join('|');
+  return keys.filter(k => (scope[k] || []).length).sort().map(k => `${k}=${[...scope[k]].sort().join(',')}`).join('|');
 }
 
 /** 积分折人民币：不到 1 分钱写「<¥0.01」，不再写四位小数 */
@@ -210,10 +210,21 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
   const [circles,         setCircles]         = useState([]);         // 可分享的圈子
   // 交易页「圈子」页签里新建 / 加入后同步到这里
   useEffect(() => { if (circlesProp) setCircles(uniqueCircles(circlesProp)); }, [circlesProp]);
-  // 每一项单独选给谁用：'public' 所有人 | 'circle' 只给下面选的圈子。键：m:模型名 / a:智能体 id；没写就是公开
+  // 每一项单独选给哪些圈子：[] = 对所有人公开（默认）。键：m:模型名 / a:智能体 id
   const [itemScope, setItemScope] = useState({});
-  const scopeOf = (key) => (itemScope[key] === 'circle' ? 'circle' : 'public');
-  const toggleScope = (key) => setItemScope(prev => ({ ...prev, [key]: prev[key] === 'circle' ? 'public' : 'circle' }));
+  const [scopeOpen, setScopeOpenRaw] = useState('');   // 哪一行的圈子选择开着
+  const [scopeAt, setScopeAt] = useState(null);         // 弹层贴着按钮放（fixed，不被列表外框裁掉）
+  const setScopeOpen = (key, el) => {
+    setScopeOpenRaw(key);
+    if (!key || !el) { setScopeAt(null); return; }
+    const r = el.getBoundingClientRect();
+    const right = Math.max(8, window.innerWidth - r.right);
+    setScopeAt(r.bottom + 320 > window.innerHeight
+      ? { right, bottom: window.innerHeight - r.top + 4 }
+      : { right, top: r.bottom + 4 });
+  };
+  const scopeOf = (key) => (Array.isArray(itemScope[key]) ? itemScope[key] : []);
+  const setScope = (key, ids) => setItemScope(prev => ({ ...prev, [key]: ids }));
   const [selectedCircleIds, setSelectedCircleIds] = useState(new Set());
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showAssistantPicker, setShowAssistantPicker] = useState(false);
@@ -293,13 +304,20 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
       const cfgCircles = cfg.contribute_circle_ids?.length ? cfg.contribute_circle_ids
         : (cfg.contribute_circle_id ? [cfg.contribute_circle_id] : []);
       if (cfgCircles.length) setSelectedCircleIds(new Set(uniqueCircleIds(cfgCircles)));
-      // 旧配置没有逐项记录：设了圈子 → 模型都算圈内；智能体按各自的 visibility
+      // 新配置逐项记了圈子；旧配置只有节点级圈子：模型（没标公开的）和圈内智能体都算给这些圈子
+      const legacyCircles = uniqueCircleIds(cfgCircles);
+      const modelCircles = cfg.contribute_model_circles && typeof cfg.contribute_model_circles === 'object' ? cfg.contribute_model_circles : null;
       const publicModels = new Set(Array.isArray(cfg.contribute_public_models) ? cfg.contribute_public_models : []);
       const loadedScope = {};
-      if (cfgCircles.length) for (const n of prevNames) if (!publicModels.has(n)) loadedScope[`m:${n}`] = 'circle';
+      for (const n of prevNames) {
+        const ids = modelCircles ? (modelCircles[n] || []) : (legacyCircles.length && !publicModels.has(n) ? legacyCircles : []);
+        if (ids.length) loadedScope[`m:${n}`] = uniqueCircleIds(ids);
+      }
       for (const x of cfg.contribute_assistants || []) {
         const aid = typeof x === 'string' ? x : x?.id;
-        if (aid && x?.visibility === 'circle') loadedScope[`a:${aid}`] = 'circle';
+        if (!aid) continue;
+        const ids = Array.isArray(x?.circle_ids) ? x.circle_ids : (x?.visibility === 'circle' ? legacyCircles : []);
+        if (ids.length) loadedScope[`a:${aid}`] = uniqueCircleIds(ids);
       }
       setItemScope(loadedScope);
       const assistants = asstRes?.success ? (asstRes.resources || []) : (asstRes?.resources || []);
@@ -441,16 +459,6 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
     return '';
   }
 
-  function toggleCircle(id) {
-    const nid = Number(id);
-    if (!nid) return;
-    setSelectedCircleIds(prev => {
-      const next = new Set(prev);
-      if (next.has(nid)) next.delete(nid); else next.add(nid);
-      return next;
-    });
-  }
-
   async function save() {
     setSaving(true);
     setSavedMsg('');
@@ -471,7 +479,7 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
           const row = availableAssistants.find((a) => a.id === id);
           return row && !assistantDisabledReason(row);
         })
-        .map((id) => ({ id, visibility: scopeOf(`a:${id}`) }));
+        .map((id) => { const ids = scopeOf(`a:${id}`); return { id, visibility: ids.length ? 'circle' : 'public', circle_ids: ids }; });
       const updated      = {
         ...current,
         model_groups,
@@ -482,12 +490,14 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
         auto_start: autoStart,
         contribute_assistants,
       };
-      // 有一项给圈子，节点才带上圈子；标成公开的模型单独列出，服务端照样给所有人
-      const anyCircleItem = models.some(m => scopeOf(`m:${m.name}`) === 'circle') || contribute_assistants.some(a => a.visibility === 'circle');
-      const circleIds = anyCircleItem ? uniqueCircleIds([...selectedCircleIds]) : [];
+      // 节点带上所有项用到的圈子；每个模型、每个智能体各自给哪些圈子另外写
+      const contribute_model_circles = {};
+      for (const m of models) { const ids = scopeOf(`m:${m.name}`); if (ids.length) contribute_model_circles[m.name] = ids; }
+      const circleIds = uniqueCircleIds([...Object.values(contribute_model_circles).flat(), ...contribute_assistants.flatMap(a => a.circle_ids)]);
       await getConfig().write({
         ...updated,
-        contribute_public_models: models.map(m => m.name).filter(n => scopeOf(`m:${n}`) === 'public'),
+        contribute_model_circles,
+        contribute_public_models: models.map(m => m.name).filter(n => !contribute_model_circles[n]),
         contribute_circle_ids: circleIds,
         contribute_circle_id: circleIds[0] ?? null,
       });
@@ -511,21 +521,56 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
   const empty = selectedNames.size === 0 && selectedAssistantIds.size === 0;
   const scopeCounts = (() => {
     const keys = [...[...selectedNames].map(n => `m:${n}`), ...[...selectedAssistantIds].map(id => `a:${id}`)];
-    const circle = keys.filter(k => scopeOf(k) === 'circle').length;
+    const circle = keys.filter(k => scopeOf(k).length).length;
     return { circle, pub: keys.length - circle };
   })();
   const anyCircle = scopeCounts.circle > 0;
-  // 行内「公开 / 圈内」切换：点一下换
+  // 行内选给谁用：默认公开；点开直接勾圈子，勾了几个就只给这几个圈子
+  const circleName = (id) => circles.find(c => c.id === id)?.name || `#${id}`;
   const scopePill = (key) => {
-    const c = scopeOf(key) === 'circle';
+    const ids = scopeOf(key);
+    const open = scopeOpen === key;
+    const label = ids.length ? `${circleName(ids[0])}${ids.length > 1 ? ` +${ids.length - 1}` : ''}` : t('contribute.scopePublicShort');
+    const toggleId = (id) => setScope(key, ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]);
     return (
-      <button type="button" onClick={() => toggleScope(key)} aria-pressed={c}
-        title={c ? t('contribute.scopeToPublic') : t('contribute.scopeToCircle')}
-        className={`shrink-0 inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border transition-colors ${c
-          ? 'border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-300'
-          : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300'}`}>
-        <span aria-hidden>{c ? '◎' : '🌐'}</span>{c ? t('contribute.scopeCircleShort') : t('contribute.scopePublicShort')}
-      </button>
+      <span className="relative shrink-0">
+        <button type="button" onClick={(e) => setScopeOpen(open ? '' : key, e.currentTarget)} aria-expanded={open} aria-haspopup="true"
+          title={ids.length ? ids.map(circleName).join('、') : t('contribute.scopePublicTip')}
+          className={`inline-flex items-center gap-1 max-w-[9rem] text-[11px] px-2 py-1 rounded-full border transition-colors ${ids.length
+            ? 'border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-300'
+            : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300'}`}>
+          <span aria-hidden>{ids.length ? '◎' : '🌐'}</span><span className="truncate">{label}</span><span aria-hidden className="opacity-60">▾</span>
+        </button>
+        {open && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setScopeOpen('')} aria-hidden />
+            <div role="menu" style={{ position: 'fixed', ...(scopeAt || {}) }} className="z-50 w-56 max-h-[300px] overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg p-1.5 text-xs">
+              <button type="button" role="menuitemradio" aria-checked={!ids.length} onClick={() => { setScope(key, []); setScopeOpen(''); }}
+                className="w-full flex items-center gap-2 min-h-[36px] px-2 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800 text-left">
+                <span className="w-4 text-center text-blue-600" aria-hidden>{ids.length ? '' : '✓'}</span>🌐 {t('contribute.scopePublicLong')}
+              </button>
+              <div className="my-1 border-t border-zinc-100 dark:border-white/[0.06]" />
+              <p className="px-2 py-1 text-[11px] text-zinc-400">{t('contribute.scopeOnlyCircles')}</p>
+              {circles.length === 0 ? (
+                <p className="px-2 py-1.5 text-zinc-500">{t('contribute.noCircle')}</p>
+              ) : circles.map(c => (
+                <button key={c.id} type="button" role="menuitemcheckbox" aria-checked={ids.includes(c.id)} onClick={() => toggleId(c.id)}
+                  className="w-full flex items-center gap-2 min-h-[36px] px-2 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800 text-left">
+                  <span className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${ids.includes(c.id) ? 'bg-blue-600 border-blue-600 text-white' : 'border-zinc-300 dark:border-zinc-600'}`} aria-hidden>{ids.includes(c.id) ? '✓' : ''}</span>
+                  <span className="truncate">{c.name}</span>
+                </button>
+              ))}
+              {onManageCircles && (
+                <>
+                  <div className="my-1 border-t border-zinc-100 dark:border-white/[0.06]" />
+                  <button type="button" onClick={() => { setScopeOpen(''); onManageCircles(); }}
+                    className="w-full min-h-[32px] px-2 rounded-lg text-left text-blue-600 dark:text-blue-400 hover:bg-zinc-50 dark:hover:bg-zinc-800">{t('contribute.manageCircles')}</button>
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </span>
     );
   };
   const toggleRunning = () => {
@@ -597,41 +642,6 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
           )}
           </div>
         </div>
-        {anyCircle && (
-          <div className="mt-2.5 pt-2.5 border-t border-zinc-200/70 dark:border-white/[0.06] space-y-1.5">
-            <p className="text-xs text-zinc-600 dark:text-zinc-300">{t('contribute.scopeCirclesTitle')}</p>
-            {circles.length === 0 ? (
-              <p className="text-xs text-zinc-500">
-                {t('contribute.noCircle')}
-                {onManageCircles && (
-                  <button type="button" onClick={onManageCircles} className="ml-1.5 text-blue-600 dark:text-blue-400 hover:underline">
-                    {t('contribute.createCircleLink')}
-                  </button>
-                )}
-              </p>
-            ) : (
-              <div className="flex flex-wrap items-center gap-1.5">
-                {circles.map(c => {
-                  const sel = selectedCircleIds.has(c.id);
-                  return (
-                    <button key={c.id} type="button" onClick={() => toggleCircle(c.id)} aria-pressed={sel}
-                      className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${sel
-                        ? 'border-blue-500 bg-blue-600 text-white'
-                        : 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300'}`}>
-                      <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-semibold ${sel ? 'bg-white/25' : `${avatarColor(c.name)} text-white`}`} aria-hidden>
-                        {sel ? '✓' : (c.name || '?')[0]}
-                      </span>
-                      {c.name}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {circles.length > 0 && selectedCircleIds.size === 0
-              ? <p className="text-[11px] text-rose-600 dark:text-rose-400">{t('contribute.scopeNoCirclePicked')}</p>
-              : <p className="text-[11px] text-zinc-400">{t('contribute.scopeHint')}</p>}
-          </div>
-        )}
         {agentError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{agentError}</p>}
       </div>
 

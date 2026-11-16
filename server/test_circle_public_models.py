@@ -35,3 +35,29 @@ def test_worker_without_circle_is_all_public():
     pool = WorkerPool()
     pool.add(WorkerConnection(ws=None, models=["a", "b"], worker_id="w3", name="n3", user_id=3))
     assert set(pool.models_for_user(None, set())) == {"a", "b"}
+
+
+def test_each_model_its_own_circles():
+    pool = WorkerPool()
+    pool.add(WorkerConnection(ws=None, models=["pub", "front", "family"], worker_id="w4", name="n4", user_id=4,
+                              circle_ids=[7, 8], model_circles={"front": [7], "family": [8]}))
+    assert set(pool.models_for_user(None, set())) == {"pub"}
+    assert set(pool.models_for_user(None, {7})) == {"pub", "front"}
+    assert set(pool.models_for_user(None, {8})) == {"pub", "family"}
+    assert [m["id"] for m in pool.models_for_circle(8)] == ["family"]
+    assert pool.candidates("family", user_circle_ids={7}) == []
+
+
+def test_each_agent_card_its_own_circles():
+    from worker_pool import normalize_agent_cards
+    cards = normalize_agent_cards([
+        {"id": "a1", "name": "a1", "circle_ids": [7]},
+        {"id": "a2", "name": "a2", "circle_ids": []},
+        {"id": "a3", "name": "a3", "circle_ids": [8]},
+    ])
+    assert [c["visibility"] for c in cards] == ["circle", "public", "circle"]
+    pool = WorkerPool()
+    pool.add(WorkerConnection(ws=None, models=[], worker_id="w5", name="n5", user_id=5, circle_ids=[7, 8], agents=cards))
+    assert {r["id"] for r in pool.list_agents_for_user(set())} == {"a2"}
+    seen7 = {r["id"]: r["circle_ids"] for r in pool.list_agents_for_user({7})}
+    assert seen7 == {"a1": [7], "a2": []}

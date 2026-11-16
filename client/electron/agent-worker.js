@@ -1368,6 +1368,14 @@ function connect(cfg) {
       const names = new Set(models.map((m) => (typeof m === 'string' ? m : m?.name)).filter(Boolean));
       regMsg.public_models = liveCfg.contribute_public_models.filter((n) => names.has(n));
     }
+    // 每个模型给哪些圈子（新服务端按这个；旧服务端只认上面两项）
+    if (regMsg.circle_ids && liveCfg.contribute_model_circles && typeof liveCfg.contribute_model_circles === 'object') {
+      const names = new Set(models.map((m) => (typeof m === 'string' ? m : m?.name)).filter(Boolean));
+      regMsg.model_circles = {};
+      for (const [n, ids] of Object.entries(liveCfg.contribute_model_circles)) {
+        if (names.has(n) && Array.isArray(ids) && ids.length) regMsg.model_circles[n] = ids;
+      }
+    }
     // 先用缓存 IP 立即注册，不等待公网探测（最多 16s）阻塞连接
     const cachedIp = (_cachedPublicIp && Date.now() - _cachedPublicIpAt < PUBLIC_IP_TTL_MS)
       ? _cachedPublicIp : null;

@@ -117,6 +117,8 @@ class WorkerConnection:
     circle_ids: list = field(default_factory=list)  # 多圈子共享
     # 设了圈子时，这些模型仍对所有人公开（一部分给圈子、一部分公开）；没设圈子时全部公开，此项无用
     public_models: list = field(default_factory=list)
+    # 每个模型给哪些圈子：{模型: [圈子 id]}，没写或空列表 = 公开。None = 旧客户端，按节点级圈子 + public_models
+    model_circles: Optional[dict] = None
     # 贡献智能体名片（无正文）；visibility=public|circle
     agents: list = field(default_factory=list)
     # 出租人昵称：用于共享智能体展示名「{nickname}的{原名}」
@@ -793,11 +795,9 @@ class WorkerPool:
             wids = worker_circle_ids(w)
             if not wids:
                 continue
-            for cid in wids:
-                if cid in circles:
-                    for m in w.models:
-                        if worker_model_is_circle_only(w, m):
-                            result[m] = cid
+            for m in w.models:
+                for cid in sorted(model_circle_ids(w, m) & circles):
+                    result[m] = cid
         for v in self._virtual:
             owner = getattr(v, "owner_user_id", None)
             cid = getattr(v, "circle_id", None)
@@ -816,8 +816,8 @@ class WorkerPool:
             if getattr(w, "owner_user_id", None) is not None:
                 continue
             for m in w.models:
-                # 标成公开的模型不算圈内共享
-                if m in seen or not worker_model_is_circle_only(w, m):
+                # 标成公开、或给别的圈子的模型不算这个圈子的
+                if m in seen or circle_id not in model_circle_ids(w, m):
                     continue
                 seen.add(m)
                 out.append({
@@ -855,7 +855,7 @@ class WorkerPool:
             for card in getattr(w, "agents", None) or []:
                 if not isinstance(card, dict) or not card.get("id"):
                     continue
-                if (card.get("visibility") or "public") != "circle":
+                if (card.get("visibility") or "public") != "circle" or cid not in card_circle_ids(card, w):
                     continue
                 key = f"{card['id']}@{w.worker_id}"
                 if key in seen:
@@ -915,7 +915,7 @@ class WorkerPool:
                     "description": card.get("description") or "",
                     "visibility": card.get("visibility") or "public",
                     # 经由哪些圈子可见：仅与请求者自身圈子的交集，不泄露其它圈子
-                    "circle_ids": sorted(worker_circle_ids(w) & circles)
+                    "circle_ids": sorted(card_circle_ids(card, w) & circles)
                     if (card.get("visibility") or "public") != "public" and not public_only else [],
                     "runtime": card.get("runtime") or "",
                     "worker_id": w.worker_id,
@@ -1041,8 +1041,28 @@ class WorkerPool:
 pool = WorkerPool()
 
 
+def model_circle_ids(w, model: str) -> set[int]:
+    """该模型只给哪些圈子；空集 = 对所有人公开。"""
+    mc = getattr(w, "model_circles", None)
+    if mc is not None:
+        return set(mc.get(model) or []) & worker_circle_ids(w)
+    if model in (getattr(w, "public_models", None) or []):
+        return set()
+    return worker_circle_ids(w)
+
+
+def card_circle_ids(card: dict, w) -> set[int]:
+    """智能体名片给哪些圈子：名片自带 circle_ids 就按它（限节点已验证的圈子），否则按节点级圈子。"""
+    if isinstance((card or {}).get("circle_ids"), list):
+        return set(card["circle_ids"]) & worker_circle_ids(w)
+    return worker_circle_ids(w)
+
+
 def worker_model_visible(w, model: str, circles: Optional[set] = None) -> bool:
-    """真实 worker 上某个模型对该用户是否可见：没设圈子 → 公开；标成公开的模型 → 公开；否则要和圈子有交集。"""
+    """真实 worker 上某个模型对该用户是否可见：没限圈子 → 公开；否则要和圈子有交集。"""
+    if getattr(w, "model_circles", None) is not None:
+        cids = model_circle_ids(w, model)
+        return not cids or bool(cids & (circles or set()))
     wids = worker_circle_ids(w)
     if not wids:
         return True
@@ -1052,8 +1072,8 @@ def worker_model_visible(w, model: str, circles: Optional[set] = None) -> bool:
 
 
 def worker_model_is_circle_only(w, model: str) -> bool:
-    """该模型只给圈内用（worker 设了圈子且没把它标成公开）。"""
-    return bool(worker_circle_ids(w)) and model not in (getattr(w, "public_models", None) or [])
+    """该模型只给圈内用。"""
+    return bool(model_circle_ids(w, model))
 
 
 def worker_circle_ids(w) -> set[int]:
@@ -1117,14 +1137,25 @@ def normalize_agent_cards(raw, owner_nickname: Optional[str] = None) -> list[dic
         if vis not in ("public", "circle"):
             vis = "public"
         raw_dn = str(item.get("display_name") or item.get("name") or aid)
-        out.append({
+        card = {
             "id": aid,
             "name": str(item.get("name") or "")[:80],
             "display_name": shared_agent_display_name(raw_dn, owner)[:120],
             "description": str(item.get("description") or "")[:200],
             "visibility": vis,
             "runtime": str(item.get("runtime") or "")[:40],
-        })
+        }
+        # 新客户端逐项写给哪些圈子
+        if isinstance(item.get("circle_ids"), list):
+            ids = []
+            for x in item["circle_ids"]:
+                try:
+                    ids.append(int(x))
+                except (TypeError, ValueError):
+                    pass
+            card["circle_ids"] = list(dict.fromkeys(ids))
+            card["visibility"] = "circle" if card["circle_ids"] else "public"
+        out.append(card)
     return out
 
 
@@ -1134,8 +1165,7 @@ def agent_card_visible(card: dict, worker, user_circle_ids: Optional[set] = None
     if vis == "public":
         return True
     circles = user_circle_ids or set()
-    wids = worker_circle_ids(worker)
-    return bool(wids & circles)
+    return bool(card_circle_ids(card, worker) & circles)
 
 
 def worker_has_agent(worker, assistant_id: str) -> bool:
