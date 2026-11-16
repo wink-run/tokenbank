@@ -1707,7 +1707,8 @@ function LiveRentals({ pageActive, onCount }) {
     return () => clearInterval(timer);
   }, [pageActive, tasks.length]);
 
-  if (!supported) return null;
+  // 没有正在执行的任务时整块不显示
+  if (!supported || tasks.length === 0) return null;
 
   return (
     <section className={`${LIB_LIST_CLS} p-4 space-y-2`}>
