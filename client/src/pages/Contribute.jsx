@@ -1,5 +1,5 @@
 // client/src/pages/Contribute.jsx
-import React, { useCallback, useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getStats, getSettlements, getContributeSummary, listJoinedCircles, listMyCircles, listCommunityAgents, listPublicCommunityAgents, getNetwork } from '../api/client';
 import { normalizeNetworkPayload, workerModelNames } from '../lib/networkModelStats';
@@ -63,6 +63,30 @@ function formatSettlementResource(name) {
   const m = raw.match(/^(.+?)的(.+)$/);
   if (m && m[2]) raw = m[2].trim();
   return raw || s;
+}
+
+/** 近 7 天每个资源被结算了几次、分到多少积分（一次结算的积分平分给它带的几个资源） */
+function earningsByResource(settlements = [], now = Date.now()) {
+  const out = new Map();
+  for (const st of settlements || []) {
+    const ts = Date.parse(String(st?.period_end || '').replace(' ', 'T'));
+    if (!Number.isFinite(ts) || now - ts > 7 * 86400000) continue;
+    const res = normalizeSettlementResources(st.resources);
+    if (!res.length) continue;
+    const share = (Number(st.credits_awarded) || 0) / res.length;
+    for (const r of res) {
+      const cur = out.get(r) || { n: 0, credits: 0 };
+      cur.n += 1; cur.credits += share;
+      out.set(r, cur);
+    }
+  }
+  return out;
+}
+
+/** 积分折人民币：不到 1 分钱写「<¥0.01」，不再写四位小数 */
+function cnyApprox(credits) {
+  const v = creditsToCny(credits);
+  return v > 0 && v < 0.01 ? '<¥0.01' : `≈${fmtCreditCny(v)}`;
 }
 
 /** 按圈子 id 去重（统一为 number，避免 owned/joined 合并重复） */
@@ -133,7 +157,7 @@ function collectContributeAvailableModels(saved, accounts, localCfg) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function ContributionConfigCard({ onStart, onStop, running, agentError, onAgentsRefresh, circles: circlesProp = null, onManageCircles, liveStats = null }) {
+function ContributionConfigCard({ onStart, onStop, running, agentError, onAgentsRefresh, circles: circlesProp = null, onManageCircles, liveStats = null, settlements = [] }) {
   const { t } = useLang();
   const location = useLocation();
   const pageActive = location.pathname === '/contribute';
@@ -144,6 +168,17 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
   const [availableApps, setAvailableApps] = useState([]);
   const [appsLoaded, setAppsLoaded] = useState(false);
   const navigate = useNavigate();
+  const earned = useMemo(() => earningsByResource(settlements), [settlements]);
+  const earnText = (hit) => (hit && hit.n ? ` · ${t('contribute.earned7d', { n: hit.n, credits: hit.credits.toFixed(1) })}` : '');
+  const agentEarn = (keys) => {
+    let hit = null;
+    for (const [k, v] of earned) {
+      if (!k.startsWith('agent:')) continue;
+      const name = formatSettlementResource(k);
+      if (keys.some(x => x && (x === name || k.includes(x)))) hit = { n: (hit?.n || 0) + v.n, credits: (hit?.credits || 0) + v.credits };
+    }
+    return hit;
+  };
   // 智能体模板实际跑在哪：和网关页「默认在…跑」用同一份（agent 列表里的 runtimeAgentId）
   const [agentRuns, setAgentRuns] = useState({ byResource: {}, names: {} });
   useEffect(() => {
@@ -616,7 +651,7 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
                   <li key={name} className={rowCls(fresh)}>
                     <span className="min-w-0">
                       <TruncTip as="span" title={name} className="block text-xs font-medium font-mono text-zinc-800 dark:text-zinc-100">{name}</TruncTip>
-                      <span className="block text-[11px] text-zinc-400">{modelTypeText(m)}</span>
+                      <span className="block text-[11px] text-zinc-400">{modelTypeText(m)}{earnText(earned.get(name))}</span>
                     </span>
                     <span className="hidden md:block text-[11px] text-zinc-500 dark:text-zinc-400">
                       {fresh ? t('contribute.notLiveYet') : (running ? t('contribute.listedLive') : t('contribute.listedOff'))}
@@ -707,6 +742,7 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
                 const where = runtime ? t('contribute.agentIsApp')
                   : (runsOn ? t('contribute.agentRunsOn', { apps: agentRuns.names[runsOn] || runsOn }) : '');
                 const fresh = !savedSets.agents.has(id);
+                const earn = earnText(agentEarn([label, a?.id, runtime]));
                 return (
                   <li key={id} className={rowCls(fresh)}>
                     {a ? (
@@ -714,13 +750,15 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
                       <button type="button" onClick={() => navigate('/resources', { state: { resourceType: 'assistant', selectKey: `r-${a.id}` } })}
                         title={t('contribute.openTemplate')} className="min-w-0 text-left group/tpl">
                         <TruncTip as="span" title={label} className="block text-xs font-medium text-zinc-800 dark:text-zinc-100 group-hover/tpl:text-blue-600 dark:group-hover/tpl:text-blue-400">{label}</TruncTip>
-                        <span className={`block text-[11px] ${reason ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400'}`}>{reason || where}</span>
+                        <span className={`block text-[11px] ${reason ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400'}`}>{reason || `${where}${earn}`}</span>
                       </button>
                     ) : (
-                      <span className="min-w-0">
-                        <TruncTip as="span" title={label} className="block text-xs font-medium text-zinc-800 dark:text-zinc-100">{label}</TruncTip>
-                        <span className={`block text-[11px] ${reason ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400'}`}>{reason || where}</span>
-                      </span>
+                      // 本机应用：点去网关页的「通用智能体」
+                      <button type="button" onClick={() => navigate('/gateway', { state: { gatewayTab: 'apps' } })}
+                        title={t('contribute.openApp')} className="min-w-0 text-left group/tpl">
+                        <TruncTip as="span" title={label} className="block text-xs font-medium text-zinc-800 dark:text-zinc-100 group-hover/tpl:text-blue-600 dark:group-hover/tpl:text-blue-400">{label}</TruncTip>
+                        <span className={`block text-[11px] ${reason ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400'}`}>{reason || `${where}${earn}`}</span>
+                      </button>
                     )}
                     <span className="hidden md:block text-[11px] text-zinc-500 dark:text-zinc-400">
                       {fresh ? t('contribute.agentNewHint') : (running ? t('contribute.listedLive') : t('contribute.listedOff'))}
@@ -805,9 +843,10 @@ function settlementWhen(iso, t) {
 }
 
 /** 收益记录：概览 + 每次结算积分柱图 + 结算明细 + 运行日志 */
-function EarningsView({ settlements, summary, stats, logs, logRef, balance = null }) {
+function EarningsView({ settlements, summary, balance = null }) {
   const { t } = useLang();
   const [hover, setHover] = useState(null);
+  const [showAll, setShowAll] = useState(false);
   const rows = settlements || [];
   const chron = [...rows].reverse(); // 左旧右新
   const total = rows.reduce((n, r) => n + (Number(r.credits_awarded) || 0), 0);
@@ -898,7 +937,7 @@ function EarningsView({ settlements, summary, stats, logs, logRef, balance = nul
               </div>
             </div>
           <ul className="list-none m-0 p-0">
-            {rows.map(st => {
+            {(showAll ? rows : rows.slice(0, 10)).map(st => {
               const resources = normalizeSettlementResources(st.resources);
               const mult = Number(st.multiplier) || 1;
               const w = settlementWhen(st.period_end, t);
@@ -933,27 +972,22 @@ function EarningsView({ settlements, summary, stats, logs, logRef, balance = nul
                   </div>
                   <div className="text-right leading-tight">
                     <div className="text-[13px] font-semibold tabular-nums text-green-600 dark:text-green-400">+{(Number(st.credits_awarded) || 0).toFixed(1)}</div>
-                    <div className="text-[11px] tabular-nums text-zinc-400">≈{fmtCreditCny(creditsToCny(st.credits_awarded))}</div>
+                    <div className="text-[11px] tabular-nums text-zinc-400">{cnyApprox(st.credits_awarded)}</div>
                   </div>
                 </li>
               );
             })}
           </ul>
+          {rows.length > 10 && (
+            <button type="button" onClick={() => setShowAll(v => !v)}
+              className="w-full px-4 py-2.5 text-xs text-blue-600 dark:text-blue-400 hover:bg-zinc-50/70 dark:hover:bg-white/[0.02] border-t border-zinc-100/90 dark:border-white/[0.05]">
+              {showAll ? t('contribute.showLess') : t('contribute.showMore', { n: rows.length - 10 })}
+            </button>
+          )}
           </div>
         )}
       </section>
 
-      {/* 运行日志：排障用，默认收起 */}
-      <details className="group">
-        <summary className="cursor-pointer select-none text-[11px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 list-none">
-          <span className="inline-block transition-transform group-open:rotate-90 mr-1">›</span>
-          {t('contribute.agentLog')}
-          {logs.length > 0 && <span className="ml-1.5 text-zinc-400 tabular-nums">{logs.length}</span>}
-        </summary>
-        <div ref={logRef} className="mt-2 bg-zinc-950 border border-zinc-800 rounded-xl p-3 h-44 overflow-y-auto font-mono text-[11px] text-zinc-300 space-y-0.5">
-          {logs.length === 0 ? <span className="text-zinc-500">{t('contribute.logEmpty')}</span> : logs.map((line, i) => <div key={i}>{line}</div>)}
-        </div>
-      </details>
     </div>
   );
 }
@@ -977,6 +1011,7 @@ function CommunityModelsCard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [models, setModels] = useState(null);
+  const [onlineNodes, setOnlineNodes] = useState(0);
   useEffect(() => {
     let cancelled = false;
     // 两处合起来：本机网关拉到的社区模型（要登录），和公开网络里此刻在线的节点上的模型（不用登录也能看）
@@ -991,14 +1026,15 @@ function CommunityModelsCard() {
           if (w.status === 'offline') continue;
           for (const name of workerModelNames(w)) count[name] = (count[name] || 0) + 1;
         }
+        setOnlineNodes((net?.workers || []).filter(w => w.status !== 'offline').length);
         return count;
       })
       .catch(() => ({}));
     Promise.all([fromGateway, fromNetwork]).then(([gw, count]) => {
       if (cancelled) return;
       const all = new Map();
-      // 登录后以网关拿到的为准：那是你此刻真能租的（不含你自己上架的）；没登录才看公开网络
-      if (user) {
+      // 登录后以网关拿到的为准：那是你此刻真能租的（不含你自己上架的）；网关拿不到（或没登录）才看公开网络
+      if (user && gw.length) {
         for (const id of gw) all.set(id, { id, suppliers: count[id] || 0 });
       } else {
         for (const [id, n] of Object.entries(count)) all.set(id, { id, suppliers: n });
@@ -1009,7 +1045,7 @@ function CommunityModelsCard() {
   }, [user]);
   if (!models) return null;
   // 模型在模型页的「社区」账户里管理和选用；这里只说一句有多少，点过去用
-  const nodes = models.reduce((n, m) => Math.max(n, m.suppliers || 0), 0);
+  const nodes = onlineNodes;
   return (
     <button type="button" onClick={() => navigate('/providers', { state: { focusCommunity: true } })}
       className={`${LIB_LIST_CLS} mt-4 w-full flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 text-left hover:bg-white/80 dark:hover:bg-zinc-900/60`}>
@@ -1346,7 +1382,7 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
               </p>
             </div>
           </div>
-          <div className="relative w-full md:w-72">
+          {agents.length > 0 && <div className="relative w-full md:w-72">
             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" aria-hidden>
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3.5 h-3.5"><circle cx="9" cy="9" r="5.5" /><path d="M13.5 13.5 17 17" strokeLinecap="round" /></svg>
             </span>
@@ -1356,13 +1392,13 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
               placeholder={t('contribute.searchAgents')}
               className="w-full text-xs pl-8 pr-3 py-2 rounded-xl bg-white/90 dark:bg-zinc-900/70 border border-zinc-200/80 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-500/15"
             />
-          </div>
+          </div>}
         </div>
       </div>
 
-      {/* 筛选：范围（圈子即交易范围）· 已雇佣 · 排序 */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        {(circles.length > 0 ? scopeOptions : scopeOptions.slice(0, 1)).map(o => (
+      {/* 筛选：范围（圈子即交易范围）· 已雇佣 · 排序；市场空的时候整行不显示，刷新放进空状态 */}
+      <div className={agents.length > 0 || hiredCount > 0 ? 'flex flex-wrap items-center gap-1.5' : 'hidden'}>
+        {agents.length > 0 && (circles.length > 0 ? scopeOptions : scopeOptions.slice(0, 1)).map(o => (
           <button key={o.id} type="button" role="radio" aria-checked={scope === o.id && !onlyHired}
             onClick={() => { setOnlyHired(false); onScopeChange?.(o.id); }}
             className={chip(scope === o.id && !onlyHired)}>
@@ -1371,12 +1407,14 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
             <span className="tabular-nums opacity-60">{countIn(o.id)}</span>
           </button>
         ))}
+        {hiredCount > 0 && (<>
         <span className="mx-1 w-px h-4 bg-zinc-200 dark:bg-zinc-700" aria-hidden />
         <button type="button" aria-pressed={onlyHired} onClick={() => setOnlyHired(v => !v)} className={chip(onlyHired)}>
           <span aria-hidden>✓</span>{t('contribute.filterHired')}<span className="tabular-nums opacity-60">{hiredCount}</span>
         </button>
+        </>)}
         <div className="ml-auto flex items-center gap-1">
-          <FilterMenu
+          {agents.length > 0 && <FilterMenu
             label={t('contribute.sortLabel')}
             value={sortBy}
             onChange={v => setSortBy(v || 'popular')}
@@ -1387,7 +1425,7 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
               { value: 'popular', label: t('contribute.sortPopular') },
               { value: 'name', label: t('contribute.sortName') },
             ]}
-          />
+          />}
           <button type="button" onClick={() => refresh()} disabled={loading} title={t('contribute.refreshAgents')} aria-label={t('contribute.refreshAgents')}
             className="w-7 h-7 rounded-lg text-sm text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-white/70 dark:hover:bg-zinc-800 disabled:opacity-40">
             <span className={`inline-block ${loading ? 'animate-spin' : ''}`} aria-hidden>↻</span>
@@ -1430,6 +1468,12 @@ function CommunityAgentsCard({ refreshKey = 0, circles = [], scope = 'all', onSc
               {(q || onlyHired || scope !== 'all') && (
                 <button type="button" onClick={() => { setQuery(''); setOnlyHired(false); onScopeChange?.('all'); }}
                   className="mt-3 text-xs text-blue-600 dark:text-blue-400 hover:underline">{t('contribute.clearFilters')}</button>
+              )}
+              {!q && !onlyHired && agents.length === 0 && (
+                <button type="button" onClick={() => refresh()} disabled={loading}
+                  className="mt-3 text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50">
+                  <span className={`inline-block mr-1 ${loading ? 'animate-spin' : ''}`} aria-hidden>↻</span>{t('contribute.refreshAgents')}
+                </button>
               )}
             </div>
           ) : (
@@ -1773,6 +1817,11 @@ export default function Contribute() {
   const [running,     setRunning]     = useState(false);
   const [stats,       setStats]       = useState(null);
   const [settlements, setSettlements] = useState([]);
+  // 「收支」标签上的数字：上次看过之后新来的结算；第一次打开不算新
+  const [earnSeen, setEarnSeen] = useState(() => { try { return localStorage.getItem('tb.trade.earnSeen') || ''; } catch { return ''; } });
+  const latestSettlement = settlements[0]?.period_end ? String(settlements[0].period_end) : '';
+  const newSettlements = earnSeen ? settlements.filter(st => String(st.period_end || '') > earnSeen).length : 0;
+  const markEarnSeen = useCallback((v) => { setEarnSeen(v); try { localStorage.setItem('tb.trade.earnSeen', v); } catch { /* 只影响标签数字 */ } }, []);
   const [summary,     setSummary]     = useState(null);
   const [logs,        setLogs]        = useState([]);
   const [agentError,  setAgentError]  = useState('');
@@ -1937,10 +1986,15 @@ export default function Contribute() {
   }
 
 
+  useEffect(() => {
+    if (!latestSettlement) return;
+    if (!earnSeen || (tab === 'earnings' && latestSettlement > earnSeen)) markEarnSeen(latestSettlement);
+  }, [tab, latestSettlement, earnSeen, markEarnSeen]);
+
   const TABS = [
     { id: 'hire', label: t('contribute.tab.buy') },
     { id: 'supply', label: t('contribute.tab.sell'), count: liveTaskCount || null },
-    { id: 'earnings', label: t('contribute.tab.money'), count: settlements.length || null },
+    { id: 'earnings', label: t('contribute.tab.money'), count: newSettlements || null },
   ];
 
   return (
@@ -1953,14 +2007,6 @@ export default function Contribute() {
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">{t('contribute.subtitle')}</p>
           </div>
           <div className="electron-no-drag relative z-50 flex flex-wrap items-center gap-2">
-            {/* 余额：点开看收支 */}
-            {user?.credits_balance != null && (
-              <button type="button" onClick={() => changeTab('earnings')}
-                className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full border border-zinc-200 dark:border-zinc-700 bg-white/60 dark:bg-zinc-900/40 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100">
-                <span className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">{Math.floor(user.credits_balance).toLocaleString()}</span>
-                {t('contribute.creditsUnit')}
-              </button>
-            )}
           </div>
         </div>
 
@@ -2004,7 +2050,19 @@ export default function Contribute() {
             circles={myCircles}
             onManageCircles={() => setCirclesOpen(true)}
             liveStats={stats}
+            settlements={settlements}
           />
+      {/* 接单程序的运行日志：排障用，默认收起 */}
+      <details className="group px-1">
+        <summary className="cursor-pointer select-none text-[11px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 list-none">
+          <span className="inline-block transition-transform group-open:rotate-90 mr-1">›</span>
+          {t('contribute.agentLog')}
+          {logs.length > 0 && <span className="ml-1.5 text-zinc-400 tabular-nums">{logs.length}</span>}
+        </summary>
+        <div ref={logRef} className="mt-2 bg-zinc-950 border border-zinc-800 rounded-xl p-3 h-44 overflow-y-auto font-mono text-[11px] text-zinc-300 space-y-0.5">
+          {logs.length === 0 ? <span className="text-zinc-500">{t('contribute.logEmpty')}</span> : logs.map((line, i) => <div key={i}>{line}</div>)}
+        </div>
+      </details>
         </div>
 
         {/* 圈子：交易范围。从「管理圈子」打开，不占标签 */}
@@ -2023,7 +2081,7 @@ export default function Contribute() {
         </div>
 
         <div className={tab === 'earnings' ? '' : 'hidden'}>
-          <EarningsView settlements={settlements} summary={summary} stats={stats} logs={logs} logRef={logRef} balance={user?.credits_balance ?? null} />
+          <EarningsView settlements={settlements} summary={summary} balance={user?.credits_balance ?? null} />
         </div>
       </div>
     </div>
