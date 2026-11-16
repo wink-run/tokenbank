@@ -1514,6 +1514,17 @@ html.tb-electron .tb-scroll-layer {
     flex-shrink: 0;
     z-index: auto;
   }
+  /* 手机：先选「和谁说话」，再看模型 / 连接设置。主体拆开，让列表排到顶栏前面；展开的浮层压在顶栏之上 */
+  html.tb-web .tb-debug-root > .tb-debug-body {
+    display: contents;
+  }
+  html.tb-web .tb-debug-root .tb-agent-tabs {
+    order: -1;
+    z-index: 50;
+  }
+  html.tb-web .tb-debug-root .tb-agent-tabs--collapsed {
+    z-index: 41;
+  }
 }
 
 /* 高对比偏好：恢复更清晰的分割线 */

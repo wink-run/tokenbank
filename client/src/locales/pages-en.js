@@ -1971,7 +1971,7 @@ export default {
   'debug.tabs.agents': 'Talk to',
   'debug.tabs.collapseAgents': 'Hide',
   'debug.tabs.expandAgents': 'Show',
-  'debug.tabs.hub': '✨ Hub',
+  'debug.tabs.hub': 'Agent routing',
   'debug.tabs.orchestrating': 'Orchestrating',
   'debug.tabs.mainDispatch': 'Main: {name} · dispatching',
   'debug.tabs.projectTo': 'Projected: {name}',

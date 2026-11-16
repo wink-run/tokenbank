@@ -785,7 +785,13 @@ function saveMainAgentId(id) {
 }
 
 function loadAgentWorkingDir() {
-  try { return localStorage.getItem(AGENT_WORKING_DIR_KEY) || ''; } catch { return ''; }
+  try {
+    const saved = localStorage.getItem(AGENT_WORKING_DIR_KEY) || '';
+    if (saved) return saved;
+  } catch { /* 读不到就用默认 */ }
+  // Docker / 网页版：第一次用时默认挂载的项目目录，不用每次先选目录才能发
+  try { if (document.documentElement.classList.contains('tb-web')) return '/workspace'; } catch { /* ignore */ }
+  return '';
 }
 
 function saveAgentWorkingDir(dir) {
@@ -2914,8 +2920,17 @@ export default function Debug() {
     });
   }, [t]);
 
-  // When selected provider changes
+  // 对话 / 图像各记一个上次选的模型：来回切换时恢复，不跳回列表第一个
+  const imageModeRef = useRef(imageMode);
+  imageModeRef.current = imageMode;
+  const lastModelByMode = useRef({ chat: '', image: '' });
   useEffect(() => {
+    if (model) lastModelByMode.current[imageModeRef.current ? 'image' : 'chat'] = model;
+  }, [model]);
+
+  // When selected provider changes（切对话 / 图像不重拉列表，由下面按类型换模型）
+  useEffect(() => {
+    const imageMode = imageModeRef.current;
     const opt = provOpts.find(o => o.id === selectedId) || LOCAL_GW;
     if (selectedId === '__custom__') {
       setToken(''); setModels([]); setSceneRoutes([]); setModel(''); setManualModel(true); return;
@@ -3006,7 +3021,7 @@ export default function Debug() {
       }
     };
     doFetch();
-  }, [selectedId, provOpts, imageMode]);
+  }, [selectedId, provOpts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When imageMode changes, try to switch to right model type
   useEffect(() => {
@@ -3021,7 +3036,10 @@ export default function Debug() {
     const matches = (m) => modelSelectValue(m) === model || routeOptionValue(m) === model || m.id === model
       || model === `p2p:${m.id}`;
     if (preferred.length && !preferred.some(matches)) {
-      setModel(routeOptionValue(preferred.find(m => !m.needsClientAuth) || preferred[0]));
+      // 先回到这个模式上次选的那个
+      const prev = lastModelByMode.current[imageMode ? 'image' : 'chat'];
+      const back = prev && preferred.some(m => modelSelectValue(m) === prev || routeOptionValue(m) === prev || m.id === prev || prev === `p2p:${m.id}`);
+      setModel(back ? prev : routeOptionValue(preferred.find(m => !m.needsClientAuth) || preferred[0]));
     }
   }, [imageMode, models, model, sceneRoutes]);
 
@@ -3370,7 +3388,7 @@ export default function Debug() {
 
   return (
     /* 顶栏拉通；智能体列表仅在 Agent 模式内容区内 */
-    <div className="relative h-full min-h-0 flex flex-col bg-transparent">
+    <div className="tb-debug-root relative h-full min-h-0 flex flex-col bg-transparent">
       {/* ── 顶栏两层：模式+连接 / 模型（对话选项下沉到输入区上方）── */}
       <div className={`${chromeTop} px-4 pt-3 pb-2 electron-drag ${mode === 'llm' ? 'space-y-2' : ''}`}>
 
@@ -3516,7 +3534,6 @@ export default function Debug() {
             onSelect={(agent) => { if (mode !== 'agent') setMode('agent'); switchAgent(agent); }}
             modelChat={{ active: mode === 'llm', onSelect: () => setMode('llm') }}
             onHireMore={() => navigate('/contribute', { state: { tradeTab: 'hire' } })}
-            onSetMainAgent={setMainAgent}
             loading={loadingAgents && agents.length === 0}
             runningKeys={runningAgentKeys}
             onInstallCursorCli={() => installCursorCli({ confirm: true })}

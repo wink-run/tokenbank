@@ -90,6 +90,15 @@ function Layout() {
     () => findRouteConfig(KEEP_ALIVE_ROUTE_CONFIGS, location.pathname),
     [location.pathname],
   );
+  // 网页版：切页面时把路径写回地址栏（不新增历史记录），能刷新、能复制链接
+  useEffect(() => {
+    if (isElectron()) return;
+    try {
+      if (window.location.pathname !== location.pathname) {
+        window.history.replaceState(window.history.state, '', location.pathname + window.location.search + window.location.hash);
+      }
+    } catch { /* 地址栏不同步不影响使用 */ }
+  }, [location.pathname]);
 
   useEffect(() => {
     if (!isElectron() || !window.electronAPI?.app?.onNavigate) return;
@@ -198,7 +207,8 @@ function Layout() {
           <Navigate to={authed ? '/gateway' : '/login'} replace />
         )}
         {cliMode && !user && location.pathname !== '/login' && location.pathname !== '/' && (
-          <Navigate to="/login" replace />
+          // 记住原来要去的页面：登录状态确认后回到那里，而不是首页
+          <Navigate to="/login" replace state={{ from: location.pathname }} />
         )}
         {location.pathname === '/login' && (
           <div className="relative z-10 min-h-full">
@@ -224,9 +234,18 @@ function Layout() {
   );
 }
 
+/** 网页版（Docker）：按地址栏的路径进入，刷新或直接打开 /providers 不再跳回网关。桌面版没有地址栏，照旧从首页进 */
+function initialEntry() {
+  try {
+    if (isElectron()) return '/';
+    const path = window.location.pathname || '/';
+    return findRouteConfig(KEEP_ALIVE_ROUTE_CONFIGS, path) || path === '/login' || path === '/network' ? path : '/';
+  } catch { return '/'; }
+}
+
 export default function App() {
   return (
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry()]}>
       <ThemeProvider>
         <LangProvider>
           <CurrencyProvider>
