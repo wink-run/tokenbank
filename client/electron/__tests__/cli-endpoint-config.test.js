@@ -136,6 +136,75 @@ test('其他代理改写 base_url 后再次 sync：重新占回网关', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('无效 JSON（尾逗号）：覆盖前把原文备份到 .tokenbank-bak', () => {
+  const dir = mkInstance(null);
+  const file = path.join(dir, 'settings.json');
+  const raw = '{\n  "theme": "dark",\n  "permissions": { "allow": ["Bash"] },\n}\n';
+  fs.writeFileSync(file, raw);
+  const bak = file + '.tokenbank-bak';
+  assert.equal(syncCliInstanceEndpointConfig(appFor(dir), OPTS), 'routed');
+  // 备份必须是覆盖前的原文；若先写再备份，bak 会变成托管 JSON
+  assert.equal(fs.readFileSync(bak, 'utf8'), raw);
+  const s = rd(file);
+  assert.equal(s.env.ANTHROPIC_BASE_URL, GW);
+  assert.equal(s.env.ANTHROPIC_AUTH_TOKEN, PROXY_MANAGED_TOKEN);
+  assert.deepEqual(Object.keys(s.env).sort(), ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL']);
+  // 直连时按字节还原坏 JSON，不因解析失败丢掉备份
+  assert.equal(syncCliInstanceEndpointConfig(appFor(dir), { ...OPTS, forceDirect: true }), 'direct');
+  assert.equal(fs.readFileSync(file, 'utf8'), raw);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('无效 JSON（BOM）：覆盖前备份含 BOM 的原文', () => {
+  const dir = mkInstance(null);
+  const file = path.join(dir, 'settings.json');
+  const raw = Buffer.concat([
+    Buffer.from([0xEF, 0xBB, 0xBF]),
+    Buffer.from('{"theme":"light","model":"opus","permissions":{"allow":["Read"]}}\n', 'utf8'),
+  ]);
+  fs.writeFileSync(file, raw);
+  const bak = file + '.tokenbank-bak';
+  assert.equal(syncCliInstanceEndpointConfig(appFor(dir), OPTS), 'routed');
+  assert.deepEqual(fs.readFileSync(bak), raw);
+  const s = rd(file);
+  assert.equal(s.env.ANTHROPIC_BASE_URL, GW);
+  assert.equal(s.env.ANTHROPIC_AUTH_TOKEN, PROXY_MANAGED_TOKEN);
+  assert.ok(!('theme' in s), '无法解析的 BOM 文件不参与合并');
+  // 再次 sync 不得用托管结果覆盖首次备份
+  assert.equal(syncCliInstanceEndpointConfig(appFor(dir), OPTS), 'routed');
+  assert.deepEqual(fs.readFileSync(bak), raw);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('已有有效备份时，当前文件变成坏 JSON 也不会覆盖备份', () => {
+  const dir = mkInstance(FORTINET);
+  const file = path.join(dir, 'settings.json');
+  const bak = file + '.tokenbank-bak';
+  assert.equal(syncCliInstanceEndpointConfig(appFor(dir), OPTS), 'routed');
+  const bakText = fs.readFileSync(bak, 'utf8');
+  fs.writeFileSync(file, '{ "theme": "hacked", }\n');
+  assert.equal(syncCliInstanceEndpointConfig(appFor(dir), OPTS), 'routed');
+  assert.equal(fs.readFileSync(bak, 'utf8'), bakText);
+  const s = rd(file);
+  assert.equal(s.theme, 'dark', '合并仍用未托管的有效备份');
+  assert.equal(s.env.ANTHROPIC_AUTH_TOKEN, PROXY_MANAGED_TOKEN);
+  assert.ok(!('model' in s));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('当前已是网关托管配置且无备份：不把托管配置存成 bak', () => {
+  const dir = mkInstance({
+    theme: 'dark',
+    env: { ANTHROPIC_BASE_URL: GW, ANTHROPIC_AUTH_TOKEN: PROXY_MANAGED_TOKEN },
+  });
+  const file = path.join(dir, 'settings.json');
+  assert.equal(syncCliInstanceEndpointConfig(appFor(dir), OPTS), 'routed');
+  assert.ok(!fs.existsSync(file + '.tokenbank-bak'), '托管配置本身不能当原始备份');
+  assert.equal(rd(file).theme, 'dark', '其它顶层设置仍保留');
+  assert.equal(rd(file).env.ANTHROPIC_BASE_URL, GW);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('无 instance：默认写入 HOME/.claude/settings.json（Docker 单实例）', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-claude-home-'));
   const prevHome = process.env.HOME;
@@ -149,6 +218,7 @@ test('无 instance：默认写入 HOME/.claude/settings.json（Docker 单实例�
     const file = path.join(home, '.claude', 'settings.json');
     assert.equal(syncCliInstanceEndpointConfig(app, { ...OPTS, expandHome }), 'routed');
     assert.ok(fs.existsSync(file));
+    assert.ok(!fs.existsSync(file + '.tokenbank-bak'), '原本无文件则无备份');
     assert.equal(rd(file).env.ANTHROPIC_AUTH_TOKEN, PROXY_MANAGED_TOKEN);
     assert.equal(rd(file).env.ANTHROPIC_BASE_URL, GW);
   } finally {

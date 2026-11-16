@@ -8,7 +8,8 @@
 //   env.ANTHROPIC_AUTH_TOKEN = PROXY_MANAGED（占位标记，不暴露真实 sk-local key；
 //     网关按「非 api-key 调用方」走 claudeShimScene）
 //   去掉写死的 model；原始配置备份到 .tokenbank-bak。
-// 直连/还原(无 route / forceDirect) → 从 .tokenbank-bak 还原；无备份则清掉托管 env 键。
+//   解析失败（尾逗号、BOM 等）也要先备份再覆盖，避免坏 JSON 被托管块整份换掉。
+// 直连/还原(无 route / forceDirect) → 从 .tokenbank-bak 还原（含无法解析的原文）；无备份则清掉托管 env 键。
 // 「已托管」靠 base_url 是否指向本机网关判定。
 'use strict';
 
@@ -64,19 +65,24 @@ function syncCliInstanceEndpointConfig(app, opts = {}) {
   const file = path.join(dir, 'settings.json');
   const bak = file + '.tokenbank-bak';
 
-  const curObj = fs.existsSync(file) ? readJsonSafe(file) : null;
+  // 文件在不在、解析成不成功要分开看：坏 JSON 时 readJsonSafe 返回 null，
+  // 不能据此当成「没有原文」而跳过备份。
+  const fileExists = fs.existsSync(file);
+  const curObj = fileExists ? readJsonSafe(file) : null;
   const curManaged = isGatewayBaseUrl(curObj && curObj.env && curObj.env.ANTHROPIC_BASE_URL);
-  const bakObj = fs.existsSync(bak) ? readJsonSafe(bak) : null;
+  const bakExists = fs.existsSync(bak);
+  const bakObj = bakExists ? readJsonSafe(bak) : null;
   const bakManaged = isGatewayBaseUrl(bakObj && bakObj.env && bakObj.env.ANTHROPIC_BASE_URL);
-  // 原始配置：优先未托管的 bak；否则当前文件（尚未被托管时）
+  // 原始配置：优先未托管的 bak；否则当前文件（尚未被托管时）。解析失败则没有可合并对象。
   const orig = (bakObj && !bakManaged) ? bakObj : (curObj && !curManaged ? curObj : null);
 
   const routed = !opts.forceDirect
     && !!app.hosted && !!(app.route_id || (Array.isArray(app.route_ids) && app.route_ids.length));
 
   if (routed) {
-    // 备份原始（仅首次；当前已是托管配置则不备份，避免把网关配置存成 bak）
-    if (curObj && !curManaged && !fs.existsSync(bak)) {
+    // 覆盖前备份原文（仅首次）。已确认是托管配置则不备份，避免把网关配置存成 bak。
+    // 解析失败时 curObj 为 null，只要文件还在就要先备份，再写托管块。
+    if (fileExists && !curManaged && !bakExists) {
       try { fs.copyFileSync(file, bak); } catch {}
     }
     // 保留顶层非 env 键（theme / permissions / enabledPlugins 等，对齐 cc-switch 不全量抹掉）
@@ -89,8 +95,9 @@ function syncCliInstanceEndpointConfig(app, opts = {}) {
     return 'routed';
   }
 
-  // 直连/还原：优先从 bak 整份恢复
-  if (bakObj && !bakManaged) {
+  // 直连/还原：优先从 bak 整份恢复。解析不了的 bak 仍是用户原文，按字节还原，
+  // 不能因为 JSON.parse 失败就当成没有备份。已是网关托管配置的 bak 不当作原始配置。
+  if (bakExists && !bakManaged) {
     try { fs.copyFileSync(bak, file); } catch {}
     return 'direct';
   }
