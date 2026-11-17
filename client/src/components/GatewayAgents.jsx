@@ -614,7 +614,6 @@ export function AgentRoutesPanel() {
     const can = Array.isArray(r.candidates) ? (r.candidates.length ? r.candidates.map(nameOf).join('、') : t('gw2.route.nobody')) : t('gw2.route.allShort');
     return t('gw2.route.desc', { main, n: r.rules.length, can }) + (r.allowHired ? t('gw2.route.descHired') : '');
   };
-  const GRID = 'md:grid-cols-[minmax(0,1fr)_minmax(0,2.4fr)_minmax(0,0.9fr)_17rem]';
   return (
     <section className="px-2.5 py-3 min-w-0 space-y-3">
       <Toolbar main={<button type="button" className={BTN_MAIN} onClick={() => setEditing(editing === 'new' ? null : 'new')}>{t('gw2.route.newPlus')}</button>}
@@ -624,33 +623,64 @@ export function AgentRoutesPanel() {
         <RouteEditor route={{ id: '', name: '', rules: [], candidates: null, allowHired: false, whenNone: 'self', mainAgentId: '' }}
           agents={agents} t={t} onSave={save} onCancel={() => setEditing(null)} />
       )}
-      <div className={SHELL}>
-        <div className={`${HEAD} ${GRID}`}>
-          <span>{t('gw2.route.name')}</span><span>{t('gw2.route.how')}</span><span>{t('gw2.route.who')}</span><span className="text-right">{t('gw2.col.actions')}</span>
-        </div>
-        {routes.map(r => (
-          <React.Fragment key={r.id}>
-            <div className={`${ROW} ${GRID}`}>
-              <span className="min-w-0">
-                <span className="block text-sm md:text-xs font-medium text-zinc-800 dark:text-zinc-100">{r.name}</span>
-                <span className="flex items-center gap-2 mt-0.5"><Code>{r.id}</Code><span className="md:hidden"><CopyText text={r.id} t={t} /></span></span>
-              </span>
-              <span className="text-xs text-zinc-600 dark:text-zinc-300 min-w-0">{describe(r)}</span>
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">{r.id === playRoute ? t('gw2.route.playUses') : <span className="hidden md:inline">—</span>}</span>
-              <span className="flex gap-2 md:justify-end [&>*]:flex-1 md:[&>*]:flex-none">
-                <button type="button" className={BTN} aria-expanded={editing === r.id} onClick={() => setEditing(editing === r.id ? null : r.id)}>
-                  {editing === r.id ? t('gw2.route.close') : t('gw2.route.edit')}
-                </button>
-                <button type="button" className={BTN} onClick={() => navigate('/debug', { state: { hubRoute: r.id } })}>{t('gw2.route.try')}</button>
-                <button type="button" className={`${BTN} ${apiFor === r.id ? '!border-blue-400 !text-blue-500' : ''}`} aria-expanded={apiFor === r.id}
-                  onClick={() => setApiFor(apiFor === r.id ? '' : r.id)}>{apiFor === r.id ? t('gw2.pro.apiClose') : t('gw2.pro.api')}</button>
-                {!r.builtin && <button type="button" className={BTN_DANGER} onClick={() => remove(r)}>{t('gw2.route.remove')}</button>}
-              </span>
+      {/* 和模型路由同一种卡片：箭头 · 图标 · 状态点 · 名字 · 路由 id + 复制 ……… 右侧操作；点整行展开编辑 */}
+      <div className="space-y-2">
+        {routes.map(r => {
+          const open = editing === r.id;
+          const inPlay = r.id === playRoute;
+          return (
+            <div key={r.id}>
+              <div className="tb-soft-tile flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer"
+                onClick={() => setEditing(open ? null : r.id)} title={t('gw2.route.edit')}>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+                  className={`w-3.5 h-3.5 shrink-0 text-zinc-400 transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden>
+                  <path d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                </svg>
+                {/* 分派图标：一分为三 */}
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"
+                  className="w-5 h-5 shrink-0 text-violet-500" aria-hidden>
+                  <circle cx="5" cy="12" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="19" cy="12" r="2" /><circle cx="19" cy="19" r="2" />
+                  <path d="M7 12h10M7 11l10-5M7 13l10 5" />
+                </svg>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${inPlay ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}
+                      title={inPlay ? t('gw2.route.playUses') : ''} />
+                    <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200">{r.name}</span>
+                    {inPlay && (
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 text-emerald-600 dark:text-emerald-400 shrink-0">
+                        {t('gw2.route.playUses')}
+                      </span>
+                    )}
+                    <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-zinc-100/70 dark:bg-zinc-800/60 text-zinc-400 dark:text-zinc-500 shrink-0">{r.id}</span>
+                    <span onClick={e => { e.stopPropagation(); navigator.clipboard?.writeText(r.id); }}
+                      className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 cursor-pointer transition-colors shrink-0">{t('gateway.common.copy')}</span>
+                    {r.rules.length > 0 && (
+                      <span className="text-xs px-1 py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/40 text-indigo-600 dark:text-indigo-400 shrink-0">
+                        {t('gateway.route.rulesCount', { n: r.rules.length })}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400 truncate" title={describe(r)}>{describe(r)}</p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                  <button type="button" className={`${BTN} hidden sm:inline-flex`} onClick={() => navigate('/debug', { state: { hubRoute: r.id } })}>{t('gw2.route.try')}</button>
+                  <button type="button" className={`${BTN} ${apiFor === r.id ? '!border-blue-400 !text-blue-500' : ''}`} aria-expanded={apiFor === r.id}
+                    onClick={() => setApiFor(apiFor === r.id ? '' : r.id)}>{apiFor === r.id ? t('gw2.pro.apiClose') : t('gw2.pro.api')}</button>
+                  {!r.builtin && (
+                    <button type="button" onClick={() => remove(r)}
+                      className="text-xs px-2 py-1 rounded-lg border border-red-200 dark:border-red-800/60 text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                      {t('gateway.common.delete')}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {apiFor === r.id && <div className="mt-2"><AgentApiInline harnessId={r.id} note={t('gw2.api.routeNote', { name: r.name })} t={t} /></div>}
+              {open && <div className="mt-2"><RouteEditor route={r} agents={agents} t={t} onSave={save} onCancel={() => setEditing(null)} /></div>}
             </div>
-            {apiFor === r.id && <AgentApiInline harnessId={r.id} note={t('gw2.api.routeNote', { name: r.name })} t={t} />}
-            {editing === r.id && <RouteEditor route={r} agents={agents} t={t} onSave={save} onCancel={() => setEditing(null)} />}
-          </React.Fragment>
-        ))}
+          );
+        })}
+        {routes.length === 0 && <div className="px-5 py-8 text-xs text-zinc-400 text-center">{t('gateway.route.empty')}</div>}
       </div>
     </section>
   );
