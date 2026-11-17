@@ -262,18 +262,30 @@ export function ProfessionalAgents() {
                   return (
                     <React.Fragment key={a.id}>
                     <div className={`${ROW} ${GRID} ${b ? 'bg-red-50/50 dark:bg-red-950/10' : ''}`}>
-                      <NameCell name={a.name} meta={a.skillCount ? t('gw2.pro.skills', { n: a.skillCount }) : t('gw2.pro.noSkills')}>
-                        {(a.projectedRuntimes || []).length > 1 && (
-                          <label className="mt-1 flex flex-nowrap items-center gap-1.5 min-w-0 text-[11px] text-zinc-500 dark:text-zinc-400">
-                            <span className="shrink-0 whitespace-nowrap">{t('gw2.pro.defaultOn')}</span>
-                            <select value={a.runtimeAgentId} onChange={e => setDefaultApp(a, e.target.value)}
-                              title={t('gw2.pro.defaultHint')}
-                              className="min-w-0 max-w-full min-h-[44px] md:min-h-[26px] px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm md:text-[11px] text-zinc-800 dark:text-zinc-100 truncate">
-                              {a.projectedRuntimes.map(id => <option key={id} value={id}>{appName(id)}</option>)}
-                            </select>
-                          </label>
-                        )}
-                      </NameCell>
+                      {/* 技能数和「默认在哪跑」并成一行，行高和其它行一样 */}
+                      <NameCell name={a.name} meta={(
+                        <span className="flex flex-nowrap items-center gap-1 min-w-0">
+                          <span className="shrink-0">{a.skillCount ? t('gw2.pro.skills', { n: a.skillCount }) : t('gw2.pro.noSkills')}</span>
+                          {(a.projectedRuntimes || []).length > 1 && (
+                            <>
+                              <span className="shrink-0 text-zinc-300 dark:text-zinc-600">·</span>
+                              <label className="flex flex-nowrap items-center gap-0.5 min-w-0" title={t('gw2.pro.defaultHint')}>
+                                <span className="shrink-0 whitespace-nowrap">{t('gw2.pro.defaultOn')}</span>
+                                {/* 去掉原生外观：选中的应用名后面直接跟一个小箭头 */}
+                                <span className="relative inline-flex items-center min-w-0 text-blue-600 dark:text-blue-400">
+                                  <span className="truncate text-[11px] font-medium">{appName(a.runtimeAgentId)}</span>
+                                  <span aria-hidden className="ml-0.5 text-[9px]">▾</span>
+                                  <select value={a.runtimeAgentId} onChange={e => setDefaultApp(a, e.target.value)}
+                                    aria-label={t('gw2.pro.defaultOn')}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer appearance-none">
+                                    {a.projectedRuntimes.map(id => <option key={id} value={id}>{appName(id)}</option>)}
+                                  </select>
+                                </span>
+                              </label>
+                            </>
+                          )}
+                        </span>
+                      )} />
                       <span className="min-w-0">
                         {b ? (
                           <>
