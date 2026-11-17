@@ -226,7 +226,8 @@ export function ProfessionalAgents() {
     return [...m.entries()].sort((a, b) => (b[1].some(r => blocked[r.id]) - a[1].some(r => blocked[r.id])) || b[1].length - a[1].length);
   }, [rows, blocked]);
   const brokenN = rows.filter(a => blocked[a.id]).length;
-  const GRID = 'md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.8fr)_15rem]';
+  // 名字占剩下的宽度；状态 / 今天 / 出租内容短，给固定窄列
+  const GRID = 'md:grid-cols-[minmax(0,1fr)_9rem_8rem_5.5rem_15rem]';
   return (
     <section className="px-2.5 py-3 min-w-0">
       <Toolbar main={<button type="button" className={BTN_MAIN} onClick={() => navigate('/resources', { state: { resourceType: 'assistant' } })}>{t('gw2.pro.newPlus')}</button>}
@@ -431,7 +432,8 @@ export function ExternalAgents() {
   const rows = [...list].sort((a, b) => (b.status === 'pending') - (a.status === 'pending'));
   const gateway = (() => { try { return `${window.location.protocol}//${window.location.hostname}:11430`; } catch { return 'http://127.0.0.1:11430'; } })();
   const skillUrl = `${gateway}/v1/agent/external/skill`;
-  const GRID = 'md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_10.5rem]';
+  // 名字和「能做什么」分剩下的宽度；连接 / 今天 / harness_id 给固定列
+  const GRID = 'md:grid-cols-[minmax(0,1fr)_12.5rem_6.5rem_10rem_minmax(0,1.2fr)_12rem]';
   return (
     <section className="px-2.5 py-3 min-w-0">
       <Toolbar main={<button type="button" className={BTN_MAIN} aria-expanded={open} onClick={() => (open ? setOpen(false) : newCode())}>{t('gw2.ext.connectPlus')}</button>}
