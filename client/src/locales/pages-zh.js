@@ -1392,6 +1392,7 @@ export default {
   "dashboard.localDetails": "这台电脑的明细",
   "dashboard.localDetailsHint": "趋势、Skill、工具、MCP 调用目前只有这台电脑的",
   "dashboard.mineTag": "本机",
+  "dashboard.removedDevices": "已移除的设备",
   "dashboard.scopeThisDevice": "这台电脑",
   "dashboard.modelsTable": "用了哪些模型",
   "dashboard.sortCalls": "按调用",

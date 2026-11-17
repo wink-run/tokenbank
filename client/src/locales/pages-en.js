@@ -1390,6 +1390,7 @@ export default {
   "dashboard.localDetails": "This computer only",
   "dashboard.localDetailsHint": "Trend, Skill, tool and MCP calls are only kept on this computer",
   "dashboard.mineTag": "This one",
+  "dashboard.removedDevices": "Removed devices",
   "dashboard.scopeThisDevice": "This computer",
   "dashboard.modelsTable": "Models used",
   "dashboard.sortCalls": "By calls",
