@@ -28,10 +28,10 @@ function sumUsageRows(rows, base) {
 
 /**
  * 盘点页的设备 = 个人页「我的设备」那份（同样合并同一台电脑的多条记录、同样的名字），
- * 再按设备 id 把云端用量挂上去。用量里有、设备列表里已没有的（删掉的设备）合成一项「已移除的设备」。
+ * 再按设备 id 把云端用量挂上去。已删掉的设备不展示。
  * 拿不到设备列表时退回只用用量里的设备行，按电脑名 + 系统合并。
  */
-function buildUsageDevices(usageRows, myDevices, removedLabel) {
+function buildUsageDevices(usageRows, myDevices) {
   const rows = usageRows || [];
   if (!myDevices?.length) {
     const groups = new Map();
@@ -45,17 +45,12 @@ function buildUsageDevices(usageRows, myDevices, removedLabel) {
       return sumUsageRows(g, { ...primary, online: g.some(r => r.online), device_ids: g.map(r => r.device_id).filter(Boolean) });
     });
   }
-  const taken = new Set();
   const out = myDevices.map((md) => {
     const ids = (md.device_ids?.length ? md.device_ids : [md.device_id]).filter(Boolean).map(String);
     const mine = rows.filter(r => ids.includes(String(r.device_id)));
-    mine.forEach(r => taken.add(r));
     return sumUsageRows(mine, { ...md, device_ids: ids, online: !!md.online });
   });
-  const orphan = rows.filter(r => !taken.has(r) && (Number(r.calls) || 0) > 0);
-  if (orphan.length) {
-    out.push(sumUsageRows(orphan, { device_id: '__removed__', name: removedLabel, online: false, device_ids: orphan.map(r => r.device_id), removed: true }));
-  }
+  // 已删除设备的用量不展示，也不算进合计（和设备胶囊对得上）
   return out;
 }
 
@@ -66,7 +61,7 @@ function deviceLabels(list) {
   const out = {};
   for (const d of list) {
     const b = formatDeviceTitle(d) || '—';
-    out[d.device_id] = count[b] > 1 && !d.removed ? `${b} · ${String(d.device_id || '').slice(-4)}` : b;
+    out[d.device_id] = count[b] > 1 ? `${b} · ${String(d.device_id || '').slice(-4)}` : b;
   }
   return out;
 }
@@ -562,7 +557,7 @@ export default function Dashboard() {
 
   // ── 看哪些设备 ─────────────────────────────────────────────────────────────
   // 全部设备：云端合并；这台电脑：本机明细；其它设备：云端里那台的摘要
-  const devices = buildUsageDevices(cloud?.devices || [], myDevices, t('dashboard.removedDevices'));
+  const devices = buildUsageDevices(cloud?.devices || [], myDevices);
   const labels = deviceLabels(devices);
   const scope = !cloud ? 'local'
     : (scopePick === 'all' || scopePick === 'local' || devices.some(d => d.device_id === scopePick)) ? scopePick : 'all';
@@ -687,7 +682,7 @@ export default function Dashboard() {
         <div role="radiogroup" aria-label={t('dashboard.deviceLabel')} style={{ scrollbarWidth: 'none' }}
           className="tb-hscroll flex flex-nowrap md:flex-wrap items-center gap-1.5 overflow-x-auto md:overflow-visible -mx-1 px-1 pb-0.5 [&::-webkit-scrollbar]:hidden">
           {[
-            ...(cloud ? [{ id: 'all', label: t('dashboard.allDevices', { n: devices.filter(d => !d.removed).length }), calls: callSum }] : []),
+            ...(cloud ? [{ id: 'all', label: t('dashboard.allDevices', { n: devices.length }), calls: callSum }] : []),
             // 这台电脑就在设备里，胶囊上标「本机」并排在最前；云端还没有它（没同步上来 / 没登录）时才单独给一个「这台电脑」
             ...(thisRow ? [] : [{ id: 'local', label: t('dashboard.scopeThisDevice'), online: true }]),
             ...[...devices].sort((x, y) => isThis(y) - isThis(x)).map(d => ({
@@ -727,7 +722,7 @@ export default function Dashboard() {
             label: t('dashboard.totalRequests'),
             value: totalCalls,
             valueCls: 'text-zinc-900 dark:text-zinc-50',
-            hint: scope === 'all' ? t('dashboard.requestsHintAll', { n: devices.filter(d => !d.removed).length, range: rangeLabel }) : pickedDevice && !useLocal ? t('dashboard.requestsHintDevice', { range: rangeLabel, name: labels[pickedDevice.device_id] || formatDeviceTitle(pickedDevice) }) : t('dashboard.totalRequestsHint', { range: rangeLabel }),
+            hint: scope === 'all' ? t('dashboard.requestsHintAll', { n: devices.length, range: rangeLabel }) : pickedDevice && !useLocal ? t('dashboard.requestsHintDevice', { range: rangeLabel, name: labels[pickedDevice.device_id] || formatDeviceTitle(pickedDevice) }) : t('dashboard.totalRequestsHint', { range: rangeLabel }),
           },
           {
             label: t('dashboard.tokenUsage'),
