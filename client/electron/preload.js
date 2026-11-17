@@ -161,6 +161,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     skillEnvGet: (params) => ipcRenderer.invoke('resource:skillEnvGet', params || {}),
     skillEnvSet: (params) => ipcRenderer.invoke('resource:skillEnvSet', params || {}),
     skillEnvMissing: () => ipcRenderer.invoke('resource:skillEnvMissing'),
+    skillEnvShellHook: () => ipcRenderer.invoke('resource:skillEnvShellHook'),
     saveResource: (data) => ipcRenderer.invoke('resource:saveResource', data || {}),
     pickImportPath: (options) => ipcRenderer.invoke('resource:pickImportPath', options || {}),
     importFromPath: (params) => ipcRenderer.invoke('resource:importFromPath', params || {}),

@@ -59,6 +59,7 @@ const resource = {
   skillEnvGet: call('resource:skillEnvGet', {}),
   skillEnvSet: call('resource:skillEnvSet', {}),
   skillEnvMissing: call0('resource:skillEnvMissing'),
+  skillEnvShellHook: call0('resource:skillEnvShellHook'),
   upsertCommunitySkill: call('resource:upsertCommunitySkill', {}),
   ensureBuiltinAssistants: call0('resource:ensureBuiltinAssistants'),
   saveResource: call('resource:saveResource', {}),

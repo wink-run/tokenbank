@@ -17,6 +17,7 @@ export default function SkillEnvPanel({ resourceId, onChanged }) {
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
   const [newValue, setNewValue] = useState('');
+  const [hooking, setHooking] = useState(false);
 
   const load = useCallback(async () => {
     if (!resourceId || !api().skillEnvGet) return;
@@ -94,9 +95,31 @@ export default function SkillEnvPanel({ resourceId, onChanged }) {
       )}
 
       {err && <p className="text-[11px] text-rose-600 dark:text-rose-400">{err}</p>}
-      <p className="text-[11px] leading-relaxed text-zinc-400">
-        {t('resources.env.where')}<code className="mx-0.5 font-mono">source {String(info.shellFile || '~/.tokenbank/skill-env.sh').replace(/^\/(?:root|home\/[^/]+|Users\/[^/]+)/, '~')}</code>
-      </p>
+      {/* 存在哪、谁能读到：三处都是通用做法，不按应用逐个适配 */}
+      <ul className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400 space-y-0.5 list-disc pl-4">
+        <li>{t('resources.env.whereStore')}</li>
+        <li>{t('resources.env.whereTask')}</li>
+        <li>
+          {info.dotenv === 'foreign' ? <span className="text-amber-600 dark:text-amber-400">{t('resources.env.whereDotenvForeign')}</span>
+            : info.dotenv === 'nodir' ? t('resources.env.whereDotenvLater') : t('resources.env.whereDotenv')}
+        </li>
+        <li>
+          {info.shellHooked ? t('resources.env.whereShellOn') : (
+            <>
+              {t('resources.env.whereShellOff')}
+              <button type="button" disabled={hooking}
+                onClick={async () => {
+                  setHooking(true); setErr('');
+                  const r = await api().skillEnvShellHook?.().catch(e => ({ success: false, error: e.message }));
+                  setHooking(false);
+                  if (!r?.success) setErr(r?.error || t('resources.env.saveFailed'));
+                  await load();
+                }}
+                className="ml-1 text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50">{t('resources.env.hookShell')}</button>
+            </>
+          )}
+        </li>
+      </ul>
     </div>
   );
 }

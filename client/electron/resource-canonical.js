@@ -281,6 +281,8 @@ function packSkillCompanionFiles(skillDir) {
       }
       if (!ent.isFile()) continue;
       if (SKILL_PACK_SKIP_FILES.has(ent.name.toLowerCase())) continue;
+      // 本机密钥文件不打包（分享、同步都不带）：.env、.env.local 等；示例文件 .env.example 照常
+      if (/^\.env(\..+)?$/i.test(ent.name) && !/^\.env\.(example|sample|template)$/i.test(ent.name)) continue;
       const rel = path.relative(root, abs).split(path.sep).join('/');
       if (!isSafeSkillRelativePath(rel) || isRootSkillMarkdown(rel)) continue;
       let st;

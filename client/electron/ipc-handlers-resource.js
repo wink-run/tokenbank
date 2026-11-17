@@ -160,7 +160,9 @@ function registerResourceHandlers() {
       const resource = resourceManager.getResource(resourceId);
       if (!resource) return { success: false, error: '没有这个技能' };
       const { resolveAuthorityDir } = require('./resource-canonical');
-      const info = require('./skill-env').describe(resource, resolveAuthorityDir(resource));
+      const dir = resolveAuthorityDir(resource);
+      try { require('./skill-env').ensureDotenv(resource, dir); } catch { /* 补写失败不影响查看 */ }
+      const info = require('./skill-env').describe(resource, dir);
       return { success: true, ...info, shellFile: require('./skill-env').shellFile() };
     } catch (error) {
       return { success: false, error: error.message };
@@ -171,8 +173,17 @@ function registerResourceHandlers() {
       resourceManager.init();
       const resource = resourceManager.getResource(resourceId);
       if (!resource) return { success: false, error: '没有这个技能' };
-      require('./skill-env').setValue(resource, name, value);
-      return { success: true };
+      const { resolveAuthorityDir } = require('./resource-canonical');
+      const dotenv = require('./skill-env').setValue(resource, name, value, resolveAuthorityDir(resource));
+      return { success: true, dotenv };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  // 用户点了才做：在 shell 配置（.zshrc / .bashrc …）末尾加一行 source ~/.tokenbank/skill-env.sh
+  ipcMain.handle('resource:skillEnvShellHook', async () => {
+    try {
+      return { success: true, files: require('./skill-env').installShellHook() };
     } catch (error) {
       return { success: false, error: error.message };
     }

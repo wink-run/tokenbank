@@ -3,8 +3,10 @@
 //   1) 从技能目录里找出它要哪些变量：SKILL.md 头部声明的（requires.env / primaryEnv），
 //      加上正文、参考文档、脚本里出现的 XXX_API_KEY / _TOKEN / _SECRET 之类
 //   2) 值存在本机 ~/.tokenbank/skill-env.json，能加密就加密（Electron safeStorage），不写进技能文件，分享技能不会带出去
-//   3) 用到的地方：Token Bank 跑智能体任务时注入进程环境；写进 Claude Code settings.json 的 env；
-//      另生成 ~/.tokenbank/skill-env.sh（只本人可读），从终端启动的 Codex、Kimi 等 source 一下即可
+//   3) 不按应用逐个适配，用通用的三处（和 OpenClaw、dotenv、nvm/conda 这类主流做法一致）：
+//      - Token Bank 跑智能体任务时，按技能声明把变量注入进程环境（OpenClaw 的做法）
+//      - 技能目录里写一份 .env（只本人可读）：技能目录软链到各应用，脚本用 dotenv 之类直接读到；分享 / 同步不带它
+//      - ~/.tokenbank/skill-env.sh，经用户同意在 shell 配置里加一行 source，终端里启动的任何应用都能读到
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -139,11 +141,11 @@ function describe(resource, dir) {
     if (!names.has(n)) vars.push({ name: n, declared: false, custom: true, set: true, preview: maskValue(decode(saved[n])) });
   }
   const missing = vars.filter(v => v.declared && !v.set).map(v => v.name);
-  return { key, vars, missing };
+  return { key, vars, missing, dotenv: dotenvState(dir), shellHooked: shellHookInstalled() };
 }
 
 /** 设一个值；value 为空就删掉。设完同步到 Claude Code 和 shell 文件 */
-function setValue(resource, name, value) {
+function setValue(resource, name, value, dir = null) {
   const n = String(name || '').trim();
   if (!NAME_RE.test(n)) throw new Error('变量名只能用大写字母、数字和下划线，且以字母开头');
   if (RESERVED.test(n)) throw new Error(`${n} 由 Token Bank 自己管理，不能在技能里配置`);
@@ -156,7 +158,7 @@ function setValue(resource, name, value) {
   if (!Object.keys(data[key]).length) delete data[key];
   writeStore(data);
   syncOutputs();
-  return true;
+  return writeSkillDotenv(dir, skillVars(resource));
 }
 
 /** 所有技能配过的变量合在一起（同名以后配的为准） */
@@ -187,25 +189,97 @@ function syncOutputs() {
     fs.writeFileSync(f, `${lines.join('\n')}\n`, { mode: 0o600 });
     try { fs.chmodSync(f, 0o600); } catch { /* Windows */ }
   } catch (e) { console.warn('[skill-env] 写 shell 文件失败:', e.message); }
-  // 2) Claude Code：settings.json 的 env 会带进每个会话
+  // 旧版本写进过 Claude Code settings.json 的键：清掉一次，以后不再按应用写
   try {
-    const dir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
-    if (!fs.existsSync(dir)) return;
-    const file = path.join(dir, 'settings.json');
-    let settings = {};
-    try { settings = JSON.parse(fs.readFileSync(file, 'utf8')) || {}; } catch { settings = {}; }
     const data = readStore();
     const before = Array.isArray(data.__claudeManaged) ? data.__claudeManaged : [];
-    const cur = { ...(settings.env || {}) };
-    for (const n of before) if (!(n in env)) delete cur[n];
-    Object.assign(cur, env);
-    settings.env = cur;
-    fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`);
-    data.__claudeManaged = Object.keys(env);
-    writeStore(data);
-  } catch (e) { console.warn('[skill-env] 写 Claude Code 配置失败:', e.message); }
+    if (before.length) {
+      const file = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'settings.json');
+      try {
+        const settings = JSON.parse(fs.readFileSync(file, 'utf8')) || {};
+        if (settings.env) {
+          for (const n of before) delete settings.env[n];
+          fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`);
+        }
+      } catch { /* 没有这个文件就算了 */ }
+    }
+    if ('__claudeManaged' in data) { delete data.__claudeManaged; writeStore(data); }
+  } catch { /* ignore */ }
+}
+
+const DOTENV_HEAD = '# Token Bank 管理：这个技能用到的 Key。在资产页改，别手动编辑';
+
+/** 技能目录里的 .env：只写自己管的那份；目录里已有别人写的 .env 就不动，返回 foreign */
+function writeSkillDotenv(dir, vars) {
+  if (!dir) return 'nodir';
+  const f = path.join(dir, '.env');
+  let existing = null;
+  try { existing = fs.readFileSync(f, 'utf8'); } catch { existing = null; }
+  if (existing != null && !existing.startsWith(DOTENV_HEAD)) return 'foreign';
+  const entries = Object.entries(vars || {});
+  try {
+    if (!entries.length) { if (existing != null) fs.unlinkSync(f); return 'none'; }
+    const body = entries.map(([n, v]) => `${n}=${JSON.stringify(String(v))}`).join('\n');
+    fs.writeFileSync(f, `${DOTENV_HEAD}\n${body}\n`, { mode: 0o600 });
+    try { fs.chmodSync(f, 0o600); } catch { /* Windows */ }
+    return 'written';
+  } catch (e) {
+    console.warn('[skill-env] 写技能 .env 失败:', e.message);
+    return 'error';
+  }
+}
+
+function skillVars(resource) {
+  const saved = readStore()[skillKey(resource)] || {};
+  const out = {};
+  for (const [n, stored] of Object.entries(saved)) { const v = decode(stored); if (v) out[n] = v; }
+  return out;
+}
+
+/** 技能目录 .env 现在的情况（给详情面板说明用） */
+function dotenvState(dir) {
+  if (!dir) return 'nodir';
+  try {
+    const txt = fs.readFileSync(path.join(dir, '.env'), 'utf8');
+    return txt.startsWith(DOTENV_HEAD) ? 'written' : 'foreign';
+  } catch { return 'none'; }
+}
+
+/** 技能目录有了（比如后来才启用到应用）、配过值、还没有 .env：补写一份 */
+function ensureDotenv(resource, dir) {
+  if (!dir || dotenvState(dir) !== 'none') return;
+  const vars = skillVars(resource);
+  if (Object.keys(vars).length) writeSkillDotenv(dir, vars);
+}
+
+// ── shell 配置里的一行 source（像 nvm / conda 安装时那样，用户点了才加）──
+const HOOK_MARK = '# >>> Token Bank skill keys >>>';
+function shellProfiles() {
+  const home = os.homedir();
+  const all = ['.zshrc', '.bashrc', '.bash_profile', '.profile'].map(n => path.join(home, n));
+  const existing = all.filter(f => fs.existsSync(f));
+  if (existing.length) return existing;
+  return [path.join(home, process.env.SHELL && /zsh/.test(process.env.SHELL) ? '.zshrc' : '.bashrc')];
+}
+function shellHookInstalled() {
+  return shellProfiles().some(f => { try { return fs.readFileSync(f, 'utf8').includes(HOOK_MARK); } catch { return false; } });
+}
+function installShellHook() {
+  if (process.platform === 'win32') throw new Error('Windows 请在系统环境变量里设置，或在 PowerShell 配置里加载');
+  const line = `${HOOK_MARK}\n[ -f "$HOME/.tokenbank/skill-env.sh" ] && . "$HOME/.tokenbank/skill-env.sh"\n# <<< Token Bank skill keys <<<\n`;
+  const done = [];
+  for (const f of shellProfiles()) {
+    let txt = '';
+    try { txt = fs.readFileSync(f, 'utf8'); } catch { txt = ''; }
+    if (txt.includes(HOOK_MARK)) { done.push(f); continue; }
+    fs.appendFileSync(f, `${txt && !txt.endsWith('\n') ? '\n' : ''}\n${line}`);
+    done.push(f);
+  }
+  syncOutputs();
+  return done;
 }
 
 module.exports = {
   detectRequiredEnv, declaredEnv, mentionedEnv, describe, setValue, allEnv, syncOutputs, shellFile, maskValue,
+  writeSkillDotenv, installShellHook, shellHookInstalled, ensureDotenv,
 };
