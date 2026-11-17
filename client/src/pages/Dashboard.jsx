@@ -8,7 +8,60 @@ import { useAuth } from '../store/index';
 import { fetchDashboardStats } from './TokenDashboard';
 import { getTransactions } from '../api/client';
 import { useNavigate } from 'react-router-dom';
-import { formatDeviceTitle } from '../lib/device-display';
+import { formatDeviceTitle, formatLegacyPlatform, deviceIdentityKey, effectiveDeviceType } from '../lib/device-display';
+import { getReportedDeviceId } from '../hooks/useDeviceReporter';
+
+/** 同一台电脑换过设备 id 会上报成好几行：按电脑名 + 平台合成一行，用量相加 */
+function mergeUsageDevices(list) {
+  const groups = new Map();
+  for (const d of list || []) {
+    const key = deviceIdentityKey(d) || `id:${d.device_id || ''}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(d);
+  }
+  return [...groups.values()].map((rows) => {
+    if (rows.length === 1) return { ...rows[0], device_ids: [rows[0].device_id] };
+    const primary = [...rows].sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0) || (Number(b.calls) || 0) - (Number(a.calls) || 0))[0];
+    const sum = (f) => rows.reduce((n, r) => n + (Number(r[f]) || 0), 0);
+    const tiers = {};
+    for (const r of rows) for (const [k, v] of Object.entries(r.tiers || {})) tiers[k] = (tiers[k] || 0) + (Number(v) || 0);
+    const models = new Map();
+    for (const r of rows) for (const m of r.models || []) {
+      const cur = models.get(m.model) || { ...m, calls: 0, tokens: 0, cost: 0 };
+      cur.calls += Number(m.calls) || 0; cur.tokens += Number(m.tokens) || 0; cur.cost += Number(m.cost) || 0;
+      models.set(m.model, cur);
+    }
+    return {
+      ...primary, online: rows.some(r => r.online), calls: sum('calls'), tokens: sum('tokens'), cost: sum('cost'),
+      tiers, models: [...models.values()], device_ids: rows.map(r => r.device_id).filter(Boolean),
+    };
+  });
+}
+
+const IP_NAME = /^\d{1,3}(\.\d{1,3}){3}$/;
+const TYPE_NAME = { desktop: '桌面版', cli: '命令行版' };
+/** 胶囊上的设备名：IP 当名字时前面写上是什么版本；重名时后面加平台或 id 末四位区分 */
+function deviceLabels(list) {
+  const base = (d) => {
+    const title = formatDeviceTitle(d) || '—';
+    return IP_NAME.test(title) ? `${TYPE_NAME[effectiveDeviceType(d)] || ''} ${title}`.trim() : title;
+  };
+  const count = {};
+  for (const d of list) count[base(d)] = (count[base(d)] || 0) + 1;
+  const out = {};
+  const used = {};
+  for (const d of list) {
+    let label = base(d);
+    if (count[label] > 1) {
+      const plat = formatLegacyPlatform(d.platform);
+      label = `${label} · ${plat || String(d.device_id || '').slice(-4)}`;
+      used[label] = (used[label] || 0) + 1;
+      if (used[label] > 1) label = `${label} ${String(d.device_id || '').slice(-4)}`;
+    }
+    out[d.device_id] = label;
+  }
+  return out;
+}
 
 const PAID_PROVIDERS = ['openai', 'anthropic-paid', 'openrouter', 'anthropic'];
 const P2P_PROVIDERS  = ['tokenbank-p2p'];
@@ -489,10 +542,13 @@ export default function Dashboard() {
 
   // ── 看哪些设备 ─────────────────────────────────────────────────────────────
   // 全部设备：云端合并；这台电脑：本机明细；其它设备：云端里那台的摘要
-  const devices = cloud?.devices || [];
+  const devices = mergeUsageDevices(cloud?.devices || []);
+  const labels = deviceLabels(devices);
   const scope = !cloud ? 'local'
     : (scopePick === 'all' || scopePick === 'local' || devices.some(d => d.device_id === scopePick)) ? scopePick : 'all';
-  const isThis = (d) => !!thisDeviceId && String(d?.device_id) === thisDeviceId;
+  // 本机：设备上报用的 id（和云端列表同一个来源）或本机读到的 id，合并过的行看它包含的所有 id
+  const myIds = new Set([thisDeviceId, getReportedDeviceId()].filter(Boolean).map(String));
+  const isThis = (d) => (d?.device_ids || [d?.device_id]).some(id => myIds.has(String(id)));
   const pickedDevice = scope !== 'all' && scope !== 'local' ? devices.find(d => d.device_id === scope) : null;
   const useLocal = scope === 'local' || (pickedDevice && isThis(pickedDevice));
   // 费用一个口径：全部设备的总费用（订阅折算 + 按量；没有账户信息时就是各台上报的用量费之和），
@@ -507,8 +563,10 @@ export default function Dashboard() {
   };
   const shareOf = (d) => (callSum > 0 ? Math.round((Number(d?.calls) || 0) / callSum * 100) : 0);
   const thisRow = devices.find(isThis);
+  const tokenSum = devices.reduce((n, d) => n + (Number(d.tokens) || 0), 0);
   const v = useLocal ? localData
-    : scope === 'all' ? cloud
+    // 全部设备：请求和 Token 用各台相加，和设备胶囊上的数对得上
+    : scope === 'all' ? (cloud && devices.length ? { ...cloud, total_calls: callSum, total_tokens: tokenSum || cloud.total_tokens } : cloud)
       : {
         total_calls: pickedDevice?.calls || 0, total_tokens: pickedDevice?.tokens || 0, total_cost: deviceCost(pickedDevice),
         tiers: pickedDevice?.tiers || {}, providers: pickedDevice?.providers || [], models: pickedDevice?.models || [],
@@ -606,13 +664,14 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
-        <div role="radiogroup" aria-label={t('dashboard.deviceLabel')} className="tb-hscroll flex flex-nowrap items-center gap-1.5 overflow-x-auto -mx-1 px-1 pb-0.5">
+        <div role="radiogroup" aria-label={t('dashboard.deviceLabel')} style={{ scrollbarWidth: 'none' }}
+          className="tb-hscroll flex flex-nowrap md:flex-wrap items-center gap-1.5 overflow-x-auto md:overflow-visible -mx-1 px-1 pb-0.5 [&::-webkit-scrollbar]:hidden">
           {[
-            ...(cloud ? [{ id: 'all', label: t('dashboard.allDevices', { n: cloud.device_count ?? devices.length }), calls: callSum }] : []),
+            ...(cloud ? [{ id: 'all', label: t('dashboard.allDevices', { n: devices.length }), calls: callSum }] : []),
             // 这台电脑就在设备里，胶囊上标「本机」并排在最前；云端还没有它（没同步上来 / 没登录）时才单独给一个「这台电脑」
             ...(thisRow ? [] : [{ id: 'local', label: t('dashboard.scopeThisDevice'), online: true }]),
             ...[...devices].sort((x, y) => isThis(y) - isThis(x)).map(d => ({
-              id: isThis(d) ? 'local' : d.device_id, label: formatDeviceTitle(d), online: !!d.online, calls: d.calls, mine: isThis(d),
+              id: isThis(d) ? 'local' : d.device_id, label: labels[d.device_id] || formatDeviceTitle(d), online: !!d.online, calls: d.calls, mine: isThis(d),
             })),
           ].map(o => {
             const on = scope === o.id;
@@ -648,7 +707,7 @@ export default function Dashboard() {
             label: t('dashboard.totalRequests'),
             value: totalCalls,
             valueCls: 'text-zinc-900 dark:text-zinc-50',
-            hint: scope === 'all' ? t('dashboard.requestsHintAll', { n: devices.length, range: rangeLabel }) : pickedDevice && !useLocal ? t('dashboard.requestsHintDevice', { range: rangeLabel, name: formatDeviceTitle(pickedDevice) }) : t('dashboard.totalRequestsHint', { range: rangeLabel }),
+            hint: scope === 'all' ? t('dashboard.requestsHintAll', { n: devices.length, range: rangeLabel }) : pickedDevice && !useLocal ? t('dashboard.requestsHintDevice', { range: rangeLabel, name: labels[pickedDevice.device_id] || formatDeviceTitle(pickedDevice) }) : t('dashboard.totalRequestsHint', { range: rangeLabel }),
           },
           {
             label: t('dashboard.tokenUsage'),
