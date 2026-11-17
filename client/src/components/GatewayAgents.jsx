@@ -264,11 +264,11 @@ export function ProfessionalAgents() {
                     <div className={`${ROW} ${GRID} ${b ? 'bg-red-50/50 dark:bg-red-950/10' : ''}`}>
                       <NameCell name={a.name} meta={a.skillCount ? t('gw2.pro.skills', { n: a.skillCount }) : t('gw2.pro.noSkills')}>
                         {(a.projectedRuntimes || []).length > 1 && (
-                          <label className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-                            {t('gw2.pro.defaultOn')}
+                          <label className="mt-1 flex flex-nowrap items-center gap-1.5 min-w-0 text-[11px] text-zinc-500 dark:text-zinc-400">
+                            <span className="shrink-0 whitespace-nowrap">{t('gw2.pro.defaultOn')}</span>
                             <select value={a.runtimeAgentId} onChange={e => setDefaultApp(a, e.target.value)}
                               title={t('gw2.pro.defaultHint')}
-                              className="min-h-[44px] md:min-h-[26px] px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm md:text-[11px] text-zinc-800 dark:text-zinc-100">
+                              className="min-w-0 max-w-full min-h-[44px] md:min-h-[26px] px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm md:text-[11px] text-zinc-800 dark:text-zinc-100 truncate">
                               {a.projectedRuntimes.map(id => <option key={id} value={id}>{appName(id)}</option>)}
                             </select>
                           </label>
