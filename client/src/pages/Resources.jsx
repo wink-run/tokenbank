@@ -11,6 +11,7 @@ import McpProvidersTab from '../components/McpProvidersTab';
 import SkillInstallDialog from '../components/SkillInstallDialog';
 import AiNeedNotice from '../components/AiNeedNotice';
 import DiagnosePanel from '../components/DiagnosePanel';
+import SkillEnvPanel from '../components/SkillEnvPanel';
 import { projectWithGuard } from '../lib/project-guard';
 import { useAiReadiness } from '../lib/ai-readiness';
 import { isWebBridge } from '../api/webBridge';
@@ -934,6 +935,14 @@ export default function Resources() {
 
   // 看护资产体检的小标签（质量 / 安全 / 重复 / 新版本），按资产 id 索引
   const [assetFlags, setAssetFlags] = useState({});
+  // 技能写明要配、还没配的 Key：{ resourceId: [变量名] }
+  const [envMissing, setEnvMissing] = useState({});
+  const refreshEnvMissing = useCallback(() => {
+    const fn = window.electronAPI?.resource?.skillEnvMissing;
+    if (!fn) return;
+    Promise.resolve(fn()).then(r => setEnvMissing(r?.missing || {})).catch(() => {});
+  }, []);
+  useEffect(() => { refreshEnvMissing(); }, [refreshEnvMissing]);
   const [addMenuOpen, setAddMenuOpen] = useState(false);   // 右上角「添加」菜单
   useEffect(() => {
     if (!addMenuOpen) return undefined;
@@ -3409,6 +3418,8 @@ export default function Resources() {
   function rowState(li) {
     const f = (li.resourceId && assetFlags[li.resourceId]) || {};
     if (f.security === 'high') return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyRisk'), act: 'look' };
+    const needEnv = li.resourceId && envMissing[li.resourceId];
+    if (needEnv?.length) return { kind: 'issue', word: t('resources.env.rowWord'), why: t('resources.env.rowWhy', { names: needEnv.join('、') }), act: 'look', config: true };
     const blocked = li.type === 'assistant' ? blockedAssistants[li.resourceId] : null;
     if (blocked?.reason === 'skills') return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyDepsNamed', { skills: blocked.missing.join('、') }), act: 'look' };
     if (blocked?.reason === 'runtime') return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyRuntime'), act: 'look' };
@@ -3508,7 +3519,8 @@ export default function Resources() {
               type="button"
               onClick={() => {
                 // 有问题：带着问题去智能管家对话页，由它直接处理；看更新仍打开详情
-                if (rs.kind === 'issue') {
+                if (rs.config) setSelectedKey(li.key);   // 缺 Key：打开详情，在「需要的配置」里填
+                else if (rs.kind === 'issue') {
                   navigate('/guardian', { state: { autoSend: true, prompt: t('resources.row.askGuardian', {
                     type: typeBadge(li.type, t), name: li.name, why: rs.why || rs.word, id: li.resourceId || li.key,
                   }) } });
@@ -3516,7 +3528,7 @@ export default function Resources() {
               }}
               className={`tb-press text-[11px] px-2.5 py-1 rounded-lg ${rs.kind === 'issue' ? 'bg-blue-600 text-white hover:bg-blue-500' : 'border border-zinc-200 dark:border-zinc-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20'}`}
             >
-              {rs.kind === 'update' ? t('resources.row.seeUpdate') : t('resources.row.look')}
+              {rs.config ? t('resources.env.rowAct') : rs.kind === 'update' ? t('resources.row.seeUpdate') : t('resources.row.look')}
             </button>
           ) : li.resourceId && (
             <button
@@ -3603,6 +3615,11 @@ export default function Resources() {
             {li.resourceId && <DiagnosePanel resourceId={li.resourceId} resourceName={li.name} onChanged={() => loadAll({ silent: true })} />}
           </div>
         </InspectorSection>
+        {li.type === 'skill' && li.resourceId && (
+          <InspectorSection title={t('resources.env.title')}>
+            <SkillEnvPanel resourceId={li.resourceId} onChanged={refreshEnvMissing} />
+          </InspectorSection>
+        )}
         {li.type === 'assistant' && (() => {
           const model = assistantModelOf(it.content);
           return (

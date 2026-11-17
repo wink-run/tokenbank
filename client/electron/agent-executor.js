@@ -1925,6 +1925,12 @@ class AgentExecutor extends EventEmitter {
       }
     }
 
+    // 技能要用的 Key（资产页里配的）：带进这次任务的进程环境，技能里的脚本直接读得到
+    try {
+      const skillEnv = require('./skill-env').allEnv();
+      Object.assign(spawnEnv, skillEnv);
+    } catch (e) { console.warn('[AgentExecutor] 技能配置注入失败:', e.message); }
+
     try {
       require('./api-retry-trace').traceAgentSpawnEnv({
         taskId,
