@@ -3104,6 +3104,7 @@ export default {
   'gw2.pro.selfOnly': 'Private',
   'gw2.pro.fix': 'Fix',
   'gw2.pro.try': 'Try',
+  'gw2.pro.templates': 'Templates in Assets',
   'gw2.pro.edit': 'Edit template',
   'gw2.ext.title': 'External agents · {n}',
   'gw2.ext.hint': 'Run elsewhere; they pull tasks from the gateway and send results back',

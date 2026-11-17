@@ -3163,6 +3163,7 @@ export default {
   'gw2.pro.selfOnly': '只自己用',
   'gw2.pro.fix': '去修',
   'gw2.pro.try': '试一下',
+  'gw2.pro.templates': '资产里的模板',
   'gw2.pro.edit': '编辑模板',
   'gw2.ext.title': '外部智能体 · {n}',
   'gw2.ext.hint': '不在本机跑，接入后来网关取任务、做完送回',

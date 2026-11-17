@@ -32,6 +32,52 @@ function Toolbar({ main, hint, right }) {
   );
 }
 
+const AVATAR_TONES = ['bg-violet-500', 'bg-sky-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-indigo-500', 'bg-teal-500'];
+/** 名字前的首字头像：和通用智能体每行的应用图标同一位置、同一大小 */
+function Avatar({ name }) {
+  const s = String(name || '?').trim() || '?';
+  let h = 0;
+  for (const ch of s) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return (
+    <span className={`w-[18px] h-[18px] shrink-0 rounded-full ${AVATAR_TONES[h % AVATAR_TONES.length]} text-white text-[10px] font-semibold leading-none flex items-center justify-center`} aria-hidden>
+      {[...s][0].toUpperCase()}
+    </span>
+  );
+}
+
+/** 状态：圆点 + 中粗字，和通用智能体的「已纳管」一样 */
+const STATUS_TONE = {
+  ok: ['bg-emerald-500', 'text-emerald-700 dark:text-emerald-400'],
+  bad: ['bg-red-500', 'text-red-700 dark:text-red-300'],
+  warn: ['bg-amber-500', 'text-amber-800 dark:text-amber-300'],
+  off: ['bg-zinc-300 dark:bg-zinc-600', 'text-zinc-500 dark:text-zinc-400'],
+};
+function Status({ tone = 'off', children }) {
+  const [dot, text] = STATUS_TONE[tone] || STATUS_TONE.off;
+  return (
+    <span className="flex items-center gap-1.5 min-w-0">
+      <span className={`w-2 h-2 rounded-full shrink-0 ${dot}`} aria-hidden />
+      <span className={`text-xs font-medium truncate ${text}`}>{children}</span>
+    </span>
+  );
+}
+
+/** 名字列：头像 + 名字 + 一行小字 */
+function NameCell({ name, meta, children }) {
+  return (
+    <span className="min-w-0 flex items-start gap-2.5">
+      <span className="mt-px"><Avatar name={name} /></span>
+      <span className="min-w-0 flex-1">
+        <span className={`block ${NAME}`} title={name}>{name}</span>
+        {meta ? <span className={`block ${META}`}>{meta}</span> : null}
+        {children}
+      </span>
+    </span>
+  );
+}
+
+const BTN_SIDE = 'flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border transition-colors bg-zinc-100 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700';
+
 function Code({ children }) {
   return <code className="inline-block max-w-full overflow-x-auto whitespace-nowrap align-middle font-mono text-[11px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{children}</code>;
 }
@@ -184,7 +230,8 @@ export function ProfessionalAgents() {
   return (
     <section className="px-2.5 py-3 min-w-0">
       <Toolbar main={<button type="button" className={BTN_MAIN} onClick={() => navigate('/resources', { state: { resourceType: 'assistant' } })}>{t('gw2.pro.newPlus')}</button>}
-        hint={t('gw2.pro.hint')} />
+        hint={t('gw2.pro.hint')}
+        right={<button type="button" className={BTN_SIDE} onClick={() => navigate('/resources', { state: { resourceType: 'assistant' } })}>{t('gw2.pro.templates')}</button>} />
       {rows.length === 0 ? (
         <div className="py-6 text-center text-xs text-zinc-400">{t('gw2.pro.empty')}</div>
       ) : (
@@ -215,9 +262,7 @@ export function ProfessionalAgents() {
                   return (
                     <React.Fragment key={a.id}>
                     <div className={`${ROW} ${GRID} ${b ? 'bg-red-50/50 dark:bg-red-950/10' : ''}`}>
-                      <span className="min-w-0">
-                        <span className={`block ${NAME}`} title={a.name}>{a.name}</span>
-                        <span className={`block ${META}`}>{a.skillCount ? t('gw2.pro.skills', { n: a.skillCount }) : t('gw2.pro.noSkills')}</span>
+                      <NameCell name={a.name} meta={a.skillCount ? t('gw2.pro.skills', { n: a.skillCount }) : t('gw2.pro.noSkills')}>
                         {(a.projectedRuntimes || []).length > 1 && (
                           <label className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                             {t('gw2.pro.defaultOn')}
@@ -228,14 +273,14 @@ export function ProfessionalAgents() {
                             </select>
                           </label>
                         )}
-                      </span>
-                      <span className="text-xs min-w-0">
+                      </NameCell>
+                      <span className="min-w-0">
                         {b ? (
                           <>
-                            <span className="font-semibold text-red-700 dark:text-red-300">● {t('gw2.pro.cantRun')}</span>
-                            <span className="block text-zinc-600 dark:text-zinc-300">{b.reason === 'skills' ? t('gw2.pro.missing', { s: b.missing.join('、') }) : t('gw2.pro.noApp')}</span>
+                            <Status tone="bad">{t('gw2.pro.cantRun')}</Status>
+                            <span className={`block pl-3.5 ${META}`}>{b.reason === 'skills' ? t('gw2.pro.missing', { s: b.missing.join('、') }) : t('gw2.pro.noApp')}</span>
                           </>
-                        ) : <span className="text-emerald-700 dark:text-emerald-400">● {t('gw2.pro.ok')}</span>}
+                        ) : <Status tone="ok">{t('gw2.pro.ok')}</Status>}
                       </span>
                       <span className="text-xs tabular-nums text-zinc-600 dark:text-zinc-300">{st.tasks ? t('gw2.tasks', { n: st.tasks, ok: st.ok || 0 }) : t('gw2.noTasks')}</span>
                       <span className={`text-xs ${renting ? 'text-emerald-700 dark:text-emerald-400 font-medium' : 'text-zinc-500 dark:text-zinc-400'}`}>
@@ -428,18 +473,15 @@ export function ExternalAgents() {
             return (
               <React.Fragment key={a.id}>
               <div className={`${ROW} ${GRID} ${pending ? 'bg-amber-50/50 dark:bg-amber-950/10' : ''}`}>
-                <span className="min-w-0">
-                  <span className={`block ${NAME}`}>{a.name}</span>
-                  <span className={`block ${META}`}>{pending ? t('gw2.ext.applied', { code: a.pairingCode || '' }) : t('gw2.ext.since', { when: new Date(a.createdAt).toLocaleDateString() })}</span>
-                </span>
-                <span className="text-xs">
-                  {pending ? <span className="font-semibold text-amber-800 dark:text-amber-300">● {t('gw2.ext.pending')}</span>
-                    : a.status === 'disabled' ? <span className="text-zinc-500">● {t('gw2.ext.disabled')}</span>
-                    : a.online ? <span className="text-emerald-700 dark:text-emerald-400">● {t('gw2.ext.online')}</span>
-                    : <span className="text-zinc-500">● {t('gw2.ext.offline')}</span>}
-                  {!pending && <span className="block text-zinc-500 dark:text-zinc-400">{t('gw2.ext.lastPull', { when: agoText(t, a.lastSeenAt) })}</span>}
+                <NameCell name={a.name} meta={pending ? t('gw2.ext.applied', { code: a.pairingCode || '' }) : t('gw2.ext.since', { when: new Date(a.createdAt).toLocaleDateString() })} />
+                <span className="min-w-0 text-xs">
+                  {pending ? <Status tone="warn">{t('gw2.ext.pending')}</Status>
+                    : a.status === 'disabled' ? <Status tone="off">{t('gw2.ext.disabled')}</Status>
+                    : a.online ? <Status tone="ok">{t('gw2.ext.online')}</Status>
+                    : <Status tone="off">{t('gw2.ext.offline')}</Status>}
+                  {!pending && <span className={`block pl-3.5 ${META}`}>{t('gw2.ext.lastPull', { when: agoText(t, a.lastSeenAt) })}</span>}
                   {!pending && (a.pushOk > 0 || a.lastPushError) && (
-                    <span className="block text-zinc-500 dark:text-zinc-400">{a.pushOk > 0 ? t('gw2.ext.pushes', { n: a.pushOk, when: agoText(t, a.lastPushAt) }) : ''}</span>
+                    <span className={`block pl-3.5 ${META}`}>{a.pushOk > 0 ? t('gw2.ext.pushes', { n: a.pushOk, when: agoText(t, a.lastPushAt) }) : ''}</span>
                   )}
                   {a.lastPushError && (
                     <span className="block text-red-600 dark:text-red-400" title={a.lastPushError.taskId}>{t('gw2.ext.pushRejected', { msg: a.lastPushError.message, when: agoText(t, a.lastPushError.at) })}</span>
