@@ -149,7 +149,8 @@ function startGateway(dev, envExtra = {}) {
   const log = fs.openSync(path.join(ROOT, `${dev.name}.log`), 'a');
   const p = spawn(process.execPath, [path.join(CLIENT, 'cli', 'gateway.js'), 'start', '--port', String(dev.gwPort), '--admin-port', String(dev.gwPort + 1)], {
     cwd: CLIENT,
-    env: { ...process.env, HOME: dev.home, TOKENBANK_CLI: '1', TOKEN_SERVER_URL: 'http://127.0.0.1:9', ...envExtra },
+    // 默认不连云端；MESH_DEMO_REAL_SERVER=1 时用正式服务端（要在界面上登录看真实数据时用）
+    env: { ...process.env, HOME: dev.home, TOKENBANK_CLI: '1', ...(process.env.MESH_DEMO_REAL_SERVER === '1' ? {} : { TOKEN_SERVER_URL: 'http://127.0.0.1:9' }), ...envExtra },
     stdio: ['ignore', log, log],
   });
   procs.push(p);
