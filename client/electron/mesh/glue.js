@@ -45,7 +45,12 @@ async function describeSelf() {
   }
   if (!accepts.agent_tasks) { out.apps = []; out.assistants = []; }
   try { out.workspaces = workspaces.listPublic(meshDir()); } catch { out.workspaces = []; }
-  out.aliases = Array.isArray(cfg?.aliases) ? cfg.aliases : [];
+  // 设备名称：和交易页「设备名称」同一个字段（~/.llm-agent/config.json 的 name）。派活时 @名称 就认它
+  out.aliases = [];
+  try {
+    const name = String(require('../../shared/config-loader').readAgentConfig()?.name || '').trim();
+    if (name) out.aliases = normalizeAliases([name]);
+  } catch { /* 名称不合规（有空格等）时只显示，不能用来 @ */ }
   return out;
 }
 
@@ -318,49 +323,57 @@ async function routeAgentById({ id, op, res }) {
   return true;
 }
 
-// ── 设备别名 ─────────────────────────────────────────────────────────────────
+// ── 设备名称 ─────────────────────────────────────────────────────────────────
+// 每台设备只有一个「设备名称」：盘点页显示它、派活时 @名称 认它、出租接单上报的也是它。
+// 存在设备自己的 ~/.llm-agent/config.json 的 name（交易页原来的「供给名称」）。电脑名和 device_id 照样能用。
 
-/** 别名不能和另一台在线设备的设备名或别名重复 */
-function aliasConflict(aliases, selfId) {
-  if (!node) return null;
+/** 名称不能和另一台在线设备的电脑名或设备名称重复 */
+function nameConflict(name, selfId) {
+  if (!node || !name) return null;
   for (const d of node.directory.list()) {
     if (String(d.device_id) === String(selfId) || (!d.self && !d.online)) continue;
     const taken = [d.name, ...(d.descriptor?.aliases || [])].map((x) => String(x || '').toLowerCase());
-    const hit = aliases.find((a) => taken.includes(a.toLowerCase()));
-    if (hit) return `别名「${hit}」已经被 ${deviceLabel(d)} 用了`;
+    if (taken.includes(name.toLowerCase())) return `名称「${name}」已经被 ${deviceLabel(d)} 用了`;
   }
   return null;
 }
 
-/** 改本机的别名：写进本机配置，马上推给其他设备 */
-async function setSelfAliases(list) {
-  if (!node) { const e = new Error('设备网络没有启动'); e.status = 503; throw e; }
-  const aliases = normalizeAliases(list);
-  const conflict = aliasConflict(aliases, node.deviceId);
-  if (conflict) { const e = new Error(conflict); e.status = 409; throw e; }
-  const file = path.join(meshDir(), 'config.json');
-  const cur = readConfig() || {};
-  cur.aliases = aliases;
-  fs.writeFileSync(file, JSON.stringify(cur, null, 2), { mode: 0o600 });
-  cfg = { ...(cfg || {}), aliases };
-  await node.tick();
-  return { device_id: node.deviceId, name: node.deviceName, aliases };
+/** 校验一个名称；空字符串表示清掉，回到电脑名 */
+function checkName(raw) {
+  const name = String(raw ?? '').trim();
+  if (!name) return '';
+  return normalizeAliases([name])[0];
 }
 
-/** 给某台设备起别名：本机直接改；别的设备经隧道转过去，由那台设备自己保存 */
-async function setAliases(deviceId, list) {
-  if (!node) { const e = new Error('设备网络没有启动'); e.status = 503; throw e; }
+/** 改本机的设备名称：写进本机配置，马上推给其他设备 */
+async function setSelfName(raw) {
+  const name = checkName(raw);
+  const selfId = node ? node.deviceId : null;
+  const conflict = nameConflict(name, selfId);
+  if (conflict) { const e = new Error(conflict); e.status = 409; throw e; }
+  const loader = require('../../shared/config-loader');
+  const cur = loader.readAgentConfig() || {};
+  if (name) cur.name = name; else delete cur.name;
+  loader.writeAgentConfig(cur);
+  if (node) await node.tick();
+  return { device_id: selfId, hostname: node ? node.deviceName : null, name: name || null };
+}
+
+/** 给某台设备改名：本机直接改；别的设备经隧道转过去，由那台设备自己保存 */
+async function setName(deviceId, raw) {
   const id = String(deviceId || '');
-  if (!id || id === 'self' || id === node.deviceId) return setSelfAliases(list);
+  if (!id || id === 'self' || (node && id === node.deviceId)) return setSelfName(raw);
+  if (!node) { const e = new Error('设备网络没有启动，只能改本机的名称'); e.status = 503; throw e; }
   const target = node.directory.list().find((d) => !d.self && (String(d.device_id) === id || deviceLabel(d) === id || d.name === id));
   if (!target) { const e = new Error(`没有这台设备：${id}`); e.status = 404; throw e; }
-  const aliases = normalizeAliases(list);
-  const conflict = aliasConflict(aliases, target.device_id);
+  if (!target.online) { const e = new Error(`${deviceLabel(target)} 离线，等它上线再改`); e.status = 409; throw e; }
+  const name = checkName(raw);
+  const conflict = nameConflict(name, target.device_id);
   if (conflict) { const e = new Error(conflict); e.status = 409; throw e; }
   const resp = await node.proxy(target.device_id, {
-    method: 'PUT', path: '/v1/devices/self/aliases',
+    method: 'PUT', path: '/v1/devices/self/name',
     headers: { 'content-type': 'application/json' },
-    body: Buffer.from(JSON.stringify({ aliases })),
+    body: Buffer.from(JSON.stringify({ name })),
   });
   const text = (await tunnel.readAll(resp)).toString('utf8');
   let obj = null;
@@ -378,6 +391,6 @@ module.exports = {
   startFromConfig, stop, getNode,
   isMeshKey, isMeshRequest, isHop,
   devicesView, extraModels, extraHarnesses,
-  routeChat, routeAgentCreate, routeAgentById, resolveWorkspace, setAliases, setSelfAliases,
+  routeChat, routeAgentCreate, routeAgentById, resolveWorkspace, setName, setSelfName,
   _internal: { sseRewriter, rewriteResponse, parseMeshTaskId, describeSelf },
 };

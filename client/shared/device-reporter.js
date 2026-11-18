@@ -79,7 +79,7 @@ async function _register() {
       `${_config.serverUrl}/device/register`,
       {
         type         : _config.type,
-        name         : _config.name,
+        name         : _currentName(),
         platform     : _config.platform,
         version      : _config.version,
         gateway_port : 11430,
@@ -102,6 +102,15 @@ async function _register() {
 }
 
 // ── Heartbeat ─────────────────────────────────────────────────────────────────
+
+/** 上报给盘点的设备名：设了「设备名称」（交易页 / 盘点里改的，~/.llm-agent/config.json 的 name）就用它，否则用电脑名 */
+function _currentName() {
+  try {
+    const n = String((readAgentConfig() || {}).name || '').trim();
+    if (n) return n;
+  } catch (_) { /* 读不到配置就用启动时的名字 */ }
+  return _config?.name || '';
+}
 
 /** POST to /device/heartbeat — never throws. */
 async function _sendHeartbeat(online = true) {
@@ -133,7 +142,7 @@ async function _sendHeartbeat(online = true) {
         online,
         type     : _config.type || '',
         version  : _config.version || '',
-        name     : _config.name || '',
+        name     : _currentName(),
         platform : _config.platform || '',
         stats    : { ...statsClean, inventory },
       },

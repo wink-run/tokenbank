@@ -104,7 +104,10 @@ async function _collectDeviceMeta(port) {
     } catch { /* 开发态 Vite 没有这条接口时走下面的兜底 */ }
   }
 
-  const name = _usableDeviceName(identity?.name)
+  // 设了「设备名称」（交易页 / 盘点里改的）就用它；否则用电脑名
+  let custom = '';
+  try { custom = String((await getConfig().read())?.name || '').trim(); } catch { custom = ''; }
+  const name = custom || _usableDeviceName(identity?.name)
     || (type === 'desktop' ? '桌面设备' : `CLI :${port}`);
   // 10.15.7 是 Chromium 冻结的 UA，不能覆盖系统读到的真实版本
   const platform = (identity?.platform && !/10\.15\.7/.test(identity.platform))

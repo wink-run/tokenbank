@@ -4,6 +4,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { getStats, getSettlements, getContributeSummary, listJoinedCircles, listMyCircles, listCommunityAgents, listPublicCommunityAgents, getNetwork } from '../api/client';
 import { normalizeNetworkPayload, workerModelNames } from '../lib/networkModelStats';
 import { getConfig, getGateway, getLocalConfig } from '../api/adapter';
+import { deviceNameError } from '../api/deviceName';
+import { requestAccountsHeartbeat } from '../hooks/useDeviceReporter';
 import { resolveLocalGatewayBase, loadGatewayAvailableModels } from '../api/gatewayModels';
 import { loadUserAccounts } from '../api/userAccounts';
 import { collectPersonalAvailableModels, mergeAccountsForGateway } from '../lib/personalAvailableModels';
@@ -459,7 +461,16 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
     return '';
   }
 
+  // 设备名称：派活时写 @名称，所以不能有空格、@、/，也不能叫「本机」（规则和设备网络里的一致）
+  const nodeNameError = (() => {
+    const n = String(nodeName || '').trim();
+    if (!n) return '';
+    if (deviceNameError(n)) return t('contribute.nodeNameBad');
+    return '';
+  })();
+
   async function save() {
+    if (nodeNameError) { setSavedMsg(''); return; }
     setSaving(true);
     setSavedMsg('');
     try {
@@ -486,7 +497,7 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
         llm_base_url: localGw,
         llm_token: '',
         models,
-        name: nodeName,
+        name: String(nodeName || '').trim(),
         auto_start: autoStart,
         contribute_assistants,
       };
@@ -504,6 +515,8 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
       setSavedSnap(snapNow);
       // 保存后立即启动贡献节点
       const started = onStart ? await onStart() : true;
+      // 设备名称改了，马上上报一次，盘点里尽快显示新名字
+      requestAccountsHeartbeat();
       setSavedMsg(started ? t('contribute.savedAndStarted') : t('common.saved'));
       // 启动后触发社区列表刷新（含延迟补刷，等节点重连上报）
       onAgentsRefresh?.();
@@ -841,7 +854,11 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
           <div>
             <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1.5">{t('contribute.nodeName')}</label>
             <input value={nodeName} onChange={e => setNodeName(e.target.value)} placeholder={t('contribute.nodeNamePh')}
-              className="tb-soft-field w-full text-xs px-3 py-2 rounded-lg text-zinc-900 dark:text-zinc-100" />
+              aria-invalid={!!nodeNameError}
+              className={`tb-soft-field w-full text-xs px-3 py-2 rounded-lg text-zinc-900 dark:text-zinc-100 ${nodeNameError ? 'ring-1 ring-red-300 dark:ring-red-700' : ''}`} />
+            <p className={`mt-1 text-[11px] ${nodeNameError ? 'text-red-500' : 'text-zinc-400 dark:text-zinc-500'}`}>
+              {nodeNameError || t('contribute.nodeNameHint')}
+            </p>
           </div>
           <div>
             <label className="block text-[11px] font-medium text-zinc-500 dark:text-zinc-400 mb-1.5">{t('contribute.forwardUrl')}</label>

@@ -10,7 +10,8 @@ import { getTransactions } from '../api/client';
 import { useNavigate } from 'react-router-dom';
 import { formatDeviceTitle, deviceIdentityKey, mergeSameDevices } from '../lib/device-display';
 import { getUserDevices } from '../api/client';
-import { getReportedDeviceId } from '../hooks/useDeviceReporter';
+import { getReportedDeviceId, requestAccountsHeartbeat } from '../hooks/useDeviceReporter';
+import { renameDevice, deviceNameError } from '../api/deviceName';
 
 /** 几行用量相加成一台（次数、Token、费用、分层、模型） */
 function sumUsageRows(rows, base) {
@@ -449,6 +450,10 @@ export default function Dashboard() {
   const [thisDeviceId, setThisDeviceId] = useState('');
   // 个人页「我的设备」那份列表：盘点页的设备名、合并方式都以它为准
   const [myDevices, setMyDevices] = useState([]);
+  // 改设备名称：选中一台设备后点「改名」；改完先在胶囊上显示，云端心跳到了再以云端为准
+  const [renaming, setRenaming] = useState(null);   // { id, draft, error, saving }
+  const [nameOverride, setNameOverride] = useState({});
+  const [devicesTick, setDevicesTick] = useState(0);
   useEffect(() => {
     if (!user) { setMyDevices([]); return; }
     getUserDevices().then((r) => {
@@ -457,7 +462,7 @@ export default function Dashboard() {
         .filter(d => d.device_id && !seen.has(d.device_id) && seen.add(d.device_id));
       setMyDevices(mergeSameDevices(clean));
     }).catch(() => setMyDevices([]));
-  }, [user, range]);
+  }, [user, range, devicesTick]);
   const navigate = useNavigate();
   const [txs, setTxs] = useState([]);            // 积分流水（登录后）
   const [agentRows, setAgentRows] = useState([]); // 智能体今天的任务（谁用的）
@@ -695,14 +700,52 @@ export default function Dashboard() {
                 onClick={() => setScopePick(o.id)}
                 className={`inline-flex shrink-0 items-center gap-1.5 min-h-[32px] md:min-h-[28px] px-3 rounded-full border text-xs whitespace-nowrap transition-colors disabled:cursor-default ${on ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'border-zinc-200 dark:border-zinc-700 bg-white/60 dark:bg-zinc-900/40 text-zinc-600 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'}`}>
                 {o.id !== 'all' && <span className={`w-1.5 h-1.5 rounded-full ${o.online ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} aria-hidden />}
-                {o.label}
+                {nameOverride[o.id] || o.label}
                 {o.mine && <span className="text-[10px] px-1.5 rounded-full bg-zinc-900/[0.06] dark:bg-white/10 text-zinc-500 dark:text-zinc-300">{t('dashboard.mineTag')}</span>}
                 {cloud && o.calls != null && <span className="tabular-nums opacity-60">{t('dashboard.pillCalls', { n: Number(o.calls || 0).toLocaleString() })}</span>}
               </button>
             );
           })}
           {!cloud && <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">{user ? t('dashboard.scopeNoCloud') : t('dashboard.scopeNote')}</span>}
+          {/* 选中一台设备时可以改名：和交易页「设备名称」是同一个，派活时写 @名称 */}
+          {scope !== 'all' && !renaming && (
+            <button type="button" onClick={() => setRenaming({ id: scope, draft: nameOverride[scope] || '', error: '', saving: false })}
+              className="shrink-0 min-h-[32px] md:min-h-[28px] px-2 text-xs text-blue-600 dark:text-blue-400 hover:underline">
+              {t('dashboard.rename')}
+            </button>
+          )}
         </div>
+        {renaming && (
+          <form className="flex flex-wrap items-center gap-2" onSubmit={async (ev) => {
+            ev.preventDefault();
+            const draft = String(renaming.draft || '').trim();
+            const bad = deviceNameError(draft);
+            if (bad) { setRenaming({ ...renaming, error: bad }); return; }
+            setRenaming({ ...renaming, saving: true, error: '' });
+            const r = await renameDevice(renaming.id === 'local' ? 'self' : renaming.id, draft);
+            if (!r.ok) { setRenaming({ ...renaming, saving: false, error: r.error }); return; }
+            setNameOverride((m) => ({ ...m, [renaming.id]: r.name || '' }));
+            setRenaming(null);
+            requestAccountsHeartbeat();
+            setTimeout(() => setDevicesTick((n) => n + 1), 2000);
+          }}>
+            <label htmlFor="dash-rename" className="text-xs text-zinc-500 dark:text-zinc-400">{t('dashboard.renameLabel')}</label>
+            <input id="dash-rename" autoFocus value={renaming.draft} placeholder={t('dashboard.renamePh')}
+              onChange={(e) => setRenaming({ ...renaming, draft: e.target.value, error: '' })}
+              onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null); }}
+              className="tb-soft-field w-44 text-xs px-3 py-1.5 rounded-lg text-zinc-900 dark:text-zinc-100" />
+            <button type="submit" disabled={renaming.saving}
+              className="min-h-[28px] px-3 rounded-lg text-xs font-medium bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60">
+              {renaming.saving ? t('dashboard.renameSaving') : t('common.save')}
+            </button>
+            <button type="button" onClick={() => setRenaming(null)} className="min-h-[28px] px-2 text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200">
+              {t('gateway.common.cancel')}
+            </button>
+            <span className={`basis-full text-[11px] ${renaming.error ? 'text-red-500' : 'text-zinc-400 dark:text-zinc-500'}`}>
+              {renaming.error || t('dashboard.renameHint')}
+            </span>
+          </form>
+        )}
       </div>
 
       {/* Summary cards — 5列 */}

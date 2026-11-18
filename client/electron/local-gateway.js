@@ -4495,8 +4495,8 @@ function handleRequest(req, res) {
     return;
   }
 
-  // 设备网络：给设备起别名（本机直接改；别的设备经隧道由它自己保存）。要网关 Key、智能体 Key 或设备网络 Key
-  const aliasPath = method === 'PUT' && cleanPath.match(/^\/v1\/devices\/([^/]+)\/aliases$/);
+  // 设备名称（和交易页的同一个）：本机直接改；别的设备经隧道由它自己保存。要网关 Key、智能体 Key 或设备网络 Key
+  const aliasPath = method === 'PUT' && cleanPath.match(/^\/v1\/devices\/([^/]+)\/name$/);
   if (aliasPath) {
     const meshGlue = require('./mesh/glue');
     const authRaw = String(req.headers['authorization'] || req.headers['x-api-key'] || '');
@@ -4511,7 +4511,7 @@ function handleRequest(req, res) {
       let body = {};
       try { body = JSON.parse(Buffer.concat(parts).toString() || '{}'); } catch { reply(400, { error: { message: 'Invalid JSON' } }); return; }
       try {
-        const out = await meshGlue.setAliases(decodeURIComponent(aliasPath[1]), body.aliases);
+        const out = await meshGlue.setName(decodeURIComponent(aliasPath[1]), body.name);
         reply(200, out || { ok: true });
       } catch (e) {
         reply(e.status || 500, { error: { message: e.message, type: 'invalid_request_error' } });

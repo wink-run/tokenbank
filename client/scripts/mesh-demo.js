@@ -285,12 +285,12 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   const noWs = await req(gwA, 'POST', '/v1/agent/responses', { headers: auth, body: { input: 'x', metadata: { harness_id: 'mine:claude-code', workspace: 'nope' } } });
   check('没有这个工作区时给出明确原因', noWs.status === 404 && /工作区 nope/.test(noWs.json?.error?.message || ''), noWs.json?.error?.message);
 
-  // 3b. 设备别名
-  console.log('\n[3b] 设备别名');
-  const setAlias = await req(gwA, 'PUT', '/v1/devices/dev-b/aliases', { headers: auth, body: { aliases: ['studio'] } });
-  check('在 A 上给 B 起别名 studio', setAlias.status === 200 && (setAlias.json?.aliases || []).includes('studio'), JSON.stringify(setAlias.json));
-  const storedOnB = (() => { try { return JSON.parse(fs.readFileSync(path.join(B.meshDir, 'config.json'), 'utf8')).aliases || []; } catch { return []; } })();
-  check('别名保存在 B 自己的配置里', storedOnB.includes('studio'));
+  // 3b. 设备名称（和交易页「设备名称」同一个字段）
+  console.log('\n[3b] 设备名称');
+  const setAlias = await req(gwA, 'PUT', '/v1/devices/dev-b/name', { headers: auth, body: { name: 'studio' } });
+  check('在 A 上把 B 改名为 studio', setAlias.status === 200 && setAlias.json?.name === 'studio', JSON.stringify(setAlias.json));
+  const storedOnB = (() => { try { return JSON.parse(fs.readFileSync(path.join(B.home, '.llm-agent', 'config.json'), 'utf8')); } catch { return {}; } })();
+  check('名称保存在 B 自己的配置里（交易页「设备名称」那个字段），原有配置不丢', storedOnB.name === 'studio' && Array.isArray(storedOnB.providers) && storedOnB.providers.length > 0);
   const seenAlias = await until(async () => {
     const r = await req(gwA, 'GET', '/v1/devices');
     const d = (r.json?.data || []).find((x) => x.device_id === 'dev-b');
@@ -303,16 +303,18 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
     headers: auth,
     body: { input: '/claude-code@studio 用别名派一次', metadata: { harness_id: 'agent-router-default', workspace: 'demo' } },
   });
-  check('/claude-code@studio 用别名点名，在 B 上执行', byAlias.status === 200 && String(byAlias.json?.id || '').startsWith('mesh:dev-b:') && byAlias.json?.metadata?.mesh_device === 'studio',
+  check('/claude-code@studio 用新名称点名，在 B 上执行', byAlias.status === 200 && String(byAlias.json?.id || '').startsWith('mesh:dev-b:') && byAlias.json?.metadata?.mesh_device === 'studio',
     `任务号=${byAlias.json?.id} 执行设备=${byAlias.json?.metadata?.mesh_device}`);
   const byAliasHarness = await req(gwA, 'POST', '/v1/agent/responses', { headers: auth, body: { input: '再来一次', metadata: { harness_id: 'mine:claude-code@studio', workspace: 'demo' } } });
   check('mine:claude-code@studio 同样可用', byAliasHarness.status === 200 && String(byAliasHarness.json?.id || '').startsWith('mesh:dev-b:'));
-  const clash = await req(gwA, 'PUT', '/v1/devices/self/aliases', { headers: auth, body: { aliases: ['studio'] } });
-  check('别名重复时拒绝', clash.status === 409, clash.json?.error?.message);
-  const bad = await req(gwA, 'PUT', '/v1/devices/self/aliases', { headers: auth, body: { aliases: ['my mini'] } });
-  check('别名带空格时拒绝', bad.status === 400, bad.json?.error?.message);
-  const noKey = await req(gwA, 'PUT', '/v1/devices/self/aliases', { body: { aliases: ['x'] } });
-  check('没有 Key 不能改别名', noKey.status === 401);
+  const oldName = await req(gwA, 'POST', '/v1/agent/responses', { headers: auth, body: { input: '用电脑名', metadata: { harness_id: 'mine:claude-code@mini', workspace: 'demo' } } });
+  check('原来的电脑名 mini 照样能用', oldName.status === 200 && String(oldName.json?.id || '').startsWith('mesh:dev-b:'));
+  const clash = await req(gwA, 'PUT', '/v1/devices/self/name', { headers: auth, body: { name: 'studio' } });
+  check('名称和别的设备重复时拒绝', clash.status === 409, clash.json?.error?.message);
+  const bad = await req(gwA, 'PUT', '/v1/devices/self/name', { headers: auth, body: { name: 'my mini' } });
+  check('名称带空格时拒绝', bad.status === 400, bad.json?.error?.message);
+  const noKey = await req(gwA, 'PUT', '/v1/devices/self/name', { body: { name: 'x' } });
+  check('没有 Key 不能改名称', noKey.status === 401);
 
   // 4. 防回环与边界
   console.log('\n[4] 安全边界');
