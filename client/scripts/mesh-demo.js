@@ -4,7 +4,7 @@
 //   设备 A「macbook」：发起方，没有模型、没有可用的智能体
 //   设备 B「mini」   ：有一个模拟的本地模型 demo-model，装了（模拟的）Claude Code，配了工作区 demo
 // 两台之间走真实的 iroh QUIC 连接（本机回环直连），证书由开发用签发方签发。
-// 用法：node scripts/mesh-demo.js [--keep]   （--keep 跑完不退出，方便手动 curl）
+// 用法：node scripts/mesh-demo.js [--keep]   （--keep 跳过断线测试、跑完不退出，两台设备保持在线，方便手动 curl 或打开管理界面）
 'use strict';
 
 const { spawn, execFileSync } = require('child_process');
@@ -289,6 +289,16 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   check('其他账号的设备连不进来', refused && stranger.conns.size === 0 && /other_user/.test(logOf(B)), (logOf(B).match(/\[mesh\] 拒绝[^\n]*/) || [''])[0]);
   await stranger.stop();
 
+  if (KEEP) {
+    const passed = results.filter((r) => r.ok).length;
+    console.log(`\n结果：${passed}/${results.length} 通过（--keep：跳过断线测试，两台设备保持在线）`);
+    console.log(`设备 A 管理界面：http://127.0.0.1:${gwA + 1}/   网关：http://127.0.0.1:${gwA}`);
+    console.log(`设备 B 管理界面：http://127.0.0.1:${gwB + 1}/   网关：http://127.0.0.1:${gwB}`);
+    console.log(`A 的智能体 Key：${keyA}`);
+    console.log('按 Ctrl+C 退出');
+    return;
+  }
+
   // 5. 断线与恢复
   console.log('\n[5] 断线');
   const pB = procs[1];
@@ -305,7 +315,6 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   const passed = results.filter((r) => r.ok).length;
   console.log(`\n结果：${passed}/${results.length} 通过。日志：${ROOT}/macbook.log、${ROOT}/mini.log`);
   mock.close();
-  if (KEEP) { console.log('--keep：设备 A 仍在运行，按 Ctrl+C 退出'); return; }
   cleanup();
   process.exit(passed === results.length ? 0 : 1);
 })().catch((e) => { console.error(e); cleanup(); process.exit(1); });
