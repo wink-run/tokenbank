@@ -83,6 +83,15 @@ class Transport {
 
   id() { return this.ep.id().toString(); }
 
+  /** iroh 实际监听的 UDP 端口（局域网广播里告诉别人连这个） */
+  boundPort() {
+    for (const s of this.ep.boundSockets() || []) {
+      const m = String(s).match(/:(\d+)$/);
+      if (m) return Number(m[1]);
+    }
+    return 0;
+  }
+
   /** 写进地址簿的内容：endpoint_id、中继、直连地址 */
   addrInfo() {
     const a = this.ep.addr();

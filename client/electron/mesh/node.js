@@ -69,6 +69,7 @@ class MeshNode extends EventEmitter {
     this.stopAccept = this.transport.acceptLoop((conn) => this.onConnection(conn, false), (e) => this.log(`[mesh] 接入失败：${e.message}`));
     await this.startLoopback();
     this.scheduleDials();
+    await this.startLanDiscovery();
     const tick = setInterval(() => this.tick().catch((e) => this.log(`[mesh] 刷新失败：${e.message}`)), this.opts.presenceMs || 5000);
     tick.unref?.();
     this.timers.push(tick);
@@ -80,6 +81,7 @@ class MeshNode extends EventEmitter {
     this.stopped = true;
     for (const t of this.timers) clearInterval(t), clearTimeout(t);
     this.stopAccept?.();
+    this.lan?.stop();
     for (const c of this.conns.values()) c.conn.close('shutdown');
     this.conns.clear();
     if (this.loopback) await new Promise((r) => this.loopback.close(() => r()));
@@ -127,27 +129,61 @@ class MeshNode extends EventEmitter {
   // ── 连接 ───────────────────────────────────────────────────────────────────
 
   scheduleDials() {
-    for (const peer of this.opts.peers || []) {
-      if (!peer || !peer.endpoint_id || peer.endpoint_id === this.transport.id()) continue;
-      const attempt = async () => {
-        if (this.stopped) return;
-        const connected = this.byEndpoint.has(peer.endpoint_id) && this.conns.has(this.byEndpoint.get(peer.endpoint_id));
-        // 两边同时拨会建两条连接：约定 id 小的一方拨；对方迟迟不来时再自己拨
-        const mine = this.transport.id() < peer.endpoint_id || Date.now() - this.startedAt > FALLBACK_DIAL_AFTER_MS;
-        if (!connected && mine) {
-          try {
-            const conn = await this.transport.dial(peer);
-            await this.onConnection(conn, true);
-          } catch (e) {
-            this.log(`[mesh] 连不上 ${peer.endpoint_id.slice(0, 10)}：${e.message}`);
-          }
-        }
-        const t = setTimeout(attempt, DIAL_RETRY_MS);
-        t.unref?.();
-        this.timers.push(t);
-      };
-      attempt();
+    this.knownPeers = new Map();   // endpoint_id → { endpoint_id, relay_url, direct_addrs, source, firstSeen }
+    for (const peer of this.opts.peers || []) this.ensurePeer(peer, 'config');
+  }
+
+  /**
+   * 记下一个对端地址（来自配置、云端地址簿或局域网发现），没在拨的话开始拨。
+   * 同一台设备的地址会合并，已经连上的不会重复拨。
+   */
+  ensurePeer(peer, source = 'config') {
+    if (!peer || !peer.endpoint_id || peer.endpoint_id === this.transport.id() || this.stopped) return;
+    const known = this.knownPeers.get(peer.endpoint_id);
+    if (known) {
+      const addrs = new Set([...(known.direct_addrs || []), ...(peer.direct_addrs || [])]);
+      known.direct_addrs = [...addrs];
+      if (peer.relay_url) known.relay_url = peer.relay_url;
+      return;
     }
+    const entry = { endpoint_id: peer.endpoint_id, relay_url: peer.relay_url || null, direct_addrs: [...(peer.direct_addrs || [])], source, firstSeen: Date.now() };
+    this.knownPeers.set(peer.endpoint_id, entry);
+    if (source === 'lan') this.log(`[mesh] 局域网发现 ${peer.name || peer.endpoint_id.slice(0, 10)}（${entry.direct_addrs.join(',')}）`);
+    const attempt = async () => {
+      if (this.stopped) return;
+      const connected = this.byEndpoint.has(entry.endpoint_id) && this.conns.has(this.byEndpoint.get(entry.endpoint_id));
+      // 两边同时拨会建两条连接：约定 id 小的一方拨；对方迟迟不来时再自己拨
+      const mine = this.transport.id() < entry.endpoint_id || Date.now() - entry.firstSeen > FALLBACK_DIAL_AFTER_MS;
+      if (!connected && mine) {
+        try {
+          const conn = await this.transport.dial(entry);
+          await this.onConnection(conn, true);
+        } catch (e) {
+          this.log(`[mesh] 连不上 ${entry.endpoint_id.slice(0, 10)}：${e.message}`);
+        }
+      }
+      const t = setTimeout(attempt, DIAL_RETRY_MS);
+      t.unref?.();
+      this.timers.push(t);
+    };
+    attempt();
+  }
+
+  async startLanDiscovery() {
+    if (this.opts.lanDiscovery === false) return;
+    const { LanDiscovery } = require('./lan-discovery');
+    this.lan = new LanDiscovery({
+      endpointId: this.transport.id(),
+      irohPort: this.transport.boundPort(),
+      cert: this.opts.cert,
+      selfUserId: this.opts.userId,
+      issuerKeys: this.opts.issuerKeys,
+      revoked: this.revoked,
+      port: this.opts.lanPort,
+      onPeer: (peer) => this.ensurePeer(peer, 'lan'),
+      log: this.log,
+    });
+    try { await this.lan.start(); } catch (e) { this.log(`[mesh] 局域网发现没有启动：${e.message}`); this.lan = null; }
   }
 
   async onConnection(conn, dialer) {

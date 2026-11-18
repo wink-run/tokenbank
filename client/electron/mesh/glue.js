@@ -67,6 +67,8 @@ async function startFromConfig({ gatewayPort, log } = {}) {
     gatewayPort,
     describeSelf,
     presenceMs: cfg.presence_ms || 5000,
+    lanDiscovery: cfg.lan_discovery !== false,
+    lanPort: cfg.lan_port,
     log: log || ((m) => console.log(m)),
   });
   try {

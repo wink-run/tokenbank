@@ -137,3 +137,27 @@ test('glue: 远端任务号改写成 mesh:<设备>:<任务号>，SSE 跨块也�
   assert.deepEqual(parseMeshTaskId('mesh:dev-b:t1'), { deviceId: 'dev-b', id: 't1' });
   assert.equal(parseMeshTaskId('t1'), null);
 });
+
+// ── 局域网发现 ───────────────────────────────────────────────────────────────
+
+const lan = require('../mesh/lan-discovery');
+
+test('lan: 本账号设备的广播被接受，地址取来源 IP + 广播里的端口', () => {
+  const { keys, cert } = setup();
+  const pkt = lan.buildAnnouncement({ endpointId: 'EP_A', port: 41641, cert });
+  const peer = lan.parseAnnouncement(pkt, { address: '192.168.1.20', port: 41700 }, { selfEndpointId: 'EP_SELF', selfUserId: '42', issuerKeys: keys });
+  assert.deepEqual(peer, { endpoint_id: 'EP_A', device_id: 'dev-a', name: 'mac-mini', direct_addrs: ['192.168.1.20:41641'] });
+});
+
+test('lan: 自己的、别人账号的、乱写的广播都不理', () => {
+  const { keys, cert } = setup();
+  const opts = { selfEndpointId: 'EP_SELF', selfUserId: '42', issuerKeys: keys };
+  const rinfo = { address: '192.168.1.20', port: 41700 };
+  assert.equal(lan.parseAnnouncement(lan.buildAnnouncement({ endpointId: 'EP_SELF', port: 1, cert }), rinfo, opts), null);
+  assert.equal(lan.parseAnnouncement(lan.buildAnnouncement({ endpointId: 'EP_A', port: 1, cert }), rinfo, { ...opts, selfUserId: '43' }).rejected, 'other_user');
+  // 拿别人的证书配上自己的 endpoint_id：证书对不上
+  assert.equal(lan.parseAnnouncement(lan.buildAnnouncement({ endpointId: 'EP_EVIL', port: 1, cert }), rinfo, opts).rejected, 'endpoint_mismatch');
+  assert.equal(lan.parseAnnouncement(lan.buildAnnouncement({ endpointId: 'EP_A', port: 70000, cert }), rinfo, opts), null);
+  assert.equal(lan.parseAnnouncement(Buffer.from('not json'), rinfo, opts), null);
+  assert.equal(lan.parseAnnouncement(Buffer.from('{"t":"other"}'), rinfo, opts), null);
+});

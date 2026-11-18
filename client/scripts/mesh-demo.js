@@ -20,6 +20,7 @@ const { endpointIdFromSecret } = require('../electron/mesh/transport');
 const { MeshNode } = require('../electron/mesh/node');
 
 const KEEP = process.argv.includes('--keep');
+let LAN_PORT = 41700;
 const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-mesh-demo-'));
 const results = [];
 const procs = [];
@@ -135,8 +136,10 @@ function writeMeshConfig(dev, peers, issuer, extra = {}) {
     user_id: dev.userId,
     cert: dev.cert,
     issuer_keys: [issuer.publicKey],
-    bind_addr: `127.0.0.1:${dev.meshPort}`,
+    // 绑 0.0.0.0，局域网里的其他设备才连得进来
+    bind_addr: `0.0.0.0:${dev.meshPort}`,
     peers: peers.map((p) => ({ endpoint_id: p.endpointId, direct_addrs: [`127.0.0.1:${p.meshPort}`] })),
+    lan_port: LAN_PORT,
     presence_ms: 2000,
     ...extra,
   });
@@ -171,6 +174,7 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   console.log(`演示目录：${ROOT}\n`);
   const issuer = identity.generateIssuer();
   const [gwA, gwB, meshA, meshB, meshC] = [await freePort(), await freePort(), await freePort(), await freePort(), await freePort()];
+  LAN_PORT = await freePort();   // 每次演示用自己的广播端口，不和本机别的节点串
 
   const A = await prepareDevice({ name: 'macbook', deviceId: 'dev-a', home: path.join(ROOT, 'homeA'), gwPort: gwA, meshPort: meshA, issuer, userId: '1001' });
   const B = await prepareDevice({ name: 'mini', deviceId: 'dev-b', home: path.join(ROOT, 'homeB'), gwPort: gwB, meshPort: meshB, issuer, userId: '1001' });
@@ -188,8 +192,9 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   execFileSync('git', ['init', '-q'], { cwd: work });
   writeJson(path.join(B.meshDir, 'workspaces.json'), { default: 'demo', workspaces: { demo: { path: work } } });
 
-  writeMeshConfig(A, [B], issuer);
-  writeMeshConfig(B, [A], issuer, { accept_model_requests: true });
+  // 不写对端地址：两台设备只靠局域网广播找到对方
+  writeMeshConfig(A, [], issuer);
+  writeMeshConfig(B, [], issuer, { accept_model_requests: true });
 
   console.log('启动两台设备的网关…');
   // B 的 PATH 最前面放模拟的 claude；下面派活时钉到 @mini，A 本机有没有 claude 都不影响
@@ -212,6 +217,7 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   check('A 的 /v1/devices 里看到 B 在线', !!devB, devB ? `连接方式=${devB.connection} 延迟=${devB.rtt_ms}ms 应用=${devB.apps.map((a) => a.id).join(',')} 模型=${devB.models.join(',')} 工作区=${devB.workspaces.map((w) => w.name).join(',')}` : '');
   const fromB = await req(gwB, 'GET', '/v1/devices');
   check('B 也看到 A（对等）', (fromB.json?.data || []).some((d) => d.device_id === 'dev-a' && d.online));
+  check('两台都没配对端地址，靠局域网广播找到彼此', /局域网发现 (mini|macbook)/.test(logOf(A) + logOf(B)), ((logOf(A) + logOf(B)).match(/\[mesh\] 局域网发现[^\n]*/) || [''])[0]);
   check('设备目录里没有本机路径', !JSON.stringify(seen || {}).includes(B.home));
 
   // 2. 模型统一入口
@@ -275,7 +281,7 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   const stranger = new MeshNode({
     dir: C.meshDir, userId: '2002', cert: C.cert, issuerKeys: [issuer.publicKey],
     peers: [{ endpoint_id: B.endpointId, direct_addrs: [`127.0.0.1:${B.meshPort}`] }],
-    bindAddr: `127.0.0.1:${C.meshPort}`, gatewayPort: 1, describeSelf: async () => ({}), log: () => {},
+    bindAddr: `0.0.0.0:${C.meshPort}`, gatewayPort: 1, describeSelf: async () => ({}), log: () => {}, lanPort: LAN_PORT,
   });
   await stranger.start();
   // 约定 id 小的一方先拨，另一方 8 秒后才自己拨，所以最多等 15 秒
