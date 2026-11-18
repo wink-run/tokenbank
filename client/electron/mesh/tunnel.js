@@ -18,6 +18,7 @@ const ALLOWED = [
   ['POST', /^\/v1\/agent\/responses$/],
   ['GET', /^\/v1\/agent\/responses\/[^/]+$/],
   ['POST', /^\/v1\/agent\/responses\/[^/]+\/cancel$/],
+  ['PUT', /^\/v1\/devices\/self\/aliases$/],
 ];
 
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'proxy-connection', 'te', 'trailer']);

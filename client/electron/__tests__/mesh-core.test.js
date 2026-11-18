@@ -195,3 +195,26 @@ test('designation: 本机有就本机，本机没有去我的设备，带 @ 就�
   assert.equal(r('/nobody 你好'), null);
   assert.equal(r('/codex 修一下').text, '修一下');
 });
+
+// ── 设备别名 ─────────────────────────────────────────────────────────────────
+
+const { normalizeAliases, deviceLabel } = require('../mesh/directory');
+
+test('aliases: 校验和去重', () => {
+  assert.deepEqual(normalizeAliases([' studio ', 'Studio', '公司']), ['studio', '公司']);
+  assert.throws(() => normalizeAliases(['my mini']), /不能有空格/);
+  assert.throws(() => normalizeAliases(['a@b']), /不能用/);
+  assert.throws(() => normalizeAliases(['本机']), /不能用/);
+  assert.equal(deviceLabel({ name: '172.18.0.2 · bf54', descriptor: { aliases: ['studio'] } }), 'studio');
+  assert.equal(deviceLabel({ name: 'mini', descriptor: { aliases: [] } }), 'mini');
+});
+
+test('aliases: 别名能指定设备，重名时给出原因', () => {
+  const target = { kind: 'app', id: 'codex', device: 'studio' };
+  const b = dev('b', { name: '172.18.0.2 · bf54', descriptor: { ...dev('b').descriptor, aliases: ['studio'] } });
+  assert.equal(scheduler.pickDevice({ target, devices: [dev('a'), b] }).device.device_id, 'b');
+  const c = dev('c', { descriptor: { ...dev('c').descriptor, aliases: ['studio'] } });
+  assert.match(scheduler.pickDevice({ target, devices: [b, c] }).reason, /2 台设备都叫 studio/);
+  const r = designation.resolveDesignation('/codex@studio 修一下', { agents: AGENTS, devices: [{ ...b, descriptor: { ...b.descriptor, apps: [{ id: 'codex' }] } }] });
+  assert.equal(r.harnessId, 'mine:codex@studio');
+});

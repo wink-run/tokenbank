@@ -38,9 +38,11 @@ function sameName(a, b) {
   return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 }
 
-/** 设备名或 device_id 都能指定设备 */
+/** 设备名、别名或 device_id 都能指定设备 */
 function matchesDevice(dev, wanted) {
-  return sameName(dev.name, wanted) || String(dev.device_id) === String(wanted);
+  const aliases = (dev && dev.descriptor && dev.descriptor.aliases) || [];
+  return sameName(dev.name, wanted) || String(dev.device_id) === String(wanted)
+    || aliases.some((a) => sameName(a, wanted));
 }
 
 function hasTarget(dev, target) {
@@ -73,6 +75,7 @@ function pickDevice({ target, workspace, devices, priorities = {} }) {
   if (target.device) {
     const named = (devices || []).filter((d) => matchesDevice(d, target.device));
     if (!named.length) return { device: null, reason: `没有叫 ${target.device} 的设备` };
+    if (named.length > 1) return { device: null, reason: `有 ${named.length} 台设备都叫 ${target.device}，改个别名区分一下` };
     pool = named.filter((d) => d.self || d.online);
     if (!pool.length) return { device: null, reason: `${target.device} 离线` };
   }

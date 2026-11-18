@@ -4440,7 +4440,7 @@ function buildDefaultModelList() {
 function handleRequest(req, res) {
   // CORS preflight
   res.setHeader('Access-Control-Allow-Origin',  '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, x-api-key, anthropic-version, x-p2p-hop');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
@@ -4492,6 +4492,31 @@ function handleRequest(req, res) {
     } catch { /* 设备网络不可用时只列本机 */ }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ object: 'list', data }));
+    return;
+  }
+
+  // 设备网络：给设备起别名（本机直接改；别的设备经隧道由它自己保存）。要网关 Key、智能体 Key 或设备网络 Key
+  const aliasPath = method === 'PUT' && cleanPath.match(/^\/v1\/devices\/([^/]+)\/aliases$/);
+  if (aliasPath) {
+    const meshGlue = require('./mesh/glue');
+    const authRaw = String(req.headers['authorization'] || req.headers['x-api-key'] || '');
+    const key = authRaw.startsWith('Bearer ') ? authRaw.slice(7).trim() : authRaw.trim();
+    const allowed = !!key && (_appKeys.has(key) || (!!_agentApiKey && key === _agentApiKey)
+      || !!require('./agent-keys').agentForKey(key) || meshGlue.isMeshKey(key));
+    const reply = (status, obj) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
+    if (!allowed) { req.resume(); reply(401, { error: { message: 'invalid api key', type: 'auth_error' } }); return; }
+    const parts = [];
+    req.on('data', (c) => parts.push(c));
+    req.on('end', async () => {
+      let body = {};
+      try { body = JSON.parse(Buffer.concat(parts).toString() || '{}'); } catch { reply(400, { error: { message: 'Invalid JSON' } }); return; }
+      try {
+        const out = await meshGlue.setAliases(decodeURIComponent(aliasPath[1]), body.aliases);
+        reply(200, out || { ok: true });
+      } catch (e) {
+        reply(e.status || 500, { error: { message: e.message, type: 'invalid_request_error' } });
+      }
+    });
     return;
   }
 

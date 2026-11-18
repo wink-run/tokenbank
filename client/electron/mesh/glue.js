@@ -11,6 +11,7 @@ const path = require('path');
 const scheduler = require('./scheduler');
 const tunnel = require('./tunnel');
 const workspaces = require('./workspaces');
+const { normalizeAliases, deviceLabel } = require('./directory');
 
 let node = null;
 let cfg = null;
@@ -44,6 +45,7 @@ async function describeSelf() {
   }
   if (!accepts.agent_tasks) { out.apps = []; out.assistants = []; }
   try { out.workspaces = workspaces.listPublic(meshDir()); } catch { out.workspaces = []; }
+  out.aliases = Array.isArray(cfg?.aliases) ? cfg.aliases : [];
   return out;
 }
 
@@ -102,6 +104,8 @@ function devicesView() {
     devices: node.directory.list().map((d) => ({
       device_id: d.device_id,
       name: d.name,
+      aliases: d.descriptor?.aliases || [],
+      label: deviceLabel(d),
       self: !!d.self,
       online: !!d.online,
       last_seen_sec_ago: d.self ? 0 : Math.round((now - (d.lastSeen || now)) / 1000),
@@ -126,8 +130,9 @@ function extraModels(existingIds) {
   for (const d of node.directory.list()) {
     if (d.self || !d.online) continue;
     for (const m of d.descriptor?.models || []) {
-      if (!have.has(m)) { have.add(m); out.push({ id: m, object: 'model', owned_by: `mine:${d.name}` }); }
-      out.push({ id: `mine:${d.name}/${m}`, object: 'model', owned_by: `mine:${d.name}` });
+      const label = deviceLabel(d);
+      if (!have.has(m)) { have.add(m); out.push({ id: m, object: 'model', owned_by: `mine:${label}` }); }
+      out.push({ id: `mine:${label}/${m}`, object: 'model', owned_by: `mine:${label}` });
     }
   }
   return out;
@@ -146,7 +151,8 @@ function extraHarnesses() {
         seen.add(a.id);
         out.push({ id: `mine:${a.id}`, name: `${a.name}（我的设备，自动选）`, kind: 'mine' });
       }
-      out.push({ id: `mine:${a.id}@${d.name}`, name: `${a.name} @ ${d.name}`, kind: 'mine', device: d.name, online: true });
+      const label = deviceLabel(d);
+      out.push({ id: `mine:${a.id}@${label}`, name: `${a.name} @ ${label}`, kind: 'mine', device: label, online: true });
     }
   }
   return out;
@@ -184,16 +190,16 @@ async function routeChat({ model, cleanPath, body, req, res, localHasModel }) {
         body: payload,
       });
       if (resp.status >= 500 && dev !== candidates[candidates.length - 1]) {
-        lastErr = `${dev.name}: HTTP ${resp.status}`;
+        lastErr = `${deviceLabel(dev)}: HTTP ${resp.status}`;
         await tunnel.readAll(resp).catch(() => {});
         continue;
       }
-      resp.headers['x-tb-mesh-device'] = dev.name;
-      console.log(`[mesh] 模型 ${wanted} → ${dev.name}`);
+      resp.headers['x-tb-mesh-device'] = deviceLabel(dev);
+      console.log(`[mesh] 模型 ${wanted} → ${deviceLabel(dev)}`);
       await tunnel.pipeTo(resp, res);
       return true;
     } catch (e) {
-      lastErr = `${dev.name}: ${e.message}`;
+      lastErr = `${deviceLabel(dev)}: ${e.message}`;
     }
   }
   sendJson(res, 502, { error: { message: `我的设备都没能处理：${lastErr}`, type: 'mesh_error' } });
@@ -272,21 +278,21 @@ async function routeAgentCreate({ harnessId, body, req, res, extraMeta }) {
     const resp = await node.proxy(dev.device_id, {
       method: 'POST', path: '/v1/agent/responses', headers, body: Buffer.from(JSON.stringify(forward)),
     });
-    console.log(`[mesh] 智能体 ${target.id} → ${dev.name}`);
+    console.log(`[mesh] 智能体 ${target.id} → ${deviceLabel(dev)}`);
     if (body.stream && !body.background && String(resp.headers['content-type'] || '').includes('event-stream')) {
-      await tunnel.pipeTo(resp, res, sseRewriter(dev.device_id, dev.name));
-      return { handled: true, ok: true, device: dev.name };
+      await tunnel.pipeTo(resp, res, sseRewriter(dev.device_id, deviceLabel(dev)));
+      return { handled: true, ok: true, device: deviceLabel(dev) };
     }
     const text = (await tunnel.readAll(resp)).toString('utf8');
     let obj;
     try { obj = JSON.parse(text); } catch { obj = null; }
-    if (!obj) { res.writeHead(resp.status, { 'Content-Type': 'application/json' }); res.end(text); return { handled: true, ok: resp.status < 400, device: dev.name }; }
-    const out = rewriteResponse(obj, dev.device_id, dev.name);
+    if (!obj) { res.writeHead(resp.status, { 'Content-Type': 'application/json' }); res.end(text); return { handled: true, ok: resp.status < 400, device: deviceLabel(dev) }; }
+    const out = rewriteResponse(obj, dev.device_id, deviceLabel(dev));
     if (extraMeta && out.metadata && typeof out.metadata === 'object') Object.assign(out.metadata, extraMeta);
     sendJson(res, resp.status, out);
-    return { handled: true, ok: resp.status < 400, error: obj.error?.message, device: dev.name };
+    return { handled: true, ok: resp.status < 400, error: obj.error?.message, device: deviceLabel(dev) };
   } catch (e) {
-    sendJson(res, e.status || 502, { error: { message: `${dev.name}：${e.message}`, type: 'mesh_error' } });
+    sendJson(res, e.status || 502, { error: { message: `${deviceLabel(dev)}：${e.message}`, type: 'mesh_error' } });
     return { handled: true, ok: false, error: e.message };
   }
 }
@@ -304,12 +310,63 @@ async function routeAgentById({ id, op, res }) {
     let obj;
     try { obj = JSON.parse(text); } catch { obj = null; }
     if (!obj) { res.writeHead(resp.status, { 'Content-Type': 'application/json' }); res.end(text); return true; }
-    sendJson(res, resp.status, rewriteResponse(obj, parsed.deviceId, dev?.name || parsed.deviceId));
+    sendJson(res, resp.status, rewriteResponse(obj, parsed.deviceId, dev ? deviceLabel(dev) : parsed.deviceId));
   } catch (e) {
     // 那台设备暂时连不上：结果还在它那里，稍后再查
     sendJson(res, 503, { id, object: 'response', status: 'unreachable', error: { message: `${dev?.name || parsed.deviceId}：${e.message}`, type: 'mesh_unreachable' } });
   }
   return true;
+}
+
+// ── 设备别名 ─────────────────────────────────────────────────────────────────
+
+/** 别名不能和另一台在线设备的设备名或别名重复 */
+function aliasConflict(aliases, selfId) {
+  if (!node) return null;
+  for (const d of node.directory.list()) {
+    if (String(d.device_id) === String(selfId) || (!d.self && !d.online)) continue;
+    const taken = [d.name, ...(d.descriptor?.aliases || [])].map((x) => String(x || '').toLowerCase());
+    const hit = aliases.find((a) => taken.includes(a.toLowerCase()));
+    if (hit) return `别名「${hit}」已经被 ${deviceLabel(d)} 用了`;
+  }
+  return null;
+}
+
+/** 改本机的别名：写进本机配置，马上推给其他设备 */
+async function setSelfAliases(list) {
+  if (!node) { const e = new Error('设备网络没有启动'); e.status = 503; throw e; }
+  const aliases = normalizeAliases(list);
+  const conflict = aliasConflict(aliases, node.deviceId);
+  if (conflict) { const e = new Error(conflict); e.status = 409; throw e; }
+  const file = path.join(meshDir(), 'config.json');
+  const cur = readConfig() || {};
+  cur.aliases = aliases;
+  fs.writeFileSync(file, JSON.stringify(cur, null, 2), { mode: 0o600 });
+  cfg = { ...(cfg || {}), aliases };
+  await node.tick();
+  return { device_id: node.deviceId, name: node.deviceName, aliases };
+}
+
+/** 给某台设备起别名：本机直接改；别的设备经隧道转过去，由那台设备自己保存 */
+async function setAliases(deviceId, list) {
+  if (!node) { const e = new Error('设备网络没有启动'); e.status = 503; throw e; }
+  const id = String(deviceId || '');
+  if (!id || id === 'self' || id === node.deviceId) return setSelfAliases(list);
+  const target = node.directory.list().find((d) => !d.self && (String(d.device_id) === id || deviceLabel(d) === id || d.name === id));
+  if (!target) { const e = new Error(`没有这台设备：${id}`); e.status = 404; throw e; }
+  const aliases = normalizeAliases(list);
+  const conflict = aliasConflict(aliases, target.device_id);
+  if (conflict) { const e = new Error(conflict); e.status = 409; throw e; }
+  const resp = await node.proxy(target.device_id, {
+    method: 'PUT', path: '/v1/devices/self/aliases',
+    headers: { 'content-type': 'application/json' },
+    body: Buffer.from(JSON.stringify({ aliases })),
+  });
+  const text = (await tunnel.readAll(resp)).toString('utf8');
+  let obj = null;
+  try { obj = JSON.parse(text); } catch { /* 非 JSON */ }
+  if (resp.status >= 400) { const e = new Error(obj?.error?.message || `那台设备没改成：HTTP ${resp.status}`); e.status = resp.status; throw e; }
+  return obj;
 }
 
 /** 隧道转来的任务：metadata.workspace → 本机路径；都没给时用默认工作区 */
@@ -321,6 +378,6 @@ module.exports = {
   startFromConfig, stop, getNode,
   isMeshKey, isMeshRequest, isHop,
   devicesView, extraModels, extraHarnesses,
-  routeChat, routeAgentCreate, routeAgentById, resolveWorkspace,
+  routeChat, routeAgentCreate, routeAgentById, resolveWorkspace, setAliases, setSelfAliases,
   _internal: { sseRewriter, rewriteResponse, parseMeshTaskId, describeSelf },
 };

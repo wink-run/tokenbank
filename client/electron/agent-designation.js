@@ -46,7 +46,7 @@ function matchRemote(name, devices, deviceName) {
   const want = ALIASES[key] || key;
   for (const d of devices || []) {
     if (!d || d.self || !d.online) continue;
-    if (deviceName && norm(d.name) !== norm(deviceName) && String(d.device_id) !== String(deviceName)) continue;
+    if (deviceName && !require('./mesh/scheduler').matchesDevice(d, deviceName)) continue;
     const items = [...(d.descriptor?.apps || []), ...(d.descriptor?.assistants || [])];
     const hit = items.find((a) => norm(a.id) === want || norm(a.id) === `assistant:${key}` || norm(a.name) === key);
     if (hit) return hit.id;

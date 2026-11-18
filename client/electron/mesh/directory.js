@@ -2,6 +2,29 @@
 // 设备目录：本机描述 + 各对端推来的描述。描述里只放名字和能力，不放路径和密钥。
 'use strict';
 
+// 设备别名：派活时用（mine:codex@studio、/codex@studio）。不能有空格、@、/，不能叫「本机」
+const RESERVED_ALIASES = new Set(['本机', 'local', 'self', 'localhost']);
+function normalizeAliases(list) {
+  const out = [];
+  for (const raw of Array.isArray(list) ? list : []) {
+    const a = String(raw || '').trim();
+    if (!a) continue;
+    if (a.length > 32 || /[\s@/\\]/.test(a) || RESERVED_ALIASES.has(a.toLowerCase())) {
+      const err = new Error(`别名「${a}」不能用：最多 32 个字，不能有空格、@、/，也不能叫「本机」`);
+      err.status = 400;
+      throw err;
+    }
+    if (!out.some((x) => x.toLowerCase() === a.toLowerCase())) out.push(a);
+  }
+  return out.slice(0, 5);
+}
+
+/** 界面上显示的设备名：有别名用第一个别名，否则用设备名 */
+function deviceLabel(d) {
+  const aliases = (d && (d.descriptor?.aliases || d.aliases)) || [];
+  return aliases[0] || (d && d.name) || (d && d.device_id) || '';
+}
+
 // 描述里出现这种字符串就当成泄露了本机路径
 const PATH_LIKE = /(^|[\s"'])(\/(Users|home|root|var|tmp|private)\/|[A-Za-z]:\\|~\/)/;
 
@@ -23,6 +46,7 @@ function sanitizeDescriptor(d) {
       workspace: s.workspace ? String(s.workspace) : null, updated_at: Number(s.updated_at) || 0,
     })),
     accepts: { agent_tasks: d.accepts?.agent_tasks !== false, model_requests: !!d.accepts?.model_requests },
+    aliases: (() => { try { return normalizeAliases(d.aliases); } catch { return []; } })(),
   };
   const text = JSON.stringify(out);
   if (PATH_LIKE.test(text)) throw new Error('设备描述里出现了本机路径');
@@ -79,4 +103,4 @@ class Directory {
   }
 }
 
-module.exports = { Directory, sanitizeDescriptor };
+module.exports = { Directory, sanitizeDescriptor, normalizeAliases, deviceLabel };

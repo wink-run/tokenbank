@@ -20,7 +20,7 @@ node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.
 - 设备 A「macbook」：发起方；
 - 设备 B「mini」：有一个模拟的本地模型 `demo-model`、一个模拟的 Claude Code、一个 git 工作区 `demo`。
 
-两台之间是真实的 iroh QUIC 连接。两台都**不写对端地址**，靠局域网广播找到对方后直连。脚本依次检查 23 项：局域网发现、入网和设备目录、模型统一入口（流式、钉设备）、智能体统一入口（异步、流式、幂等、真实工作区、路由里 /xx 点名执行）、防回环、伪造头、其他账号拒绝、断线。加 `--keep` 跑完不退出，可以继续手动 `curl` 设备 A。
+两台之间是真实的 iroh QUIC 连接。两台都**不写对端地址**，靠局域网广播找到对方后直连。脚本依次检查 32 项：局域网发现、入网和设备目录、模型统一入口（流式、钉设备）、智能体统一入口（异步、流式、幂等、真实工作区、路由里 /xx 点名执行）、设备别名、防回环、伪造头、其他账号拒绝、断线。加 `--keep` 跑完不退出，可以继续手动 `curl` 设备 A。
 
 ## 统一入口
 
@@ -29,6 +29,7 @@ node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.
 | 设备列表 | `GET /v1/devices` |
 | 模型 | `model: "demo-model"`：本机除社区以外的供给源都没有时，交给有它的设备。`model: "mine:mini/demo-model"`：钉设备 |
 | 智能体 | `metadata.harness_id: "mine:claude-code"`（自动选）/ `"mine:claude-code@mini"`（指定）；`metadata.workspace: "demo"` |
+| 设备别名 | `PUT /v1/devices/{设备}/aliases` `{"aliases":["studio"]}`；之后 `@studio` 和设备名一样能用，界面优先显示别名 |
 | 点名执行 | 调智能体路由时输入以 `/codex 修一下` 或 `/codex@mini 修一下` 开头：跳过主智能体，直接交给点名的智能体（见 `../agent-designation.js`） |
 | 远端任务 | 任务号是 `mesh:<device_id>:<远端任务号>`，`GET /v1/agent/responses/{id}`、`/cancel` 自动转到那台设备 |
 | 列表 | `/v1/models`、`/v1/agent/harnesses` 会带上其他设备的 |
