@@ -136,6 +136,10 @@ async function cmdStart(port, adminPort) {
   gateway.start(port, readAgentConfig, undefined, bindHost);
   console.log(`[gateway] HTTP gateway started on port ${port}`);
 
+  // 设备网络（原型）：~/.tokenbank/mesh/config.json 里 enabled 为 true 才启动
+  require('../electron/mesh/glue').startFromConfig({ gatewayPort: port })
+    .catch((e) => console.warn('[mesh] start:', e && e.message));
+
   // 本地统计 + 会话补录（与 Electron 共用 ~/.tokenbank/local-stats.db）
   const telemetry = initGatewayTelemetry(gateway);
 
@@ -249,6 +253,7 @@ async function cmdStart(port, adminPort) {
     agentControl.stopAgent();
     reporter.stop();
     telemetry.shutdown();
+    require('../electron/mesh/glue').stop().catch(() => {});
     gateway.stop();
     adminApi.stop();
     process.exit(0);

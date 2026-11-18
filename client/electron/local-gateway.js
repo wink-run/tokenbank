@@ -4485,8 +4485,21 @@ function handleRequest(req, res) {
     const data = String(modelsCtrl?.app_id || '').includes('claude-desktop')
       ? buildClaudeMaskModelList()
       : buildDefaultModelList();
+    // 设备网络：别的设备开放的模型也列出来（经隧道来的请求不再列，避免绕圈）
+    try {
+      const meshGlue = require('./mesh/glue');
+      if (!meshGlue.isHop(req.headers)) data.push(...meshGlue.extraModels(data.map((m) => m && m.id)));
+    } catch { /* 设备网络不可用时只列本机 */ }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ object: 'list', data }));
+    return;
+  }
+
+  // 设备网络：本人所有设备的在线状态和能力
+  if (method === 'GET' && cleanPath === '/v1/devices') {
+    const view = require('./mesh/glue').devicesView();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ object: 'list', enabled: view.enabled, data: view.devices }));
     return;
   }
 
@@ -4615,7 +4628,8 @@ function handleRequest(req, res) {
     agentHttp.handle(req, res, {
       method,
       cleanPath,
-      knownKey: (key) => _appKeys.has(key) || (!!_agentApiKey && key === _agentApiKey),
+      knownKey: (key) => _appKeys.has(key) || (!!_agentApiKey && key === _agentApiKey)
+        || require('./mesh/glue').isMeshKey(key),
       // 发起任务写入路由明细，和模型补全同一份日志。
       onCall: (info) => {
         const entry = agentHttp.buildAgentRouteLog(info);
@@ -4694,6 +4708,22 @@ function handleRequest(req, res) {
       }
     }
 
+    // 设备网络：mine:<设备>/<模型> 钉到那台设备；本机除社区以外的供给源都没有这个模型时，交给有它的设备
+    try {
+      const meshGlue = require('./mesh/glue');
+      const handled = await meshGlue.routeChat({
+        model, cleanPath, body, req, res,
+        localHasModel: (m) => {
+          let list = [];
+          try { list = enabledProviders(); } catch { list = []; }   // 还没有任何供给源配置时 enabledProviders 会抛错
+          return list.some((p) => p.type !== 'p2p' && providerHasModel(p, m, { strict: true }));
+        },
+      });
+      if (handled) return;
+    } catch (e) {
+      console.warn('[mesh] chat:', e.message);
+    }
+
     const skipP2P = !!req.headers['x-p2p-hop'];
     try {
       await route(model, cleanPath, body, res, callerKey, skipP2P, req.headers['user-agent'] || '');
@@ -4704,6 +4734,22 @@ function handleRequest(req, res) {
       }
     }
   });
+}
+
+/** 设备网络用：本机直连供给源（不含社区 P2P）能服务的对话模型名 */
+function localModelNames() {
+  const names = new Set();
+  let list = [];
+  try { list = enabledProviders(); } catch { list = []; }
+  for (const p of list) {
+    if (p.type === 'p2p') continue;
+    for (const m of p.models || []) {
+      if (m && typeof m === 'object' && (m.type === 'image' || m.type === 'embedding')) continue;
+      const id = typeof m === 'string' ? m : (m && (m.name || m.id));
+      if (id) names.add(String(id));
+    }
+  }
+  return [...names];
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -4870,7 +4916,7 @@ function setLocalConfigReader(fn) {
 }
 
 module.exports = {
-  start, stop, restart, setStrategy, getStatus, getLog, recordAgentRouteLog, setGuardianListener,
+  start, stop, restart, setStrategy, getStatus, getLog, recordAgentRouteLog, setGuardianListener, localModelNames,
   setKeySceneMap, setClaudeShimScene, setCodexGptFallback, setRouterModelMap, setPeerModels, setBackendConfig, setUserAuth,
   setStatsRecorder, setLocalStats, setLocalConfigReader, setAppControls, setAgentApiKey,
   setClaudeModels,

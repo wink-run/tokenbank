@@ -100,5 +100,8 @@
     "linux": {
       "target": "AppImage"
     }
+  },
+  "optionalDependencies": {
+    "@number0/iroh": "^1.2.0"
   }
 }

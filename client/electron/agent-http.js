@@ -327,6 +327,7 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
   }
 
   const executor = require('./agent-executor');
+  const meshGlue = require('./mesh/glue');
   if (route.op !== 'create') req.resume();
   // 提前声明：任务中途抛错时，catch 仍能把已解析的提示词和智能体记进明细。
   let prompt = '';
@@ -334,7 +335,13 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
   try {
     if (route.op === 'list') {
       const all = await listHarnesses();
+      // 设备网络：我的其他设备上的应用和智能体（经隧道来的请求不再列）
+      if (!meshGlue.isHop(req.headers)) all.push(...meshGlue.extraHarnesses());
       sendJson(res, 200, { object: 'list', data: boundAgent ? all.filter(h => h.id === boundAgent) : all });
+      return true;
+    }
+    // mesh:<设备>:<任务号>：结果在那台设备上，转过去查或取消
+    if ((route.op === 'get' || route.op === 'cancel') && await meshGlue.routeAgentById({ id: route.id, op: route.op, res })) {
       return true;
     }
     if (route.op === 'get') {
@@ -353,6 +360,9 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
     prompt = inputText(body.input);
     harnessId = harnessIdFromBody(body);
     callContext = callContextFromBody(body);
+    // 经设备网络转来的都是本人的任务：完整权限，不审查、不脱敏、不计积分
+    const fromMesh = meshGlue.isMeshRequest(req.headers);
+    if (fromMesh) callContext = 'owner';
     if (boundAgent) {
       if (!harnessId) harnessId = boundAgent;   // 用智能体自己的 Key 可以不写 harness_id
       if (harnessId !== boundAgent) {
@@ -360,6 +370,15 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
         sendJson(res, 403, { error: { message: `这个 Key 只能调用 ${boundAgent}`, type: 'forbidden' } });
         return true;
       }
+    }
+    // mine:<目标>[@设备]：在本人的设备里选一台。选到别的设备就整个请求转过去，选到本机就照常往下走
+    if (String(harnessId).startsWith('mine:')) {
+      const r = await meshGlue.routeAgentCreate({ harnessId, body, req, res });
+      if (r.handled) {
+        report({ ok: !!r.ok, error: r.error, prompt, harnessId });
+        return true;
+      }
+      harnessId = r.local;
     }
     const reportTask = (task, fallbackError) => {
       const failed = task?.status === 'failed' || task?.status === 'cancelled';
@@ -434,11 +453,24 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
       sendJson(res, e.status || 400, { error: { message: e.message, type: 'invalid_request_error' } });
       return true;
     }
+    // 工作区：metadata.workspace 是名字，路径只在本机。设备网络转来的任务没给名字时用默认工作区
+    let workingDir = typeof body.metadata?.working_dir === 'string' ? body.metadata.working_dir : undefined;
+    const workspaceName = typeof body.metadata?.workspace === 'string' ? body.metadata.workspace.trim() : '';
+    if (workspaceName || fromMesh) {
+      try {
+        const p = meshGlue.resolveWorkspace(workspaceName);
+        if (p) workingDir = p;
+      } catch (e) {
+        report({ ok: false, error: e.message, prompt, harnessId });
+        sendJson(res, e.status || 400, { error: { message: e.message, type: 'invalid_request_error' } });
+        return true;
+      }
+    }
     const { taskId } = await executor.execute(resolved.agentId, prompt, {
       ...resolved.options,
       continueSession,
       cliSessionId: cliSessionId || undefined,
-      workingDir: typeof body.metadata?.working_dir === 'string' ? body.metadata.working_dir : undefined,
+      workingDir,
       // 只有请求显式打开 stream 才边收边推。background 马上返回，不占着连接。
       stream: !!body.stream && !body.background,
       callContext: callContext || undefined,
