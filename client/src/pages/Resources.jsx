@@ -1623,6 +1623,16 @@ export default function Resources() {
       }
       return [row, ...prev];
     });
+    // 技能卡片的「绑定」读这份全量智能体；只改 resources 时取消绑定仍会显示旧引用
+    if (resource.type === 'assistant') {
+      setAssistantsForBind((prev) => {
+        const idx = prev.findIndex((a) => a.id === resource.id);
+        if (idx < 0) return [resource, ...prev];
+        const next = prev.slice();
+        next[idx] = { ...prev[idx], ...resource };
+        return next;
+      });
+    }
     if (resource.type !== 'skill') return;
     setDiscovered(prev => {
       const idx = prev.findIndex(item => item.resourceId === resource.id || item.name === resource.name);
@@ -1683,6 +1693,7 @@ export default function Resources() {
       || discovered.find((i) => i.resourceId === resourceId || i.id === resourceId)
       || meta;
     setResources(prev => prev.filter(r => r.id !== resourceId));
+    setAssistantsForBind((prev) => prev.filter((a) => a.id !== resourceId));
     // Skill 卸载会删权威目录，本机列表中对应行一并移除
     setDiscovered(prev => prev.filter(item => item.resourceId !== resourceId));
     setScanStats(prev => (prev && typeof prev.totalOnDisk === 'number'
@@ -2763,7 +2774,11 @@ export default function Resources() {
         list.push(binder);
       }
     };
-    for (const a of assistantsForBind) {
+    // 保存智能体只更新 resources。本机列表里已有智能体时以它为准，避免取消绑定后技能仍显示被引用。
+    // 列表被收成仅技能、没有智能体行时，退回上次拉到的全量。
+    const fromResources = resources.filter((r) => r?.type === 'assistant' && r.id);
+    const assistants = fromResources.length ? fromResources : assistantsForBind;
+    for (const a of assistants) {
       const { skills, prompts } = depsFromAssistantContent(a.content);
       if (!skills.length && !prompts.length) continue;
       const binder = {
@@ -2775,7 +2790,7 @@ export default function Resources() {
       for (const pr of prompts) add('prompt', pr, binder);
     }
     return map;
-  }, [assistantsForBind]);
+  }, [assistantsForBind, resources]);
 
   /** 各 Agent / 自添目录的本机技能数（来自 listAgentInstallations） */
   const skillCountByAgentId = useMemo(() => {
@@ -3561,6 +3576,7 @@ export default function Resources() {
     const visual = typeVisual(li.type);
     const previewSrc = li.kind === 'discovered' ? (li.linked || it) : it;
     const menu = libraryMenuItems(li);
+    const rs = rowState(li);
     return (
       <LibraryInspector
         logo={<AssetLogo type={li.type} icon={it.icon || it.metadata?.icon} name={li.name || it.id} />}
@@ -3612,7 +3628,9 @@ export default function Resources() {
                 {busy === li.resourceId ? t('resources.busy') : t('resources.project')}
               </button>
             )}
-            {li.resourceId && <DiagnosePanel resourceId={li.resourceId} resourceName={li.name} onChanged={() => loadAll({ silent: true })} />}
+            {li.resourceId && rs.kind === 'issue' && (
+              <DiagnosePanel resourceId={li.resourceId} resourceName={li.name} why={rs.why || rs.word} />
+            )}
           </div>
         </InspectorSection>
         {li.type === 'skill' && li.resourceId && (

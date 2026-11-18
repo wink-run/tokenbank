@@ -418,9 +418,11 @@ function chooseRuntime() {
   });
 }
 
-/** 用户打了一句话 */
-async function say(text) {
-  const t = String(text || '').trim();
+/** 用户打了一句话。可以带上引用的那一条内容，模型就知道在说哪一件 */
+async function say(input) {
+  const payload = input && typeof input === 'object' ? input : { text: input };
+  const t = String(payload.text || '').trim();
+  const quote = String(payload.quote || '').replace(/\s+/g, ' ').trim().slice(0, 240);
   if (!t) return { ok: false, error: 'empty' };
   // 在回答上一条的问题：由程序识别，不经过模型（「确认放宽」这类也在这里核对）
   // 先看最后一条；再看最近一天里还没回答的（它问的问题可能被后来的推送压到上面去了）
@@ -430,7 +432,7 @@ async function say(text) {
     const hit = waiting.replies.find(r => norm(r.label) === norm(t) || (r.match || []).some(x => norm(x) === norm(t)));
     if (hit) return runReply(waiting, hit);
   }
-  add({ from: 'user', text: t });
+  add({ from: 'user', text: t, ...(quote ? { quote } : {}) });
   if (UNDO_RE.test(norm(t))) return undoLatest();
   if (/^(换|更换)(一个)?(执行)?应用$|^换个应用$/.test(norm(t))) { chooseRuntime(); return { ok: true }; }
   if (/^(暂停|停用|关闭)(智能管家|管家|看护)$/.test(norm(t))) { guardian().setSettings({ enabled: false }); add({ from: 'guardian', read: true, text: '好，我先停下。想让我继续时说「恢复智能管家」。' }); return { ok: true }; }
@@ -438,7 +440,8 @@ async function say(text) {
   if (/^(不用|别|不要)(再)?提醒(我)?了?$/.test(norm(t))) { cancelReminders(); add({ from: 'guardian', read: true, text: '好，不提醒了。' }); return { ok: true }; }
   const known = answerFromData(norm(t));
   if (known) { add({ from: 'guardian', read: true, text: known }); return { ok: true }; }
-  return askModel(t);
+  // 引用只告诉模型在说哪一条，不拿去对快捷指令
+  return askModel(quote ? `用户引用了这条内容：「${quote}」\n\n${t}` : t);
 }
 
 function fmtWhen(ts) {

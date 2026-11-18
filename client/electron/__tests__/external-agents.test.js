@@ -62,6 +62,23 @@ test('disabling fails queued tasks; a wrong token is not recognised', async () =
   assert.equal(ext.get('external:grokbot'), null);
 });
 
+test('pull interval defaults to 3 minutes and a saved value is what online checks use', () => {
+  assert.equal(ext.pullIntervalSec(), 180);
+  assert.equal(ext.setPullInterval(30), 180, 'shorter than a minute stays at the default');
+  assert.equal(ext.setPullInterval(600), 600);
+  assert.equal(ext.pullIntervalSec(), 600);
+  const { code } = ext.newPairingCode();
+  const { token } = ext.register({ code, name: 'Pace' });
+  ext.approve('external:pace');
+  const t0 = 2_000_000_000_000;
+  ext.authenticate(token, t0, { heartbeat: true, intervalSec: 60 });
+  const a = JSON.parse(fs.readFileSync(ext._internal.file(), 'utf8')).agents.find(x => x.id === 'external:pace');
+  // 设成 10 分钟后，按 10 分钟算在不在线，不按它自己报的 60 秒
+  assert.equal(ext.isOnline(a, t0 + 15 * 60 * 1000), true);
+  assert.equal(ext.isOnline(a, t0 + 21 * 60 * 1000), false);
+  ext.setPullInterval(0);   // 清掉，后面的用例仍按它自己报的间隔
+});
+
 test('online until two heartbeats are missed, using the observed pull interval', () => {
   const { code } = ext.newPairingCode();
   const { token } = ext.register({ code, name: 'Cron' });

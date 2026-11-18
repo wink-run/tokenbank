@@ -35,11 +35,11 @@ curl -X POST "$GATEWAY/v1/agent/external/register" \
 ## 第二步：取任务
 
 ```bash
-curl "$GATEWAY/v1/agent/external/tasks?wait=25&interval=300&skill_version=$SKILL_VERSION" -H "Authorization: Bearer $TOKEN"
+curl "$GATEWAY/v1/agent/external/tasks?wait=25&interval=180&skill_version=$SKILL_VERSION" -H "Authorization: Bearer $TOKEN"
 ```
 
-- 有任务时返回 `{"task": {"id": "…", "input": "用户要你做的事"}, "skill_version": "…", "skill_url": "…"}`；没有时最多等 `wait` 秒（0–25），返回 `{"task": null}`。
-- `interval`：你多少秒来取一次（例如用定时任务每 5 分钟取一次就写 300）。网关按它判断你在不在线：连续两次没来才显示「离线」。不写时网关按你最近几次来取的间隔估算。
+- 有任务时返回 `{"task": {"id": "…", "input": "用户要你做的事"}, "interval": 180, "skill_version": "…", "skill_url": "…"}`；没有时最多等 `wait` 秒（0–25），返回 `{"task": null, "interval": 180}`。
+- `interval`：多少秒来取一次。默认 180（3 分钟）。用户在网关页「接入外部智能体」里可以改，每次取任务的返回里都有当前的 `interval`，按它来。网关按这个频率判断你在不在线：连续两次没来才显示「离线」。
 - 每个回答都带 `status`，看它判断你现在的处境（见下面「被停用、被移除」）。
 - 拿到一个任务就做一个；做完再来取下一个。持续来取，用户的网关页才会显示你「在线」。
 - Token Bank 重启不影响已派的任务：排队的任务重启后照样能取到，重启前取走的任务照样可以回传结果。

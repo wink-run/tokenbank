@@ -18,6 +18,9 @@ const MAX_INTERVAL_MS = 6 * 3600 * 1000;
 const GRACE_MS = 30 * 1000;
 const MAX_WAIT_MS = 25 * 1000;        // 取任务的长轮询最多等这么久
 const DEFAULT_TASK_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_PULL_SEC = 180;         // 默认每 3 分钟来取一次
+const MIN_PULL_SEC = 60;
+const MAX_PULL_SEC = 6 * 3600;
 
 const queue = new Map();      // agentId → [{ id, prompt, createdAt }]
 const waiting = new Map();    // taskId → { resolve, timer, agentId }
@@ -149,15 +152,40 @@ function slug(name) {
 }
 
 /** 网关页展示用：不带 token */
-/** 心跳间隔：智能体自己报的优先，否则按最近几次来取的间隔取中位数 */
-function intervalOf(a) {
-  const declared = Number(a.declaredIntervalMs) || 0;
-  let ms = declared;
-  if (!ms && Array.isArray(a.gaps) && a.gaps.length) {
-    const g = [...a.gaps].sort((x, y) => x - y);
-    ms = g[Math.floor(g.length / 2)];
+/** 用户在网关页设的拉取频率（秒）。没设过就是 3 分钟。 */
+function pullIntervalSec() {
+  const n = Number(read().pullIntervalSec);
+  if (n >= MIN_PULL_SEC && n <= MAX_PULL_SEC) return Math.round(n);
+  return DEFAULT_PULL_SEC;
+}
+
+function setPullInterval(seconds) {
+  const d = read();
+  const n = Math.round(Number(seconds));
+  // 不到 1 分钟或超过 6 小时：不记，界面仍显示默认的 3 分钟
+  if (!(n >= MIN_PULL_SEC && n <= MAX_PULL_SEC)) {
+    delete d.pullIntervalSec;
+    write(d);
+    return DEFAULT_PULL_SEC;
   }
-  return Math.min(MAX_INTERVAL_MS, Math.max(MIN_INTERVAL_MS, ms || 0));
+  d.pullIntervalSec = n;
+  write(d);
+  return n;
+}
+
+/** 心跳间隔：用户设过的频率优先，否则用它自己报的，再否则按最近几次来取的间隔 */
+function intervalOf(a) {
+  const configured = Number(read().pullIntervalSec);
+  let ms = configured >= MIN_PULL_SEC ? configured * 1000 : 0;
+  if (!ms) {
+    ms = Number(a.declaredIntervalMs) || 0;
+    if (!ms && Array.isArray(a.gaps) && a.gaps.length) {
+      const g = [...a.gaps].sort((x, y) => x - y);
+      ms = g[Math.floor(g.length / 2)];
+    }
+  }
+  if (!ms) ms = DEFAULT_PULL_SEC * 1000;
+  return Math.min(MAX_INTERVAL_MS, Math.max(MIN_INTERVAL_MS, ms));
 }
 
 /** 两次心跳都没来才算离线；正在长轮询等任务的算在线 */
@@ -398,6 +426,7 @@ function isExternalId(id) { return typeof id === 'string' && id.startsWith(PREFI
 module.exports = {
   PREFIX, isExternalId,
   list, get, listForAgents,
+  pullIntervalSec, setPullInterval,
   newPairingCode, currentPairing, register,
   approve, disable, enable, remove,
   authenticate, dispatch, pull, complete,

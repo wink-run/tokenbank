@@ -2570,6 +2570,43 @@ class AgentExecutor extends EventEmitter {
     };
   }
 
+  /**
+   * 这个智能体一段时间内的任务。days=1 从本地 0 点起，和今天的数字一致；
+   * 7 / 30 / 90 从现在往前推，和用量明细的窗口一样。
+   * 带开始、完成时间，以及返回正文（不带步骤和文件）。
+   */
+  listTodayTasks(agentId, limit = 50, days = 1) {
+    const id = String(agentId || '');
+    if (!id) return [];
+    const span = [1, 7, 30, 90].includes(Number(days)) ? Number(days) : 1;
+    const since = span === 1
+      ? (() => { const start = new Date(); start.setHours(0, 0, 0, 0); return start.getTime(); })()
+      : Date.now() - span * 86400000;
+    const n = Math.min(Math.max(Number(limit) || 50, 1), span === 1 ? 100 : 200);
+    let rows = [];
+    try {
+      rows = this._getDb().prepare(`
+        SELECT id, prompt, status, error, created_at, started_at, completed_at, result
+        FROM agent_tasks
+        WHERE agent_id = ? AND created_at >= ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `).all(id, since, n);
+    } catch {
+      return [];
+    }
+    return rows.map((r) => ({
+      id: r.id,
+      prompt: r.prompt,
+      status: r.status,
+      error: r.error || '',
+      created_at: r.created_at,
+      started_at: r.started_at || null,
+      completed_at: r.completed_at || null,
+      output: taskResultText(r.result),
+    }));
+  }
+
   async getTaskStatus(taskId) {
     const db = this._getDb();
     const task = db.prepare('SELECT * FROM agent_tasks WHERE id = ?').get(taskId);
@@ -2640,6 +2677,35 @@ class AgentExecutor extends EventEmitter {
       }
     }
   }
+}
+
+/** 像事件流（一行一个 JSON）而不是给人看的正文 */
+function looksLikeEventStream(text) {
+  const s = String(text || '').trim();
+  return s.startsWith('{') && (s.includes('"type"') || s.includes('\n{'));
+}
+
+function clipTaskText(text) {
+  return String(text || '').slice(0, 8000);
+}
+
+/** 任务结果里给人看的正文。优先 summary；output 若是原始事件流则再整理一次。 */
+function taskResultText(raw) {
+  if (!raw) return '';
+  let obj = raw;
+  if (typeof raw === 'string') {
+    try { obj = JSON.parse(raw); } catch { return clipTaskText(raw); }
+  }
+  if (!obj || typeof obj !== 'object') return clipTaskText(obj);
+  const summary = String(obj.summary || '').trim();
+  const output = String(obj.output || obj.text || '').trim();
+  if (summary && summary !== '(无输出)' && !looksLikeEventStream(summary)) return clipTaskText(summary);
+  if (output && !looksLikeEventStream(output)) return clipTaskText(output);
+  if (output) {
+    const summarized = String(summarizeAgentStdout(output, 'claude-code') || '').trim();
+    if (summarized && summarized !== '(无输出)' && !looksLikeEventStream(summarized)) return clipTaskText(summarized);
+  }
+  return '';
 }
 
 module.exports = new AgentExecutor();

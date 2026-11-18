@@ -614,7 +614,8 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
           <label className={`shrink-0 inline-flex items-center gap-2 text-[13px] font-semibold ${(!running && empty) ? 'opacity-50' : ''}`}>
             <button type="button" role="switch" aria-checked={running} disabled={saving || (!running && empty)} onClick={toggleRunning}
               className={`relative shrink-0 w-10 h-6 rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${running ? 'bg-green-500' : 'bg-zinc-300 dark:bg-zinc-600'}`}>
-              <span className={`absolute top-[3px] left-0 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform duration-200 ${running ? 'translate-x-[19px]' : 'translate-x-[3px]'}`} />
+              {/* 圆钮跟轨道同用 rem：根字号是 13px，写死像素会偏下探出轨道 */}
+              <span className={`absolute top-1/2 left-[2px] h-[calc(100%-4px)] aspect-square -translate-y-1/2 bg-white rounded-full shadow transition-transform duration-200 ${running ? 'translate-x-[1rem]' : 'translate-x-0'}`} />
             </button>
             <span className="text-zinc-900 dark:text-zinc-50">{saving && !running ? t('contribute.savingAndStarting') : (running ? t('contribute.accepting') : t('contribute.notAccepting'))}</span>
           </label>
@@ -864,8 +865,8 @@ function ContributionConfigCard({ onStart, onStop, running, agentError, onAgents
               autoStart ? 'bg-blue-600' : 'bg-zinc-300 dark:bg-zinc-600'
             }`}
           >
-            <span className={`absolute top-[2px] left-0 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${
-              autoStart ? 'translate-x-[18px]' : 'translate-x-[2px]'
+            <span className={`absolute top-1/2 left-[2px] h-[calc(100%-4px)] aspect-square -translate-y-1/2 bg-white rounded-full shadow transition-transform duration-200 ${
+              autoStart ? 'translate-x-[1rem]' : 'translate-x-0'
             }`} />
           </button>
         </div>

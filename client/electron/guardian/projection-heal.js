@@ -115,7 +115,7 @@ async function check() {
             status: 'failed',
             title: `「${skillName(r)}」在 ${agentName(p.agentId)} 里的投射修复失败`,
             detail: p.health?.repairError || REASON_TEXT[p.health?.reason] || p.health?.reason || '',
-            advice: '到资产页打开这个技能，点「诊断」查看原因。',
+            advice: '到资产页打开这个技能，交给智能管家处理。',
             signature: `proj-fail|${r.id}|${p.agentId}`,
             meta: { resourceId: r.id, agentId: p.agentId },
           });

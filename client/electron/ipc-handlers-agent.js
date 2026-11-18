@@ -238,16 +238,17 @@ function registerAgentHandlers() {
   // 外部智能体（网关页「外部智能体」）：配对码、允许 / 停用 / 移除
   const ext = () => require('./external-agents');
   ipcMain.handle('agent:externalList', async () => {
-    try { return { success: true, agents: ext().list(), pairing: ext().currentPairing() }; }
+    try { return { success: true, agents: ext().list(), pairing: ext().currentPairing(), pullIntervalSec: ext().pullIntervalSec() }; }
     catch (error) { return { success: false, error: error.message }; }
   });
   ipcMain.handle('agent:externalPair', async () => {
     try { return { success: true, pairing: ext().newPairingCode() }; }
     catch (error) { return { success: false, error: error.message }; }
   });
-  ipcMain.handle('agent:externalSet', async (_event, { id, action } = {}) => {
+  ipcMain.handle('agent:externalSet', async (_event, { id, action, seconds } = {}) => {
     try {
       const e = ext();
+      if (action === 'interval') return { success: true, pullIntervalSec: e.setPullInterval(seconds) };
       const fn = { approve: e.approve, disable: e.disable, enable: e.enable, remove: e.remove }[action];
       if (!fn) throw new Error('unknown action');
       return { success: true, result: fn(String(id || '')) };
@@ -296,6 +297,16 @@ function registerAgentHandlers() {
       return { success: true, stats: agentExecutor.todayTaskStats() };
     } catch (error) {
       console.error('[IPC] agent:taskStats error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 网关页点「今天」那一列。days 跟用量明细一样：1 今天，7 / 30 / 90 往前推
+  ipcMain.handle('agent:listTodayTasks', async (_event, { agentId, limit, days } = {}) => {
+    try {
+      return { success: true, tasks: agentExecutor.listTodayTasks(agentId, limit, days) };
+    } catch (error) {
+      console.error('[IPC] agent:listTodayTasks error:', error);
       return { success: false, error: error.message };
     }
   });

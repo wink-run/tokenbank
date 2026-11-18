@@ -1868,9 +1868,9 @@ export default function ExecutionLog({
       {/* 本轮尚无回复/推理气泡：新开一条空回复放呼吸光标，不粘在历史消息上 */}
       {waitingForReply && (
         <div className="flex justify-start">
-          <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-[14px] leading-normal tb-soft-bubble border-blue-200/60 dark:border-blue-800/40 text-zinc-900 dark:text-zinc-100 min-h-[2.25rem] flex items-center gap-2">
+          <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-[13px] leading-normal tb-soft-bubble border-blue-200/60 dark:border-blue-800/40 text-zinc-900 dark:text-zinc-100 min-h-[2.25rem] flex items-center gap-2">
             <span className="inline-block h-2.5 w-14 rounded bg-blue-200 dark:bg-blue-800 animate-pulse shrink-0" />
-            <span className="text-[14px] leading-normal text-blue-600/90 dark:text-blue-300/90 animate-pulse">{externalWait || t('debug.log.executing')}</span>
+            <span className="text-[13px] leading-normal text-blue-600/90 dark:text-blue-300/90 animate-pulse">{externalWait || t('debug.log.executing')}</span>
             <span className="inline-block animate-pulse text-blue-500 dark:text-blue-400">▊</span>
           </div>
         </div>

@@ -1,10 +1,12 @@
 // 网关页「智能体」「路由」两个标签里新加的部分：专业智能体、外部智能体、智能体路由，以及智能体接口的钥匙。
 // 宽屏一行一条（像表格），窄屏每条一张卡片，按钮至少 44px 高。
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useLang } from '../store/lang';
 import { getConfig, getLocalConfig } from '../api/adapter';
 import { resolveBrandIcon } from '../lib/brandIcons';
+import { buildInvokeText, copyText } from '../lib/resource-enable';
 
 const agentApi = () => window.electronAPI?.agent || {};
 
@@ -18,6 +20,8 @@ const SHELL = 'tb-table-shell rounded-xl overflow-hidden';
 // 一行：窄屏上下排，宽屏按列排
 const ROW = 'tb-table-row flex flex-col gap-1.5 px-3 py-3 md:grid md:items-center md:gap-x-2 md:px-2.5';
 const HEAD = 'tb-table-head hidden md:grid md:items-center md:gap-x-2 px-2.5 py-2.5';
+// 专业 / 外部同一套列：智能体 | 状态 | 今天 | 各自一列 | 操作。切换时表头不跳动
+const AGENT_GRID = 'md:grid-cols-[minmax(9rem,1.4fr)_6rem_11rem_minmax(8rem,1fr)_11rem]';
 const NAME = 'text-xs font-medium tracking-tight text-zinc-800 dark:text-zinc-100 truncate';
 const META = 'tb-table-cell-meta';
 
@@ -153,7 +157,6 @@ function gatewayBase() {
 function AgentApiInline({ harnessId, note, t }) {
   const gw = gatewayBase();
   const [key, setKey] = useState('');
-  const [show, setShow] = useState(false);
   const [err, setErr] = useState('');
   useEffect(() => {
     Promise.resolve(agentApi().keyGet?.(harnessId)).then(r => { if (r?.success) setKey(r.key); else setErr(r?.error || ''); }).catch(() => {});
@@ -161,45 +164,301 @@ function AgentApiInline({ harnessId, note, t }) {
   const regen = async () => {
     if (!window.confirm(t('gw2.api.regenConfirm'))) return;
     const r = await agentApi().keyRegenerate?.(harnessId);
-    if (r?.success) { setKey(r.key); setShow(true); } else setErr(r?.error || '');
+    if (r?.success) setKey(r.key); else setErr(r?.error || '');
   };
-  const masked = key ? `${key.slice(0, 10)}••••••••` : '…';
-  const body = (k) => `curl ${gw}/v1/agent/responses \\
-  -H "Authorization: Bearer ${k}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"input": "你的任务"}'`;
+  // 与通用智能体同一套：同步等到跑完；异步马上返回 id，再用 GET 查
+  const syncPayload = JSON.stringify({ input: '看一下当前仓库', metadata: { harness_id: harnessId } });
+  const asyncPayload = JSON.stringify({ input: '看一下当前仓库', background: true, metadata: { harness_id: harnessId } });
+  const quote = (body) => `'${body.replace(/'/g, `'\\''`)}'`;
+  const syncCurl = `curl ${gw}/v1/agent/responses \\\n  -H "Authorization: Bearer ${key || '…'}" \\\n  -H "content-type: application/json" \\\n  -d ${quote(syncPayload)}`;
+  const asyncCurl = `curl ${gw}/v1/agent/responses \\\n  -H "Authorization: Bearer ${key || '…'}" \\\n  -H "content-type: application/json" \\\n  -d ${quote(asyncPayload)}`;
+  const getCurl = `curl ${gw}/v1/agent/responses/TASK_ID \\\n  -H "Authorization: Bearer ${key || '…'}"`;
+  const chip = 'min-w-0 truncate font-mono text-[11px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300';
+  const example = (title, badge, path, text) => (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{title}</div>
+        <span className={`text-[10px] leading-none px-1.5 py-0.5 rounded-full border ${badge === 'async'
+          ? 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800/60'
+          : 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800/60'}`}>
+          {badge === 'async' ? t('gateway.app.async') : t('gateway.app.sync')}
+        </span>
+      </div>
+      <div className="border border-zinc-200 dark:border-zinc-700 rounded-xl overflow-hidden">
+        <div className="flex items-center bg-zinc-50 dark:bg-zinc-800/60 border-b border-zinc-200 dark:border-zinc-700 px-3 py-2">
+          <span className="text-xs font-medium text-zinc-500">{path}</span>
+          <div className="flex-1" />
+          {key && <CopyText text={text} t={t} />}
+        </div>
+        <pre className="m-0 px-4 py-3 text-xs font-mono leading-relaxed text-zinc-700 dark:text-zinc-300 bg-zinc-50/30 dark:bg-zinc-900/30 whitespace-pre-wrap break-words">{text}</pre>
+      </div>
+    </div>
+  );
   return (
     <div className="tb-table-row px-3 md:px-2.5 py-3 bg-zinc-50/60 dark:bg-white/[0.02] space-y-2 text-xs text-zinc-600 dark:text-zinc-300">
-      <div className="flex flex-wrap items-center gap-2 min-w-0">
-        <span className="text-zinc-500 w-16 shrink-0">API Key</span>
-        <Code>{show ? key : masked}</Code>
-        <button type="button" className="text-blue-600 dark:text-blue-400 hover:underline" onClick={() => setShow(v => !v)}>{show ? t('gw2.hide') : t('gw2.show')}</button>
-        {key && <CopyText text={key} t={t} small />}
-        <button type="button" className="text-xs px-2 py-0.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:border-amber-400 hover:text-amber-600" onClick={regen}>{t('gw2.api.regen')}</button>
-        <span className="text-zinc-400 dark:text-zinc-500">{t('gw2.api.keyOnly')}</span>
+      <div className="flex items-center justify-between gap-3 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="text-zinc-500 w-16 shrink-0">API Key</span>
+          <code title={key} className={`flex-1 ${chip}`}>{key || '…'}</code>
+          {key && <CopyText text={key} t={t} small />}
+          <button type="button" className="text-xs px-2 py-0.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:border-amber-400 hover:text-amber-600 shrink-0" onClick={regen}>{t('gw2.api.regen')}</button>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 max-w-[46%]">
+          <span className="text-zinc-500 shrink-0">harness_id</span>
+          <code title={harnessId} className={`max-w-[14rem] ${chip}`}>{harnessId}</code>
+          <CopyText text={harnessId} t={t} small />
+        </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2 min-w-0">
-        <span className="text-zinc-500 w-16 shrink-0">harness_id</span><Code>{harnessId}</Code><CopyText text={harnessId} t={t} small />
-        {note ? <span className="text-zinc-500 dark:text-zinc-400">{note}</span> : null}
-      </div>
+      <p className="m-0 text-zinc-400 dark:text-zinc-500">{t('gw2.api.keyOnly')}{note ? ` ${note}` : ''}</p>
       {err && <p className="m-0 text-red-600 dark:text-red-400">{err}</p>}
-      <div className="relative">
-        <pre className="m-0 p-3 pr-16 rounded-xl bg-zinc-900 text-zinc-100 text-[11px] leading-relaxed overflow-x-auto">{body(show ? key : masked)}</pre>
-        <span className="absolute top-2 right-2">{key && <CopyText text={body(key)} t={t} />}</span>
-      </div>
+      {example(t('gateway.app.callAgent'), 'sync', 'POST /v1/agent/responses', syncCurl)}
+      {example(t('gateway.app.callAgent'), 'async', 'POST /v1/agent/responses', asyncCurl)}
+      {example(t('gateway.app.callAgentGet'), 'async', 'GET /v1/agent/responses/{id}', getCurl)}
       <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.api.hint')}</p>
     </div>
   );
 }
 
+const TASK_PILL = {
+  completed: 'bg-green-50 text-green-600 dark:bg-green-900/25 dark:text-green-400',
+  running: 'bg-blue-50 text-blue-600 dark:bg-blue-900/25 dark:text-blue-400',
+  pending: 'bg-amber-50 text-amber-700 dark:bg-amber-900/25 dark:text-amber-300',
+  failed: 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400',
+  cancelled: 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400',
+};
+
+/** 「今天」那一列：有任务才能点，点开弹窗（同通用智能体点用量） */
+function TodayCell({ st, onOpen, t }) {
+  const text = st.tasks ? t('gw2.tasks', { n: st.tasks, ok: st.ok || 0 }) : t('gw2.noTasks');
+  const cls = 'text-xs tabular-nums whitespace-nowrap';
+  if (!st.tasks) return <span className={`${cls} text-zinc-600 dark:text-zinc-300`}>{text}</span>;
+  return (
+    <button type="button" title={t('gw2.tasksOpen')}
+      className={`${cls} text-left text-zinc-600 dark:text-zinc-300 rounded px-1 -mx-1 hover:bg-zinc-500/[0.06] dark:hover:bg-white/[0.06] cursor-pointer`}
+      onClick={(e) => { e.stopPropagation(); onOpen(); }}>
+      {text}
+    </button>
+  );
+}
+
+/** 和用量明细一样的小节标题 */
+function TaskSection({ n, title, hint, children }) {
+  return (
+    <section>
+      <div className="flex items-baseline gap-2 mb-2">
+        <span className="w-4 h-4 rounded-full bg-zinc-100 dark:bg-zinc-800 text-xs font-bold text-zinc-500 dark:text-zinc-400 flex items-center justify-center shrink-0">{n}</span>
+        <h4 className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{title}</h4>
+        {hint ? <span className="text-xs text-zinc-400 font-normal">{hint}</span> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** 今天的任务弹窗：先概览和列表，点明细再看输入输出 */
+function TodayTaskList({ agentId, name, onClose, t }) {
+  const [tasks, setTasks] = useState(null);
+  const [err, setErr] = useState('');
+  const [openId, setOpenId] = useState('');
+  const [days, setDays] = useState(1);
+  useEffect(() => {
+    let live = true;
+    setOpenId('');
+    setTasks(null);
+    setErr('');
+    Promise.resolve(agentApi().listTodayTasks?.({ agentId, days }))
+      .then((r) => {
+        if (!live) return;
+        if (r?.success) setTasks(r.tasks || []);
+        else setErr(r?.error || t('gw2.task.failedLoad'));
+      })
+      .catch(() => { if (live) setErr(t('gw2.task.failedLoad')); });
+    return () => { live = false; };
+  }, [agentId, days, t]);
+  const when = (ms) => {
+    if (!ms) return '—';
+    try { return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return '—'; }
+  };
+  // 执行时间：完成减开始；还在跑就用到现在为止
+  const durationOf = (task) => {
+    const start = task.started_at || task.created_at;
+    const end = task.completed_at || ((task.status === 'running' || task.status === 'pending') ? Date.now() : null);
+    if (!start || !end || end < start) return '—';
+    const ms = end - start;
+    if (ms < 1000) return `${ms}ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)}s`;
+    const m = Math.floor(ms / 60000);
+    const s = Math.round((ms % 60000) / 1000);
+    return `${m}m${String(s).padStart(2, '0')}s`;
+  };
+  const statusText = (status) => {
+    const key = `gw2.task.${status}`;
+    const text = t(key);
+    return text === key ? (status || '—') : text;
+  };
+  const list = tasks || [];
+  const ok = list.filter((task) => task.status === 'completed').length;
+  const running = list.filter((task) => task.status === 'running' || task.status === 'pending').length;
+  const failed = list.filter((task) => task.status === 'failed' || task.status === 'cancelled').length;
+  const GRID = 'grid grid-cols-[minmax(0,1fr)_4.5rem_3.5rem_3.5rem_4rem_3.5rem] gap-2';
+  return createPortal(
+    <div className="electron-no-drag fixed inset-0 z-[80] flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white dark:bg-zinc-800 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-700 w-full max-w-3xl mx-4 max-h-[92vh] overflow-y-auto flex flex-col"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 bg-white dark:bg-zinc-800 z-10">
+          <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100 flex-1 min-w-0 truncate">{t('gw2.task.title', { name: name || agentId })}</h3>
+          <select value={days} onChange={(e) => setDays(+e.target.value)}
+            className="text-xs bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded px-2 py-1 outline-none text-zinc-600 dark:text-zinc-300">
+            <option value={1}>{t('gateway.detail.days1')}</option>
+            <option value={7}>{t('gateway.detail.days7')}</option>
+            <option value={30}>{t('gateway.detail.days30')}</option>
+            <option value={90}>{t('gateway.detail.days90')}</option>
+          </select>
+          <button type="button" onClick={onClose} className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 text-lg">✕</button>
+        </div>
+        {err ? (
+          <div className="py-16 text-center text-xs text-red-600 dark:text-red-400">{err}</div>
+        ) : tasks == null ? (
+          <div className="py-16 flex flex-col items-center gap-2 text-xs text-zinc-400">
+            <div className="w-5 h-5 border-2 border-zinc-300 dark:border-zinc-600 border-t-blue-500 rounded-full animate-spin" />{t('gw2.task.loading')}
+          </div>
+        ) : tasks.length === 0 ? (
+          <div className="py-16 text-center text-xs text-zinc-400">{t('gw2.task.empty')}</div>
+        ) : (
+          <div className="p-5 space-y-6">
+            <TaskSection n="1" title={t('gw2.task.overview')}>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  [t('gw2.task.total'), list.length],
+                  [t('gw2.task.completed'), ok],
+                  [t('gw2.task.running'), running],
+                  [t('gw2.task.failed'), failed],
+                ].map(([label, value]) => (
+                  <div key={label} className="bg-zinc-50 dark:bg-zinc-800/50 rounded-xl p-3">
+                    <div className="text-xs text-zinc-400 dark:text-zinc-500">{label}</div>
+                    <div className="text-lg font-bold text-zinc-800 dark:text-zinc-100 mt-0.5">{value}</div>
+                  </div>
+                ))}
+              </div>
+            </TaskSection>
+            <TaskSection n="2" title={t('gw2.task.list')} hint={t('gw2.task.detailHint')}>
+              <div className="tb-table-shell rounded-lg overflow-x-auto">
+                <div className={`tb-table-head ${GRID} px-3 py-1.5`}>
+                  <span>{t('gw2.task.colContent')}</span>
+                  <span>{t('gw2.col.state')}</span>
+                  <span>{t('gw2.task.start')}</span>
+                  <span>{t('gw2.task.end')}</span>
+                  <span>{t('gw2.task.duration')}</span>
+                  <span className="text-right">{t('gw2.task.detail')}</span>
+                </div>
+                <div className="divide-y divide-zinc-100 dark:divide-zinc-800 max-h-80 overflow-y-auto">
+                  {list.map((task) => {
+                    const open = openId === task.id;
+                    const result = task.output || task.error || t('gw2.task.noResultYet');
+                    return (
+                      <div key={task.id || task.created_at}>
+                        <div className={`${GRID} px-3 py-2 text-xs items-center ${open ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
+                          <span className="font-medium text-zinc-700 dark:text-zinc-300 truncate min-w-0" title={task.prompt}>{task.prompt || '—'}</span>
+                          <span className={`px-1 rounded w-fit ${TASK_PILL[task.status] || TASK_PILL.cancelled}`}>{statusText(task.status)}</span>
+                          <span className="text-zinc-400 tabular-nums">{when(task.started_at || task.created_at)}</span>
+                          <span className="text-zinc-400 tabular-nums">{when(task.completed_at)}</span>
+                          <span className="text-zinc-600 dark:text-zinc-300 tabular-nums">{durationOf(task)}</span>
+                          <span className="text-right">
+                            <button type="button" onClick={() => setOpenId(open ? '' : task.id)}
+                              className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400">
+                              {t('gw2.task.detail')}
+                            </button>
+                          </span>
+                        </div>
+                        {open && (
+                          <div className="bg-zinc-50 dark:bg-zinc-800/30 px-4 py-3 space-y-3 text-xs">
+                            <div>
+                              <div className="text-zinc-400 mb-1">{t('gw2.task.input')}</div>
+                              <div className="whitespace-pre-wrap break-words text-zinc-700 dark:text-zinc-200">{task.prompt || '—'}</div>
+                            </div>
+                            <div>
+                              <div className="text-zinc-400 mb-1">{t('gw2.task.output')}</div>
+                              <div className="whitespace-pre-wrap break-words max-h-48 overflow-y-auto text-zinc-700 dark:text-zinc-200">{result}</div>
+                            </div>
+                            <div className="text-zinc-400 break-all">
+                              {t('gw2.task.start')} {when(task.started_at || task.created_at)}
+                              <span className="mx-1.5">·</span>
+                              {t('gw2.task.end')} {when(task.completed_at)}
+                              <span className="mx-1.5">·</span>
+                              {t('gw2.task.duration')} {durationOf(task)}
+                              {task.id ? <><span className="mx-1.5">·</span><span className="font-mono">{t('gw2.task.id')} {task.id}</span></> : null}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </TaskSection>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 /** 专业智能体：资产里配好、投射到某个应用上跑的；按它跑在哪个应用上分组 */
 export function ProfessionalAgents() {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const navigate = useNavigate();
   const [reload, setReload] = useState(0);
   const { agents, blocked, stats, rentIds } = useAgentData(reload);
   const [apiFor, setApiFor] = useState('');   // 哪一行展开了「接口示例」
+  const [tasksFor, setTasksFor] = useState(null);   // 弹窗里看哪个智能体今天的任务
   const [runtimeErr, setRuntimeErr] = useState('');
+  // 试一下：游乐场，或复制口令贴到投射的应用
+  const [tryMenu, setTryMenu] = useState(null);
+  const [tryNote, setTryNote] = useState('');
+  useEffect(() => {
+    if (!tryMenu) return undefined;
+    const close = (e) => {
+      if (e.target?.closest?.('[data-try-menu]')) return;
+      setTryMenu(null);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setTryMenu(null); };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [tryMenu]);
+  const openTryMenu = (e, a) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ids = (a.projectedRuntimes && a.projectedRuntimes.length)
+      ? a.projectedRuntimes
+      : (a.runtimeAgentId ? [a.runtimeAgentId] : []);
+    setTryMenu((prev) => (prev?.id === a.id ? null : {
+      id: a.id,
+      name: a.name,
+      apps: ids.map((id) => ({ id, name: appName(id) })),
+      top: rect.bottom + 4,
+      right: Math.max(8, window.innerWidth - rect.right),
+    }));
+  };
+  const pasteOnApp = async (menu, app) => {
+    const text = buildInvokeText(
+      { type: 'assistant', name: menu.name, display_name: menu.name },
+      lang === 'en' ? 'en' : 'zh',
+    );
+    setTryMenu(null);
+    const ok = await copyText(text);
+    setTryNote(ok
+      ? t('gw2.pro.tryCopied', { app: app || t('gw2.pro.tryApp') })
+      : t('gw2.pro.tryCopyFailed'));
+  };
+  useEffect(() => {
+    if (!tryNote) return undefined;
+    const id = setTimeout(() => setTryNote(''), 2800);
+    return () => clearTimeout(id);
+  }, [tryNote]);
   const setDefaultApp = async (a, runtimeAgentId) => {
     setRuntimeErr('');
     const r = await agentApi().setAssistantRuntime?.(a.resourceId, runtimeAgentId);
@@ -226,8 +485,7 @@ export function ProfessionalAgents() {
     return [...m.entries()].sort((a, b) => (b[1].some(r => blocked[r.id]) - a[1].some(r => blocked[r.id])) || b[1].length - a[1].length);
   }, [rows, blocked]);
   const brokenN = rows.filter(a => blocked[a.id]).length;
-  // 名字占剩下的宽度；状态 / 今天 / 出租内容短，给固定窄列
-  const GRID = 'md:grid-cols-[minmax(0,1fr)_9rem_8rem_5.5rem_15rem]';
+  const GRID = AGENT_GRID;
   return (
     <section className="px-2.5 py-3 min-w-0">
       <Toolbar main={<button type="button" className={BTN_MAIN} onClick={() => navigate('/resources', { state: { resourceType: 'assistant' } })}>{t('gw2.pro.newPlus')}</button>}
@@ -262,31 +520,28 @@ export function ProfessionalAgents() {
                   const renting = a.resourceId && rentIds.has(a.resourceId);
                   return (
                     <React.Fragment key={a.id}>
-                    <div className={`${ROW} ${GRID} ${b ? 'bg-red-50/50 dark:bg-red-950/10' : ''}`}>
-                      {/* 技能数和「默认在哪跑」并成一行，行高和其它行一样 */}
-                      <NameCell name={a.name} meta={(
+                    <div
+                      className={`${ROW} ${GRID} ${b ? 'bg-red-50/50 dark:bg-red-950/10' : 'cursor-pointer'}`}
+                      onClick={b ? undefined : () => setApiFor(apiFor === a.id ? '' : a.id)}
+                    >
+                      {/* 投射到多个应用时，名称下面只留「默认在哪跑」 */}
+                      <NameCell name={a.name} meta={(a.projectedRuntimes || []).length > 1 ? (
                         <span className="flex flex-nowrap items-center gap-1 min-w-0">
-                          <span className="shrink-0">{a.skillCount ? t('gw2.pro.skills', { n: a.skillCount }) : t('gw2.pro.noSkills')}</span>
-                          {(a.projectedRuntimes || []).length > 1 && (
-                            <>
-                              <span className="shrink-0 text-zinc-300 dark:text-zinc-600">·</span>
-                              <label className="flex flex-nowrap items-center gap-0.5 min-w-0" title={t('gw2.pro.defaultHint')}>
-                                <span className="shrink-0 whitespace-nowrap">{t('gw2.pro.defaultOn')}</span>
-                                {/* 去掉原生外观：选中的应用名后面直接跟一个小箭头 */}
-                                <span className="relative inline-flex items-center min-w-0 text-blue-600 dark:text-blue-400">
-                                  <span className="truncate text-[11px] font-medium">{appName(a.runtimeAgentId)}</span>
-                                  <span aria-hidden className="ml-0.5 text-[9px]">▾</span>
-                                  <select value={a.runtimeAgentId} onChange={e => setDefaultApp(a, e.target.value)}
-                                    aria-label={t('gw2.pro.defaultOn')}
-                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer appearance-none">
-                                    {a.projectedRuntimes.map(id => <option key={id} value={id}>{appName(id)}</option>)}
-                                  </select>
-                                </span>
-                              </label>
-                            </>
-                          )}
+                          <label className="flex flex-nowrap items-center gap-0.5 min-w-0" title={t('gw2.pro.defaultHint')} onClick={e => e.stopPropagation()}>
+                            <span className="shrink-0 whitespace-nowrap">{t('gw2.pro.defaultOn')}</span>
+                            {/* 去掉原生外观：选中的应用名后面直接跟一个小箭头 */}
+                            <span className="relative inline-flex items-center min-w-0 text-blue-600 dark:text-blue-400">
+                              <span className="truncate text-[11px] font-medium">{appName(a.runtimeAgentId)}</span>
+                              <span aria-hidden className="ml-0.5 text-[9px]">▾</span>
+                              <select value={a.runtimeAgentId} onChange={e => setDefaultApp(a, e.target.value)}
+                                aria-label={t('gw2.pro.defaultOn')}
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer appearance-none">
+                                {a.projectedRuntimes.map(id => <option key={id} value={id}>{appName(id)}</option>)}
+                              </select>
+                            </span>
+                          </label>
                         </span>
-                      )} />
+                      ) : null} />
                       <span className="min-w-0">
                         {b ? (
                           <>
@@ -295,11 +550,13 @@ export function ProfessionalAgents() {
                           </>
                         ) : <Status tone="ok">{t('gw2.pro.ok')}</Status>}
                       </span>
-                      <span className="text-xs tabular-nums text-zinc-600 dark:text-zinc-300">{st.tasks ? t('gw2.tasks', { n: st.tasks, ok: st.ok || 0 }) : t('gw2.noTasks')}</span>
+                      <span className="min-w-0" onClick={e => e.stopPropagation()}>
+                        <TodayCell st={st} onOpen={() => setTasksFor({ id: a.id, name: a.name })} t={t} />
+                      </span>
                       <span className={`text-xs ${renting ? 'text-emerald-700 dark:text-emerald-400 font-medium' : 'text-zinc-500 dark:text-zinc-400'}`}>
                         {renting ? t('gw2.pro.renting') : t('gw2.pro.selfOnly')}
                       </span>
-                      <span className="flex gap-2 md:justify-end [&>*]:flex-1 md:[&>*]:flex-none">
+                      <span className="flex gap-2 md:justify-end [&>*]:flex-1 md:[&>*]:flex-none" onClick={e => e.stopPropagation()}>
                         {b ? (
                           <button type="button" className={BTN_PRIMARY}
                             onClick={() => navigate('/resources', { state: { resourceType: b.reason === 'skills' ? 'skill' : 'assistant', selectKey: b.reason === 'skills' ? undefined : `r-${a.resourceId}` } })}>
@@ -307,9 +564,7 @@ export function ProfessionalAgents() {
                           </button>
                         ) : (
                           <>
-                            <button type="button" className={BTN} onClick={() => navigate('/debug', { state: { agentId: a.id } })}>{t('gw2.pro.try')}</button>
-                            <button type="button" className={`${BTN} ${apiFor === a.id ? '!border-blue-400 !text-blue-500' : ''}`} aria-expanded={apiFor === a.id}
-                              onClick={() => setApiFor(apiFor === a.id ? '' : a.id)}>{apiFor === a.id ? t('gw2.pro.apiClose') : t('gw2.pro.api')}</button>
+                            <button type="button" data-try-menu className={BTN} aria-expanded={tryMenu?.id === a.id} onClick={(e) => openTryMenu(e, a)}>{t('gw2.pro.try')}</button>
                             <button type="button" className={BTN} onClick={() => navigate('/resources', { state: { resourceType: 'assistant', selectKey: a.resourceId ? `r-${a.resourceId}` : undefined } })}>{t('gw2.pro.edit')}</button>
                           </>
                         )}
@@ -323,6 +578,34 @@ export function ProfessionalAgents() {
             );
           })}
           </div>
+        </div>
+      )}
+      {tryMenu && (
+        <div
+          data-try-menu
+          className="fixed z-50 min-w-[11rem] max-w-[16rem] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg py-1 text-xs"
+          style={{ top: tryMenu.top, right: tryMenu.right }}
+        >
+          <button type="button" className="block w-full text-left px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-700"
+            onClick={() => { setTryMenu(null); navigate('/debug', { state: { agentId: tryMenu.id } }); }}>
+            {t('gw2.pro.tryPlay')}
+          </button>
+          <button type="button" className="block w-full text-left px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-700"
+            onClick={() => { setApiFor(tryMenu.id); setTryMenu(null); }}>
+            {t('gw2.pro.tryApi')}
+          </button>
+          {(tryMenu.apps && tryMenu.apps.length ? tryMenu.apps : [{ id: '', name: '' }]).map((app) => (
+            <button key={app.id || 'app'} type="button" className="block w-full text-left px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-700 truncate"
+              onClick={() => pasteOnApp(tryMenu, app.name)}>
+              {t('gw2.pro.tryPaste', { app: app.name || t('gw2.pro.tryApp') })}
+            </button>
+          ))}
+        </div>
+      )}
+      {tasksFor && <TodayTaskList agentId={tasksFor.id} name={tasksFor.name} onClose={() => setTasksFor(null)} t={t} />}
+      {tryNote && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] max-w-[min(24rem,calc(100vw-2rem))] px-3 py-2 rounded-lg bg-zinc-900 text-white text-xs shadow-lg text-center">
+          {tryNote}
         </div>
       )}
     </section>
@@ -401,15 +684,45 @@ function agoText(t, ts) {
 /** 外部智能体：自己注册进来、来网关取任务 */
 export function ExternalAgents() {
   const { t } = useLang();
+  const navigate = useNavigate();
   const [list, setList] = useState([]);
   const [pairing, setPairing] = useState(null);
   const [open, setOpen] = useState(false);
   const [stats, setStats] = useState({});
   const [busy, setBusy] = useState('');
   const [apiFor, setApiFor] = useState('');
+  const [tasksFor, setTasksFor] = useState(null);
+  const [tryMenu, setTryMenu] = useState(null);
+  const [intervalMin, setIntervalMin] = useState(3);   // 拉取频率，默认 3 分钟
+  useEffect(() => {
+    if (!tryMenu) return undefined;
+    const close = (e) => {
+      if (e.target?.closest?.('[data-try-menu]')) return;
+      setTryMenu(null);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') setTryMenu(null); };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [tryMenu]);
+  const openTryMenu = (e, a) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setTryMenu((prev) => (prev?.id === a.id ? null : {
+      id: a.id,
+      top: rect.bottom + 4,
+      right: Math.max(8, window.innerWidth - rect.right),
+    }));
+  };
   const load = useCallback(() => {
     Promise.resolve(agentApi().externalList?.()).then(r => {
-      if (r?.success) { setList(r.agents || []); setPairing(r.pairing || null); }
+      if (r?.success) {
+        setList(r.agents || []);
+        setPairing(r.pairing || null);
+        if (r.pullIntervalSec) setIntervalMin(Math.max(1, Math.round(r.pullIntervalSec / 60)));
+      }
     }).catch(() => {});
     Promise.resolve(agentApi().taskStats?.()).then(r => { if (r?.success) setStats(r.stats?.by_agent || {}); }).catch(() => {});
   }, []);
@@ -428,12 +741,17 @@ export function ExternalAgents() {
     if (r?.success) setPairing(r.pairing);
     setOpen(true);
   };
+  const saveInterval = async (raw) => {
+    const min = Math.max(1, Math.min(360, Math.round(Number(raw) || 3)));
+    setIntervalMin(min);
+    const r = await agentApi().externalSet?.('', 'interval', { seconds: min * 60 });
+    if (r?.pullIntervalSec) setIntervalMin(Math.max(1, Math.round(r.pullIntervalSec / 60)));
+  };
   const pendingN = list.filter(a => a.status === 'pending').length;
   const rows = [...list].sort((a, b) => (b.status === 'pending') - (a.status === 'pending'));
   const gateway = (() => { try { return `${window.location.protocol}//${window.location.hostname}:11430`; } catch { return 'http://127.0.0.1:11430'; } })();
   const skillUrl = `${gateway}/v1/agent/external/skill`;
-  // 名字和「能做什么」分剩下的宽度；连接 / 今天 / harness_id 给固定列
-  const GRID = 'md:grid-cols-[minmax(0,1fr)_12.5rem_6.5rem_10rem_minmax(0,1.2fr)_12rem]';
+  const GRID = AGENT_GRID;
   return (
     <section className="px-2.5 py-3 min-w-0">
       <Toolbar main={<button type="button" className={BTN_MAIN} aria-expanded={open} onClick={() => (open ? setOpen(false) : newCode())}>{t('gw2.ext.connectPlus')}</button>}
@@ -457,8 +775,23 @@ export function ExternalAgents() {
           </ol>
           <div className="space-y-1">
             <p className="m-0 font-semibold">{t('gw2.ext.apiTitle')}</p>
+            <label className="flex flex-wrap items-center gap-2 text-zinc-600 dark:text-zinc-300">
+              <span>{t('gw2.ext.interval')}</span>
+              <input
+                type="number"
+                min="1"
+                max="360"
+                value={intervalMin}
+                onChange={(e) => setIntervalMin(e.target.value)}
+                onBlur={(e) => saveInterval(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                className="w-16 text-right font-mono text-sm px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-100"
+              />
+              <span>{t('gw2.ext.intervalUnit')}</span>
+              <span className="text-zinc-400">{t('gw2.ext.intervalHint')}</span>
+            </label>
             {[
-              ['gw2.ext.apiPull', `GET ${gateway}/v1/agent/external/tasks?wait=25&interval=300`],
+              ['gw2.ext.apiPull', `GET ${gateway}/v1/agent/external/tasks?wait=25&interval=${Math.max(1, Math.round(Number(intervalMin) || 3)) * 60}`],
               ['gw2.ext.apiResult', `POST ${gateway}/v1/agent/external/tasks/{task_id}/result  {"output": "…"}`],
               ['gw2.ext.apiPush', `POST ${gateway}/v1/agent/external/tasks/{task_id}/messages  {"output": "…"}`],
             ].map(([k, line]) => (
@@ -476,17 +809,20 @@ export function ExternalAgents() {
       {rows.length === 0 ? (
         <div className="py-6 text-center text-xs text-zinc-400">{t('gw2.ext.empty')}</div>
       ) : (
-        <div className={SHELL}>
+        <div className={SHELL} style={{ overflowX: 'auto' }}>
           <div className={`${HEAD} ${GRID}`}>
-            <span>{t('gw2.col.agent')}</span><span>{t('gw2.col.link')}</span><span>{t('gw2.col.today')}</span>
-            <span>harness_id</span><span>{t('gw2.col.can')}</span><span className="text-right">{t('gw2.col.actions')}</span>
+            <span>{t('gw2.col.agent')}</span><span>{t('gw2.col.state')}</span><span>{t('gw2.col.today')}</span>
+            <span>{t('gw2.col.can')}</span><span className="text-right">{t('gw2.col.actions')}</span>
           </div>
           {rows.map(a => {
             const st = stats[a.id] || {};
             const pending = a.status === 'pending';
             return (
               <React.Fragment key={a.id}>
-              <div className={`${ROW} ${GRID} ${pending ? 'bg-amber-50/50 dark:bg-amber-950/10' : ''}`}>
+              <div
+                className={`${ROW} ${GRID} ${pending ? 'bg-amber-50/50 dark:bg-amber-950/10' : ''} ${a.status === 'active' ? 'cursor-pointer' : ''}`}
+                onClick={a.status === 'active' ? () => setApiFor(apiFor === a.id ? '' : a.id) : undefined}
+              >
                 <NameCell name={a.name} meta={pending ? t('gw2.ext.applied', { code: a.pairingCode || '' }) : t('gw2.ext.since', { when: new Date(a.createdAt).toLocaleDateString() })} />
                 <span className="min-w-0 text-xs">
                   {pending ? <Status tone="warn">{t('gw2.ext.pending')}</Status>
@@ -502,10 +838,11 @@ export function ExternalAgents() {
                   )}
                   {a.skillOutdated && <span className="block text-amber-700 dark:text-amber-400" title={t('gw2.ext.skillOldHint')}>{t('gw2.ext.skillOld')}</span>}
                 </span>
-                <span className="text-xs tabular-nums text-zinc-600 dark:text-zinc-300">{st.tasks ? t('gw2.tasks', { n: st.tasks, ok: st.ok || 0 }) : t('gw2.noTasks')}</span>
-                <span className="flex items-center gap-2 min-w-0"><Code>{a.id}</Code></span>
+                <span className="min-w-0" onClick={e => e.stopPropagation()}>
+                  <TodayCell st={st} onOpen={() => setTasksFor({ id: a.id, name: a.name })} t={t} />
+                </span>
                 <span className="text-xs text-zinc-600 dark:text-zinc-300 min-w-0">{a.description ? t('gw2.ext.says', { d: a.description }) : '—'}</span>
-                <span className="flex gap-2 md:justify-end [&>*]:flex-1 md:[&>*]:flex-none">
+                <span className="flex gap-2 md:justify-end [&>*]:flex-1 md:[&>*]:flex-none" onClick={e => e.stopPropagation()}>
                   {pending ? (
                     <>
                       <button type="button" className={BTN_PRIMARY} disabled={!!busy} onClick={() => act(a.id, 'approve')}>{t('gw2.ext.allow')}</button>
@@ -513,13 +850,12 @@ export function ExternalAgents() {
                     </>
                   ) : (
                     <>
+                      {a.status === 'active' && (
+                        <button type="button" data-try-menu className={BTN} aria-expanded={tryMenu?.id === a.id} onClick={(e) => openTryMenu(e, a)}>{t('gw2.pro.try')}</button>
+                      )}
                       {a.status === 'disabled'
                         ? <button type="button" className={BTN} disabled={!!busy} onClick={() => act(a.id, 'enable')}>{t('gw2.ext.enable')}</button>
                         : <button type="button" className={BTN} disabled={!!busy} onClick={() => act(a.id, 'disable')}>{t('gw2.ext.disable')}</button>}
-                      {a.status === 'active' && (
-                        <button type="button" className={`${BTN} ${apiFor === a.id ? '!border-blue-400 !text-blue-500' : ''}`} aria-expanded={apiFor === a.id}
-                          onClick={() => setApiFor(apiFor === a.id ? '' : a.id)}>{apiFor === a.id ? t('gw2.pro.apiClose') : t('gw2.pro.api')}</button>
-                      )}
                       <button type="button" className={BTN_DANGER} disabled={!!busy} onClick={() => act(a.id, 'remove')}>{t('gw2.ext.remove')}</button>
                     </>
                   )}
@@ -531,6 +867,23 @@ export function ExternalAgents() {
           })}
         </div>
       )}
+      {tryMenu && (
+        <div
+          data-try-menu
+          className="fixed z-50 min-w-[11rem] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg py-1 text-xs"
+          style={{ top: tryMenu.top, right: tryMenu.right }}
+        >
+          <button type="button" className="block w-full text-left px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-700"
+            onClick={() => { setTryMenu(null); navigate('/debug', { state: { agentId: tryMenu.id } }); }}>
+            {t('gw2.pro.tryPlay')}
+          </button>
+          <button type="button" className="block w-full text-left px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-700"
+            onClick={() => { setApiFor(tryMenu.id); setTryMenu(null); }}>
+            {t('gw2.pro.tryApi')}
+          </button>
+        </div>
+      )}
+      {tasksFor && <TodayTaskList agentId={tasksFor.id} name={tasksFor.name} onClose={() => setTasksFor(null)} t={t} />}
     </section>
   );
 }

@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getTaskStatus: (taskId) => ipcRenderer.invoke('agent:getStatus', taskId),
     listActiveTasks: () => ipcRenderer.invoke('agent:listActiveTasks'),
     listRecentTasks: (opts) => ipcRenderer.invoke('agent:listRecentTasks', opts),
+    listTodayTasks: (opts) => ipcRenderer.invoke('agent:listTodayTasks', opts || {}),
     taskStats: () => ipcRenderer.invoke('agent:taskStats'),
     listBlocked: () => ipcRenderer.invoke('agent:listBlocked'),
     taskMessages: (taskIds, opts) => ipcRenderer.invoke('agent:taskMessages', taskIds, opts),
@@ -66,7 +67,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     harnesses: () => ipcRenderer.invoke('agent:harnesses'),
     externalList: () => ipcRenderer.invoke('agent:externalList'),
     externalPair: () => ipcRenderer.invoke('agent:externalPair'),
-    externalSet: (id, action) => ipcRenderer.invoke('agent:externalSet', { id, action }),
+    externalSet: (id, action, extra) => ipcRenderer.invoke('agent:externalSet', { id, action, ...(extra && typeof extra === 'object' ? extra : {}) }),
     pickWorkingDir: (opts) => ipcRenderer.invoke('agent:pickWorkingDir', opts),
     pickFiles: (opts) => ipcRenderer.invoke('agent:pickFiles', opts),
     // 兼容旧调用
@@ -331,6 +332,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   localStats: {
     query: (days) => ipcRenderer.invoke('localStats:query', days),
+    purgeOlder: (days) => ipcRenderer.invoke('localStats:purgeOlder', days),
     modelLatency: (days) => ipcRenderer.invoke('localStats:modelLatency', days),
     todaySummary: () => ipcRenderer.invoke('localStats:todaySummary'),
     compression: (days) => ipcRenderer.invoke('localStats:compression', days),

@@ -3306,6 +3306,18 @@ function registerIPC() {
     try { return localStats.queryTodaySummary(); }
     catch (e) { console.error('[localStats:todaySummary]', e.message); return { inTok: 0, outTok: 0, totalTokens: 0, calls: 0 }; }
   });
+  ipcMain.handle('localStats:purgeOlder', (_e, days) => {
+    try {
+      const result = localStats.purgeOlderThan(days);
+      if (result?.ok) {
+        try { mainWindow?.webContents?.send('localStats:changed'); } catch {}
+      }
+      return result;
+    } catch (e) {
+      console.error('[localStats:purgeOlder]', e.message);
+      return { ok: false, error: e.message };
+    }
+  });
   ipcMain.handle('localStats:query', (_e, days) => {
     const d = Math.max(1, Math.min(365, parseInt(days, 10) || 1));
     // 打开盘点页时先补录 Skill/工具（WorkBuddy trace 等），避免「会话有 Skill、盘点却是 0」

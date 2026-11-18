@@ -260,7 +260,7 @@ async function handleExternal(req, res, method, cleanPath) {
       } else if (task && task.status === 'removed') {
         sendJson(res, 410, { error: { message: '用户已在 Token Bank 里移除了你：删掉保存的 token，停掉你这边和 Token Bank 有关的定时任务', type: 'removed' }, status: 'removed', ...skillMeta() });
       } else {
-        sendJson(res, 200, { task: task ? { id: task.id, input: task.prompt } : null, status: 'active', ...skillMeta() });
+        sendJson(res, 200, { task: task ? { id: task.id, input: task.prompt } : null, status: 'active', interval: ext.pullIntervalSec(), ...skillMeta() });
       }
       return true;
     }
@@ -380,6 +380,15 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
         return true;
       }
       if (!prev.response && prev.taskId) {
+        // 异步重放只看当前状态，不在这里把连接挂到跑完
+        if (body.background) {
+          const task = await executor.getTaskStatus(prev.taskId);
+          const response = taskToResponse(task);
+          if (callContext) response.metadata.call_context = callContext;
+          reportTask(task);
+          sendJson(res, 200, response);
+          return true;
+        }
         const task = await waitTask(executor, prev.taskId);
         const response = taskToResponse(task);
         if (callContext) response.metadata.call_context = callContext;
@@ -430,12 +439,33 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
       continueSession,
       cliSessionId: cliSessionId || undefined,
       workingDir: typeof body.metadata?.working_dir === 'string' ? body.metadata.working_dir : undefined,
-      // 只有请求显式打开 stream 才边收边推
-      stream: !!body.stream,
+      // 只有请求显式打开 stream 才边收边推。background 马上返回，不占着连接。
+      stream: !!body.stream && !body.background,
       callContext: callContext || undefined,
     });
     // 等结果之前就记住键，连接断开后同样的请求接上这一单
     rememberIdempotency(idem, raw, null, taskId);
+
+    const finishResponse = async (task) => {
+      const response = taskToResponse(task);
+      if (callContext) response.metadata.call_context = callContext;
+      if (resolved.options.agentRouteId) {
+        response.metadata.harness_id = harnessId;
+        response.metadata.dispatched_by = resolved.agentId;
+      }
+      return response;
+    };
+
+    // 异步：立刻交出任务 id，调用方用 GET /v1/agent/responses/{id} 查结果
+    if (body.background) {
+      let task;
+      try { task = await executor.getTaskStatus(taskId); }
+      catch { task = { id: taskId, status: 'pending', agent_id: harnessId }; }
+      const response = await finishResponse(task);
+      reportTask(task);
+      sendJson(res, 200, response);
+      return true;
+    }
 
     let detachStream = () => {};
     if (body.stream && !res.headersSent) {

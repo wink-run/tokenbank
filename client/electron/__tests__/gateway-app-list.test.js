@@ -32,6 +32,12 @@ test('today task stats are also split per agent: tasks, succeeded, average time'
   assert.deepEqual(st.by_agent['assistant:weekly'], { tasks: 2, ok: 1, running: 0, failed: 1, avg_duration_ms: 4000 });
   assert.equal(st.by_agent.codex.tasks, 1);
   assert.equal(st.by_agent.codex.running, 1);
+  // 点开「今天」看到的列表，和上面的数字是同一批（昨天的不算）
+  assert.equal(executor.listTodayTasks('assistant:weekly').length, 2);
+  assert.equal(executor.listTodayTasks('codex').length, 1);
+  assert.equal(executor.listTodayTasks('codex')[0].status, 'running');
+  // 近 7 天把三天前那条也算进来
+  assert.equal(executor.listTodayTasks('codex', 50, 7).length, 2);
 });
 
 test("an app's today stats carry its cost and the sources it used", () => {
@@ -106,6 +112,27 @@ test('per-app usage for one day starts at local midnight, like the dashboard tot
   assert.equal(st.calls, 1);
   const wide = localStats.queryAppStatsInPeriod({ appId: 'app-day', days: 2 });
   assert.equal(wide.calls, 2);
+});
+
+test('purge drops usage and finished tasks older than N days, and keeps a running one', () => {
+  const db = localStats.getDb();
+  const now = Date.now();
+  const oldSec = Math.floor((now - 10 * 86400000) / 1000);
+  const newSec = Math.floor(now / 1000);
+  db.prepare("INSERT INTO requests (ts, model, tokens) VALUES (?, 'purge-old', 1)").run(oldSec);
+  db.prepare("INSERT INTO requests (ts, model, tokens) VALUES (?, 'purge-new', 1)").run(newSec);
+  const ins = db.prepare('INSERT INTO agent_tasks (id, agent_id, prompt, status, created_at) VALUES (?, ?, ?, ?, ?)');
+  ins.run('purge-old-done', 'codex', 'old', 'completed', now - 10 * 86400000);
+  ins.run('purge-old-run', 'codex', 'run', 'running', now - 10 * 86400000);
+  ins.run('purge-new-done', 'codex', 'new', 'completed', now - 1000);
+  const r = localStats.purgeOlderThan(7);
+  assert.equal(r.ok, true);
+  assert.equal(r.tasks, 1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM requests WHERE model = 'purge-old'").get().n, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM requests WHERE model = 'purge-new'").get().n, 1);
+  assert.equal(db.prepare("SELECT id FROM agent_tasks WHERE id = 'purge-old-done'").get(), undefined);
+  assert.equal(db.prepare("SELECT status FROM agent_tasks WHERE id = 'purge-old-run'").get().status, 'running');
+  assert.ok(db.prepare("SELECT id FROM agent_tasks WHERE id = 'purge-new-done'").get());
 });
 
 test("the butler's own model calls stay on the user's own sources", () => {

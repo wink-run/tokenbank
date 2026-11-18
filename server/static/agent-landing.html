@@ -559,6 +559,10 @@ createApp({
     let runAbort = null
     let runSettle = null
     let stopRequested = false
+    // 用户又发了一句：还没跑完的上一句作废，避免两条回复一起转
+    let sendGen = 0
+    let outbound = false
+    const droppedTasks = new Set()
     // 同一次用户请求里，超时后续跑的次数。用户自己再发消息时清零
     let autoContinues = 0
     const err = ref('')
@@ -1992,6 +1996,8 @@ createApp({
     }
     function showForeignTurn(turn) {
       if (!turn) return
+      // 用户已经用新消息停掉的任务，轮询不要再把它显示成还在跑
+      if (turn.task_id && droppedTasks.has(String(turn.task_id))) return
       foreignTurn.value = {
         author: String(turn.author || '').slice(0, 40),
         text: String(turn.text || ''),
@@ -2062,7 +2068,7 @@ createApp({
     let watchingTask = ''
     async function watchForeignStream(taskId) {
       const id = String(taskId || '').trim()
-      if (!id || id === watchingTask) return
+      if (!id || id === watchingTask || droppedTasks.has(id)) return
       watchingTask = id
       try { turnWatchAbort?.abort() } catch { /* 换一轮 */ }
       const ac = new AbortController()
@@ -2232,9 +2238,9 @@ createApp({
           return
         }
         const hadLive = messages.value.some(m => m && m.liveTurn) || !!foreignTurn.value
-        if (turn && turn.task_id && turn.task_id === finishedForeignTask) {
+        if (turn && turn.task_id && (turn.task_id === finishedForeignTask || droppedTasks.has(String(turn.task_id)))) {
           foreignTurn.value = null
-          return
+          turn = null
         }
         if (turn && (turn.text || turn.task_id)) {
           holdingTurn.value = false
@@ -2833,6 +2839,13 @@ createApp({
           blocks.push(...parts)
         }
         for (const block of blocks) {
+          // 用户已经发了下一句：不要再把这条流写回「还在跑」
+          if (stopRequested) {
+            freezePartial(asstIdx)
+            const row = messages.value[asstIdx]
+            if (row) row.taskId = undefined
+            return finish(true)
+          }
           const ev = parseSseBlock(block)
           if (!ev || typeof ev !== 'object') continue
           if (ev.task_id) {
@@ -3090,16 +3103,57 @@ createApp({
       if (wait) await wait
     }
 
+    /** 新的一句要发出去：停掉还在生成的回复，并取消它们的任务 */
+    async function supersedeRunningReply() {
+      const pending = messages.value.some(m => m && m.role === 'assistant' && m.pending)
+      if (!outbound && !running.value && !pending && !activeTaskId.value) return
+      stopRequested = true
+      try { runAbort?.abort() } catch { /* 已经结束 */ }
+      try { turnWatchAbort?.abort() } catch { /* 没在看别人的流 */ }
+      watchingTask = ''
+      const ids = []
+      if (activeTaskId.value) ids.push(String(activeTaskId.value))
+      messages.value.forEach((m, i) => {
+        if (!m || m.role !== 'assistant' || !m.pending) return
+        if (m.taskId) ids.push(String(m.taskId))
+        freezePartial(i)
+        m.liveTurn = false
+        m.taskId = undefined
+        sealTimes(m)
+      })
+      foreignTurn.value = null
+      const unique = [...new Set(ids.filter(Boolean))]
+      unique.forEach(id => droppedTasks.add(id))
+      activeTaskId.value = ''
+      const wait = runSettle
+      await Promise.all(unique.map(id => cancelRemote(id)))
+      if (wait) await wait
+    }
+
     async function sendMessage(arg) {
       // 点击事件也会传进来；只有显式 true 才是超时后续跑
       const auto = arg === true
       if (shareReadOnly.value || shareTurnLocked.value || agent.value?.offline) return
       if (!auto) autoContinues = 0
-      if (running.value) {
+      // 先占住这一句。上一句还在抢锁或生成时，新的一句会把它停掉
+      let myGen = sendGen
+      if (!auto) {
+        myGen = ++sendGen
         const followUp = hasDraft.value
-        await pauseRun()
-        if (!followUp) return
+        const busy = outbound || running.value || !!activeTaskId.value
+          || messages.value.some(m => m && m.role === 'assistant' && m.pending)
+        if (busy) {
+          await supersedeRunningReply()
+          if (myGen !== sendGen) return
+          if (!followUp) {
+            outbound = false
+            return
+          }
+        }
+        outbound = true
       }
+      const superseded = () => !auto && myGen !== sendGen
+      const releaseOutbound = () => { if (!auto && myGen === sendGen) outbound = false }
       err.value = ''
       const text = prompt.value.trim()
       const pending = pendingImages.value.slice()
@@ -3107,11 +3161,13 @@ createApp({
       const fileItems = pending.filter(p => p.kind === 'file' && p.dataUrl)
       if (!text && !imageItems.length && !fileItems.length) {
         err.value = T.value.emptyPrompt
+        releaseOutbound()
         return
       }
       const isGuest = !loggedIn.value || !getToken()
       if (isGuest && guestUsed.value) {
         err.value = T.value.loginToContinue
+        releaseOutbound()
         return
       }
       // 只有附件时补一句说明，本地气泡也显示它
@@ -3122,14 +3178,31 @@ createApp({
       const speakShare = relayShareId.value || ''
       boundTurnShare = speakShare
       if (speakShare && isGuest) await claimGuestSeat(speakShare)
+      if (superseded()) {
+        releaseOutbound()
+        return
+      }
       let cloudAt = 0
       if (speakShare && !auto) {
         cloudAt = await claimRelayTurn(displayText, speakShare)
-        if (cloudAt === false) return
-        if (relayShareId.value !== speakShare) {
-          await endRelayTurn(false)
+        if (superseded()) {
+          if (cloudAt !== false) await endRelayTurn(false)
+          releaseOutbound()
           return
         }
+        if (cloudAt === false) {
+          releaseOutbound()
+          return
+        }
+        if (relayShareId.value !== speakShare) {
+          await endRelayTurn(false)
+          releaseOutbound()
+          return
+        }
+      }
+      if (superseded()) {
+        releaseOutbound()
+        return
       }
       const history = messages.value.slice()
       // 分享里的下一句要带上已有对话。访客单独试用仍只发这一句
@@ -3236,7 +3309,12 @@ createApp({
         const finalOk = outcome.finalOk
         const finalGuest = outcome.finalGuest
         nextAuto = outcome.nextAuto || ''
-        if (outcome.stopped) return
+        if (outcome.stopped || stopRequested) {
+          freezePartial(asstIdx)
+          const stoppedRow = messages.value[asstIdx]
+          if (stoppedRow) stoppedRow.taskId = undefined
+          return
+        }
 
         if (!finalOk && !messages.value[asstIdx]?.interrupted && !answerOf(messages.value[asstIdx]).trim()) {
           const row = messages.value[asstIdx]
@@ -3317,10 +3395,11 @@ createApp({
         runAbort = null
         resolveSettle()
         runSettle = null
+        releaseOutbound()
         // return 会跳过 finally 之后的代码，续跑放在这里才能执行
         if (resumeId) {
           await resumeTask(resumeId)
-        } else if (nextAuto) {
+        } else if (nextAuto && !stopRequested) {
           const text = nextAuto
           nextAuto = ''
           prompt.value = text

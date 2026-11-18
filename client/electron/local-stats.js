@@ -1873,6 +1873,50 @@ function setSessionMeta({ agent_id, session_id, favorite, tags, note, archived }
   }
 }
 
+/**
+ * 清掉早于 N 天的用量和任务明细。
+ * 用量：请求记录、技能调用、工具调用。
+ * 任务：已结束任务及其步骤、文件、后来推的消息。进行中的留下。
+ */
+function purgeOlderThan(days) {
+  if (!db) return { ok: false, error: 'db' };
+  const d = Math.max(1, Math.min(3650, parseInt(days, 10) || 0));
+  if (!d) return { ok: false, error: 'days' };
+  const cutoffMs = Date.now() - d * 86400000;
+  const cutoffSec = Math.floor(cutoffMs / 1000);
+  // 技能/工具的时间有的是毫秒、有的是秒，两条都按「早于截止」删，避免误删近的
+  const oldMsOrSec = '(ts >= 1000000000000 AND ts < ?) OR (ts < 1000000000000 AND ts < ?)';
+  const run = db.transaction(() => {
+    const requests = db.prepare('DELETE FROM requests WHERE ts < ?').run(cutoffSec).changes || 0;
+    let skills = 0;
+    let tools = 0;
+    try { skills = db.prepare(`DELETE FROM skill_calls WHERE ${oldMsOrSec}`).run(cutoffMs, cutoffSec).changes || 0; } catch { /* 表还没有 */ }
+    try { tools = db.prepare(`DELETE FROM tool_calls WHERE ${oldMsOrSec}`).run(cutoffMs, cutoffSec).changes || 0; } catch { /* 表还没有 */ }
+    let ids = [];
+    try {
+      ids = db.prepare(
+        "SELECT id FROM agent_tasks WHERE created_at < ? AND status NOT IN ('pending', 'running')",
+      ).all(cutoffMs).map((r) => r.id);
+    } catch { /* 表还没有 */ }
+    let tasks = 0;
+    for (let i = 0; i < ids.length; i += 400) {
+      const chunk = ids.slice(i, i + 400);
+      const ph = chunk.map(() => '?').join(',');
+      try { db.prepare(`DELETE FROM agent_task_steps WHERE task_id IN (${ph})`).run(...chunk); } catch { /* ignore */ }
+      try { db.prepare(`DELETE FROM agent_modified_files WHERE task_id IN (${ph})`).run(...chunk); } catch { /* ignore */ }
+      try { db.prepare(`DELETE FROM agent_task_messages WHERE task_id IN (${ph}) OR root_task_id IN (${ph})`).run(...chunk, ...chunk); } catch { /* 表还没有 */ }
+      tasks += db.prepare(`DELETE FROM agent_tasks WHERE id IN (${ph})`).run(...chunk).changes || 0;
+    }
+    return { requests, skills, tools, tasks, usage: requests + skills + tools };
+  });
+  try {
+    return { ok: true, days: d, ...run() };
+  } catch (e) {
+    console.error('[local-stats] purgeOlderThan failed:', e.message);
+    return { ok: false, error: e.message };
+  }
+}
+
 module.exports = {
   init, record, queryDashboard, queryTodaySummary, queryByApiKey, queryByApp, queryByDataSource,
   queryAppDetail, queryAppStatsInPeriod, queryAppStatsToday, querySessionDetail, querySessionStatsMap,
@@ -1881,7 +1925,7 @@ module.exports = {
   recordSkillCalls, deleteSkillCallsBySourcePath, getSkillLastUsedMap, getSkillCallStatsMap,
   recordToolCalls, deleteToolCallsBySourcePath,
   querySkillUsageStats, queryToolUsageStats, queryMcpUsageStats,
-  todaySinceTs, sinceTsForDays, sinceMsForDays, queryGatewayInputCostRate, queryModelProviderLatency,
+  todaySinceTs, sinceTsForDays, sinceMsForDays, purgeOlderThan, queryGatewayInputCostRate, queryModelProviderLatency,
   queryProviderActivity,
   reassignProviderTier, collectProviderIdVariants,
   getDb: () => db,  // Agent 聚合系统使用

@@ -968,9 +968,33 @@ export default function Debug() {
   const [loggingInCursorCli, setLoggingInCursorCli] = useState(false);
   const [cursorInstallError, setCursorInstallError] = useState('');
   const [agentPrompt, setAgentPrompt] = useState('');
+  // 网关「游乐场-模型」点过来时要选中的模型。列表还在加载时先记下，避免被默认的第一个盖掉
+  const pendingPlayModel = useRef('');
   // 「说一句话就办」把做事的请求交过来：放进输入框，用户确认后发送
   useEffect(() => {
     const p = location.state?.prompt;
+    // 通用智能体「游乐场-模型」：切到模型对话，并选中该行路由里的模型
+    if (location.state?.playground === 'model') {
+      const want = String(location.state.model || '').trim();
+      setMode('llm');
+      if (want) {
+        pendingPlayModel.current = want;
+        setPanel({ imageMode: location.state.modelType === 'image' });
+        if (selectedId !== '__local_gw__') setSelectedId('__local_gw__');
+        else if (models.length && !loadingModels) {
+          setModel(want);
+          pendingPlayModel.current = '';
+        }
+      }
+      navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
+    // 通用智能体「游乐场-智能体」但这个应用本身跑不了任务：只切到智能体模式
+    if (location.state?.playground === 'agent' && !location.state?.agentId) {
+      setMode('agent');
+      navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
     // 网关页路由「在游乐场试」：切到聚合入口，用这条路由
     if (location.state?.hubRoute) {
       setHubRouteId(location.state.hubRoute);
@@ -2971,7 +2995,15 @@ export default function Debug() {
           // 默认选第一个游乐场能直接调用的模型；都不可用时仍选第一个，由输入区提示引导
           const usable = preferred.filter(m => !m.needsClientAuth);
           const first = usable[0] || preferred[0] || mapped[0];
-          setModel(first ? routeOptionValue(first) : '');
+          // 网关页点「游乐场-模型」带来的值优先；对得上才用，对不上就回到第一个
+          const want = pendingPlayModel.current;
+          const scenes = Array.isArray(lc?.scene_routes) ? lc.scene_routes : [];
+          const wantOk = !!want && (
+            scenes.some(r => (r.model_key || r.id) === want)
+            || mapped.some(m => modelSelectValue(m) === want || routeOptionValue(m) === want || m.id === want || want === `p2p:${m.id}`)
+          );
+          if (want) pendingPlayModel.current = '';
+          setModel(wantOk ? want : (first ? routeOptionValue(first) : ''));
           setManualModel(mapped.length === 0);
         } catch {
           if (!cancelled) { setModels([]); setManualModel(true); }
