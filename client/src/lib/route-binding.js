@@ -133,5 +133,17 @@ export function routeSelectValue(routeId, availableModels = [], routes = []) {
 export function isKnownRouteSelectValue(val, availableModels = [], routes = []) {
   if (!val) return false;
   if (routes.some(r => r.model_key === val || r.id === val)) return true;
-  return availableModels.some(m => encodeTierModelRoute(m.tier, m.id) === val);
+  // 下拉会写出 tier:id，也会写出钉住供给源的 tier:provider:model，以及降级链的裸模型名。
+  // 只认 tier:id 时，点选后回读被丢掉，触发器一直显示「—」。
+  const owners = (availableModels || []).map(m => m.owner).filter(Boolean);
+  const parsed = parseRoute(String(val), owners);
+  const modelId = parsed.model || '';
+  if (!modelId) return false;
+  return (availableModels || []).some(m => {
+    if (!['free', 'p2p', 'paid'].includes(m.tier)) return false;
+    if (m.id !== modelId) return false;
+    if (parsed.tier && m.tier !== parsed.tier) return false;
+    if (parsed.provider && String(m.owner || '') !== parsed.provider) return false;
+    return true;
+  });
 }

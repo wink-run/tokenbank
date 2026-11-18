@@ -146,7 +146,18 @@ function routeSelectValue(routeId, availableModels = [], routes = []) {
 function isKnownRouteSelectValue(val, availableModels = [], routes = []) {
   if (!val) return false;
   if (routes.some(r => r.model_key === val || r.id === val)) return true;
-  return availableModels.some(m => encodeTierModelRoute(m.tier, m.id) === val);
+  // 与前端副本一致：tier:id、tier:provider:model、降级链裸模型名都算已选。
+  const owners = (availableModels || []).map(m => m.owner).filter(Boolean);
+  const parsed = parseRoute(String(val), owners);
+  const modelId = parsed.model || '';
+  if (!modelId) return false;
+  return (availableModels || []).some(m => {
+    if (!['free', 'p2p', 'paid'].includes(m.tier)) return false;
+    if (m.id !== modelId) return false;
+    if (parsed.tier && m.tier !== parsed.tier) return false;
+    if (parsed.provider && String(m.owner || '') !== parsed.provider) return false;
+    return true;
+  });
 }
 
 /** 按索引从 claude_models 列表取 Claude Desktop inferenceModels.name。

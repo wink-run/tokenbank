@@ -25,6 +25,11 @@ const { readLocalConfig, readAgentConfig, ensureLocalConfig } = require('../shar
 const { defaultServerUrlFromEnv } = require('../shared/default-server-url');
 const { refreshGatewayPeerModels } = require('../shared/peer-models-sync');
 const { initGatewayTelemetry } = require('../shared/telemetry');
+const {
+  installShimLinkerResolvers,
+  syncAllHostedClaudeCodeEndpoints,
+  defaultGatewayOrigin,
+} = require('../shared/shim-linker-bootstrap');
 
 const PEER_MODELS_POLL_MS = 60_000;
 let _peerModelsTimer = null;
@@ -113,6 +118,19 @@ async function cmdStart(port, adminPort) {
   // 云端模型和设备注册都不参与监听。先把端口打开，避免登录或拉模型把进程卡住。
   const cc = lc.cloud_config || {};
   const serverUrl = cc.url || defaultServerUrlFromEnv() || null;
+
+  // 与 Electron main.js 一致：供 enabledProviders /v1/models 按个人页登记过滤付费 catalog 模板
+  gateway.setLocalConfigReader(readLocalConfig);
+
+  // 与桌面 main.js 一致：已绑路由的 shim 应用在 spawn 时注入 ANTHROPIC_AUTH_TOKEN
+  installShimLinkerResolvers(readLocalConfig);
+  try {
+    syncAllHostedClaudeCodeEndpoints(readLocalConfig, {
+      gatewayOrigin: defaultGatewayOrigin(),
+    });
+  } catch (e) {
+    console.warn('[gateway] claude settings bootstrap:', e && e.message);
+  }
 
   // Start HTTP gateway
   gateway.start(port, readAgentConfig, undefined, bindHost);

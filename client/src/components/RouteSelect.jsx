@@ -510,8 +510,12 @@ function RouteMenuRow({ mark, label, owner, modelType, chain, active, theme, com
       aria-selected={multi ? undefined : !!mark}
       className={`${theme.row} ${active ? theme.rowActive : theme.rowIdle}`}
       onMouseEnter={onEnter}
-      onMouseDown={e => e.preventDefault()}
-      onClick={onClick}
+      // 按下就选中。等 click 时，外层 mousedown 可能已经把浮层卸掉，选不中。
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClick?.();
+      }}
     >
       <span className={theme.check}>
         {multi

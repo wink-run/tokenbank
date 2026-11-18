@@ -945,6 +945,21 @@ function providerKeptForDirectSource(provider, directIds, oauthNames) {
   return !!(provider.oauth_provider && oauthNames.has(provider.oauth_provider));
 }
 
+/**
+ * 网关路由与 /v1/models：付费源须在个人页登记（订阅转 API / 按量）或由直连计费认领。
+ * 与 migrateAgentProviders 判定一致，避免 catalog 预填 enabled:true 的模板源泄露模型列表。
+ */
+function providerEligibleForGatewayRoute(provider, cfg = {}) {
+  if (!provider || provider.type !== 'paid') return true;
+  const gatewayIds = new Set(resolveUserGatewayProviderIds(cfg));
+  const directIds = directSourceGatewayIds(cfg);
+  const directOAuth = directSourceOAuthNames(cfg);
+  for (const id of directIds) gatewayIds.add(id);
+  if (providerKeptForDirectSource(provider, directIds, directOAuth)) return true;
+  if (String(provider.id || '').startsWith('custom-')) return gatewayIds.has(provider.id);
+  return gatewayIds.has(provider.id);
+}
+
 /** 订阅实例是否就是某条直连源计费（按 agent、source 或 gateway id）。 */
 function subscriptionMatchesDirectBilling(sub, cfg) {
   if (!sub || typeof sub !== 'object') return false;
@@ -1575,6 +1590,7 @@ module.exports = {
   paygSourcesCatalog,
   resolveUserPaidProviderIds,
   resolveUserGatewayProviderIds,
+  providerEligibleForGatewayRoute,
   resolveSubscriptionGatewayProviderIds,
   resolveGatewayPaygProviderIds,
   resolveProviderGatewayAuthMap,
