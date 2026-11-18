@@ -239,7 +239,7 @@ function sseRewriter(deviceId, deviceName) {
  * 智能体任务：harness 是 mine: 开头时调用。
  * 选到本机返回 { local: '<本机 harness>' }，由 agent-http 照常执行；否则转到那台设备并写好响应。
  */
-async function routeAgentCreate({ harnessId, body, req, res }) {
+async function routeAgentCreate({ harnessId, body, req, res, extraMeta }) {
   if (!node) {
     sendJson(res, 503, { error: { message: '设备网络没有启动', type: 'mesh_disabled' } });
     return { handled: true, ok: false, error: 'mesh disabled' };
@@ -275,14 +275,16 @@ async function routeAgentCreate({ harnessId, body, req, res }) {
     console.log(`[mesh] 智能体 ${target.id} → ${dev.name}`);
     if (body.stream && !body.background && String(resp.headers['content-type'] || '').includes('event-stream')) {
       await tunnel.pipeTo(resp, res, sseRewriter(dev.device_id, dev.name));
-      return { handled: true, ok: true };
+      return { handled: true, ok: true, device: dev.name };
     }
     const text = (await tunnel.readAll(resp)).toString('utf8');
     let obj;
     try { obj = JSON.parse(text); } catch { obj = null; }
-    if (!obj) { res.writeHead(resp.status, { 'Content-Type': 'application/json' }); res.end(text); return { handled: true, ok: resp.status < 400 }; }
-    sendJson(res, resp.status, rewriteResponse(obj, dev.device_id, dev.name));
-    return { handled: true, ok: resp.status < 400, error: obj.error?.message };
+    if (!obj) { res.writeHead(resp.status, { 'Content-Type': 'application/json' }); res.end(text); return { handled: true, ok: resp.status < 400, device: dev.name }; }
+    const out = rewriteResponse(obj, dev.device_id, dev.name);
+    if (extraMeta && out.metadata && typeof out.metadata === 'object') Object.assign(out.metadata, extraMeta);
+    sendJson(res, resp.status, out);
+    return { handled: true, ok: resp.status < 400, error: obj.error?.message, device: dev.name };
   } catch (e) {
     sendJson(res, e.status || 502, { error: { message: `${dev.name}：${e.message}`, type: 'mesh_error' } });
     return { handled: true, ok: false, error: e.message };

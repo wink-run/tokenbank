@@ -82,6 +82,15 @@ function registerAgentHandlers() {
     try {
       // 游乐场「聚合入口」带着智能体路由来：和智能体接口用同一个解析（谁来派、编排模式、按路由的规则和名单）
       if (options.agentRouteId) {
+        // 「/codex 修一下」：点名本机的智能体就直接交给它，跳过主智能体的挑选
+        const designation = require('./agent-designation').resolveDesignation(prompt, {
+          agents: await agentExecutor.listAvailableAgents(),
+        });
+        if (designation && !String(designation.harnessId).startsWith('mine:')) {
+          const { agentRouteId, mainAgentId, ...rest } = options;
+          const result = await agentExecutor.execute(designation.harnessId, designation.text, rest);
+          return { success: true, ...result, designated: designation.raw };
+        }
         const resolved = await require('./agent-http').resolveHarness(agentExecutor, options.agentRouteId, options.mainAgentId || agentId);
         const result = await agentExecutor.execute(resolved.agentId, prompt, { ...options, ...resolved.options });
         return { success: true, ...result };

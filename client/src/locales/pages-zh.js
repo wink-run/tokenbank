@@ -762,6 +762,8 @@ export default {
   'gateway.log.place': '位置',
   'gateway.log.local': '本地',
   'gateway.log.remote': '远程',
+  'gateway.log.designated': '指定',
+  'gateway.log.designatedTitle': '在智能体路由的输入里用「/名字」或「/名字@设备」点名了执行者，跳过了主智能体的挑选',
   'gateway.log.ctx.local': '本机',
   'gateway.log.ctx.owner': '自己的',
   'gateway.log.ctx.hired': '雇佣',

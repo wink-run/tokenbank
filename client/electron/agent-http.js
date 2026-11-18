@@ -200,6 +200,12 @@ function buildAgentRouteLog(info = {}) {
   const callContext = normalizeCallContext(info.callContext);
   entry.place = placeForAgentCall(info.channel);
   if (callContext) entry.call_context = callContext;
+  // 点名执行（/codex@设备）与执行设备
+  if (info.designated) {
+    entry.designated = String(info.designated);
+    if (info.routeId) entry.route_id = String(info.routeId);
+  }
+  if (info.device) entry.device = String(info.device);
   if (!ok) entry.error = String(info.error || 'agent_error');
   return entry;
 }
@@ -302,6 +308,8 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
   const key = callerKey(req);
   // 提前声明：401 也会记明细，那时还没读到 body。
   let callContext = '';
+  // 路由明细的附加信息：点名（/codex@设备）、哪条路由、实际在哪台设备执行
+  let logExtra = {};
   // 只记发起任务。拉取列表、查询状态会一直打，不进路由明细。
   const report = (fields = {}) => {
     if (route.op !== 'create' || typeof onCall !== 'function') return;
@@ -315,6 +323,7 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
         callContext,
         ok: !!fields.ok,
         error: fields.error,
+        ...logExtra,
       });
     } catch { /* 明细写入失败不影响任务响应 */ }
   };
@@ -371,10 +380,27 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
         return true;
       }
     }
+    // 智能体路由里点名执行者：「/codex 修一下」「/codex@bf54 …」。点名了就跳过主智能体的挑选
+    let designation = null;
+    if (!boundAgent && require('./agent-routes').isRouteId(harnessId)) {
+      const node = meshGlue.getNode();
+      designation = require('./agent-designation').resolveDesignation(prompt, {
+        agents: await executor.listAvailableAgents(),
+        devices: node ? node.directory.list() : [],
+      });
+      if (designation) {
+        logExtra = { designated: designation.raw, routeId: harnessId, device: designation.device || undefined };
+        harnessId = designation.harnessId;
+        prompt = designation.text;
+        body.input = prompt;
+      }
+    }
+    const designationMeta = designation ? { designated: designation.raw, route_id: logExtra.routeId } : null;
     // mine:<目标>[@设备]：在本人的设备里选一台。选到别的设备就整个请求转过去，选到本机就照常往下走
     if (String(harnessId).startsWith('mine:')) {
-      const r = await meshGlue.routeAgentCreate({ harnessId, body, req, res });
+      const r = await meshGlue.routeAgentCreate({ harnessId, body, req, res, extraMeta: designationMeta });
       if (r.handled) {
+        if (r.device) logExtra = { ...logExtra, device: r.device };
         report({ ok: !!r.ok, error: r.error, prompt, harnessId });
         return true;
       }
@@ -485,6 +511,7 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
         response.metadata.harness_id = harnessId;
         response.metadata.dispatched_by = resolved.agentId;
       }
+      if (designationMeta) Object.assign(response.metadata, designationMeta);
       return response;
     };
 
@@ -529,6 +556,7 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
       response.metadata.harness_id = harnessId;
       response.metadata.dispatched_by = resolved.agentId;
     }
+    if (designationMeta) Object.assign(response.metadata, designationMeta);
     rememberIdempotency(idem, raw, response);
     reportTask(task);
     if (body.stream) {

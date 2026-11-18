@@ -4752,8 +4752,14 @@ function RouteLogDetailModal({ entry, onClose }) {
             {entry.app_name || entry.caller || '—'}
           </DetailRow>
           <DetailRow label={t('gateway.log.place')}>
-            {place === 'remote' ? t('gateway.log.remote') : place === 'local' ? t('gateway.log.local') : '—'}
+            {entry.device || (place === 'remote' ? t('gateway.log.remote') : place === 'local' ? t('gateway.log.local') : '—')}
           </DetailRow>
+          {entry.designated && (
+            <DetailRow label={t('gateway.log.designated')}>
+              <span className="font-mono">{entry.designated}</span>
+              {entry.route_id && <span className="ml-2 text-zinc-400 font-mono">{entry.route_id}</span>}
+            </DetailRow>
+          )}
           <DetailRow label={t('gateway.log.prompt')}>
             {entry.prompt_preview || '—'}
           </DetailRow>
@@ -5358,6 +5364,17 @@ export default function Gateway() {
                     {isRouter && (
                       <span className="font-mono text-purple-500 dark:text-purple-400 shrink-0">{e.requested_model}</span>
                     )}
+                    {/* 智能体路由里点名执行者：路由 → 指定 /codex@设备 → 执行的智能体 */}
+                    {e.designated && (
+                      <>
+                        {e.route_id && <span className="font-mono text-purple-500 dark:text-purple-400 shrink-0">{e.route_id}</span>}
+                        {e.route_id && <span className="text-zinc-300 dark:text-zinc-600">→</span>}
+                        <span title={t('gateway.log.designatedTitle')} className="font-mono text-[11px] px-1 py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800/40 text-indigo-600 dark:text-indigo-400 shrink-0">
+                          {t('gateway.log.designated')} {e.designated}
+                        </span>
+                        <span className="text-zinc-300 dark:text-zinc-600">→</span>
+                      </>
+                    )}
                     {/* Claude 透明映射标记：claude 名 → (改写成真实模型) */}
                     {e.claude_from && (
                       <>
@@ -5377,7 +5394,7 @@ export default function Gateway() {
                     {/* Actual model used */}
                     {(isRouter || e.tried?.length > 0) && <span className="text-zinc-300 dark:text-zinc-600">→</span>}
                     <span className="font-mono text-zinc-700 dark:text-zinc-300 truncate">
-                      {e.model || '—'}
+                      {(e.designated ? String(e.model || '').replace(/^mine:/, '').replace(/@.*$/, '') : e.model) || '—'}
                       {e.tier && (
                         <span className={`ml-0.5 text-xs not-italic ${
                           e.tier === 'p2p'  ? 'text-blue-500 dark:text-blue-400' :
@@ -5397,7 +5414,7 @@ export default function Gateway() {
                         ? 'border-blue-200 dark:border-blue-800/50 text-blue-600 dark:text-blue-400'
                         : 'border-zinc-200 dark:border-zinc-700 text-zinc-500'
                     }`}>
-                      {place === 'remote' ? t('gateway.log.remote') : t('gateway.log.local')}
+                      {e.device || (place === 'remote' ? t('gateway.log.remote') : t('gateway.log.local'))}
                     </span>
                   )}
                   <span className="text-zinc-400 shrink-0">→</span>

@@ -161,3 +161,37 @@ test('lan: 自己的、别人账号的、乱写的广播都不理', () => {
   assert.equal(lan.parseAnnouncement(Buffer.from('not json'), rinfo, opts), null);
   assert.equal(lan.parseAnnouncement(Buffer.from('{"t":"other"}'), rinfo, opts), null);
 });
+
+// ── 点名执行者（/codex@设备）───────────────────────────────────────────────
+
+const designation = require('../agent-designation');
+
+test('designation: 拆出 /名字@设备 和任务', () => {
+  assert.deepEqual(designation.parseDesignation('/codex@mini 修一下登录页'), { name: 'codex', device: 'mini', text: '修一下登录页', raw: '/codex@mini' });
+  assert.deepEqual(designation.parseDesignation('/写诗专家 写一首秋天'), { name: '写诗专家', device: null, text: '写一首秋天', raw: '/写诗专家' });
+  assert.equal(designation.parseDesignation('/codex'), null);            // 没有任务内容
+  assert.equal(designation.parseDesignation('修一下 /codex'), null);     // 不在开头
+  assert.equal(designation.parseDesignation('/usr/bin/env node 跑一下'), null);
+});
+
+const AGENTS = [
+  { id: 'claude-code', name: 'Claude Code', type: 'cli', installed: true },
+  { id: 'cursor', name: 'Cursor', type: 'cli', installed: false },
+  { id: 'assistant:res-poem', name: '写诗专家', type: 'assistant' },
+];
+const DEVICES = [
+  { device_id: 'dev-a', name: 'macbook', self: true, online: true, descriptor: { apps: [{ id: 'claude-code' }] } },
+  { device_id: 'dev-b', name: 'mini', online: true, descriptor: { apps: [{ id: 'codex' }, { id: 'claude-code' }] } },
+];
+
+test('designation: 本机有就本机，本机没有去我的设备，带 @ 就钉设备', () => {
+  const r = (p) => designation.resolveDesignation(p, { agents: AGENTS, devices: DEVICES });
+  assert.equal(r('/claude 看看').harnessId, 'claude-code');                 // 简称
+  assert.equal(r('/写诗专家 写一首').harnessId, 'assistant:res-poem');        // 专业智能体按名字
+  assert.equal(r('/codex 修一下').harnessId, 'mine:codex');                  // 本机没有，其他设备有
+  assert.equal(r('/claude-code@mini 修一下').harnessId, 'mine:claude-code@mini');
+  assert.equal(r('/claude-code@本机 修一下').harnessId, 'claude-code');
+  assert.equal(r('/cursor 改一下'), null);                                   // 本机没装，也没有设备有：不算点名
+  assert.equal(r('/nobody 你好'), null);
+  assert.equal(r('/codex 修一下').text, '修一下');
+});

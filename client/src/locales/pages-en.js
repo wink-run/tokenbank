@@ -762,6 +762,8 @@ export default {
   'gateway.log.place': 'Where',
   'gateway.log.local': 'Local',
   'gateway.log.remote': 'Remote',
+  'gateway.log.designated': 'Pinned',
+  'gateway.log.designatedTitle': 'Named in the agent-route input with “/name” or “/name@device”; the main agent did not choose',
   'gateway.log.ctx.local': 'This device',
   'gateway.log.ctx.owner': 'Own agent',
   'gateway.log.ctx.hired': 'Hired',

@@ -267,6 +267,21 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   const lastEvent = streamed2.text.split('\n').filter((l) => l.startsWith('data: ')).map((l) => { try { return JSON.parse(l.slice(6)); } catch { return null; } }).filter(Boolean).pop();
   check('流式调用：SSE 穿过隧道，任务号同样改写', String(streamed2.headers['content-type'] || '').includes('event-stream') && String(lastEvent?.id || '').startsWith('mesh:dev-b:'), `最后一个事件：${lastEvent?.status} ${lastEvent?.id}`);
 
+  // 智能体路由里点名执行者：/claude-code@mini 跳过主智能体的挑选，直接交给 mini
+  const pinnedRoute = await req(gwA, 'POST', '/v1/agent/responses', {
+    headers: auth,
+    body: { input: '/claude-code@mini 看看仓库里有什么', metadata: { harness_id: 'agent-router-default', workspace: 'demo' } },
+  });
+  const pinnedText = pinnedRoute.json?.output?.[0]?.content?.[0]?.text || '';
+  check('智能体路由里 /claude-code@mini 点名：跳过主智能体，直接在 mini 上执行',
+    pinnedRoute.status === 200 && pinnedRoute.json?.metadata?.designated === '/claude-code@mini'
+      && String(pinnedRoute.json?.id || '').startsWith('mesh:dev-b:') && pinnedText.includes('「看看仓库里有什么」'),
+    `designated=${pinnedRoute.json?.metadata?.designated} route=${pinnedRoute.json?.metadata?.route_id} 任务号=${pinnedRoute.json?.id}`);
+  const log = await req(gwA + 1, 'GET', '/api/gateway/log');
+  const logged = (log.json?.log || []).find((e) => e.designated === '/claude-code@mini');
+  check('路由明细记下点名、路由和执行设备', !!logged && logged.route_id === 'agent-router-default' && logged.device === 'mini',
+    logged ? `route_id=${logged.route_id} designated=${logged.designated} device=${logged.device}` : `admin log HTTP ${log.status}`);
+
   const noWs = await req(gwA, 'POST', '/v1/agent/responses', { headers: auth, body: { input: 'x', metadata: { harness_id: 'mine:claude-code', workspace: 'nope' } } });
   check('没有这个工作区时给出明确原因', noWs.status === 404 && /工作区 nope/.test(noWs.json?.error?.message || ''), noWs.json?.error?.message);
 

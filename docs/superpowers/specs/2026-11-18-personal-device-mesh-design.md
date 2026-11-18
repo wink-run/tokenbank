@@ -185,6 +185,20 @@
 | `mine:assistant:<id>` | 跑某个智能体资源 |
 | `mine:session:<agent>:<id>` | 续接某台设备上的这个会话（`--resume`），自动落在它所在的设备和工作区 |
 
+**在智能体路由里点名执行者**：调用智能体路由（`harness_id` 是 `agent-router-*`，或游乐场选「智能体路由」）时，输入以 `/名字` 或 `/名字@设备` 开头，就跳过主智能体的挑选，直接交给被点名的智能体：
+
+| 输入 | 执行 |
+|---|---|
+| `/codex 修一下登录页` | 本机有 Codex 就本机跑；本机没有、我的其他设备有，就等同 `mine:codex` |
+| `/codex@mini 修一下登录页` | 等同 `mine:codex@mini` |
+| `/写诗专家 写一首秋天` | 专业智能体、外部智能体按名字匹配 |
+| `/claude`、`/cc`、`/kimi` | 应用的常用简称 |
+
+- 名字对不上任何智能体就不算点名，原样当普通文字（避免把 `/usr/bin…` 之类的路径误认）。
+- 点名前缀从任务内容里去掉；响应 `metadata` 带 `designated`（如 `/codex@mini`）和 `route_id`。
+- 路由明细显示「路由 → 指定 /codex@mini → codex」，执行设备显示在原来「本地 / 远程」的位置；详情里多一行「指定」。
+- 实现：`client/electron/agent-designation.js`（解析和匹配）、`agent-http.js` 与 `ipc-handlers-agent.js`（两个入口都接上；游乐场经 IPC 时一期只支持点名本机的智能体）。
+
 工作区通过 `metadata.workspace` 传名字。不传时：续接会话的任务用会话所在的工作区；其他任务用目标设备的默认工作区，没配就拒绝，不偷偷落到沙箱。
 
 ### 8.2 调度（在发起设备本地完成）
