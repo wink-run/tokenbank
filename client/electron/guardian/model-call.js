@@ -17,7 +17,10 @@ function gatewayAddr() {
  * @param {{ model?: string, messages: Array, maxTokens?: number, temperature?: number, timeoutMs?: number }} opts
  * @returns {Promise<{ ok: boolean, text: string, status: number, latencyMs: number, tokens: number, error?: string }>}
  */
-function chat({ model = 'auto', messages, maxTokens = 300, temperature = 0, timeoutMs = 60000 } = {}) {
+// 默认只用自己的来源（personal）：管家在后台自己判断时不能花社区积分。没有可用的自己来源就失败，由调用方退回规则
+const DEFAULT_MODEL = 'auto:personal';
+
+function chat({ model = DEFAULT_MODEL, messages, maxTokens = 300, temperature = 0, timeoutMs = 60000 } = {}) {
   const { host, port } = gatewayAddr();
   const payload = JSON.stringify({ model, temperature, max_tokens: maxTokens, messages });
   const t0 = Date.now();
@@ -75,4 +78,5 @@ function modelStatus({ timeoutMs = 5000 } = {}) {
   });
 }
 
-module.exports = { chat, estimateTokens, gatewayAddr, modelStatus };
+module.exports = {
+  DEFAULT_MODEL, chat, estimateTokens, gatewayAddr, modelStatus };

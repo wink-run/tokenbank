@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ServiceIcon from '../components/ServiceIcon';
 import {
-  FilterMenu, AppIconStack, LIFE_DOT,
+  FilterMenu, LIFE_DOT,
   LIB_LIST_CLS, libRowCls, LibrarySectionHead, LibraryRowTitle,
   LibraryInspector, InspectorSection, InspectorPreview,
 } from '../components/LibraryControls';
@@ -11,6 +11,7 @@ import McpProvidersTab from '../components/McpProvidersTab';
 import SkillInstallDialog from '../components/SkillInstallDialog';
 import AiNeedNotice from '../components/AiNeedNotice';
 import DiagnosePanel from '../components/DiagnosePanel';
+import SkillEnvPanel from '../components/SkillEnvPanel';
 import { projectWithGuard } from '../lib/project-guard';
 import { useAiReadiness } from '../lib/ai-readiness';
 import { isWebBridge } from '../api/webBridge';
@@ -66,13 +67,18 @@ const SCAN_CUSTOM_DIR_KEY = 'tokenbank.resources.scanCustomDir';
 const APP_FILTER_KEY = 'tokenbank.resources.appFilter';
 const IDLE_DAYS_KEY = 'tokenbank.resources.idleDays';
 const LAYER_FILTER_KEY = 'tokenbank.resources.layerFilter';
+// 状态只说三种：在用、没在用（启用了没用过 / 闲置 / 没启用到应用）、有问题（管家体检）
+const IDLE_LAYERS = new Set(['pending', 'dormant', 'cold', 'shelf']);
+const STATE_DOT = { active: 'bg-emerald-500', idle: 'bg-zinc-400', issue: 'bg-rose-500' };
 const LIST_SORT_KEY = 'tokenbank.resources.listSort';
 const DEFAULT_IDLE_DAYS = 60;
 /** 资产库列表列宽：名称 | 投射到 | 使用 | 状态 | 操作 */
-const LIB_GRID = 'grid-cols-[minmax(0,1fr)_7rem_3.5rem_6.5rem_8rem]';
-const LIB_GRID_MD = 'md:grid-cols-[minmax(0,1fr)_7rem_3.5rem_6.5rem_8rem]';
+// 名称 | 启用到 | 使用 | 状态（一个词 + 一句原因）| 操作
+const LIB_GRID = 'grid-cols-[minmax(0,1fr)_9rem_3.5rem_11rem_8rem]';
+const LIB_GRID_MD = 'md:grid-cols-[minmax(0,1fr)_9rem_3.5rem_11rem_8rem]';
 
 const LIST_SORT_OPTIONS = [
+  { id: 'smart', labelKey: 'resources.sort.smart' },
   { id: 'time', labelKey: 'resources.sort.time' },
   { id: 'name', labelKey: 'resources.sort.name' },
   { id: 'usage', labelKey: 'resources.sort.usage' },
@@ -174,10 +180,10 @@ function saveDiscoverType(type) {
 function readTypeFilter() {
   try {
     const v = localStorage.getItem(TYPE_FILTER_KEY);
-    // 资产库不再有「全部」：缺省落到技能；记住用户上次选择
+    // 第一个标签是「全部」，缺省就是它；记住用户上次选择
     if (v === 'prompt' || v === 'skill' || v === 'assistant' || v === 'mcp') return v;
-    return 'skill';
-  } catch { return 'skill'; }
+    return '';
+  } catch { return ''; }
 }
 
 function saveTypeFilter(type) {
@@ -195,9 +201,9 @@ function saveAppFilter(agentId) {
 function readListSort() {
   try {
     const v = localStorage.getItem(LIST_SORT_KEY);
-    if (v === 'time' || v === 'name' || v === 'usage') return v;
+    if (v === 'smart' || v === 'time' || v === 'name' || v === 'usage') return v;
   } catch { /* ignore */ }
-  return 'usage';
+  return 'smart';
 }
 
 function saveListSort(sort) {
@@ -576,7 +582,8 @@ export default function Resources() {
   const [layerFilter, setLayerFilter] = useState(() => {
     try {
       const v = localStorage.getItem(LAYER_FILTER_KEY) || '';
-      if (['', 'active', 'pending', 'dormant', 'cold', 'shelf'].includes(v)) return v;
+      if (['', 'active', 'idle', 'issue'].includes(v)) return v;
+      if (['pending', 'dormant', 'cold', 'shelf'].includes(v)) return 'idle';   // 旧版本存下的细分状态
     } catch { /* ignore */ }
     return '';
   });
@@ -928,11 +935,32 @@ export default function Resources() {
 
   // 看护资产体检的小标签（质量 / 安全 / 重复 / 新版本），按资产 id 索引
   const [assetFlags, setAssetFlags] = useState({});
+  // 技能写明要配、还没配的 Key：{ resourceId: [变量名] }
+  const [envMissing, setEnvMissing] = useState({});
+  const refreshEnvMissing = useCallback(() => {
+    const fn = window.electronAPI?.resource?.skillEnvMissing;
+    if (!fn) return;
+    Promise.resolve(fn()).then(r => setEnvMissing(r?.missing || {})).catch(() => {});
+  }, []);
+  useEffect(() => { refreshEnvMissing(); }, [refreshEnvMissing]);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);   // 右上角「添加」菜单
+  useEffect(() => {
+    if (!addMenuOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setAddMenuOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [addMenuOpen]);
+  // 投射了但跑不起来的智能体（要用的技能不在了 / 没有能跑它的应用），按资源 id 索引
+  const [blockedAssistants, setBlockedAssistants] = useState({});
   const loadAssetFlags = useCallback(async () => {
     try {
       const r = await window.electronAPI?.guardian?.assetFlags?.();
       if (r?.flags) setAssetFlags(r.flags);
     } catch { /* 没有看护时不显示 */ }
+    try {
+      const r = await window.electronAPI?.agent?.listBlocked?.();
+      if (r?.success) setBlockedAssistants(Object.fromEntries((r.agents || []).map(a => [a.resourceId, a])));
+    } catch { /* 拿不到就不标 */ }
   }, []);
 
   const loadAll = useCallback(async ({ silent = false } = {}) => {
@@ -1099,13 +1127,18 @@ export default function Resources() {
     const selectKey = location.state?.selectKey;
     const wantTab = location.state?.viewTab;
     const wantQuery = location.state?.query;
-    if (!want && !selectKey && !wantTab && wantQuery == null) return;
+    const wantApp = location.state?.app;
+    if (!want && !selectKey && !wantTab && wantQuery == null && !wantApp) return;
     // 看护「能力缺口」跳来：打开发现页，并按推荐条目名搜索
     if (wantTab === 'recommend' || wantTab === 'managed') changeViewTab(wantTab);
+    // 要选中某条 / 按应用筛：先切到资产库，再设类型（切页签会重置类型，顺序不能反）
+    if (selectKey || wantApp) changeViewTab('managed');
     if (typeof wantQuery === 'string') setQuery(wantQuery);
-    if (want && TYPE_OPTIONS.some(o => o.id === want)) changeTypeFilter(want);
-    // 从供给源「谁在用它」跳来：打开资产库并选中该条
-    if (selectKey) { changeViewTab('managed'); setSelectedKey(selectKey); }
+    if (want && TYPE_OPTIONS.some(o => o.id === want)) changeTypeFilter(want, (selectKey || wantApp) ? 'managed' : viewTab);
+    // 从网关某个应用的「调整」跳来：只看启用到这个应用的
+    if (wantApp) changeAppFilter(wantApp);
+    // 从供给源「谁在用它」、交易页上架的智能体跳来：选中该条
+    if (selectKey) setTimeout(() => setSelectedKey(selectKey), 0);
     navigate(location.pathname, { replace: true, state: null });
   }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1590,6 +1623,16 @@ export default function Resources() {
       }
       return [row, ...prev];
     });
+    // 技能卡片的「绑定」读这份全量智能体；只改 resources 时取消绑定仍会显示旧引用
+    if (resource.type === 'assistant') {
+      setAssistantsForBind((prev) => {
+        const idx = prev.findIndex((a) => a.id === resource.id);
+        if (idx < 0) return [resource, ...prev];
+        const next = prev.slice();
+        next[idx] = { ...prev[idx], ...resource };
+        return next;
+      });
+    }
     if (resource.type !== 'skill') return;
     setDiscovered(prev => {
       const idx = prev.findIndex(item => item.resourceId === resource.id || item.name === resource.name);
@@ -1650,6 +1693,7 @@ export default function Resources() {
       || discovered.find((i) => i.resourceId === resourceId || i.id === resourceId)
       || meta;
     setResources(prev => prev.filter(r => r.id !== resourceId));
+    setAssistantsForBind((prev) => prev.filter((a) => a.id !== resourceId));
     // Skill 卸载会删权威目录，本机列表中对应行一并移除
     setDiscovered(prev => prev.filter(item => item.resourceId !== resourceId));
     setScanStats(prev => (prev && typeof prev.totalOnDisk === 'number'
@@ -2600,15 +2644,23 @@ export default function Resources() {
   }
 
   // 分层计数：空层不占筛选位（Simplicity）
+  // 管家体检里要用户处理的：有风险、需完善、有新版本
+  const hasAssetIssue = useCallback((id) => {
+    const f = id && assetFlags[id];
+    if (id && blockedAssistants[id]) return true;
+    return !!(f && (f.security === 'high' || f.quality === 'warn' || f.updateAvailable));
+  }, [assetFlags, blockedAssistants]);
   const layerCounts = useMemo(() => {
-    const counts = { active: 0, pending: 0, dormant: 0, cold: 0, shelf: 0 };
+    const counts = { active: 0, pending: 0, dormant: 0, cold: 0, shelf: 0, idle: 0, issue: 0 };
     for (const r of resourcesInType) {
+      if (hasAssetIssue(r.id)) counts.issue += 1;
       if (isLifecycleExempt(r)) continue;
       const layer = classifyLifecycle(r).layer;
       if (counts[layer] != null) counts[layer] += 1;
+      if (IDLE_LAYERS.has(layer)) counts.idle += 1;
     }
     return counts;
-  }, [resourcesInType]);
+  }, [resourcesInType, hasAssetIssue]);
 
   const changeLayerFilter = useCallback((next) => {
     setLayerFilter(next);
@@ -2735,7 +2787,11 @@ export default function Resources() {
         list.push(binder);
       }
     };
-    for (const a of assistantsForBind) {
+    // 保存智能体只更新 resources。本机列表里已有智能体时以它为准，避免取消绑定后技能仍显示被引用。
+    // 列表被收成仅技能、没有智能体行时，退回上次拉到的全量。
+    const fromResources = resources.filter((r) => r?.type === 'assistant' && r.id);
+    const assistants = fromResources.length ? fromResources : assistantsForBind;
+    for (const a of assistants) {
       const { skills, prompts } = depsFromAssistantContent(a.content);
       if (!skills.length && !prompts.length) continue;
       const binder = {
@@ -2747,7 +2803,7 @@ export default function Resources() {
       for (const pr of prompts) add('prompt', pr, binder);
     }
     return map;
-  }, [assistantsForBind]);
+  }, [assistantsForBind, resources]);
 
   /** 各 Agent / 自添目录的本机技能数（来自 listAgentInstallations） */
   const skillCountByAgentId = useMemo(() => {
@@ -3065,14 +3121,19 @@ export default function Resources() {
       if (ub.lastUsed !== ua.lastUsed) return ub.lastUsed - ua.lastUsed;
       return byTime(a, b);
     };
-    const cmp = listSort === 'name' ? byName : listSort === 'time' ? byTime : byUsage;
+    // 默认：有问题的在前，其次最近用过 / 改过的
+    const issueOf = (x) => (hasAssetIssue(x?.resourceId || x?.id) ? 1 : 0);
+    const bySmart = (a, b) => (issueOf(b) - issueOf(a)) || byTime(a, b);
+    const cmp = listSort === 'name' ? byName : listSort === 'time' ? byTime : listSort === 'usage' ? byUsage : bySmart;
     // Hit-or-Exit：与分层计数同源；Skill 扫描行回退到已纳管资源再判定
     const matchLayer = (item) => {
       if (!layerFilter) return true;
       const linked = item?.resourceId ? resourcesById.get(item.resourceId) : null;
       const probe = linked || item;
+      if (layerFilter === 'issue') return hasAssetIssue(probe?.id);
       const life = classifyLifecycle(probe);
       if (life.layer === 'exempt') return false;
+      if (layerFilter === 'idle') return IDLE_LAYERS.has(life.layer);
       return life.layer === layerFilter;
     };
     // 提示词/智能体：按 typeFilter 收窄；全部时排除 skill（技能走扫描行）
@@ -3204,7 +3265,7 @@ export default function Resources() {
           <p className="flex flex-wrap items-center gap-x-3 text-[11px] text-zinc-400 px-1">
             <span>{t('resources.listCount', { n: rows.length })}</span>
             {showSkills && scanStats && <span>{t('resources.syncSummary', { n: scanStats.totalOnDisk })}</span>}
-            <span className="hidden md:inline ml-auto">{t('resources.kbdHint')}</span>
+            <span className="hidden md:inline ml-auto [@media(pointer:coarse)]:hidden">{t('resources.kbdHint')}</span>
           </p>
         </div>
         {selected && renderInspector(selected)}
@@ -3330,8 +3391,8 @@ export default function Resources() {
             <p className="text-[11px] text-zinc-400 truncate" title={shortNames.join(' · ')}>{shortNames.join(' · ')}</p>
           </div>
         </div>
-        <div className="hidden md:block min-w-0"><AppIconStack apps={apps} emptyLabel="—" /></div>
-        <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{uses || <span className="text-zinc-300 dark:text-zinc-600">—</span>}</div>
+        <div className="hidden md:block min-w-0">{renderAppNames(apps)}</div>
+        <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{t('resources.row.uses', { n: uses || 0 })}</div>
         <div className="hidden md:flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300 min-w-0">
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${idleN ? 'bg-amber-400' : activeN ? 'bg-emerald-500' : 'bg-zinc-300'}`} aria-hidden />
           <span className="truncate">
@@ -3373,9 +3434,67 @@ export default function Resources() {
     );
   }
 
+  /** 启用到哪些应用：写名字，多了只写前两个 */
+  function renderAppNames(apps) {
+    if (!apps.length) return <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('resources.row.notEnabled')}</span>;
+    const names = apps.map(a => a.label);
+    const text = names.length > 2 ? t('resources.row.appsMore', { names: names.slice(0, 2).join('、'), n: names.length }) : names.join('、');
+    return <span className="block text-[11px] text-zinc-600 dark:text-zinc-300 truncate" title={names.join('、')}>{text}</span>;
+  }
+
+  /** 行的状态：有问题（管家体检或依赖缺失）> 有新版本 > 在用 > 没在用，带一句原因 */
+  function rowState(li) {
+    const f = (li.resourceId && assetFlags[li.resourceId]) || {};
+    if (f.security === 'high') return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyRisk'), act: 'look' };
+    const needEnv = li.resourceId && envMissing[li.resourceId];
+    if (needEnv?.length) return { kind: 'issue', word: t('resources.env.rowWord'), why: t('resources.env.rowWhy', { names: needEnv.join('、') }), act: 'look', config: true };
+    const blocked = li.type === 'assistant' ? blockedAssistants[li.resourceId] : null;
+    if (blocked?.reason === 'skills') return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyDepsNamed', { skills: blocked.missing.join('、') }), act: 'look' };
+    if (blocked?.reason === 'runtime') return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyRuntime'), act: 'look' };
+    if (li.type === 'assistant' && li.item.depsBroken) return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyDeps'), act: 'look' };
+    if (f.quality === 'warn') return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyQuality'), act: 'look' };
+    if (f.updateAvailable) return { kind: 'update', word: t('resources.row.update'), why: t('resources.row.whyUpdate', { to: f.updateAvailable.to }), act: 'look' };
+    if (li.life.layer === 'exempt') return { kind: 'active', word: t('resources.source.builtin'), why: '', act: 'project' };
+    // 智能体是模板：说它投射到了哪里，不说「在用 / 没在用」（运行情况在网关页）
+    if (li.type === 'assistant') {
+      return li.apps.length
+        ? { kind: 'active', word: t('resources.tpl.projected', { n: li.apps.length }), why: t('resources.tpl.runInGateway'), act: 'project', gateway: true }
+        : { kind: 'idle', word: t('resources.tpl.notProjected'), why: '', act: 'project' };
+    }
+    if (li.life.layer === 'active') {
+      return { kind: 'active', word: t('resources.state.active'), why: li.apps.length ? t('resources.row.onApps', { n: li.apps.length }) : '', act: 'project' };
+    }
+    // 一句话说清楚，不再「没在用」+「启用了还没用过」两句打架
+    const word = { pending: t('resources.row.whyPending'), dormant: t('resources.row.whyDormant'), cold: t('resources.row.whyCold'), shelf: t('resources.row.whyShelf') }[li.life.layer] || t('resources.state.idle');
+    return { kind: 'idle', word, why: '', act: 'project' };
+  }
+
+  /** 行里的一句描述：不重复系统提示词；智能体模板写它带了哪些技能 */
+  function rowDesc(li) {
+    const d = String(li.desc || '').trim();
+    if (li.type !== 'assistant') return d;
+    const echo = !d || /^你是/.test(d) || d === `你是${li.name}` || d.length <= String(li.name || '').length + 3;
+    if (!echo) return d;
+    let skills = [];
+    try {
+      const raw = li.item?.content;
+      const cfg = typeof raw === 'string' && raw.trim().startsWith('{') ? JSON.parse(raw) : (raw && typeof raw === 'object' ? raw : {});
+      skills = Array.isArray(cfg.skills) ? cfg.skills.map(x => (typeof x === 'string' ? x : x?.name || x?.id)).filter(Boolean) : [];
+    } catch { /* 解析不了就不写技能 */ }
+    return skills.length ? t('resources.tpl.skillsDesc', { n: skills.length, names: skills.slice(0, 3).join('、') + (skills.length > 3 ? '…' : '') }) : t('resources.tpl.noSkills');
+  }
+
   function renderLibraryRow(li, sel, nested = '') {
     const visual = typeVisual(li.type);
     const it = li.item;
+    const rs = rowState(li);
+    const stateCls = {
+      issue: 'font-medium text-rose-700 dark:text-rose-300',
+      update: 'font-medium text-amber-700 dark:text-amber-300',
+      active: 'font-medium text-emerald-700 dark:text-emerald-300',
+      idle: 'text-zinc-500 dark:text-zinc-400',
+    }[rs.kind];
+    const stateDot = { issue: 'bg-rose-500', update: 'bg-amber-400', active: 'bg-emerald-500', idle: 'bg-zinc-300 dark:bg-zinc-600' }[rs.kind];
     return (
       <li
         key={li.key}
@@ -3388,7 +3507,7 @@ export default function Resources() {
         <LibraryRowTitle
           logo={<AssetLogo type={li.type} icon={it.icon || it.metadata?.icon} name={nested || li.name || it.id} />}
           name={li.name}
-          sub={li.desc || (li.path ? shortenHomePath(li.path) : t('resources.emptyDetail'))}
+          sub={rowDesc(li) || (li.path ? shortenHomePath(li.path) : t('resources.emptyDetail'))}
           chips={(
             <>
               <span className={`shrink-0 text-[10px] px-1.5 py-px rounded font-medium ${visual.chip}`}>{typeBadge(li.type, t)}</span>
@@ -3402,24 +3521,51 @@ export default function Resources() {
             </>
           )}
         />
-        <div className="hidden md:block min-w-0"><AppIconStack apps={li.apps} emptyLabel="—" /></div>
-        <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{li.useCount || <span className="text-zinc-300 dark:text-zinc-600">—</span>}</div>
-        <div className="hidden md:flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300 min-w-0">
-          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${LIFE_DOT[li.life.layer] || 'bg-zinc-300'}`} aria-hidden />
-          <span className="truncate">{lifeLabel(li.life)}</span>
+        <div className="md:hidden col-start-1 col-span-2 row-start-2 flex flex-nowrap items-center gap-1.5 min-w-0 text-[12px] pl-12 -mt-1">
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${stateDot}`} aria-hidden />
+          <span className={`shrink-0 ${stateCls}`}>{rs.word}</span>
+          {rs.why && (rs.gateway
+            ? <button type="button" onClick={(e) => { e.stopPropagation(); navigate('/gateway', { state: { gatewayTab: 'pro' } }); }}
+                className="truncate text-blue-600 dark:text-blue-400">· {rs.why}</button>
+            : <span className="truncate text-zinc-500 dark:text-zinc-400">· {rs.why}</span>)}
         </div>
-        <div
-          className={`flex items-center justify-end gap-1.5 transition-opacity ${sel ? '' : 'md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100'}`}
-          onClick={e => e.stopPropagation()}
-        >
-          {li.resourceId && (
+        <div className="hidden md:block min-w-0">{renderAppNames(li.apps)}</div>
+        <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{li.type === 'assistant' ? '—' : t('resources.row.uses', { n: li.useCount || 0 })}</div>
+        <div className="hidden md:flex items-start gap-1.5 text-[11px] min-w-0">
+          <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${stateDot}`} aria-hidden />
+          <span className="min-w-0">
+            <span className={`block truncate ${stateCls}`}>{rs.word}</span>
+            {rs.why && (rs.gateway
+              ? <button type="button" onClick={(e) => { e.stopPropagation(); navigate('/gateway', { state: { gatewayTab: 'pro' } }); }}
+                  className="block truncate text-blue-600 dark:text-blue-400 hover:underline text-left">{rs.why}</button>
+              : <span className="block truncate text-zinc-400 dark:text-zinc-500" title={rs.why}>{rs.why}</span>)}
+          </span>
+        </div>
+        <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
+          {rs.act === 'look' ? (
+            <button
+              type="button"
+              onClick={() => {
+                // 有问题：带着问题去智能管家对话页，由它直接处理；看更新仍打开详情
+                if (rs.config) setSelectedKey(li.key);   // 缺 Key：打开详情，在「需要的配置」里填
+                else if (rs.kind === 'issue') {
+                  navigate('/guardian', { state: { autoSend: true, prompt: t('resources.row.askGuardian', {
+                    type: typeBadge(li.type, t), name: li.name, why: rs.why || rs.word, id: li.resourceId || li.key,
+                  }) } });
+                } else setSelectedKey(li.key);
+              }}
+              className={`tb-press text-[11px] px-2.5 py-1 rounded-lg ${rs.kind === 'issue' ? 'bg-blue-600 text-white hover:bg-blue-500' : 'border border-zinc-200 dark:border-zinc-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20'}`}
+            >
+              {rs.config ? t('resources.env.rowAct') : rs.kind === 'update' ? t('resources.row.seeUpdate') : t('resources.row.look')}
+            </button>
+          ) : li.resourceId && (
             <button
               type="button"
               disabled={!!busy && busy !== li.resourceId}
               onClick={(e) => openProjectMenu(e, li.resourceId)}
-              className="tb-press text-[11px] px-2.5 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-45"
+              className="tb-press text-[11px] px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-45"
             >
-              {busy === li.resourceId ? t('resources.busy') : t('resources.projectShort')}
+              {busy === li.resourceId ? t('resources.busy') : t('resources.row.enableTo')}
             </button>
           )}
           <AssetMoreMenu label={t('resources.moreActions')} items={libraryMenuItems(li)} />
@@ -3443,6 +3589,7 @@ export default function Resources() {
     const visual = typeVisual(li.type);
     const previewSrc = li.kind === 'discovered' ? (li.linked || it) : it;
     const menu = libraryMenuItems(li);
+    const rs = rowState(li);
     return (
       <LibraryInspector
         logo={<AssetLogo type={li.type} icon={it.icon || it.metadata?.icon} name={li.name || it.id} />}
@@ -3494,9 +3641,16 @@ export default function Resources() {
                 {busy === li.resourceId ? t('resources.busy') : t('resources.project')}
               </button>
             )}
-            {li.resourceId && <DiagnosePanel resourceId={li.resourceId} resourceName={li.name} onChanged={() => loadAll({ silent: true })} />}
+            {li.resourceId && rs.kind === 'issue' && (
+              <DiagnosePanel resourceId={li.resourceId} resourceName={li.name} why={rs.why || rs.word} />
+            )}
           </div>
         </InspectorSection>
+        {li.type === 'skill' && li.resourceId && (
+          <InspectorSection title={t('resources.env.title')}>
+            <SkillEnvPanel resourceId={li.resourceId} onChanged={refreshEnvMissing} />
+          </InspectorSection>
+        )}
         {li.type === 'assistant' && (() => {
           const model = assistantModelOf(it.content);
           return (
@@ -3829,37 +3983,54 @@ export default function Resources() {
               const busyEdit = busy === 'editor' || busy === 'cleanup';
               const primaryCls = 'tb-press text-xs font-medium px-3.5 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 shadow-sm shadow-blue-600/20 disabled:opacity-50 whitespace-nowrap';
               const ghostCls = 'tb-press text-xs px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white/70 dark:bg-zinc-900/50 text-zinc-700 dark:text-zinc-200 hover:bg-white dark:hover:bg-zinc-800 disabled:opacity-50 whitespace-nowrap';
-              if (isMcp) {
-                return (
-                  <>
-                    <button type="button" className={ghostCls} onClick={() => changeViewTab('recommend')} title={t('resources.mcp.browseCatalogHint')}>{t('resources.mcp.browseCatalog')}</button>
-                    <button type="button" className={primaryCls} onClick={() => setMcpCreateSignal(n => n + 1)}>＋ {t('resources.mcp.add')}</button>
-                  </>
-                );
-              }
               const typed = ['prompt', 'skill', 'assistant'].includes(typeFilter);
+              // 所有「加东西」的入口收进一个「添加」，不再随类型换按钮
+              const items = [
+                { key: 'catalog', label: t('resources.add.catalog'), hint: t('resources.add.catalogHint'), run: () => changeViewTab('recommend') },
+                { key: 'install', label: t('resources.add.install'), hint: t('resources.menu.installHint'), run: () => setSkillInstallOpen(true) },
+                { key: 'scan', label: t('resources.scanShort'), hint: t('resources.menu.scanHint'), run: () => {
+                  if (!showSkillTabs) changeTypeFilter('skill', 'managed');
+                  if (viewTab !== 'managed') changeViewTab('managed');
+                  setScanExpanded(true);
+                } },
+                !isWebBridge() && { key: 'import', label: t('resources.add.import'), hint: t('resources.menu.importHint'), disabled: busy === 'import' || busyEdit, run: handleImportFile },
+                { key: 'create', label: typed ? t('resources.createOf', { type: t(`resources.tabType.${typeFilter}`) }) : t('resources.add.create'), hint: t('resources.menu.createHint'), disabled: busyEdit,
+                  run: () => { if (viewTab !== 'managed') changeViewTab('managed'); openCreateEditor(typed ? typeFilter : '', !typed); } },
+                { key: 'tool', label: t('resources.add.tool'), hint: t('resources.add.toolHint'), run: () => {
+                  if (viewTab !== 'managed') changeViewTab('managed');
+                  if (!isMcp) changeTypeFilter('mcp', 'managed');
+                  setTimeout(() => setMcpCreateSignal(n => n + 1), isMcp ? 0 : 150);
+                } },
+              ].filter(Boolean);
               return (
                 <>
-                  {showSkillTabs && (
-                    <button type="button" className={ghostCls} onClick={() => setScanExpanded(v => !v)} title={t('resources.menu.scanHint')}>{t('resources.scanShort')}</button>
-                  )}
-                  {typeFilter === 'skill' && (
+                  {typeFilter === 'skill' && viewTab === 'managed' && (
                     <button type="button" className={ghostCls} disabled={busy === 'cleanup' || idleLoading} onClick={openSkillCleanup} title={t('resources.cleanupTitle')}>
                       {idleLoading ? t('resources.cleanupScanning') : t('resources.cleanup')}
                     </button>
                   )}
-                  {/* Docker / Web 版没有本机文件对话框，不提供从文件导入 */}
-                  {!isWebBridge() && (
-                  <button type="button" className={ghostCls} disabled={busy === 'import' || busyEdit} onClick={handleImportFile} title={t('resources.menu.importHint')}>
-                    {busy === 'import' ? t('resources.busy') : t('resources.importShort')}
-                  </button>
-                  )}
-                  {showSkillTabs && (
-                    <button type="button" className={ghostCls} onClick={() => setSkillInstallOpen(true)} title={t('resources.menu.installHint')}>{t('resources.skillInstallShort')}</button>
-                  )}
-                  <button type="button" className={primaryCls} disabled={busyEdit} onClick={() => openCreateEditor(typed ? typeFilter : '', !typed)}>
-                    ＋ {typed ? t('resources.createOf', { type: t(`resources.tabType.${typeFilter}`) }) : t('resources.create')}
-                  </button>
+                  <div className="relative">
+                    <button type="button" className={primaryCls} aria-haspopup="menu" aria-expanded={addMenuOpen}
+                      onClick={() => setAddMenuOpen(v => !v)}>
+                      ＋ {t('resources.add.button')}
+                    </button>
+                    {addMenuOpen && (
+                      <>
+                        <div className="fixed inset-0 z-[60]" onClick={() => setAddMenuOpen(false)} aria-hidden="true" />
+                        <div role="menu" className="absolute right-0 top-full mt-1.5 z-[61] w-72 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg p-1"
+                          onKeyDown={(e) => { if (e.key === 'Escape') setAddMenuOpen(false); }}>
+                          {items.map(it => (
+                            <button key={it.key} type="button" role="menuitem" disabled={it.disabled}
+                              onClick={() => { setAddMenuOpen(false); it.run(); }}
+                              className="block w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-700/60 disabled:opacity-40">
+                              <span className="block text-xs font-medium text-zinc-800 dark:text-zinc-100">{it.label}</span>
+                              <span className="block text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">{it.hint}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </>
               );
             })()}
@@ -3867,8 +4038,8 @@ export default function Resources() {
         </div>
         {/* 主导航：资产类型直接作为一级 Tab（带数量），「发现」与之以竖线分隔 */}
         <div className="mt-4 flex flex-wrap items-end gap-x-6 gap-y-1 border-b border-zinc-200/80 dark:border-white/[0.08]" role="tablist">
-          {TYPE_OPTIONS.filter(o => o.id).map(opt => {
-            const active = viewTab === 'managed' && typeFilter === opt.id;
+          {TYPE_OPTIONS.map(opt => {
+            const active = viewTab !== 'recommend' && typeFilter === opt.id;
             const n = typeCounts[opt.id || 'all'];
             return (
               <button
@@ -3888,25 +4059,11 @@ export default function Resources() {
                 }`}
               >
                 {t(`resources.tabType.${opt.id || 'all'}`)}
-                {n > 0 && <span className="ml-1.5 text-[11px] font-normal text-zinc-400 tabular-nums">{n}</span>}
+                {n != null && <span className="ml-1.5 text-[11px] font-normal text-zinc-400 tabular-nums">{n}</span>}
               </button>
             );
           })}
-          <span className="self-center mb-2.5 w-px h-4 bg-zinc-200 dark:bg-zinc-700" aria-hidden />
-          <button
-            type="button"
-            role="tab"
-            aria-selected={viewTab === 'recommend'}
-            onClick={() => changeViewTab('recommend')}
-            className={`-mb-px pb-2.5 text-[13px] border-b-2 transition-colors ${
-              viewTab === 'recommend'
-                ? 'border-zinc-900 dark:border-zinc-100 text-zinc-900 dark:text-zinc-50 font-semibold'
-                : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-            }`}
-          >
-            <span className="text-violet-500 mr-1" aria-hidden>✦</span>{t('resources.tab.discover')}
-          </button>
-          <div className="relative ml-auto mb-1.5 w-64 max-w-[40vw] self-center">
+          <div className="relative w-full md:w-64 md:ml-auto md:max-w-[40vw] mb-1.5 self-center">
             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" aria-hidden>
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3.5 h-3.5"><circle cx="9" cy="9" r="5.5" /><path d="M13.5 13.5 17 17" strokeLinecap="round" /></svg>
             </span>
@@ -3942,6 +4099,16 @@ export default function Resources() {
       </header>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3">
+        {viewTab === 'recommend' && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">{t('resources.add.catalog')}</span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">{t('resources.add.catalogHint')}</span>
+            <button type="button" onClick={() => changeViewTab('managed')}
+              className="ml-auto text-xs px-2.5 py-1 rounded-lg text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20">
+              {t('resources.add.back')}
+            </button>
+          </div>
+        )}
         {/* 筛选栏：类型分段 + 下拉筛选（用途 / 应用 / 状态）+ 排序 */}
         <div className="flex flex-wrap items-center gap-2">
           {viewTab === 'recommend' && (
@@ -4008,9 +4175,9 @@ export default function Resources() {
               value={layerFilter}
               allLabel={t('resources.layer.filterAll')}
               onChange={changeLayerFilter}
-              options={['active', 'pending', 'dormant', 'cold', 'shelf']
+              options={['active', 'idle', 'issue']
                 .filter(id => layerCounts[id] > 0 || layerFilter === id)
-                .map(id => ({ value: id, label: t(`resources.layer.${id}`), count: layerCounts[id], dot: LIFE_DOT[id] }))}
+                .map(id => ({ value: id, label: t(`resources.state.${id}`), count: layerCounts[id], dot: STATE_DOT[id] }))}
             />
           )}
           {!isMcp && viewTab === 'managed' && (
@@ -4288,15 +4455,6 @@ export default function Resources() {
           </div>
         ) : null}
 
-        {!isMcp && <p className="text-[11px] text-zinc-400 pt-2">
-          {t(
-            typeFilter === 'prompt'
-              ? 'resources.footerHint.prompt'
-              : typeFilter === 'assistant'
-                ? 'resources.footerHint.assistant'
-                : 'resources.footerHint',
-          )}
-        </p>}
       </div>
 
       {renderProjectMenu()}

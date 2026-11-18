@@ -300,6 +300,7 @@ const {
   parseAssistantConfig,
   resolveAssistantContext,
   resolveAssistantRuntimeAgent,
+  projectedRuntimeIds,
   buildAssistantLaunch,
   ASSISTANT_ID_PREFIX,
   hasAssistantEnableProjection,
@@ -491,6 +492,26 @@ function sleep(ms) {
 }
 
 /**
+ * 子任务还要不要等。
+ * 停住超过 idleMs，或从开始算超过 hardMs，就不再等。
+ * 中间一直有新进展时，由调用方把 lastActivity 往后推。
+ */
+function taskWaitAlive({ now, start, lastActivity, idleMs, hardMs }) {
+  if (now - start >= hardMs) return false;
+  if (now - lastActivity >= idleMs) return false;
+  return true;
+}
+
+/** 这一轮有没有新进展：新步骤、步骤内容变长、或已经有输出 */
+function taskActivityMark(status) {
+  const steps = Array.isArray(status?.steps) ? status.steps : [];
+  const last = steps[steps.length - 1];
+  const tail = last ? String(last.content || '').length : 0;
+  const out = String(status?.result?.output || status?.result?.summary || '').length;
+  return `${status?.status || ''}|${steps.length}|${last?.id || ''}|${tail}|${out}`;
+}
+
+/**
  * 云端回传的成品。优先用中转地址；旧的 data URL 仍可展示。不把出租方磁盘路径当本地文件。
  */
 function normalizeCommunityArtifacts(raw) {
@@ -532,6 +553,8 @@ function normalizeCommunityArtifacts(raw) {
 class AgentExecutor extends EventEmitter {
   constructor() {
     super();
+    // 应用重启后接回派给外部智能体、还没做完的任务
+    setImmediate(() => this._watchExternalResults());
     this.runningTasks = new Map(); // taskId → { process, agent_id }
     // 任务元数据缓存：进程结束后仍可用于 IPC 事件路由
     this.taskMetaCache = new Map(); // taskId → { agentId, sessionKey, parentTaskId }
@@ -590,6 +613,8 @@ class AgentExecutor extends EventEmitter {
     const builtin = canonicalBuiltinAgentId(raw);
     if (builtin) return builtin;
     if (require('./guardian/chat').isGuardianAgent(raw)) return raw;
+    // 外部智能体：按 id 原样执行（是否允许接任务由 external-agents 判断）
+    if (require('./external-agents').isExternalId(raw)) return raw;
 
     const {
       isCommunityAgentId,
@@ -657,9 +682,11 @@ class AgentExecutor extends EventEmitter {
         (a) => a.type === 'cli' && typeof a.installed !== 'boolean',
       );
       if (!stale) {
-        // 雇佣名单可能刚写入：缓存里刷新 community 段
-        const base = AGENT_LIST_CACHE.agents.filter((a) => a.type !== 'community');
-        return [...base, ...hiredEntries()];
+        // 雇佣名单、外部智能体可能刚变：缓存里刷新这两段
+        const base = AGENT_LIST_CACHE.agents.filter((a) => a.type !== 'community' && a.type !== 'external');
+        let externals = [];
+        try { externals = require('./external-agents').listForAgents(); } catch { /* 外部智能体不可用 */ }
+        return [...base, ...hiredEntries(), ...externals];
       }
     }
 
@@ -729,6 +756,7 @@ class AgentExecutor extends EventEmitter {
         launchableCliIds.add(a.id);
       }
     }
+    this._launchableCliIds = launchableCliIds;
     let guardianEntry = null;
     try { guardianEntry = require('./guardian/chat').listEntry(launchableCliIds, AGENT_CLI); } catch { /* 智能管家不可用 */ }
     const agents = [
@@ -738,6 +766,8 @@ class AgentExecutor extends EventEmitter {
       ...this._listCustomAssistants(launchableCliIds),
       // 已雇佣的社区武将（远程执行，无正文）
       ...require('./hired-community-agents').toAgentListEntries(),
+      // 外部智能体（Muse、GrokBot 等）：自己注册进来、用户允许过的，来网关取任务
+      ...(() => { try { return require('./external-agents').listForAgents(); } catch { return []; } })(),
     ];
 
     // 探测命令只留给后台补版本，不发给界面
@@ -797,6 +827,35 @@ class AgentExecutor extends EventEmitter {
     if (changed) this.emit('list:updated', next);
   }
 
+  /**
+   * 投射到了应用、但现在跑不起来的智能体：运行它的应用不可用，或它要用的技能已经不在资产里。
+   * 网关页挂在应用下显示「跑不起来」；游乐场列表不受影响。
+   * @returns {{ id, resourceId, name, runtimeAgentId, reason: 'runtime'|'skills', missing: string[] }[]}
+   */
+  listBlockedAssistants() {
+    const resourceManager = require('./resource-manager');
+    resourceManager.init();
+    const launchable = this._launchableCliIds || new Set();
+    const skills = resourceManager.listResources({ type: 'skill' });
+    const known = new Set();
+    for (const r of skills) { known.add(r.id); known.add(String(r.name)); if (r.display_name) known.add(String(r.display_name)); }
+    const out = [];
+    for (const resource of resourceManager.listResources({ type: 'assistant' })) {
+      const targets = [...new Set((resource.projections || []).map(p => p?.agentId || p?.agent_id).filter(id => AGENT_CLI[id]))];
+      if (!targets.length) continue;
+      const config = parseAssistantConfig(resource.content);
+      const base = { id: `${ASSISTANT_ID_PREFIX}${resource.id}`, resourceId: resource.id, name: resource.display_name || resource.name };
+      const runtime = resolveAssistantRuntimeAgent(config, resource.projections || [], launchable);
+      if (!runtime || !launchable.has(runtime)) {
+        out.push({ ...base, runtimeAgentId: targets[0], reason: 'runtime', missing: targets.map(id => AGENT_CLI[id]?.name || id) });
+        continue;
+      }
+      const lost = (config.skills || []).filter(s => !known.has(String(s)));
+      if (lost.length) out.push({ ...base, runtimeAgentId: runtime, reason: 'skills', missing: lost });
+    }
+    return out;
+  }
+
   /** 已纳管 Assistant → Debug 自定义 Agent */
   _listCustomAssistants(availableCliIds) {
     const resourceManager = require('./resource-manager');
@@ -828,6 +887,9 @@ class AgentExecutor extends EventEmitter {
         runtimeName: displayName,
         execRuntimeName: execName,
         description: resource.description || '',
+        skillCount: Array.isArray(config.skills) ? config.skills.length : 0,
+        // 它投射过、本机能用的应用：多于一个时网关页让用户选默认在哪跑
+        projectedRuntimes: projectedRuntimeIds(resource.projections || [], availableCliIds),
         custom: true,
         // 显式模型优先；未写模型且运行时是 Cursor 时，用 CLI 当前选中模型
         modelLabel: explicitModel || (runtimeAgentId === 'cursor' ? readCursorCliModelLabel() : ''),
@@ -847,7 +909,8 @@ class AgentExecutor extends EventEmitter {
     if (guardianChat.isGuardianAgent(agentId)) {
       const st = require('./guardian/engine').status();
       if (!st.ready || !AGENT_CLI[st.runtime]) throw new Error('智能管家还没有执行应用：到智能管家页设置一个');
-      const launch = buildAssistantLaunch(st.runtime, guardianChat.systemText(), '');
+      // 智能管家的回复要边生成边显示，所以打开 partial messages
+      const launch = buildAssistantLaunch(st.runtime, guardianChat.systemText(), '', { includePartial: true });
       return { agentId: st.runtime, assistant: { virtualId: agentId, resource: null, config: {}, launch } };
     }
 
@@ -983,6 +1046,16 @@ class AgentExecutor extends EventEmitter {
       parentTaskId,
     });
 
+    // 进程启动后马上听步骤。stdout 在下一个事件循环才到，这里还赶得上第一个字
+    let stepListener = null;
+    if (typeof options.onStep === 'function') {
+      stepListener = (evt) => {
+        if (!evt || evt.taskId !== taskId) return;
+        try { options.onStep(evt); } catch { /* 流式回调失败不影响任务 */ }
+      };
+      this.on('task:step', stepListener);
+    }
+
     // 通知前端：子任务已派发，便于当前窗口展示派发卡片
     this.emit('task:dispatched', {
       parentTaskId,
@@ -1006,12 +1079,21 @@ class AgentExecutor extends EventEmitter {
       });
     }
 
-    const timeoutMs = options.timeoutMs || 10 * 60 * 1000;
+    // 空闲超时：一直有新步骤就续上，避免查到一半被墙钟掐掉。停住超过 idleMs，或总时长到 hardMs，才取消。
+    const idleMs = options.timeoutMs || 10 * 60 * 1000;
+    const hardMs = options.hardTimeoutMs || idleMs * 3;
     const start = Date.now();
+    let lastActivity = start;
+    let lastMark = '';
 
     try {
-      while (Date.now() - start < timeoutMs) {
+      while (taskWaitAlive({ now: Date.now(), start, lastActivity, idleMs, hardMs })) {
         const status = await this.getTaskStatus(taskId);
+        const mark = taskActivityMark(status);
+        if (mark !== lastMark) {
+          lastMark = mark;
+          lastActivity = Date.now();
+        }
         if (['completed', 'failed', 'cancelled'].includes(status.status)) {
           if (parentTaskId) {
             const summary = status.result?.summary
@@ -1033,6 +1115,9 @@ class AgentExecutor extends EventEmitter {
           this._notifyTaskTerminal(taskId, status);
           return status;
         }
+        if (typeof options.onProgress === 'function') {
+          try { options.onProgress(status); } catch { /* 进度写失败不影响任务本身 */ }
+        }
         await sleep(400);
       }
       await this.cancel(taskId);
@@ -1051,6 +1136,8 @@ class AgentExecutor extends EventEmitter {
         });
       }
       throw err;
+    } finally {
+      if (stepListener) this.off('task:step', stepListener);
     }
   }
 
@@ -1382,6 +1469,135 @@ class AgentExecutor extends EventEmitter {
     this.taskMetaCache.delete(taskId);
   }
 
+  /** 外部智能体的任务：和社区任务一样只记结果，不在本机跑 */
+  async _runExternalTaskForExecute(taskId, agentId, prompt, options = {}) {
+    this._watchExternalResults();
+    // 外部智能体不是马上开始：先排队等它来取，界面据此显示「等它来取」而不是「执行中」
+    const ext = require('./external-agents');
+    const info = ext.get(agentId) || {};
+    this.emit('task:step', {
+      taskId, stepType: 'system_event', system_subtype: 'external_queued',
+      content: info.name || agentId, message: info.name || agentId,
+      external: { name: info.name || agentId, online: !!info.online, intervalMs: info.intervalMs || 0, lastSeenAt: info.lastSeenAt || 0 },
+      timestamp: Date.now(), ...this._taskEventMeta(taskId),
+    });
+    const result = await require('./external-agents').dispatch(agentId, prompt, { timeoutMs: options.timeoutMs, taskId });
+    this._finishExternalTask(taskId, result);
+  }
+
+  /** 外部智能体回来的结果：派出时在等的、和应用重启后才回来的，都走这里记进任务 */
+  _finishExternalTask(taskId, result) {
+    if (this._isTaskCancelled(taskId)) { this.taskMetaCache.delete(taskId); return; }
+    const db = this._getDb();
+    const output = String(result?.output || '');
+    if (!result?.ok) {
+      const errText = String(result?.error || 'external agent failed');
+      const payload = { success: false, summary: output, output, stderr: errText, error: errText, files: [], stepCount: 0 };
+      try {
+        db.prepare("UPDATE agent_tasks SET status = 'failed', error = ?, result = ?, completed_at = ? WHERE id = ?")
+          .run(errText, JSON.stringify(payload), Date.now(), taskId);
+      } catch { this._updateTaskStatus(taskId, 'failed', errText); }
+      this.emit('task:failed', { taskId, error: errText, result: payload, status: 'failed', ...this._taskEventMeta(taskId) });
+      this.taskMetaCache.delete(taskId);
+      return;
+    }
+    const payload = { success: true, summary: output, output, stderr: '', files: [], stepCount: 0 };
+    try {
+      db.prepare("UPDATE agent_tasks SET status = 'completed', result = ?, completed_at = ? WHERE id = ?")
+        .run(JSON.stringify(payload), Date.now(), taskId);
+    } catch { /* 记不下结果也照常通知 */ }
+    this.emit('task:completed', {
+      taskId, result: { success: true, summary: output, stderr: '', files: [], stepCount: 0 },
+      status: 'completed', ...this._taskEventMeta(taskId),
+    });
+    this.taskMetaCache.delete(taskId);
+  }
+
+  /** 接上次没做完的外部任务：排队的继续等它来取，取走的结果回来时记进任务；任务结束后它推来的消息也记下 */
+  _watchExternalResults() {
+    if (this._externalWatched) return;
+    this._externalWatched = true;
+    try {
+      const ext = require('./external-agents');
+      ext.setPushHandler((agentId, taskId, text) => this.recordTaskMessage(agentId, taskId, text));
+      ext.setTakenHandler((taskId, agentId) => {
+        const info = ext.get(agentId) || {};
+        this.emit('task:step', {
+          taskId, stepType: 'system_event', system_subtype: 'external_taken',
+          content: info.name || agentId, message: info.name || agentId,
+          external: { name: info.name || agentId },
+          timestamp: Date.now(), ...this._taskEventMeta(taskId),
+        });
+      });
+      ext.setResultHandler((taskId, result) => this._finishExternalTask(taskId, result));
+    } catch (e) { console.warn('[agent] external tasks restore failed:', e.message); }
+  }
+
+  _ensureTaskMessagesTable(db) {
+    if (this._taskMessagesReady) return;
+    db.exec(`CREATE TABLE IF NOT EXISTS agent_task_messages (
+      id TEXT PRIMARY KEY, task_id TEXT NOT NULL, root_task_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL)`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_agent_task_messages_root ON agent_task_messages(root_task_id, created_at)');
+    this._taskMessagesReady = true;
+  }
+
+  /** 外部智能体就它接过的任务推来一条消息：只认派给它的任务；记到最上层的那个任务下（游乐场按它显示） */
+  recordTaskMessage(agentId, taskId, text) {
+    const db = this._getDb();
+    const row = db.prepare('SELECT id, agent_id, context FROM agent_tasks WHERE id = ?').get(taskId);
+    if (!row) return 'not_found';
+    if (row.agent_id !== agentId) return 'not_yours';
+    this._ensureTaskMessagesTable(db);
+    let root = row;
+    for (let i = 0; i < 5; i++) {
+      let parent = '';
+      try { parent = JSON.parse(root.context || '{}').parentTaskId || ''; } catch { parent = ''; }
+      const up = parent ? db.prepare('SELECT id, agent_id, context FROM agent_tasks WHERE id = ?').get(parent) : null;
+      if (!up) break;
+      root = up;
+    }
+    const msg = {
+      id: `msg_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+      task_id: taskId, root_task_id: root.id, agent_id: agentId, content: String(text), created_at: Date.now(),
+    };
+    db.prepare('INSERT INTO agent_task_messages (id, task_id, root_task_id, agent_id, content, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(msg.id, msg.task_id, msg.root_task_id, msg.agent_id, msg.content, msg.created_at);
+    this.emit('task:message', { taskId, rootTaskId: root.id, agentId, content: msg.content, timestamp: msg.created_at });
+    return true;
+  }
+
+  /** 某个外部智能体 since 之后推来的所有消息（游乐场里和它的当前对话显示用），带上来源任务的标题 */
+  listAgentMessagesSince(agentId, since = 0) {
+    if (!agentId) return [];
+    const db = this._getDb();
+    this._ensureTaskMessagesTable(db);
+    const rows = db.prepare(`SELECT m.*, t.prompt AS root_prompt FROM agent_task_messages m
+      LEFT JOIN agent_tasks t ON t.id = m.root_task_id
+      WHERE m.agent_id = ? AND m.created_at >= ? ORDER BY m.created_at LIMIT 500`).all(String(agentId), Number(since) || 0);
+    return rows.map(r => ({
+      id: r.id, taskId: r.task_id, rootTaskId: r.root_task_id, agentId: r.agent_id,
+      content: r.content, timestamp: r.created_at, source: String(r.root_prompt || '').slice(0, 40),
+    }));
+  }
+
+  /** 这些任务（或它们的子任务）收到的推送，按传进来的任务 id 分组 */
+  listTaskMessages(taskIds = []) {
+    const ids = [...new Set((taskIds || []).filter(Boolean).map(String))].slice(0, 500);
+    if (!ids.length) return {};
+    const db = this._getDb();
+    this._ensureTaskMessagesTable(db);
+    const ph = ids.map(() => '?').join(',');
+    const rows = db.prepare(`SELECT * FROM agent_task_messages WHERE root_task_id IN (${ph}) OR task_id IN (${ph}) ORDER BY created_at`).all(...ids, ...ids);
+    const want = new Set(ids);
+    const out = {};
+    for (const r of rows) {
+      const key = want.has(r.root_task_id) ? r.root_task_id : r.task_id;
+      (out[key] = out[key] || []).push({ id: r.id, agentId: r.agent_id, content: r.content, timestamp: r.created_at });
+    }
+    return out;
+  }
+
   /**
    * 异步执行任务
    */
@@ -1402,6 +1618,11 @@ class AgentExecutor extends EventEmitter {
       const { isCommunityAgentId } = require('./hired-community-agents');
       if (isCommunityAgentId(agentId)) {
         await this._runCommunityTaskForExecute(taskId, agentId, prompt, options);
+        return;
+      }
+      // 外部智能体：排进它的队列，等它来取、做完回传
+      if (require('./external-agents').isExternalId(agentId)) {
+        await this._runExternalTaskForExecute(taskId, agentId, prompt, options);
         return;
       }
 
@@ -1471,6 +1692,7 @@ class AgentExecutor extends EventEmitter {
           profileId: mcpProfile || mcpManager.DEVELOPMENT_PROFILE_ID || mcpManager.DEFAULT_PROFILE_ID,
           sessionKey: options.sessionKey || null,
           sessionInstanceId: options.sessionInstanceId || null,
+          agentRouteId: options.agentRouteId || '',
         });
         orchestratorCleanup = orch.cleanup;
         if (orch.promptPrefix) execPrompt = orch.promptPrefix + userPrompt;
@@ -1566,6 +1788,17 @@ class AgentExecutor extends EventEmitter {
       // 出租接单：系统定义里说明自己是在给雇佣方干活，不能报本机路径
       if (confined) {
         args = applyRentalDefinition(args);
+      }
+
+      // 智能管家跑在任何一个已纳管的执行应用上，都带上 Token Bank 的接口。不改用户自己的配置。
+      if (require('./guardian/chat').isGuardianAgent(agentId)) {
+        try {
+          const attached = require('./guardian/mcp-launch').attach(effectiveAgentId, args, { workingDir: runDir });
+          args = attached.args;
+          if (attached.cwd) runDir = attached.cwd;
+        } catch (e) {
+          console.warn('[guardian] attach mcp:', e.message);
+        }
       }
 
       const result = await this._runAgentProcess(taskId, effectiveAgentId, launch.executable, args, {
@@ -1747,6 +1980,12 @@ class AgentExecutor extends EventEmitter {
         console.warn('[AgentExecutor] Cursor IDE 登录共享失败:', e.message);
       }
     }
+
+    // 技能要用的 Key（资产页里配的）：带进这次任务的进程环境，技能里的脚本直接读得到
+    try {
+      const skillEnv = require('./skill-env').allEnv();
+      Object.assign(spawnEnv, skillEnv);
+    } catch (e) { console.warn('[AgentExecutor] 技能配置注入失败:', e.message); }
 
     try {
       require('./api-retry-trace').traceAgentSpawnEnv({
@@ -2299,21 +2538,73 @@ class AgentExecutor extends EventEmitter {
     let rows = [];
     try {
       rows = this._getDb().prepare(
-        'SELECT status, created_at, completed_at FROM agent_tasks WHERE created_at >= ?',
+        'SELECT agent_id, status, created_at, completed_at FROM agent_tasks WHERE created_at >= ?',
       ).all(start.getTime());
     } catch {
-      return empty;
+      return { ...empty, by_agent: {} };
     }
-    const done = rows.filter(r => r.status === 'completed' && r.completed_at && r.created_at);
-    const avg = done.length
-      ? Math.round(done.reduce((sum, r) => sum + (r.completed_at - r.created_at), 0) / done.length)
-      : null;
-    return {
-      tasks: rows.length,
-      running: rows.filter(r => r.status === 'pending' || r.status === 'running').length,
-      failed: rows.filter(r => r.status === 'failed' || r.status === 'cancelled').length,
-      avg_duration_ms: avg,
+    const sum = (list) => {
+      const done = list.filter(r => r.status === 'completed' && r.completed_at && r.created_at);
+      return {
+        tasks: list.length,
+        ok: done.length,
+        running: list.filter(r => r.status === 'pending' || r.status === 'running').length,
+        failed: list.filter(r => r.status === 'failed' || r.status === 'cancelled').length,
+        avg_duration_ms: done.length
+          ? Math.round(done.reduce((s, r) => s + (r.completed_at - r.created_at), 0) / done.length)
+          : null,
+      };
     };
+    // 应用列表里每个智能体一行「今天几个任务、成功几个、平均多久」
+    const groups = {};
+    for (const r of rows) (groups[r.agent_id] = groups[r.agent_id] || []).push(r);
+    const byAgent = {};
+    for (const [id, list] of Object.entries(groups)) byAgent[id] = sum(list);
+    const all = sum(rows);
+    return {
+      tasks: all.tasks,
+      running: all.running,
+      failed: all.failed,
+      avg_duration_ms: all.avg_duration_ms,
+      by_agent: byAgent,
+    };
+  }
+
+  /**
+   * 这个智能体一段时间内的任务。days=1 从本地 0 点起，和今天的数字一致；
+   * 7 / 30 / 90 从现在往前推，和用量明细的窗口一样。
+   * 带开始、完成时间，以及返回正文（不带步骤和文件）。
+   */
+  listTodayTasks(agentId, limit = 50, days = 1) {
+    const id = String(agentId || '');
+    if (!id) return [];
+    const span = [1, 7, 30, 90].includes(Number(days)) ? Number(days) : 1;
+    const since = span === 1
+      ? (() => { const start = new Date(); start.setHours(0, 0, 0, 0); return start.getTime(); })()
+      : Date.now() - span * 86400000;
+    const n = Math.min(Math.max(Number(limit) || 50, 1), span === 1 ? 100 : 200);
+    let rows = [];
+    try {
+      rows = this._getDb().prepare(`
+        SELECT id, prompt, status, error, created_at, started_at, completed_at, result
+        FROM agent_tasks
+        WHERE agent_id = ? AND created_at >= ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `).all(id, since, n);
+    } catch {
+      return [];
+    }
+    return rows.map((r) => ({
+      id: r.id,
+      prompt: r.prompt,
+      status: r.status,
+      error: r.error || '',
+      created_at: r.created_at,
+      started_at: r.started_at || null,
+      completed_at: r.completed_at || null,
+      output: taskResultText(r.result),
+    }));
   }
 
   async getTaskStatus(taskId) {
@@ -2388,10 +2679,41 @@ class AgentExecutor extends EventEmitter {
   }
 }
 
+/** 像事件流（一行一个 JSON）而不是给人看的正文 */
+function looksLikeEventStream(text) {
+  const s = String(text || '').trim();
+  return s.startsWith('{') && (s.includes('"type"') || s.includes('\n{'));
+}
+
+function clipTaskText(text) {
+  return String(text || '').slice(0, 8000);
+}
+
+/** 任务结果里给人看的正文。优先 summary；output 若是原始事件流则再整理一次。 */
+function taskResultText(raw) {
+  if (!raw) return '';
+  let obj = raw;
+  if (typeof raw === 'string') {
+    try { obj = JSON.parse(raw); } catch { return clipTaskText(raw); }
+  }
+  if (!obj || typeof obj !== 'object') return clipTaskText(obj);
+  const summary = String(obj.summary || '').trim();
+  const output = String(obj.output || obj.text || '').trim();
+  if (summary && summary !== '(无输出)' && !looksLikeEventStream(summary)) return clipTaskText(summary);
+  if (output && !looksLikeEventStream(output)) return clipTaskText(output);
+  if (output) {
+    const summarized = String(summarizeAgentStdout(output, 'claude-code') || '').trim();
+    if (summarized && summarized !== '(无输出)' && !looksLikeEventStream(summarized)) return clipTaskText(summarized);
+  }
+  return '';
+}
+
 module.exports = new AgentExecutor();
 module.exports.AGENT_CLI = AGENT_CLI;
 module.exports.canonicalBuiltinAgentId = canonicalBuiltinAgentId;
 module.exports.invalidateAgentListCache = invalidateAgentListCache;
+module.exports.taskWaitAlive = taskWaitAlive;
+module.exports.taskActivityMark = taskActivityMark;
 module.exports.buildClaudeCodeArgs = buildClaudeCodeArgs;
 module.exports.buildClaudeContinueArgs = buildClaudeContinueArgs;
 module.exports.buildClaudeStreamFlags = buildClaudeStreamFlags;

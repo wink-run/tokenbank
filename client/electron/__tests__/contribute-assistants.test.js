@@ -130,3 +130,14 @@ test('assertAssistantContributed', () => {
   assert.doesNotThrow(() => assertAssistantContributed(cfg, poem.id));
   assert.throws(() => assertAssistantContributed(cfg, 'other'), /not contributed/);
 });
+
+test('each listed agent keeps its own circles', () => {
+  const out = normalizeContributeAssistants({ contribute_assistants: [
+    { id: 'a', circle_ids: [7] }, { id: 'b', circle_ids: [] }, { id: 'c', visibility: 'circle' },
+  ] });
+  assert.deepEqual(out, [
+    { id: 'a', visibility: 'circle', circle_ids: [7] },
+    { id: 'b', visibility: 'public', circle_ids: [] },
+    { id: 'c', visibility: 'circle' },
+  ]);
+});

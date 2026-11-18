@@ -26,13 +26,13 @@ const RULES = [
     kind: 'context',
     test: (s, m) => /context.?length|maximum context|too many tokens|prompt is too long|max_tokens/i.test(m),
     title: '请求超出了模型的上下文长度',
-    advice: '换用上下文更长的模型，或在场景路由里为长文本单独配一个模型。',
+    advice: '换用上下文更长的模型，或在「模型」页的自定义路由里为长文本单独配一个模型。',
   },
   {
     kind: 'model',
     test: (s, m) => s === 404 || /model.*(not.?found|does not exist|unknown|unsupported)|no such model/i.test(m),
     title: '这个供给源不提供请求的模型',
-    advice: '在「模型」页核对模型名，或从场景路由里去掉这个源。',
+    advice: '在「模型」页核对模型名，或从自定义路由里去掉这个源。',
   },
   {
     kind: 'network',

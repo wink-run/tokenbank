@@ -543,6 +543,52 @@ test('tb_call_mcp 表单和地址上的示例值也会被调用参数替换', as
   }
 });
 
+test('tb_save_resource is refused outside the guardian process', async () => {
+  const prev = process.env.TB_GUARDIAN;
+  delete process.env.TB_GUARDIAN;
+  try {
+    const r = await mcp.handleToolCall('tb_save_resource', { id: 'res-assistant-x', skills: ['a'] });
+    assert.equal(r.isError, true);
+    assert.match(r.content[0].text, /只给智能管家/);
+    assert.equal(mcp.listedTools().some(t => t.name === 'tb_save_resource'), false);
+    const project = await mcp.handleToolCall('tb_project_resource', { id: 'a1', agentIds: ['codex'] });
+    assert.equal(project.isError, true);
+    assert.equal(mcp.listedTools().some(t => t.name === 'tb_delete_resource'), false);
+  } finally {
+    if (prev) process.env.TB_GUARDIAN = prev;
+    else delete process.env.TB_GUARDIAN;
+  }
+});
+
+test('智能管家列出和读取的是资产库全表，不看投射', async () => {
+  mcp.setResourceManager(mockRm());
+  const prevG = process.env.TB_GUARDIAN;
+  const prevC = process.env.TB_CLIENT_ID;
+  process.env.TB_GUARDIAN = '1';
+  process.env.TB_CLIENT_ID = 'codex';
+  try {
+    const names = mcp.listedTools().map(t => t.name);
+    assert.ok(names.includes('tb_save_resource'));
+    assert.ok(names.includes('tb_project_resource'));
+    assert.ok(names.includes('tb_install_resource'));
+    const listed = await mcp.handleToolCall('tb_list_resources', { type: 'assistant' });
+    assert.match(listed.content[0].text, /资产库智能体/);
+    assert.match(listed.content[0].text, /writer/);
+    const got = await mcp.handleToolCall('tb_get_resource', { type: 'assistant', name: 'writer' });
+    assert.equal(got.isError, false);
+    const record = JSON.parse(got.content[0].text);
+    assert.equal(record.soul, '你是写作助手');
+    assert.deepEqual(record.skills, ['image-gen']);
+    assert.equal(record.content.includes('你是写作助手'), true);
+  } finally {
+    if (prevG) process.env.TB_GUARDIAN = prevG;
+    else delete process.env.TB_GUARDIAN;
+    if (prevC == null) delete process.env.TB_CLIENT_ID;
+    else process.env.TB_CLIENT_ID = prevC;
+    mcp.setResourceManager(null);
+  }
+});
+
 test('tb_call_mcp 未中转时给出提示', async () => {
   mcp.setRelayedMcpLister(() => PIPEWORX);
   try {

@@ -155,6 +155,143 @@ const TOOLS = [
   },
 ];
 
+/**
+ * 只在智能管家自己的 MCP 进程里出现。
+ * 和用户在资产页点的是同一批 resource-manager 接口；其它应用即使中转了 tokenbank-resources 也改不了库。
+ */
+const GUARDIAN_TOOLS = [
+  {
+    name: 'tb_save_resource',
+    description:
+      '新建或修改资产，和资产页点保存同一条接口。禁止直接改数据库。'
+      + '智能体只换技能清单时传 id + skills，人设和其它字段保留；也可传 soul、prompts、runtime_agent、content、display_name、description、metadata。'
+      + '不传 id、给出 name 和 type 就是新建。指纹和时间戳由接口更新。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '已有资源 id。不传就是新建' },
+        name: { type: 'string', description: '资源 name。新建必填；没有 id 时也可用来定位' },
+        type: { type: 'string', description: 'assistant | skill | prompt', enum: ['assistant', 'skill', 'prompt'] },
+        display_name: { type: 'string', description: '显示名' },
+        description: { type: 'string', description: '卡片说明' },
+        content: { type: 'string', description: '完整正文。智能体改技能时不必传' },
+        skills: { type: 'array', items: { type: 'string' }, description: '智能体技能清单，给出就替换，其它字段保留' },
+        prompts: { type: 'array', items: { type: 'string' }, description: '智能体提示词清单' },
+        soul: { type: 'string', description: '智能体人设' },
+        runtime_agent: { type: 'string', description: '智能体运行时，如 claude-code、codex' },
+        metadata: { type: 'object', description: '完整 metadata，和资产页保存一样整份写入' },
+      },
+    },
+  },
+  {
+    name: 'tb_delete_resource',
+    description: '删除一条资产，和资产页删除同一条接口。技能还有投射时先撤下，或 force=true 连投射一起卸。内置智能体删不掉。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        type: { type: 'string', enum: ['assistant', 'skill', 'prompt'] },
+        force: { type: 'boolean', description: '技能仍有投射时，先撤再删权威目录' },
+      },
+    },
+  },
+  {
+    name: 'tb_project_resource',
+    description:
+      '投射到应用，和资产页启用同一条接口。高风险技能返回 security-risk，向用户说明后他确认了再 allowRisky=true。'
+      + '目标已有同名目录时看 conflicts，用户确认后再 force=true。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        type: { type: 'string', enum: ['assistant', 'skill', 'prompt'] },
+        agentIds: { type: 'array', items: { type: 'string' }, description: '应用 id，如 codex、claude-code、cursor' },
+        force: { type: 'boolean' },
+        allowRisky: { type: 'boolean', description: '用户已经确认高风险技能仍要投射' },
+      },
+    },
+  },
+  {
+    name: 'tb_unproject_resource',
+    description: '撤下投射，资产还在。和资产页取消投射同一条接口。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        type: { type: 'string', enum: ['assistant', 'skill', 'prompt'] },
+        agentId: { type: 'string' },
+        agentIds: { type: 'array', items: { type: 'string' } },
+        projectionId: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'tb_verify_projections',
+    description: '检查一条资产的投射是否还在。repair=true 时修好能修的软链。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        name: { type: 'string' },
+        type: { type: 'string', enum: ['assistant', 'skill', 'prompt'] },
+        repair: { type: 'boolean' },
+      },
+    },
+  },
+  {
+    name: 'tb_sync_skills',
+    description: '重新扫描本机技能目录并纳管，和新技能进资产库的那次扫描同一条接口。不改数据库文件。',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'tb_import_resource',
+    description: '从本机路径导入技能或文本，和资产页导入同一条接口。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sourcePath: { type: 'string', description: '文件或技能目录的本机路径' },
+        type: { type: 'string', enum: ['skill', 'prompt', 'assistant'] },
+      },
+      required: ['sourcePath'],
+    },
+  },
+  {
+    name: 'tb_install_resource',
+    description: '安装技能，和资产页安装同一条接口。source 可以是 owner/repo、GitHub 地址或免费目录名。付费社区条目不要在这里装。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        source: { type: 'string' },
+        catalogId: { type: 'string' },
+        force: { type: 'boolean' },
+      },
+    },
+  },
+];
+
+/** MCP 工具名 → 智能管家接口操作。和 tb-guardian.js 的操作是同一批。 */
+const GUARDIAN_TOOL_OPS = {
+  tb_save_resource: 'save',
+  tb_delete_resource: 'delete',
+  tb_project_resource: 'project',
+  tb_unproject_resource: 'unproject',
+  tb_verify_projections: 'verify',
+  tb_sync_skills: 'sync',
+  tb_import_resource: 'import',
+  tb_install_resource: 'install',
+};
+
+function isGuardianProcess() {
+  return process.env.TB_GUARDIAN === '1';
+}
+
+function listedTools() {
+  return isGuardianProcess() ? TOOLS.concat(GUARDIAN_TOOLS) : TOOLS;
+}
+
 /** 可注入：单测 mock resource-manager */
 let _resourceManager = null;
 /** 可注入：单测 mock 中转 MCP 列表 */
@@ -452,7 +589,45 @@ function formatResourceDetail(r) {
   }, null, 2);
 }
 
+function formatLibraryRecord(r) {
+  const record = {
+    type: r.type,
+    id: r.id,
+    name: r.name,
+    display_name: r.display_name,
+    description: r.description || '',
+    content: r.content || '',
+    metadata: r.metadata || {},
+    projections: (r.projections || []).map(p => p.agentId || p.agent_id).filter(Boolean),
+    hash: r.hash || null,
+    updated_at: r.updated_at || null,
+  };
+  if (r.type === 'assistant') {
+    try {
+      const cfg = JSON.parse(r.content || '{}');
+      record.soul = cfg.soul || '';
+      record.skills = cfg.skills || [];
+      record.prompts = cfg.prompts || [];
+      record.runtime_agent = cfg.runtime_agent || '';
+    } catch { /* 正文不是 JSON 时原样留在 content */ }
+  }
+  return JSON.stringify(record, null, 2);
+}
+
 async function handleToolCall(name, args = {}) {
+  if (GUARDIAN_TOOL_OPS[name]) {
+    if (!isGuardianProcess()) {
+      return textResult('这个写接口只给智能管家。其它应用请在 Token Bank 里改，不要直接改数据库。', true);
+    }
+    try {
+      const api = require('./guardian/agent-api');
+      const r = await api.handle(GUARDIAN_TOOL_OPS[name], args || {});
+      return textResult(JSON.stringify(r), !r.ok);
+    } catch (e) {
+      return textResult(`接口调用失败: ${e.message}`, true);
+    }
+  }
+
   if (name === 'tb_capabilities') {
     const domainLines = CAPABILITY_DOMAINS.map(
       d => `- ${d.id}: ${d.mcp} → ${d.tools.join(', ')}`,
@@ -525,8 +700,11 @@ async function handleToolCall(name, args = {}) {
       const query = String(args.query || '').trim().toLowerCase();
       let rows = [];
 
-      // 投射门控资源 + 当前应用已中转的 MCP
-      if (type === 'assistant') {
+      // 智能管家看全库，和用户在资产页看到的是同一份；其它应用仍按投射门控
+      const library = isGuardianProcess();
+      if (library && (type === 'assistant' || type === 'skill' || type === 'prompt')) {
+        rows = (rm.listResources({ type }) || []).map((r) => ({ ...r, type }));
+      } else if (type === 'assistant') {
         rows = (rm.listAssistantsForClient(cid) || []).map((r) => ({ ...r, type: 'assistant' }));
       } else if (type === 'skill') {
         rows = (rm.listSkillsForClient(cid) || []).map((r) => ({ ...r, type: 'skill' }));
@@ -536,6 +714,10 @@ async function handleToolCall(name, args = {}) {
         rows = mcpResourceRows();
       } else if (type === 'api' || type === 'cli') {
         rows = plainToolRows(type);
+      } else if (library) {
+        const managed = (rm.listResources({}) || [])
+          .filter((r) => r.type === 'skill' || r.type === 'assistant' || r.type === 'prompt');
+        rows = [...managed, ...mcpResourceRows(), ...plainToolRows()];
       } else {
         const skills = (rm.listSkillsForClient(cid) || []).map((r) => ({ ...r, type: 'skill' }));
         const prompts = (rm.listPromptsForClient(cid) || []).map((r) => ({ ...r, type: 'prompt' }));
@@ -561,16 +743,18 @@ async function handleToolCall(name, args = {}) {
           return textResult(`（当前应用没有已投射的${label}。请用户到 Token Bank「资产 → 工具」把它投射到此应用。）`);
         }
         const label = type === 'assistant' ? '智能体' : (type !== 'all' ? type : '资源');
-        return textResult(
-          `（当前 Agent 暂无已投射的${label}；请先在 Token Bank 投射/启用到本 Agent，或用 tb_list_catalog 查看社区目录）`,
-        );
+        return textResult(library
+          ? `（资产库里没有${label}）`
+          : `（当前 Agent 暂无已投射的${label}；请先在 Token Bank 投射/启用到本 Agent，或用 tb_list_catalog 查看社区目录）`);
       }
       const counts = { skill: 0, assistant: 0, prompt: 0, mcp: 0, api: 0, cli: 0 };
       for (const r of rows) {
         if (counts[r.type] != null) counts[r.type] += 1;
       }
       const summary = type === 'assistant'
-        ? `可点智能体 ${rows.length} 个（已投射给当前 Agent）`
+        ? (library
+          ? `资产库智能体 ${rows.length} 个（和资产页同一份）`
+          : `可点智能体 ${rows.length} 个（已投射给当前 Agent）`)
         : type === 'mcp'
           ? `已中转 MCP ${rows.length} 个（当前 Agent 可用；调用用 tb_call_mcp）`
           : type === 'api'
@@ -611,6 +795,14 @@ async function handleToolCall(name, args = {}) {
           );
         }
         return textResult(formatResourceDetail(hit));
+      }
+      // 智能管家读资产库原文，和用户打开编辑器是同一份，不看投射
+      if (isGuardianProcess()) {
+        const record = findManagedResource(rm, type || null, ref);
+        if (!record || !['skill', 'assistant', 'prompt'].includes(record.type)) {
+          return textResult(`资产库里没有: ${ref}`, true);
+        }
+        return textResult(formatLibraryRecord(record));
       }
       // 显式点将，或命中 assistant 资源时走投射门控 + 出战全文
       if (type === 'assistant' && typeof rm.resolveAssistantForClient === 'function') {
@@ -748,7 +940,7 @@ function handleMessage(msg) {
   if (method === 'notifications/initialized') return;
 
   if (method === 'tools/list') {
-    send({ jsonrpc: '2.0', id, result: { tools: TOOLS } });
+    send({ jsonrpc: '2.0', id, result: { tools: listedTools() } });
     return;
   }
 
@@ -788,6 +980,8 @@ if (require.main === module) {
 
 module.exports = {
   TOOLS,
+  GUARDIAN_TOOLS,
+  listedTools,
   handleToolCall,
   handleMessage,
   setResourceManager,

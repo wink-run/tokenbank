@@ -35,6 +35,12 @@ test('buildAssistantLaunch for claude-code uses stream-json and append-system-pr
   assert.ok(!launch.claudeExtraArgs.includes('--include-partial-messages'));
 });
 
+test('buildAssistantLaunch can stream partial Claude messages when asked', () => {
+  const launch = buildAssistantLaunch('claude-code', 'hello', '', { includePartial: true });
+  assert.ok(launch.claudeExtraArgs.includes('--include-partial-messages'));
+  assert.ok(launch.claudeExtraArgs.includes('stream-json'));
+});
+
 test('resolveAssistantRuntimeAgent prefers projection over default runtime', () => {
   const { resolveAssistantRuntimeAgent } = require('../resource-assistant');
   const config = parseAssistantConfig(JSON.stringify({ soul: 'x', runtime_agent: 'claude-code' }));
@@ -60,10 +66,10 @@ test('cursor projection uses real Cursor runtime (not Claude fallback)', () => {
     resolveAssistantRuntimeAgent(config, projs, new Set(['cursor', 'claude-code'])),
     'cursor',
   );
-  // Cursor CLI 未装时，才回退到其它可用运行时
+  // Cursor CLI 用不了时不换到没投射过的应用上：算跑不起来（网关页会写明原因）
   assert.equal(
     resolveAssistantRuntimeAgent(config, projs, new Set(['codex'])),
-    'codex',
+    null,
   );
   assert.equal(resolveAssistantDisplayRuntime(projs, 'cursor'), 'Cursor');
   const launch = buildAssistantLaunch('cursor', '你是写作教练');
@@ -138,4 +144,16 @@ test('formatAssistantContent migrates system_prompt to soul', () => {
 test('assistant agent id prefix', () => {
   assert.ok(isAssistantAgentId('assistant:res-assistant-x'));
   assert.equal(assistantResourceId('assistant:res-assistant-x'), 'res-assistant-x');
+});
+
+test('runs only on apps it is projected onto: default first, then another projected app, else none', () => {
+  const { resolveAssistantRuntimeAgent, projectedRuntimeIds } = require('../resource-assistant');
+  const proj = [{ agentId: 'claude-code' }, { agentId: 'codex' }];
+  const cfg = { runtime_agent: 'codex' };
+  assert.equal(resolveAssistantRuntimeAgent(cfg, proj, new Set(['claude-code', 'codex'])), 'codex', 'the chosen default');
+  assert.equal(resolveAssistantRuntimeAgent(cfg, proj, new Set(['claude-code', 'cursor'])), 'claude-code', 'default unavailable → other projected app');
+  assert.equal(resolveAssistantRuntimeAgent(cfg, proj, new Set(['cursor'])), null, 'never an app it was not projected onto');
+  assert.deepEqual(projectedRuntimeIds([...proj, { agentId: 'workbuddy' }], new Set(['codex'])), ['codex']);
+  // 只投射到不能跑它的应用（如 WorkBuddy）：仍然借本机一个能用的应用跑
+  assert.equal(resolveAssistantRuntimeAgent({ runtime_agent: 'claude-code' }, [{ agentId: 'workbuddy' }], new Set(['codex'])), 'codex');
 });

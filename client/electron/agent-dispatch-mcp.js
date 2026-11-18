@@ -27,6 +27,7 @@ function currentDispatchContext() {
     parentSessionKey: process.env.TB_PARENT_SESSION_KEY || row.parentSessionKey || '',
     parentSessionInstance: process.env.TB_PARENT_SESSION_INSTANCE || row.parentSessionInstance || '',
     workingDir: process.env.TB_WORKING_DIR || row.workingDir || process.cwd(),
+    agentRouteId: process.env.TB_AGENT_ROUTE || row.agentRouteId || '',
   };
 }
 
@@ -102,7 +103,8 @@ function textResult(text, isError = false) {
 
 async function handleToolCall(name, args = {}) {
   if (name === 'tb_list_agents') {
-    const agents = await dispatchClient.listAgents();
+    const routeId = currentDispatchContext().agentRouteId;
+    const agents = await dispatchClient.listAgents({ route: routeId });
     // 本地智能体优先，其次已雇佣社区，最后本机 CLI。未雇佣的在线目录不在这份列表里。
     const rank = (t) => (t === 'assistant' ? 0 : t === 'community' ? 1 : 2);
     // 内置智能管家只在游乐场里回答 Token Bank 自己的问题，不接派发的业务子任务
@@ -117,7 +119,16 @@ async function handleToolCall(name, args = {}) {
       const runtime = a.runtimeName ? ` @${a.runtimeName}` : '';
       return `- ${a.id}: ${a.name}${ver}${runtime} [${kind}]${caps ? ` (${caps})` : ''}${desc}`;
     });
-    const hint = [
+    // 走智能体路由时，用这条路由的派发规则（用户写的在前，自带的在后）
+    let routeHint = '';
+    if (routeId) {
+      try {
+        const routes = require('./agent-routes');
+        const route = routes.get(routeId);
+        if (route) routeHint = routes.rulesText(route);
+      } catch { /* 读不到就用默认规则 */ }
+    }
+    const hint = routeHint || [
       '【编排规则】',
       '1. 优先匹配「本地智能体」(assistant:*)，用 tb_dispatch_agent 派发；有匹配必须派发，勿自己做。',
       '2. 其次是已雇佣的社区智能体(community:*)。任务在对方设备执行，只拿结果，勿拉取正文。',
@@ -177,6 +188,7 @@ async function handleToolCall(name, args = {}) {
       const status = await dispatchClient.dispatchAndWait(entry.id, prompt, {
         workingDir: ctx.workingDir,
         parentTaskId: ctx.parentTaskId,
+        route: ctx.agentRouteId || undefined,
         parentSessionKey: ctx.parentSessionKey || undefined,
         parentSessionInstanceId: ctx.parentSessionInstance || undefined,
         mode: 'worker',

@@ -25,7 +25,7 @@ import { onMessageCopy } from '../lib/copy-message';
 function isEphemeralSystemEvent(ev) {
   if (!ev) return false;
   const sub = String(ev.system_subtype || '');
-  if (sub === 'process_started' || sub === 'hook_response') return true;
+  if (sub === 'process_started' || sub === 'hook_response' || sub === 'external_queued' || sub === 'external_taken') return true;
   const c = String(ev.content || ev.message || '');
   return /SessionStart|会话上下文已加载|等待模型流式/i.test(c);
 }
@@ -1597,6 +1597,9 @@ export default function ExecutionLog({
   agentNames = {},
   onPreviewImage,
   footer = null,   // 本轮结束后显示在最后（游乐场的「重做 / 改派」）
+  pushedByTask = {},
+  strayPushes = [],   // 它给别的任务推来的（按时间插进这段对话，标上来源）
+  externalAgent = null,   // 和外部智能体说话时：{ name, intervalMs, lastSeenAt }，等它来取时不显示「执行中」   // 外部智能体后来就这个任务推的消息：{ taskId: [{ content, timestamp }] }
 }) {
   const { t } = useLang();
   const endRef = useRef(null);
@@ -1606,9 +1609,28 @@ export default function ExecutionLog({
   /** 合并历史轮次 + 当前轮次；currentStart 之后才是本轮（呼吸光标只挂这里） */
   const { timeline, currentStart } = useMemo(() => {
     const items = [];
-    for (const turn of conversationTurns) {
+    // 所有推送（本段对话里某一轮的、别的任务的）都按推送时间插：放在推送之后开始的第一轮之前
+    const strays = [
+      ...Object.values(pushedByTask || {}).flat().map(m => ({ ...m, own: true })),
+      ...(strayPushes || []),
+    ].sort((a, b) => a.timestamp - b.timestamp);
+    const strayItem = (m) => ({
+      kind: 'assistant',
+      content: m.own ? m.content : `${t('debug.log.pushFrom', { title: m.source || t('debug.log.pushFromOther') })}\n\n${m.content}`,
+      timestamp: m.timestamp,
+    });
+    const turnStart = (tr) => Number(tr?.sentAt || tr?.timestamp || 0);
+    const takeStraysBefore = (limit) => {
+      const out = [];
+      while (strays.length && strays[0].timestamp < limit) out.push(strayItem(strays.shift()));
+      return out;
+    };
+    conversationTurns.forEach((turn, i) => {
       items.push(...buildTurnTimeline(turn, turn.delegations || {}, agentNames, t));
-    }
+      const next = conversationTurns[i + 1];
+      const nextStart = next ? turnStart(next) : Number(task?.created_at || Infinity);
+      items.push(...takeStraysBefore(nextStart || Infinity));
+    });
     const currentStart = items.length;
     const sentAt = task?.created_at || task?.started_at || null;
     items.push(...buildTimeline(userPrompt, steps, delegations, agentNames, userImages, sentAt));
@@ -1627,8 +1649,9 @@ export default function ExecutionLog({
       const withArts = attachTurnArtifacts(items.slice(currentStart), result.artifacts);
       items.splice(currentStart, items.length - currentStart, ...withArts);
     }
+    items.push(...takeStraysBefore(Infinity));
     return { timeline: items, currentStart };
-  }, [conversationTurns, userPrompt, userImages, steps, delegations, agentNames, status, result, task?.completed_at, task?.created_at, task?.started_at, t]);
+  }, [conversationTurns, userPrompt, userImages, steps, delegations, agentNames, status, result, task?.id, task?.completed_at, task?.created_at, task?.started_at, pushedByTask, strayPushes, t]);
 
   // 仅在本轮内找「正在流式」的气泡，避免光标粘在历史回复上
   const lastAssistantIdx = useMemo(() => {
@@ -1659,6 +1682,32 @@ export default function ExecutionLog({
     }
     return true;
   }, [status, userPrompt, userImages, timeline, currentStart]);
+
+  // 外部智能体：还没来取 / 已取走，用它代替「执行中」
+  const externalWait = useMemo(() => {
+    if (status !== 'running') return '';
+    let last = null;
+    for (const s of steps || []) {
+      if (s && (s.system_subtype === 'external_queued' || s.system_subtype === 'external_taken')) last = s;
+    }
+    if (!last && !externalAgent) return '';
+    if (!last) last = { system_subtype: 'external_queued', external: externalAgent };
+    const x = { ...(externalAgent || {}), ...(last.external || {}) };
+    const name = x.name || last.content || '';
+    if (last.system_subtype === 'external_taken') return t('debug.log.extTaken', { name });
+    const parts = [t('debug.log.extQueued', { name })];
+    if (x.intervalMs) {
+      const m = Math.round(x.intervalMs / 60000);
+      parts.push(m >= 1 ? t('debug.log.extEveryMin', { n: m }) : t('debug.log.extEverySec', { n: Math.round(x.intervalMs / 1000) }));
+    }
+    if (x.lastSeenAt) {
+      const ago = Math.max(0, Math.round((Date.now() - x.lastSeenAt) / 60000));
+      parts.push(ago < 1 ? t('debug.log.extLastJust') : t('debug.log.extLastMin', { n: ago }));
+    } else {
+      parts.push(t('debug.log.extNever'));
+    }
+    return parts.join(' · ');
+  }, [status, steps, externalAgent, t]);
 
   usePinBottomScroll(
     endRef,
@@ -1819,9 +1868,9 @@ export default function ExecutionLog({
       {/* 本轮尚无回复/推理气泡：新开一条空回复放呼吸光标，不粘在历史消息上 */}
       {waitingForReply && (
         <div className="flex justify-start">
-          <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-[14px] leading-normal tb-soft-bubble border-blue-200/60 dark:border-blue-800/40 text-zinc-900 dark:text-zinc-100 min-h-[2.25rem] flex items-center gap-2">
+          <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-[13px] leading-normal tb-soft-bubble border-blue-200/60 dark:border-blue-800/40 text-zinc-900 dark:text-zinc-100 min-h-[2.25rem] flex items-center gap-2">
             <span className="inline-block h-2.5 w-14 rounded bg-blue-200 dark:bg-blue-800 animate-pulse shrink-0" />
-            <span className="text-[14px] leading-normal text-blue-600/90 dark:text-blue-300/90 animate-pulse">{t('debug.log.executing')}</span>
+            <span className="text-[13px] leading-normal text-blue-600/90 dark:text-blue-300/90 animate-pulse">{externalWait || t('debug.log.executing')}</span>
             <span className="inline-block animate-pulse text-blue-500 dark:text-blue-400">▊</span>
           </div>
         </div>

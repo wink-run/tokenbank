@@ -1835,6 +1835,26 @@ async def worker_ws(ws: WebSocket):
         # 去重并保持顺序
         worker_circle_ids_list = list(dict.fromkeys(worker_circle_ids_list))
 
+        def _parse_model_circles(raw, names, allowed):
+            if not isinstance(raw, dict):
+                return None
+            ok = set(allowed)
+            out = {}
+            for name, ids in raw.items():
+                if name not in names or not isinstance(ids, list):
+                    continue
+                keep = []
+                for x in ids:
+                    try:
+                        cid = int(x)
+                    except (TypeError, ValueError):
+                        continue
+                    if cid in ok and cid not in keep:
+                        keep.append(cid)
+                if keep:
+                    out[name] = keep
+            return out
+
         ws_ip = client_ip_from_ws(ws)
         client_ip = resolve_client_ip(ws_ip, msg.get("public_ip"))
         if not client_ip and ws_ip:
@@ -1852,6 +1872,10 @@ async def worker_ws(ws: WebSocket):
             caps=[str(c) for c in (msg.get("caps") or []) if c][:16],
             circle_id=worker_circle_ids_list[0] if len(worker_circle_ids_list) == 1 else None,
             circle_ids=worker_circle_ids_list,
+            # 设了圈子时仍对所有人公开的模型（只认本次注册里真有的）
+            public_models=[m for m in dict.fromkeys(str(x).strip() for x in (msg.get("public_models") or [])) if m in models],
+            # 新客户端：每个模型给哪些圈子（只留本人在的圈子、本次真有的模型）
+            model_circles=_parse_model_circles(msg.get("model_circles"), models, worker_circle_ids_list),
             client_ip=client_ip,
         )
         pool.add(worker)

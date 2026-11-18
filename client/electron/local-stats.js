@@ -1703,7 +1703,8 @@ function queryAppStatsInPeriod({ appId, apiKey, dataSource, dataSources, days = 
   };
   const match = _appMatchParts({ appId, apiKey, dataSource, dataSources, includeSessionImport });
   if (!db || !match) return empty;
-  const since = sinceTs != null ? sinceTs : Math.floor(Date.now() / 1000) - days * 86400;
+  // 和盘点总数同一个口径：1 天 = 本地 0 点至今，多天 = 滚动窗口。否则「今天」的应用用量会多出昨天的
+  const since = sinceTs != null ? sinceTs : sinceTsForDays(days);
   const where = `${match.where} AND ts >= @since`;
   const p = { ...match.params, since };
   try {
@@ -1749,14 +1750,19 @@ function queryAppStatsInPeriod({ appId, apiKey, dataSource, dataSources, days = 
 function queryAppStatsToday({ appId, apiKey, dataSource, dataSources, includeSessionImport = true } = {}) {
   const today = queryAppStatsInPeriod({ appId, apiKey, dataSource, dataSources, since: todaySinceTs(), includeSessionImport });
   let lastTs = null;
+  let models = [];
   const match = _appMatchParts({ appId, apiKey, dataSource, dataSources, includeSessionImport });
   if (db && match) {
     try {
       const r = db.prepare(`SELECT MAX(ts) AS lastTs FROM requests WHERE ${match.where}`).get(match.params);
       lastTs = r.lastTs || null;
+      models = db.prepare(`SELECT DISTINCT model FROM requests WHERE ${match.where} AND ts >= @since AND data_source = 'proxy' AND model IS NOT NULL`)
+        .all({ ...match.params, since: todaySinceTs() }).map(x => x.model);
     } catch { /* ignore */ }
   }
-  return { calls: today.calls, tokens: today.tokens, lastTs };
+  // cost / providers / models：应用列表「今天怎样」显示花费；据今天用过的来源和模型判断要不要提示（Key 失效等，
+  // 网关已经换到别的来源时，记录里是最后成功的来源，所以还要按模型对）
+  return { calls: today.calls, tokens: today.tokens, lastTs, cost: today.cost || 0, providers: Object.keys(today.providers || {}), models };
 }
 
 /** 按 data_source 查单个工具的统计（shim 类 app 用 session-claude / session-codex 等）。*/
@@ -1867,6 +1873,50 @@ function setSessionMeta({ agent_id, session_id, favorite, tags, note, archived }
   }
 }
 
+/**
+ * 清掉早于 N 天的用量和任务明细。
+ * 用量：请求记录、技能调用、工具调用。
+ * 任务：已结束任务及其步骤、文件、后来推的消息。进行中的留下。
+ */
+function purgeOlderThan(days) {
+  if (!db) return { ok: false, error: 'db' };
+  const d = Math.max(1, Math.min(3650, parseInt(days, 10) || 0));
+  if (!d) return { ok: false, error: 'days' };
+  const cutoffMs = Date.now() - d * 86400000;
+  const cutoffSec = Math.floor(cutoffMs / 1000);
+  // 技能/工具的时间有的是毫秒、有的是秒，两条都按「早于截止」删，避免误删近的
+  const oldMsOrSec = '(ts >= 1000000000000 AND ts < ?) OR (ts < 1000000000000 AND ts < ?)';
+  const run = db.transaction(() => {
+    const requests = db.prepare('DELETE FROM requests WHERE ts < ?').run(cutoffSec).changes || 0;
+    let skills = 0;
+    let tools = 0;
+    try { skills = db.prepare(`DELETE FROM skill_calls WHERE ${oldMsOrSec}`).run(cutoffMs, cutoffSec).changes || 0; } catch { /* 表还没有 */ }
+    try { tools = db.prepare(`DELETE FROM tool_calls WHERE ${oldMsOrSec}`).run(cutoffMs, cutoffSec).changes || 0; } catch { /* 表还没有 */ }
+    let ids = [];
+    try {
+      ids = db.prepare(
+        "SELECT id FROM agent_tasks WHERE created_at < ? AND status NOT IN ('pending', 'running')",
+      ).all(cutoffMs).map((r) => r.id);
+    } catch { /* 表还没有 */ }
+    let tasks = 0;
+    for (let i = 0; i < ids.length; i += 400) {
+      const chunk = ids.slice(i, i + 400);
+      const ph = chunk.map(() => '?').join(',');
+      try { db.prepare(`DELETE FROM agent_task_steps WHERE task_id IN (${ph})`).run(...chunk); } catch { /* ignore */ }
+      try { db.prepare(`DELETE FROM agent_modified_files WHERE task_id IN (${ph})`).run(...chunk); } catch { /* ignore */ }
+      try { db.prepare(`DELETE FROM agent_task_messages WHERE task_id IN (${ph}) OR root_task_id IN (${ph})`).run(...chunk, ...chunk); } catch { /* 表还没有 */ }
+      tasks += db.prepare(`DELETE FROM agent_tasks WHERE id IN (${ph})`).run(...chunk).changes || 0;
+    }
+    return { requests, skills, tools, tasks, usage: requests + skills + tools };
+  });
+  try {
+    return { ok: true, days: d, ...run() };
+  } catch (e) {
+    console.error('[local-stats] purgeOlderThan failed:', e.message);
+    return { ok: false, error: e.message };
+  }
+}
+
 module.exports = {
   init, record, queryDashboard, queryTodaySummary, queryByApiKey, queryByApp, queryByDataSource,
   queryAppDetail, queryAppStatsInPeriod, queryAppStatsToday, querySessionDetail, querySessionStatsMap,
@@ -1875,7 +1925,7 @@ module.exports = {
   recordSkillCalls, deleteSkillCallsBySourcePath, getSkillLastUsedMap, getSkillCallStatsMap,
   recordToolCalls, deleteToolCallsBySourcePath,
   querySkillUsageStats, queryToolUsageStats, queryMcpUsageStats,
-  todaySinceTs, sinceTsForDays, sinceMsForDays, queryGatewayInputCostRate, queryModelProviderLatency,
+  todaySinceTs, sinceTsForDays, sinceMsForDays, purgeOlderThan, queryGatewayInputCostRate, queryModelProviderLatency,
   queryProviderActivity,
   reassignProviderTier, collectProviderIdVariants,
   getDb: () => db,  // Agent 聚合系统使用

@@ -54,7 +54,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getTaskStatus: (taskId) => ipcRenderer.invoke('agent:getStatus', taskId),
     listActiveTasks: () => ipcRenderer.invoke('agent:listActiveTasks'),
     listRecentTasks: (opts) => ipcRenderer.invoke('agent:listRecentTasks', opts),
+    listTodayTasks: (opts) => ipcRenderer.invoke('agent:listTodayTasks', opts || {}),
     taskStats: () => ipcRenderer.invoke('agent:taskStats'),
+    listBlocked: () => ipcRenderer.invoke('agent:listBlocked'),
+    taskMessages: (taskIds, opts) => ipcRenderer.invoke('agent:taskMessages', taskIds, opts),
+    keyGet: (agentId) => ipcRenderer.invoke('agent:keyGet', agentId),
+    keyRegenerate: (agentId) => ipcRenderer.invoke('agent:keyRegenerate', agentId),
+    setAssistantRuntime: (resourceId, runtimeAgentId) => ipcRenderer.invoke('agent:setAssistantRuntime', { resourceId, runtimeAgentId }),
+    routesList: () => ipcRenderer.invoke('agent:routesList'),
+    routesSave: (route) => ipcRenderer.invoke('agent:routesSave', route),
+    routesRemove: (id) => ipcRenderer.invoke('agent:routesRemove', id),
+    harnesses: () => ipcRenderer.invoke('agent:harnesses'),
+    externalList: () => ipcRenderer.invoke('agent:externalList'),
+    externalPair: () => ipcRenderer.invoke('agent:externalPair'),
+    externalSet: (id, action, extra) => ipcRenderer.invoke('agent:externalSet', { id, action, ...(extra && typeof extra === 'object' ? extra : {}) }),
     pickWorkingDir: (opts) => ipcRenderer.invoke('agent:pickWorkingDir', opts),
     pickFiles: (opts) => ipcRenderer.invoke('agent:pickFiles', opts),
     // 兼容旧调用
@@ -89,6 +102,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const handler = (_e, data) => cb(data);
       ipcRenderer.on('agent:task:failed', handler);
       return () => ipcRenderer.removeListener('agent:task:failed', handler);
+    },
+    onTaskMessage: (cb) => {
+      const handler = (_e, data) => cb(data);
+      ipcRenderer.on('agent:task:message', handler);
+      return () => ipcRenderer.removeListener('agent:task:message', handler);
     },
     onCancelled: (cb) => {
       const handler = (_e, data) => cb(data);
@@ -141,6 +159,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     syncCommunityCatalog: () => ipcRenderer.invoke('resource:syncCommunityCatalog'),
     upsertCommunitySkill: (params) => ipcRenderer.invoke('resource:upsertCommunitySkill', params || {}),
     ensureBuiltinAssistants: () => ipcRenderer.invoke('resource:ensureBuiltinAssistants'),
+    skillEnvGet: (params) => ipcRenderer.invoke('resource:skillEnvGet', params || {}),
+    skillEnvSet: (params) => ipcRenderer.invoke('resource:skillEnvSet', params || {}),
+    skillEnvMissing: () => ipcRenderer.invoke('resource:skillEnvMissing'),
+    skillEnvShellHook: () => ipcRenderer.invoke('resource:skillEnvShellHook'),
     saveResource: (data) => ipcRenderer.invoke('resource:saveResource', data || {}),
     pickImportPath: (options) => ipcRenderer.invoke('resource:pickImportPath', options || {}),
     importFromPath: (params) => ipcRenderer.invoke('resource:importFromPath', params || {}),
@@ -200,6 +222,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     preferredTargets: (opts) => ipcRenderer.invoke('guardian:preferredTargets', opts || {}),
     shareCheck: (input) => ipcRenderer.invoke('guardian:shareCheck', input || {}),
     health: () => ipcRenderer.invoke('guardian:health'),
+    providerIssues: () => ipcRenderer.invoke('guardian:providerIssues'),
     dispatchFeedback: (evt) => ipcRenderer.invoke('guardian:dispatchFeedback', evt || {}),
     engineStatus: () => ipcRenderer.invoke('guardian:engineStatus'),
     engineSetRuntime: (id) => ipcRenderer.invoke('guardian:engineSetRuntime', id),
@@ -309,6 +332,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   localStats: {
     query: (days) => ipcRenderer.invoke('localStats:query', days),
+    purgeOlder: (days) => ipcRenderer.invoke('localStats:purgeOlder', days),
     modelLatency: (days) => ipcRenderer.invoke('localStats:modelLatency', days),
     todaySummary: () => ipcRenderer.invoke('localStats:todaySummary'),
     compression: (days) => ipcRenderer.invoke('localStats:compression', days),

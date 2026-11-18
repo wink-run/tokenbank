@@ -23,15 +23,19 @@ export default function GuardianChat() {
   const [messages, setMessages] = useState([]);
   const [runtime, setRuntime] = useState(null);
   const [text, setText] = useState('');
+  const [quote, setQuote] = useState(null);
   const [sending, setSending] = useState(false);
   const endRef = useRef(null);
   const location = useLocation();
 
-  // 从别的页面带着问题过来（比如资产诊断里的「问问智能管家」）：放进输入框，用户自己发
+  // 从别的页面带着问题过来：一般放进输入框由用户自己发；带 autoSend（资产页「看一下」）时直接发出，管家马上处理
+  const pendingAutoSend = useRef('');
+  const sendRef = useRef(null);   // 打开对话后自动发问题用（send 定义在后面）
   useEffect(() => {
     const p = location.state?.prompt;
     if (typeof p === 'string' && p.trim()) {
-      setText(p);
+      if (location.state?.autoSend) pendingAutoSend.current = p.trim();
+      else setText(p);
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -52,18 +56,24 @@ export default function GuardianChat() {
     if (!api?.convoOpen) return;
     api.convoOpen().then((r) => {
       apply(r);
+      if (pendingAutoSend.current) {
+        const v = pendingAutoSend.current;
+        pendingAutoSend.current = '';
+        setTimeout(() => sendRef.current?.(v), 0);
+      }
       try { window.dispatchEvent(new Event('tb-guardian-changed')); } catch { /* ignore */ }
     }).catch(() => {});
   }, [api, apply]);
 
-  // 有回答在路上时轮询；平时慢一点看有没有新推送
+  // 有回答在路上时跟得紧一点，正文才能一段段长出来；平时慢一点看有没有新推送
   const waiting = messages.some(m => m.pending);
   useEffect(() => {
-    const timer = setInterval(refresh, waiting ? 1500 : 15000);
+    const timer = setInterval(refresh, waiting ? 200 : 15000);
     return () => clearInterval(timer);
   }, [refresh, waiting]);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [messages.length, waiting]);
+  const lastLen = messages.length ? String(messages[messages.length - 1]?.text || '').length : 0;
+  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [messages.length, waiting, lastLen]);
 
   if (!api?.convoOpen) return null;
 
@@ -72,14 +82,22 @@ export default function GuardianChat() {
     if (r && r.nav && r.nav.to) navigate(r.nav.to, r.nav.state ? { state: r.nav.state } : undefined);
   };
 
+  const cite = (raw) => {
+    const t = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!t) return;
+    setQuote({ text: t.length > 180 ? `${t.slice(0, 180)}…` : t });
+  };
   const send = async (value) => {
     const v = String(value == null ? text : value).trim();
     if (!v || sending) return;
+    const cited = quote?.text || '';
     setSending(true);
     setText('');
-    setMessages(list => [...list, { id: `local-${Date.now()}`, from: 'user', text: v }]);
-    try { await after(await api.convoSay(v)); } finally { setSending(false); }
+    setQuote(null);
+    setMessages(list => [...list, { id: `local-${Date.now()}`, from: 'user', text: v, ...(cited ? { quote: cited } : {}) }]);
+    try { await after(await api.convoSay(cited ? { text: v, quote: cited } : v)); } finally { setSending(false); }
   };
+  sendRef.current = send;
 
   const pick = async (m, i) => {
     if (sending) return;
@@ -111,7 +129,10 @@ export default function GuardianChat() {
       <div className="flex-1 min-h-0 overflow-y-auto space-y-5 pb-4" role="log" aria-live="polite">
         {messages.map((m, idx) => (m.from === 'user' ? (
           <div key={m.id} className="flex justify-end">
-            <div className="max-w-[78%] rounded-2xl bg-blue-600 text-white px-4 py-2 text-[15px] leading-relaxed whitespace-pre-wrap">{m.text}</div>
+            <div className="max-w-[78%] rounded-2xl bg-blue-600 text-white px-4 py-2 text-[15px] leading-relaxed whitespace-pre-wrap">
+              {m.quote && <p className="mb-1 border-l-2 border-white/60 pl-2 text-xs leading-snug text-white/80">{m.quote}</p>}
+              {m.text}
+            </div>
           </div>
         ) : (
           <div key={m.id} className="flex items-start gap-3">
@@ -119,10 +140,25 @@ export default function GuardianChat() {
               <Spark className="w-3.5 h-3.5" />
             </span>
             <div className="min-w-0 flex-1 space-y-2">
-              {m.pending ? (
-                <p className="text-[15px] leading-relaxed text-zinc-400">{t('guardian.chat.thinking')}</p>
+              {m.pending && m.live !== 'text' ? (
+                <p className="text-[15px] leading-relaxed text-zinc-600 dark:text-zinc-300 whitespace-pre-wrap">{m.text || t('guardian.chat.thinking')}</p>
+              ) : (Array.isArray(m.items) && m.items.length) ? (
+                <div className="space-y-2">
+                  <p className="m-0">{String(m.text || '').split('\n')[0]}</p>
+                  <ul className="m-0 p-0 list-none space-y-2">
+                    {m.items.map((it, j) => (
+                      <li key={j} className="flex items-start gap-2">
+                        <p className="m-0 flex-1 min-w-0 whitespace-pre-wrap">{it}</p>
+                        <button type="button" onClick={() => cite(it)} className="shrink-0 text-xs text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400">{t('guardian.chat.quote')}</button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : (
-                <RichText text={m.text} />
+                <div className="space-y-1">
+                  <RichText text={m.text} />
+                  {m.text && <button type="button" onClick={() => cite(m.text)} className="text-xs text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400">{t('guardian.chat.quote')}</button>}
+                </div>
               )}
               {!m.answered && (m.replies || []).length > 0 && (m === last || idx > lastUserIdx) && (
                 <div className="flex flex-wrap gap-2 pt-0.5">
@@ -141,16 +177,24 @@ export default function GuardianChat() {
       </div>
 
       <form onSubmit={(e) => { e.preventDefault(); send(); }}
-        className="flex items-end gap-2 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200/70 dark:border-zinc-700 pl-4 pr-2 py-2">
-        <label htmlFor="guardian-say" className="sr-only">{t('guardian.chat.placeholder')}</label>
-        <textarea id="guardian-say" rows={1} value={text} onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }}
-          placeholder={t('guardian.chat.placeholder')}
-          className="flex-1 resize-none bg-transparent outline-none text-[15px] leading-relaxed py-1.5 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
-        <button type="submit" disabled={sending || !text.trim()} aria-label={t('guardian.chat.send')}
-          className="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center disabled:opacity-40">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4" aria-hidden><path d="M12 19V5M5 12l7-7 7 7" /></svg>
-        </button>
+        className="rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200/70 dark:border-zinc-700 px-4 py-2">
+        {quote && (
+          <div className="mb-1.5 flex items-start gap-2 border-l-2 border-zinc-300 dark:border-zinc-600 pl-2">
+            <p className="m-0 flex-1 min-w-0 text-xs leading-snug text-zinc-500 line-clamp-2">{quote.text}</p>
+            <button type="button" onClick={() => setQuote(null)} aria-label={t('guardian.chat.clearQuote')} className="shrink-0 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">×</button>
+          </div>
+        )}
+        <div className="flex items-end gap-2">
+          <label htmlFor="guardian-say" className="sr-only">{t('guardian.chat.placeholder')}</label>
+          <textarea id="guardian-say" rows={1} value={text} onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }}
+            placeholder={t('guardian.chat.placeholder')}
+            className="flex-1 resize-none bg-transparent outline-none text-[15px] leading-relaxed py-1.5 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400" />
+          <button type="submit" disabled={sending || !text.trim()} aria-label={t('guardian.chat.send')}
+            className="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center disabled:opacity-40">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4" aria-hidden><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+          </button>
+        </div>
       </form>
     </div>
   );

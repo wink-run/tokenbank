@@ -12,7 +12,6 @@ const FALLBACK_ICON = {
   codex: 'CX',
   cursor: 'CR',
   'kimi-code': 'KM',
-  assistant: 'AG',
 };
 
 const WEB_NARROW_MQ = '(max-width: 767px)';
@@ -65,9 +64,7 @@ function AgentBrandIcon({ agent, isCustom }) {
   // 内置智能管家：和侧边栏 logo 旁的智能管家小绿点一致
   if (agent?.guardian) return <span className="w-2 h-2 rounded-full bg-emerald-500" aria-hidden />;
   const appRt = rentedAppRuntime(agent);
-  if (isCustom && !appRt) {
-    return <span className="text-[9px] font-mono leading-none text-zinc-500">{FALLBACK_ICON.assistant}</span>;
-  }
+  if (isCustom && !appRt) return <InitialAvatar name={agent?.name} />;
   const hay = appRt || `${agent.id || ''} ${agent.name || ''}`;
   // Kimi 用组件渲染（与 @lobehub/icons Kimi.Avatar 同构），避免 img 裂图
   if (/kimi|moonshot/i.test(hay)) {
@@ -84,7 +81,22 @@ function AgentBrandIcon({ agent, isCustom }) {
       />
     );
   }
-  return <span className="text-[9px] font-mono leading-none text-zinc-500">{FALLBACK_ICON[agent.id] || 'AG'}</span>;
+  return FALLBACK_ICON[agent.id]
+    ? <span className="text-[9px] font-mono leading-none text-zinc-500">{FALLBACK_ICON[agent.id]}</span>
+    : <InitialAvatar name={agent?.name} />;
+}
+
+const AVATAR_TONES = ['bg-violet-500', 'bg-sky-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-indigo-500', 'bg-teal-500'];
+/** 智能体首字头像：颜色按名字固定 */
+function InitialAvatar({ name }) {
+  const s = String(name || '?').trim() || '?';
+  let h = 0;
+  for (const ch of s) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return (
+    <span className={`w-4 h-4 rounded-full ${AVATAR_TONES[h % AVATAR_TONES.length]} text-white text-[9px] font-semibold leading-none flex items-center justify-center`} aria-hidden>
+      {[...s][0].toUpperCase()}
+    </span>
+  );
 }
 
 /** 运行中提示：实心绿点（无 ping，避免监控态抢注意力） */
@@ -111,10 +123,16 @@ export default function AgentTabBar({
   installingCursorCli,
   onLoginCursorCli,
   loggingInCursorCli,
+  /** 游乐场「和谁说话」：最上面一项直接和模型说话 { active, onSelect } */
+  modelChat = null,
+  /** 列表底部「去交易里再雇一个」 */
+  onHireMore = null,
 }) {
   const { t } = useLang();
   const narrow = useWebNarrow();
-  const [listCollapsed, setListCollapsed] = useState(false);
+  // 手机上列表盖在对话上面：默认收起，选完一个就收起
+  const [listCollapsed, setListCollapsed] = useState(true);
+  const pick = (fn) => (...args) => { fn?.(...args); if (narrow) setListCollapsed(true); };
   const [width, setWidth] = useState(readSidebarWidth);
   const [dragging, setDragging] = useState(false);
   const widthRef = useRef(width);
@@ -186,7 +204,14 @@ export default function AgentTabBar({
   if (!agents?.length) {
     return (
       <div className={shellCls} style={{ width }}>
-        <aside className="w-full border-r border-white/40 dark:border-white/[0.06] bg-white/25 dark:bg-zinc-950/40 backdrop-blur-xl p-3">
+        <aside className="w-full border-r border-white/40 dark:border-white/[0.06] bg-white/25 dark:bg-zinc-950/40 backdrop-blur-xl p-3 space-y-3">
+          {modelChat && (
+            <button type="button" onClick={pick(modelChat.onSelect)} aria-pressed={!!modelChat.active}
+              className={`w-full text-left px-2.5 py-1.5 text-[13px] rounded-lg ${pressCls} ${modelChat.active ? 'tb-soft-bubble font-medium' : 'font-medium hover:bg-black/[0.05] dark:hover:bg-white/[0.06]'}`}>
+              <span className="block truncate">{t('debug.tabs.modelChat')}</span>
+              <span className="block text-[11px] font-normal text-zinc-400 truncate mt-0.5">{t('debug.tabs.modelChatHint')}</span>
+            </button>
+          )}
           <p className="text-[12px] leading-relaxed text-zinc-500 dark:text-zinc-400">
             {t('debug.tabs.noAgents')}
           </p>
@@ -197,8 +222,21 @@ export default function AgentTabBar({
   }
 
   const mainAgent = agents.find(a => a.id === mainAgentId && !a.custom && a.type !== 'assistant' && a.installed !== false);
-  const hubActive = !selectedAgent;
-  const currentName = selectedAgent
+  const hubActive = !selectedAgent && !modelChat?.active;
+  // 分组：通用（应用本身）、投射的智能体、雇来的。组内保持原顺序
+  const isExternal = (a) => a.type === 'external' || String(a.id || '').startsWith('external:');
+  const groupOf = (a) => ((a.type === 'community' || a.community) ? 'hired' : isExternal(a) ? 'external' : (a.custom || a.type === 'assistant') ? 'projected' : 'general');
+  const GROUP_ORDER = { general: 0, projected: 1, external: 2, hired: 3 };
+  // 没装、也没法在这里一键装的应用：收进「未安装」折叠，不占列表
+  const notInstalled = (a) => groupOf(a) === 'general' && a.installed === false && !(a.id === 'cursor' && a.canInstallCli);
+  const hiddenApps = agents.filter(notInstalled);
+  const orderedAgents = agents.filter(a => !notInstalled(a)).map((a, i) => [a, i])
+    .sort((x, y) => (GROUP_ORDER[groupOf(x[0])] - GROUP_ORDER[groupOf(y[0])]) || (x[1] - y[1]))
+    .map(([a]) => a);
+  const groupHead = (g) => (
+    <p key={`h-${g}`} className="px-2.5 pt-2.5 pb-1 text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">{t(`debug.tabs.group.${g}`)}</p>
+  );
+  const currentName = modelChat?.active ? t('debug.tabs.modelChat') : selectedAgent
     ? (selectedAgent.guardian ? t('debug.tabs.guardian') : selectedAgent.name)
     : t('debug.tabs.hub');
 
@@ -239,10 +277,27 @@ export default function AgentTabBar({
         ? 'absolute left-0 right-0 top-full z-20 max-h-[min(22rem,calc(100dvh-14rem))] overflow-y-auto overscroll-contain px-2 py-2 space-y-0.5 rounded-b-2xl border border-zinc-200/90 bg-white shadow-[0_16px_40px_rgb(15_23_42/0.14)] dark:border-zinc-700 dark:bg-zinc-950'
         : 'flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 tb-scroll-layer'
       }>
+        {modelChat && (
+          <>
+            <p className="px-2.5 pt-1 pb-1 text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">{t('debug.tabs.group.model')}</p>
+            <button
+              type="button"
+              onClick={pick(modelChat.onSelect)}
+              aria-pressed={!!modelChat.active}
+              className={`w-full text-left px-2.5 py-1.5 text-[13px] rounded-lg ${pressCls} ${modelChat.active
+                ? 'tb-soft-bubble text-zinc-900 dark:text-zinc-100 font-medium'
+                : 'text-zinc-800 dark:text-zinc-200 font-medium hover:bg-black/[0.05] dark:hover:bg-white/[0.06]'}`}
+            >
+              <span className="block truncate">{t('debug.tabs.modelChat')}</span>
+              <span className="block text-[11px] font-normal text-zinc-400 dark:text-zinc-500 truncate mt-0.5">{t('debug.tabs.modelChatHint')}</span>
+            </button>
+            <div className="mx-1.5 my-2 border-t border-zinc-200/90 dark:border-zinc-800" />
+          </>
+        )}
         {/* Hub：选中与列表项同一玻璃高亮，避免实心蓝跳出体系 */}
         <button
           type="button"
-          onClick={() => onSelect(null)}
+          onClick={pick(() => onSelect(null))}
           className={`
             w-full flex items-center gap-1.5 text-left px-2.5 py-1.5 text-[13px] rounded-lg ${pressCls}
             ${hubActive
@@ -263,8 +318,10 @@ export default function AgentTabBar({
         {/* 分隔用留白+细线，弱化硬分割 */}
         <div className="mx-1.5 my-2.5 border-t border-zinc-200/90 dark:border-zinc-800" />
 
-        {agents.map(agent => {
-          const active = selectedAgent?.id === agent.id;
+        {orderedAgents.map((agent, idx) => {
+          const g = groupOf(agent);
+          const head = (idx === 0 || groupOf(orderedAgents[idx - 1]) !== g) ? groupHead(g) : null;
+          const active = !modelChat?.active && selectedAgent?.id === agent.id;
           const isMain = agent.id === mainAgentId && !agent.custom;
           const isCommunity = agent.type === 'community' || !!agent.community;
           const isCustom = !isCommunity && (agent.custom || agent.type === 'assistant');
@@ -290,10 +347,12 @@ export default function AgentTabBar({
                 ? `→ ${agent.runtimeName}`
                 : '';
           return (
-            <div key={agent.id} className={`relative group ${dimmed && !cursorNeedCli && !cursorNeedLogin ? 'opacity-45' : cursorNeedLogin ? 'opacity-70' : ''}`}>
+            <React.Fragment key={agent.id}>
+            {head}
+            <div className={`relative group ${dimmed && !cursorNeedCli && !cursorNeedLogin ? 'opacity-45' : cursorNeedLogin ? 'opacity-70' : ''}`}>
               <button
                 type="button"
-                onClick={() => onSelect(agent)}
+                onClick={pick(() => onSelect(agent))}
                 title={
                   missing
                     ? (cursorNeedCli
@@ -318,7 +377,7 @@ export default function AgentTabBar({
                   }
                 `}
               >
-                <span className={`relative shrink-0 flex items-center justify-center w-3.5 h-3.5 ${missing || cursorNeedLogin ? 'grayscale' : ''}`}>
+                <span className={`relative shrink-0 flex items-center justify-center w-4 h-4 ${missing || cursorNeedLogin ? 'grayscale' : ''}`}>
                   <AgentBrandIcon agent={agent} isCustom={isCustom || isCommunity} />
                 </span>
                 <span className="min-w-0 flex-1 text-left">
@@ -361,8 +420,7 @@ export default function AgentTabBar({
                     e.stopPropagation();
                     onInstallCursorCli();
                   }}
-                  className={`mt-1 w-full text-[10px] py-1 rounded-md font-medium ${pressCls}
-                    bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60`}
+                  className={`ml-7 -mt-0.5 mb-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-60 ${pressCls}`}
                 >
                   {installing ? t('debug.tabs.installingCli') : t('debug.tabs.installCli')}
                 </button>
@@ -376,8 +434,7 @@ export default function AgentTabBar({
                     e.stopPropagation();
                     onLoginCursorCli();
                   }}
-                  className={`mt-1 w-full text-[10px] py-1 rounded-md font-medium ${pressCls}
-                    bg-amber-500 hover:bg-amber-400 text-white disabled:opacity-60`}
+                  className={`ml-7 -mt-0.5 mb-1 text-[11px] text-amber-600 dark:text-amber-400 hover:underline disabled:opacity-60 ${pressCls}`}
                 >
                   {loggingIn ? t('debug.tabs.loggingInCli') : t('debug.tabs.loginCli')}
                 </button>
@@ -399,8 +456,31 @@ export default function AgentTabBar({
                 </button>
               )}
             </div>
+            </React.Fragment>
           );
         })}
+        {hiddenApps.length > 0 && (
+          <details className="group/ni pt-1">
+            <summary className="list-none cursor-pointer select-none px-2.5 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
+              <span className="inline-block transition-transform group-open/ni:rotate-90 mr-1" aria-hidden>›</span>
+              {t('debug.tabs.notInstalledFold', { n: hiddenApps.length })}
+            </summary>
+            {hiddenApps.map(agent => (
+              <button key={agent.id} type="button" onClick={pick(() => onSelect(agent))}
+                title={t('debug.tabs.notInstalledHint', { name: agent.name })}
+                className={`w-full flex items-center gap-1.5 px-2.5 py-1 text-[12px] rounded-lg opacity-60 grayscale text-zinc-500 hover:bg-black/[0.05] dark:hover:bg-white/[0.06] ${pressCls}`}>
+                <span className="shrink-0 flex items-center justify-center w-3.5 h-3.5"><AgentBrandIcon agent={agent} isCustom={false} /></span>
+                <span className="truncate">{agent.name}</span>
+              </button>
+            ))}
+          </details>
+        )}
+        {onHireMore && (
+          <button type="button" onClick={onHireMore}
+            className="w-full text-left px-2.5 pt-3 pb-1 text-[12px] text-blue-600 dark:text-blue-400 hover:underline">
+            {t('debug.tabs.hireMore')}
+          </button>
+        )}
         {narrow && mainAgent && selectedAgent && (
           <p className="px-2.5 pt-2 pb-1 text-[11px] text-zinc-500 dark:text-zinc-400 leading-snug">
             {t('debug.tabs.mainFooter', { name: mainAgent.name })}

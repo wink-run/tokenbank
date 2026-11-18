@@ -153,6 +153,59 @@ function registerResourceHandlers() {
     console.warn('[IPC] ensureBuiltinAssistants on register:', e.message);
   }
 
+  // 技能要用的 Key：看哪些要配、配过没有（值只回打码的）；设值；以及列表用的「哪些技能缺配置」
+  ipcMain.handle('resource:skillEnvGet', async (_event, { resourceId } = {}) => {
+    try {
+      resourceManager.init();
+      const resource = resourceManager.getResource(resourceId);
+      if (!resource) return { success: false, error: '没有这个技能' };
+      const { resolveAuthorityDir } = require('./resource-canonical');
+      const dir = resolveAuthorityDir(resource);
+      try { require('./skill-env').ensureDotenv(resource, dir); } catch { /* 补写失败不影响查看 */ }
+      const info = require('./skill-env').describe(resource, dir);
+      return { success: true, ...info, shellFile: require('./skill-env').shellFile() };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  ipcMain.handle('resource:skillEnvSet', async (_event, { resourceId, name, value } = {}) => {
+    try {
+      resourceManager.init();
+      const resource = resourceManager.getResource(resourceId);
+      if (!resource) return { success: false, error: '没有这个技能' };
+      const { resolveAuthorityDir } = require('./resource-canonical');
+      const dotenv = require('./skill-env').setValue(resource, name, value, resolveAuthorityDir(resource));
+      return { success: true, dotenv };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  // 用户点了才做：在 shell 配置（.zshrc / .bashrc …）末尾加一行 source ~/.tokenbank/skill-env.sh
+  ipcMain.handle('resource:skillEnvShellHook', async () => {
+    try {
+      return { success: true, files: require('./skill-env').installShellHook() };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+  ipcMain.handle('resource:skillEnvMissing', async () => {
+    try {
+      resourceManager.init();
+      const env = require('./skill-env');
+      const out = {};
+      for (const r of resourceManager.listResources({ type: 'skill' }) || []) {
+        // 列表只看 SKILL.md 头部声明的必填项，不扫目录，够快
+        const declared = env.declaredEnv(r.content);
+        if (!declared.length) continue;
+        const missing = env.describe({ ...r, content: r.content }, null).missing;
+        if (missing.length) out[r.id] = missing;
+      }
+      return { success: true, missing: out };
+    } catch (error) {
+      return { success: false, error: error.message, missing: {} };
+    }
+  });
+
   ipcMain.handle('resource:ensureBuiltinAssistants', async () => {
     try {
       resourceManager.init();

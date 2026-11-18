@@ -61,6 +61,21 @@ let _onTasks = null;
 let _onAuthRejected = null;
 let _authCloseHandled = false;
 
+/** 云端任务里能认出雇佣者的名字。编号不够，通知里要写这个人是谁。 */
+function hirerName(msg) {
+  const keys = ['consumer_nickname', 'consumer_name', 'user_nickname', 'nickname', 'user_name', 'author', 'from_name', 'sender_name'];
+  for (const key of keys) {
+    const value = String(msg?.[key] || '').trim();
+    if (value) return value;
+  }
+  const user = msg?.user || msg?.consumer || msg?.sender;
+  if (user && typeof user === 'object') {
+    const value = String(user.nickname || user.name || user.email || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
 /** 出租任务在贡献页上显示的名字：本机应用用 CLI 名，智能体用资源名。 */
 function contributeTaskName(assistantId) {
   const runtime = contributedAppRuntime(assistantId);
@@ -999,25 +1014,26 @@ async function handleAgentTask(msg, cfg) {
   }
   // 按调用方，再按会话隔离。同一用户的两段对话不共用目录，成品和看图缓存都不会串。
   const consumerKey = resolveConsumerKey(msg);
+  // 先定下这一单的目录，审查才能判断命令碰的是不是这个目录
+  const sessionDirKey = resolveSessionDirKey(msg);
+  const sessionKey = contributeSessionKey(assistantId, consumerKey, sessionDirKey);
+  const workingDir = ensureContributeWorkspace(assistantId, consumerKey, sessionDirKey);
   // 智能管家：别人下发的任务先过安全审查，危险的不执行（规则见 guardian/hire-guard.js）
   const hireGuard = require('./guardian/hire-guard');
   let guardVerdict;
   try {
-    guardVerdict = hireGuard.screenTask({ prompt, files: msg.files, consumer: consumerKey });
+    guardVerdict = hireGuard.screenTask({ prompt, files: msg.files, consumer: consumerKey, workingDir, name: hirerName(msg), agent: contributeTaskName(assistantId), taskId });
   } catch (e) {
     guardVerdict = { ok: false, message: hireGuard.REJECT_MESSAGE, hits: [{ id: 'error', label: e.message }] };   // 审查出错一律拦截
   }
   // 规则没拦的：再过扫描工具和模型判断（智能兜底）。这两层只会加拦，自己出错不影响任务
-  try { guardVerdict = await hireGuard.reviewTask({ prompt, files: msg.files, consumer: consumerKey }, guardVerdict); } catch { /* 按规则的结论走 */ }
+  try { guardVerdict = await hireGuard.reviewTask({ prompt, files: msg.files, consumer: consumerKey, name: hirerName(msg), agent: contributeTaskName(assistantId), taskId }, guardVerdict); } catch { /* 按规则的结论走 */ }
   if (!guardVerdict.ok) {
     log(`[agent] agent_task ${taskId} blocked by guardian: ${(guardVerdict.hits || []).map((h) => h.id).join(',')}`);
     noteRoute(false, 'blocked by owner security policy');
     send({ type: 'agent_task_result', task_id: taskId, status: 'rejected', error: guardVerdict.message });
     return;
   }
-  const sessionDirKey = resolveSessionDirKey(msg);
-  const sessionKey = contributeSessionKey(assistantId, consumerKey, sessionDirKey);
-  const workingDir = ensureContributeWorkspace(assistantId, consumerKey, sessionDirKey);
   // 开工前的文件清单。这轮新增或改过的文件都交付，不依赖正文是否写对了文件名
   const beforeWorkspace = snapshotWorkspace(workingDir);
   log(`[agent] agent_task → ${taskId} assistant=${assistantId} consumer=${consumerKey} cwd=${workingDir}`);
@@ -1114,8 +1130,8 @@ async function handleAgentTask(msg, cfg) {
         out.push({
           type: 'tool',
           name: String(p.name || 'tool').slice(0, 80),
-          detail: String(p.detail || '').slice(0, 4000),
-          result: p.result ? String(p.result).slice(0, 4000) : undefined,
+          detail: hireGuard.redact(String(p.detail || '').slice(0, 4000), { workingDir }),
+          result: p.result ? hireGuard.redact(String(p.result).slice(0, 4000), { workingDir }) : undefined,
           done: !p.open,
           error: !!p.error,
         });
@@ -1123,7 +1139,7 @@ async function handleAgentTask(msg, cfg) {
       }
       const text = String(p.text || '');
       if (!text.trim()) continue;
-      out.push({ type: p.type, text: text.slice(0, 80_000) });
+      out.push({ type: p.type, text: hireGuard.redact(text.slice(0, 80_000), { workingDir }) });
     }
     return out;
   }
@@ -1137,7 +1153,7 @@ async function handleAgentTask(msg, cfg) {
     send({
       type: 'agent_task_progress',
       task_id: taskId,
-      text: String(textAcc || '').slice(0, 200_000),
+      text: hireGuard.redact(String(textAcc || '').slice(0, 200_000), { workingDir }),
       parts: publicParts(),
       cli_session_id: knownCliSession || undefined,
       ...extra,
@@ -1151,7 +1167,7 @@ async function handleAgentTask(msg, cfg) {
     const st = String(step.stepType || '');
     if (!guardStopped && st === 'tool_call') {
       let hits = null;
-      try { hits = hireGuard.screenStep(step, { consumer: consumerKey, prompt }); } catch (e) { hits = [{ id: 'error', label: e.message }]; }
+      try { hits = hireGuard.screenStep(step, { consumer: consumerKey, prompt, workingDir, name: hirerName(msg), agent: contributeTaskName(assistantId), taskId }); } catch (e) { hits = [{ id: 'error', label: e.message }]; }
       if (hits) {
         guardStopped = hits;
         log(`[agent] agent_task ${taskId} stopped by guardian: ${hits.map((h) => h.id).join(',')}`);
@@ -1316,7 +1332,7 @@ async function handleAgentTask(msg, cfg) {
       task_id: taskId,
       status: 'failed',
       error: e.message,
-      output: String(textAcc || '').slice(0, 200_000),
+      output: hireGuard.redact(String(textAcc || '').slice(0, 200_000), { workingDir }),
       usage: { duration_ms: Date.now() - started },
     });
   } finally {
@@ -1362,6 +1378,19 @@ function connect(cfg) {
       regMsg.circle_ids = liveCfg.contribute_circle_ids;
     } else if (liveCfg.contribute_circle_id) {
       regMsg.circle_ids = [liveCfg.contribute_circle_id];
+    }
+    // 设了圈子时，仍对所有人公开的模型（一部分给圈子、一部分公开）
+    if (regMsg.circle_ids && Array.isArray(liveCfg.contribute_public_models)) {
+      const names = new Set(models.map((m) => (typeof m === 'string' ? m : m?.name)).filter(Boolean));
+      regMsg.public_models = liveCfg.contribute_public_models.filter((n) => names.has(n));
+    }
+    // 每个模型给哪些圈子（新服务端按这个；旧服务端只认上面两项）
+    if (regMsg.circle_ids && liveCfg.contribute_model_circles && typeof liveCfg.contribute_model_circles === 'object') {
+      const names = new Set(models.map((m) => (typeof m === 'string' ? m : m?.name)).filter(Boolean));
+      regMsg.model_circles = {};
+      for (const [n, ids] of Object.entries(liveCfg.contribute_model_circles)) {
+        if (names.has(n) && Array.isArray(ids) && ids.length) regMsg.model_circles[n] = ids;
+      }
     }
     // 先用缓存 IP 立即注册，不等待公网探测（最多 16s）阻塞连接
     const cachedIp = (_cachedPublicIp && Date.now() - _cachedPublicIpAt < PUBLIC_IP_TTL_MS)

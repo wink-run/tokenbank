@@ -442,6 +442,25 @@ function createAppRecord(data = {}) {
 
 // ── syncGateway ───────────────────────────────────────────────────────────────
 
+/** 智能体接口的本机钥匙：和桌面版一样，缺了就生成一次存进本机配置 */
+function applyAgentApiKey(lc) {
+  try {
+    if (!_gateway || typeof _gateway.setAgentApiKey !== 'function') return '';
+    let key = String(lc?.agent_api_key || '').trim();
+    if (!key) {
+      const cur = readLocalConfig() || {};
+      key = String(cur.agent_api_key || '').trim();
+      if (!key) {
+        key = 'sk-local-' + require('crypto').randomBytes(16).toString('hex');
+        cur.agent_api_key = key;
+        writeLocalConfig(cur);
+      }
+    }
+    _gateway.setAgentApiKey(key);
+    return key;
+  } catch (e) { console.warn('[admin-api] agent api key:', e.message); return ''; }
+}
+
 function syncGateway(lc) {
   if (!_gateway) return;
   const routes = lc.scene_routes || [];
@@ -499,6 +518,7 @@ function syncGateway(lc) {
   }
   _gateway.setAppControls(appControls);
   _gateway.setKeySceneMap(keyScene);
+  applyAgentApiKey(lc);
   // Claude Desktop 透明 mask 名（与 Electron syncGatewayFromConfig 一致）
   try { _gateway.setClaudeModels(configLoader.claudeModels()); } catch {}
 
@@ -837,6 +857,19 @@ async function handleRequest(req, res) {
           daily: [],
           models: [], keys: [], providers: [], agent_sources: [],
         };
+    // 按应用聚合（网关实时 + 会话补录），和桌面版 localStats:query 一样，盘点页的「应用用量」要用
+    try {
+      const apps = (listAppsWithDetected() || []).filter(a => !a.draft && !a._virtual_apikey);
+      data.app_usage = apps.map(app => {
+        const st = localStats.queryAppStatsInPeriod({
+          appId: app.id,
+          apiKey: app.api_key,
+          dataSources: appsUsage.resolveAppDataSources(app),
+          days,
+        });
+        return { id: app.id, name: app.name, icon: app.icon || '🔧', calls: st.calls, tokens: st.tokens, proxyCalls: st.proxyCalls, sessionCalls: st.sessionCalls };
+      }).filter(a => a.calls > 0).sort((a, b) => b.calls - a.calls);
+    } catch { data.app_usage = data.app_usage || []; }
     return json(res, 200, data);
   }
 
@@ -1352,6 +1385,7 @@ async function handleRequest(req, res) {
 function start(port, gatewayInstance, bindHost = '127.0.0.1', opts = {}) {
   _gateway = gatewayInstance;
   _reporterGetStats = opts.reporterGetStats || null;
+  applyAgentApiKey(readLocalConfig() || {});
 
   _server = http.createServer((req, res) => {
     handleRequest(req, res).catch((err) => {

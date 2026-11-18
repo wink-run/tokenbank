@@ -3577,8 +3577,10 @@ function appHintFromAgent(userAgent) {
 function routeLogContext(callerKey, reqPath, body, userAgent) {
   const ctrl = resolveAppControl(callerKey, reqPath, userAgent);
   const text = extractLastUserText(body).replace(/\s+/g, ' ').trim();
+  // 网关 Key（模型和智能体接口通用）调用的，明细里标出来
+  const viaGatewayKey = !ctrl && !!_agentApiKey && callerKey === _agentApiKey;
   return {
-    app_name: (ctrl && ctrl.app_name) || '',
+    app_name: (ctrl && ctrl.app_name) || (viaGatewayKey ? '网关 Key' : ''),
     prompt_preview: text.slice(0, 20),
   };
 }

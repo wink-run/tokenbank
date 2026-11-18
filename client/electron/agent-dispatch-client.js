@@ -64,12 +64,16 @@ async function httpRequest(method, pathWithQuery, body) {
   return data;
 }
 
-async function listAgents() {
+async function listAgents({ route = '' } = {}) {
   if (useHttpDispatch()) {
-    const data = await httpRequest('GET', '/agents');
+    const data = await httpRequest('GET', route ? `/agents?route=${encodeURIComponent(route)}` : '/agents');
     return data.agents || [];
   }
-  return agentExecutor.listAvailableAgents();
+  const agents = await agentExecutor.listAvailableAgents();
+  if (!route) return agents;
+  const routes = require('./agent-routes');
+  const r = routes.get(route);
+  return r ? routes.filterAgents(r, agents) : agents;
 }
 
 async function dispatchAndWait(agentId, prompt, options = {}) {
@@ -79,10 +83,18 @@ async function dispatchAndWait(agentId, prompt, options = {}) {
       prompt,
       workingDir: options.workingDir,
       parentTaskId: options.parentTaskId,
+      route: options.route,
       parentSessionKey: options.parentSessionKey,
       parentSessionInstanceId: options.parentSessionInstanceId,
     });
     return data.status;
+  }
+  if (options.route) {
+    const routes = require('./agent-routes');
+    const r = routes.get(options.route);
+    if (r && !routes.canDispatchTo(r, agentId, await agentExecutor.listAvailableAgents())) {
+      throw new Error(`「${r.name}」的名单里没有 ${agentId}，只能派给 tb_list_agents 列出的智能体`);
+    }
   }
   return agentExecutor.dispatchAndWait(agentId, prompt, options);
 }

@@ -1681,6 +1681,21 @@ class ResourceManager {
     }
   }
 
+  /** 用户选默认在哪个应用上跑：只能选它投射过的 */
+  setAssistantRuntime(resourceId, runtimeAgentId) {
+    const resource = this.getResource(resourceId);
+    if (!resource || resource.type !== 'assistant') throw new Error('没有这个智能体');
+    const allowed = (resource.projections || []).map(p => p?.agentId || p?.agent_id);
+    if (!ASSISTANT_RUNTIME_IDS.has(runtimeAgentId) || !allowed.includes(runtimeAgentId)) {
+      throw new Error('只能选它投射过的应用');
+    }
+    const content = withAssistantRuntimeAgent(resource.content, runtimeAgentId);
+    this._getDb().prepare('UPDATE resources SET content = ?, hash = ?, updated_at = ? WHERE id = ?')
+      .run(content, this._hashContent(content), Date.now(), resourceId);
+    try { require('./agent-executor').invalidateAgentListCache?.(); } catch { /* ignore */ }
+    return this.getResource(resourceId);
+  }
+
   _syncAssistantRuntimeFromProjections(resourceId) {
     const resource = this.getResource(resourceId);
     if (!resource || resource.type !== 'assistant') return null;

@@ -1968,7 +1968,7 @@ function renderToolKindToggle(kind, onChange) {
               <span className="text-[10px] px-1.5 py-px rounded bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300">{t('resources.mcp.builtinDefault')}</span>
               <span className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
                 <span className={`w-1.5 h-1.5 rounded-full ${gatewayInfo?.running ? 'bg-emerald-500' : 'bg-zinc-300'}`} aria-hidden />
-                {gatewayInfo?.running ? t('providers.mcp.gatewayRunning') : t('providers.mcp.gatewayStopped')}
+                {gatewayInfo?.running ? t('resources.mcp.relayRunning') : t('resources.mcp.relayStopped')}
               </span>
             </div>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">{t('resources.mcp.builtinDesc')}</p>

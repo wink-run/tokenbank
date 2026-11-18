@@ -21,7 +21,7 @@ function persistServerUrl(url) {
   return next;
 }
 
-export default function Config() {
+export default function Config({ embedded = false }) {
   const { user, logout } = useAuth();
 
   const [serverUrl, setServerUrl] = useState(
@@ -38,7 +38,7 @@ export default function Config() {
   }
 
   // 设置页：登录与否均可访问
-  return <Settings user={user} onLogout={handleLogout} serverUrl={serverUrl} setServerUrl={setServerUrl} />;
+  return <Settings user={user} onLogout={handleLogout} serverUrl={serverUrl} setServerUrl={setServerUrl} embedded={embedded} />;
 }
 
 // ── Toggle helper ─────────────────────────────────────────────────────────────
@@ -76,7 +76,7 @@ function SelectRow({ label, hint, value, onChange, options }) {
 }
 
 // ── Settings（登录与否均可访问）──────────────────────────────────────────────
-function Settings({ user, onLogout, serverUrl, setServerUrl }) {
+function Settings({ user, onLogout, serverUrl, setServerUrl, embedded = false }) {
   const { theme, setTheme } = useTheme();
   const { lang, setLang, t } = useLang();
   const { currency, usdCnyRate, applySettings } = useCurrency();
@@ -92,6 +92,26 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
   // 导出诊断日志（troubleshooting）
   const [diagBusy, setDiagBusy] = useState(false);
   const [diagMsg, setDiagMsg] = useState('');
+  // 清理早于 N 天的用量和任务明细
+  const [purgeDays, setPurgeDays] = useState('30');
+  const [purgeBusy, setPurgeBusy] = useState(false);
+  const [purgeMsg, setPurgeMsg] = useState('');
+  async function handlePurge() {
+    const days = Math.max(1, Math.min(3650, parseInt(purgeDays, 10) || 0));
+    if (!days || !window.electronAPI?.localStats?.purgeOlder) return;
+    if (!window.confirm(t('settings.purgeConfirm', { days }))) return;
+    setPurgeBusy(true);
+    setPurgeMsg('');
+    try {
+      const r = await window.electronAPI.localStats.purgeOlder(days);
+      if (r?.ok) setPurgeMsg(t('settings.purgeDone', { usage: r.usage || 0, tasks: r.tasks || 0 }));
+      else setPurgeMsg(t('settings.purgeFailed') + (r?.error ? '：' + r.error : ''));
+    } catch (e) {
+      setPurgeMsg(t('settings.purgeFailed') + '：' + (e?.message || e));
+    } finally {
+      setPurgeBusy(false);
+    }
+  }
   async function handleExportDiagnostics() {
     setDiagBusy(true); setDiagMsg('');
     try {
@@ -315,13 +335,17 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
   ];
 
   return (
-    <div className="px-4 py-4 space-y-4 w-full max-w-4xl mx-auto">
+    <div className={embedded ? 'space-y-4 w-full' : 'px-4 py-4 space-y-4 w-full max-w-4xl mx-auto'}>
 
-      {/* Header */}
+      {/* Header：嵌在个人页时用小标题 */}
+      {embedded ? (
+        <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{t('settings.title')}</h2>
+      ) : (
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">{t('settings.title')}</h1>
         <p className="text-sm text-gray-500 mt-0.5">{t('settings.subtitle')}</p>
       </div>
+      )}
 
       {/* Gateway section */}
       <div className="tb-soft-card rounded-2xl overflow-hidden">
@@ -537,6 +561,36 @@ function Settings({ user, onLogout, serverUrl, setServerUrl }) {
           />
         </div>
       </div>
+
+      {/* 历史 Trace：用量和任务明细 */}
+      {window.electronAPI?.localStats?.purgeOlder && (
+        <div className="tb-soft-card rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-white/40 dark:border-white/[0.06]">
+            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{t('settings.purge')}</h2>
+            <p className="text-xs text-gray-500 mt-0.5">{t('settings.purgeHint')}</p>
+          </div>
+          <div className="px-5 py-4 flex flex-wrap items-center gap-3">
+            <input
+              type="number"
+              min="1"
+              max="3650"
+              value={purgeDays}
+              onChange={(e) => setPurgeDays(e.target.value)}
+              className="w-20 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-800 dark:text-zinc-200 text-right font-mono focus:outline-none focus:border-blue-500"
+            />
+            <span className="text-sm text-zinc-500">{t('settings.purgeDays')}</span>
+            <button
+              type="button"
+              onClick={handlePurge}
+              disabled={purgeBusy}
+              className="text-sm px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 dark:bg-zinc-700 dark:hover:bg-zinc-600 disabled:opacity-50 text-white font-medium transition-colors"
+            >
+              {purgeBusy ? t('settings.purgeBusy') : t('settings.purgeBtn')}
+            </button>
+            {purgeMsg && <span className="text-xs text-zinc-500 dark:text-zinc-400">{purgeMsg}</span>}
+          </div>
+        </div>
+      )}
 
       {/* Diagnostics / troubleshooting section */}
       <div className="tb-soft-card rounded-2xl overflow-hidden">

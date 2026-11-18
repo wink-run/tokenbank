@@ -48,7 +48,7 @@ const ORCHESTRATOR_SYSTEM = [
  * 本次启动用的编排说明：固定部分 + 看护根据用户纠正学到的派发偏好 / 汇总要求（只影响下一次任务）。
  * 看护不可用或没有学到东西时与 ORCHESTRATOR_SYSTEM 相同。
  */
-function orchestratorSystem() {
+function orchestratorSystemBase() {
   let extra = [];
   try { extra = require('./guardian/dispatch-learn').orchestratorHints() || []; } catch { /* 看护不可用 */ }
   return extra.length ? `${ORCHESTRATOR_SYSTEM}\n\n${extra.join('\n')}` : ORCHESTRATOR_SYSTEM;
@@ -85,6 +85,7 @@ function writeBridgeActiveContext(ctx = {}) {
     parentSessionInstance: ctx.sessionInstanceId || '',
     workingDir: ctx.workingDir || '',
     mainAgentId: clientId,
+    agentRouteId: ctx.agentRouteId || '',
     at: Date.now(),
   };
   fs.writeFileSync(file, JSON.stringify(cur, null, 2));
@@ -1702,16 +1703,26 @@ class MCPManager {
    * 为编排任务生成 Agent 启动参数
    * @returns {{ extraArgs: string[], promptPrefix?: string, cleanup: Function }}
    */
-  buildOrchestratorLaunch({ agentId, taskId, workingDir, mainAgentId, profileId = DEFAULT_PROFILE_ID, sessionKey, sessionInstanceId }) {
+  buildOrchestratorLaunch({ agentId, taskId, workingDir, mainAgentId, profileId = DEFAULT_PROFILE_ID, sessionKey, sessionInstanceId, agentRouteId = '' }) {
     this.init();
     this._ensureBuiltinBridge();
+    // 智能体路由：把这条路由的派发规则接在编排说明后面；名单由 tb_list_agents 按路由过滤
+    let routeRules = '';
+    if (agentRouteId) {
+      try {
+        const routes = require('./agent-routes');
+        const route = routes.get(agentRouteId);
+        if (route) routeRules = routes.rulesText(route);
+      } catch { /* 路由读不到就按默认编排 */ }
+    }
+    const orchestratorSystem = () => (routeRules ? `${orchestratorSystemBase()}\n\n${routeRules}` : orchestratorSystemBase());
 
     if (!this.supportsOrchestrator(agentId)) {
       throw new Error(`编排模式暂不支持 Agent: ${agentId}`);
     }
 
     // 派发桥和其它内置 MCP 已写在客户端配置里，编排不再另写一份临时 MCP
-    writeBridgeActiveContext({ taskId, workingDir, mainAgentId, sessionKey, sessionInstanceId });
+    writeBridgeActiveContext({ taskId, workingDir, mainAgentId, sessionKey, sessionInstanceId, agentRouteId });
 
     if (agentId === 'claude-code') {
       return {
@@ -1967,7 +1978,7 @@ class MCPManager {
 
 module.exports = new MCPManager();
 module.exports.ORCHESTRATOR_SYSTEM = ORCHESTRATOR_SYSTEM;
-module.exports.orchestratorSystem = orchestratorSystem;
+module.exports.orchestratorSystem = orchestratorSystemBase;
 module.exports.DEFAULT_PROFILE_ID = DEFAULT_PROFILE_ID;
 module.exports.DEVELOPMENT_PROFILE_ID = DEVELOPMENT_PROFILE_ID;
 module.exports.BUILTIN_BRIDGE_ID = BUILTIN_BRIDGE_ID;

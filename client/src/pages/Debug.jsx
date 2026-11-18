@@ -5,7 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { getConfig, getLocalConfig, getGateway, getApps } from '../api/adapter';
 import { loadGatewayAvailableModels, resolveGatewayModelType, resolveLocalGatewayBase } from '../api/gatewayModels';
 import { encodeTierModelRoute, parseRouteBinding, routeSelectValue } from '../lib/route-binding';
-import RouteSelect, { usableSceneRoutes, formatModelDropdownLabel } from '../components/RouteSelect';
+import RouteSelect, { usableSceneRoutes, formatModelDropdownLabel, routeOptionValue } from '../components/RouteSelect';
 import {
   agentSessionKey,
   getStoreSession,
@@ -436,7 +436,7 @@ async function doStreamChat({ baseUrl, token, model, messages, stream, anthropic
     onError(extractStreamError(rawBuf, emptyMsg));
   };
 
-  const useIpc = !!window.electronAPI?.llm;
+  const useIpc = !!window.electronAPI?.llm?.stream;   // Docker 网页版只有 llm.fetch，没有 stream：直接请求网关
   if (useIpc) {
     if (!stream) {
       try {
@@ -785,7 +785,13 @@ function saveMainAgentId(id) {
 }
 
 function loadAgentWorkingDir() {
-  try { return localStorage.getItem(AGENT_WORKING_DIR_KEY) || ''; } catch { return ''; }
+  try {
+    const saved = localStorage.getItem(AGENT_WORKING_DIR_KEY) || '';
+    if (saved) return saved;
+  } catch { /* 读不到就用默认 */ }
+  // Docker / 网页版：第一次用时默认挂载的项目目录，不用每次先选目录才能发
+  try { if (document.documentElement.classList.contains('tb-web')) return '/workspace'; } catch { /* ignore */ }
+  return '';
 }
 
 function saveAgentWorkingDir(dir) {
@@ -850,6 +856,20 @@ function isCommunityPlaygroundAgent(agent) {
     || String(agent.id || '').startsWith('community:');
 }
 
+/** 不在本机跑的智能体（雇来的社区智能体、外部智能体）：不需要本机工作目录 */
+function isRemotePlaygroundAgent(agent) {
+  if (!agent) return false;
+  return isCommunityPlaygroundAgent(agent) || agent.type === 'external' || String(agent.id || '').startsWith('external:');
+}
+
+/** 输入框里的发送快捷键：Mac 写 ⌘+Enter，其它写 Ctrl+Enter，触屏不写 */
+const SEND_KEY = (() => {
+  try {
+    if (window.matchMedia?.('(pointer: coarse)').matches) return '';
+    return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '') ? '⌘+Enter' : 'Ctrl+Enter';
+  } catch { return ''; }
+})();
+
 /** 可在游乐场改路由的应用。Cursor 直连用 CLI 模型，不走网关路由。 */
 function routeAppForAgent(agent, apps) {
   if (!agent || isCommunityPlaygroundAgent(agent)) return null;
@@ -893,6 +913,8 @@ export default function Debug() {
   const [manualBaseUrl,  setManualBaseUrl] = useState('');
   const [token,          setToken]         = useState('');
   const [showToken,      setShowToken]     = useState(false);
+  // 网关地址、API Key、手动输入模型名、流式：平时收起，点「高级」才出来（自定义地址或填过 Key 时一直显示）
+  const [showAdvanced,   setShowAdvanced]  = useState(false);
   const [models,         setModels]        = useState([]);   // {name, type}[]
   const [sceneRoutes,    setSceneRoutes]   = useState([]);   // 本地网关场景路由（对话下拉用）
   const [model,          setModel]         = useState('');
@@ -911,6 +933,27 @@ export default function Debug() {
   // Agent 模式状态
   const [agents, setAgents] = useState(() => getCachedAgentsList() || []);
   const [selectedAgent, setSelectedAgent] = useState(null);
+  // 聚合入口用哪条智能体路由（网关页「路由」里配）；记在本机
+  const [hubRoutes, setHubRoutes] = useState([]);
+  const [hubRouteId, setHubRouteIdRaw] = useState(() => {
+    try { return localStorage.getItem('tb.play.hubRoute') || 'agent-router-default'; } catch { return 'agent-router-default'; }
+  });
+  const setHubRouteId = (id) => {
+    setHubRouteIdRaw(id);
+    try { localStorage.setItem('tb.play.hubRoute', id); } catch { /* 只在本次生效 */ }
+  };
+  useEffect(() => {
+    Promise.resolve(window.electronAPI?.agent?.routesList?.())
+      .then(r => { if (r?.success) setHubRoutes(r.routes || []); })
+      .catch(() => {});
+  }, [mode]);
+  // 智能管家有自己的对话页，不在游乐场里出现
+  const isGuardianEntry = (a) => !!a && (a.guardian || a.id === 'assistant:tb-guardian');
+  const playAgents = useMemo(() => (agents || []).filter(a => a && !isGuardianEntry(a)), [agents]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 之前选中过智能管家：回到聚合入口
+  useEffect(() => {
+    if (isGuardianEntry(selectedAgent)) switchAgent(null);
+  }, [selectedAgent?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // 当前 Agent 的模型：网关路由，或智能体正文里写死的模型
   const [agentHostedApps, setAgentHostedApps] = useState([]);
   const [agentSceneRoutes, setAgentSceneRoutes] = useState([]);
@@ -925,9 +968,51 @@ export default function Debug() {
   const [loggingInCursorCli, setLoggingInCursorCli] = useState(false);
   const [cursorInstallError, setCursorInstallError] = useState('');
   const [agentPrompt, setAgentPrompt] = useState('');
+  // 网关「游乐场-模型」点过来时要选中的模型。列表还在加载时先记下，避免被默认的第一个盖掉
+  const pendingPlayModel = useRef('');
   // 「说一句话就办」把做事的请求交过来：放进输入框，用户确认后发送
   useEffect(() => {
     const p = location.state?.prompt;
+    // 通用智能体「游乐场-模型」：切到模型对话，并选中该行路由里的模型
+    if (location.state?.playground === 'model') {
+      const want = String(location.state.model || '').trim();
+      setMode('llm');
+      if (want) {
+        pendingPlayModel.current = want;
+        setPanel({ imageMode: location.state.modelType === 'image' });
+        if (selectedId !== '__local_gw__') setSelectedId('__local_gw__');
+        else if (models.length && !loadingModels) {
+          setModel(want);
+          pendingPlayModel.current = '';
+        }
+      }
+      navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
+    // 通用智能体「游乐场-智能体」但这个应用本身跑不了任务：只切到智能体模式
+    if (location.state?.playground === 'agent' && !location.state?.agentId) {
+      setMode('agent');
+      navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
+    // 网关页路由「在游乐场试」：切到聚合入口，用这条路由
+    if (location.state?.hubRoute) {
+      setHubRouteId(location.state.hubRoute);
+      switchAgent(null);
+      setMode('agent');
+      navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
+    // 网关页「去游乐场试」只带智能体：切过去就行，不动输入框
+    const onlyAgent = location.state?.agentId && !(typeof p === 'string' && p.trim());
+    if (onlyAgent) {
+      const wantId = location.state.agentId;
+      const hit = (agentsRef.current || []).find(a => a.id === wantId);
+      if (hit) switchAgent(hit); else setStoreSelectedAgentId(wantId);
+      setMode('agent');
+      navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
     if (typeof p === 'string' && p.trim()) {
       // 看护那边「有疑问？」点过来的：切到看护的执行应用，和它对话
       const wantId = location.state?.agentId;
@@ -956,6 +1041,10 @@ export default function Debug() {
   const [mainAgentId, setMainAgentId] = useState(() => loadMainAgentId());
   const [delegations, setDelegations] = useState({});
   const [conversationTurns, setConversationTurns] = useState([]);
+  // 外部智能体就某个任务后来推的消息（它自己的定时任务等），按任务 id 分组
+  const [pushedByTask, setPushedByTask] = useState({});
+  // 和外部智能体的当前对话：它这段时间给别的任务推来的消息（定时任务等）
+  const [strayPushes, setStrayPushes] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [llmHistoryOpen, setLlmHistoryOpen] = useState(false);
   // 底部输入框高度（拖中间框线调整，持久化）
@@ -980,6 +1069,33 @@ export default function Debug() {
   const mainAgent = agents.find(a => a.id === mainAgentId && !a.custom && a.installed !== false)
     || agents.find(a => a.type === 'cli' && a.installed !== false)
     || null;
+  const pushTaskIdsKey = [...(conversationTurns || []).map(tr => tr?.taskId), currentTask?.id].filter(Boolean).join(',');
+  const pushAgentId = (selectedAgent?.type === 'external' || String(selectedAgent?.id || '').startsWith('external:')) ? selectedAgent.id : '';
+  // 这段对话从什么时候开始：之后它推来的都显示在这里
+  const pushSince = (() => {
+    const first = (conversationTurns || [])[0];
+    return Number(first?.sentAt || first?.timestamp || currentTask?.created_at || 0) || 0;
+  })();
+  useEffect(() => {
+    const api = window.electronAPI?.agent;
+    if (!api?.taskMessages) return undefined;
+    const ids = pushTaskIdsKey ? pushTaskIdsKey.split(',') : [];
+    const load = () => {
+      if (!ids.length) { setPushedByTask({}); setStrayPushes([]); return; }
+      const opts = pushAgentId && pushSince ? { agentId: pushAgentId, since: pushSince } : {};
+      Promise.resolve(api.taskMessages(ids, opts)).then(r => {
+        if (!r?.success) return;
+        setPushedByTask(r.byTask || {});
+        const own = new Set(ids);
+        setStrayPushes((r.byAgent || []).filter(m => !own.has(m.rootTaskId) && !own.has(m.taskId)));
+      }).catch(() => {});
+    };
+    load();
+    const off = api.onTaskMessage?.((d) => {
+      if (!d || ids.includes(d.rootTaskId) || ids.includes(d.taskId) || (pushAgentId && d.agentId === pushAgentId)) load();
+    });
+    return () => { if (typeof off === 'function') off(); };
+  }, [pushTaskIdsKey, pushAgentId, pushSince]);
   const isHubMode = !selectedAgent;
   const activeAgent = isHubMode ? mainAgent : selectedAgent;
 
@@ -1327,7 +1443,8 @@ export default function Debug() {
 
   // Load Agents when switching to agent mode（缓存为空时补拉）
   useEffect(() => {
-    if (mode === 'agent' && agents.length === 0 && !loadingAgents) {
+    // 左侧「和谁说话」两种模式都显示，所以模型对话时也要有智能体列表
+    if (agents.length === 0 && !loadingAgents) {
       loadAgents();
     }
   }, [mode]);
@@ -2469,7 +2586,8 @@ export default function Debug() {
     const workDir = normalizeWorkingDir(
       getStoreSession(execKey).sessionWorkingDir || agentWorkingDir.trim(),
     );
-    if (!workDir) {
+    // 雇来的社区智能体、外部智能体不在本机执行，本机目录用不上，不拦
+    if (!workDir && !communityAgent && !isRemotePlaygroundAgent(activeAgent)) {
       setDirError(t('debug.agent.needWorkingDir'));
       return;
     }
@@ -2570,6 +2688,8 @@ export default function Debug() {
           mode: execMode,
           mainAgentId: isHubMode ? activeAgent.id : mainAgentId,
           mcpProfile: isHubMode ? MCP_PROFILE_DEVELOPMENT : undefined,
+          // 聚合入口走智能体路由：和外部系统调智能体接口是同一套
+          agentRouteId: isHubMode ? (hubRouteId || 'agent-router-default') : undefined,
           sessionKey: execKey,
           sessionInstanceId: instanceId,
           continueSession,
@@ -2618,7 +2738,7 @@ export default function Debug() {
   const finishedTurn = !executing && !taskCanStop && conversationTurns.length
     ? conversationTurns[conversationTurns.length - 1]
     : null;
-  const reassignTargets = (agents || []).filter((a) => a && a.id !== activeAgent?.id
+  const reassignTargets = playAgents.filter((a) => a && a.id !== activeAgent?.id
     && !(a.type === 'cli' && a.installed === false) && a.type !== 'community');
   function redoLastTurn() {
     if (!finishedTurn?.user) return;
@@ -2824,8 +2944,17 @@ export default function Debug() {
     });
   }, [t]);
 
-  // When selected provider changes
+  // 对话 / 图像各记一个上次选的模型：来回切换时恢复，不跳回列表第一个
+  const imageModeRef = useRef(imageMode);
+  imageModeRef.current = imageMode;
+  const lastModelByMode = useRef({ chat: '', image: '' });
   useEffect(() => {
+    if (model) lastModelByMode.current[imageModeRef.current ? 'image' : 'chat'] = model;
+  }, [model]);
+
+  // When selected provider changes（切对话 / 图像不重拉列表，由下面按类型换模型）
+  useEffect(() => {
+    const imageMode = imageModeRef.current;
     const opt = provOpts.find(o => o.id === selectedId) || LOCAL_GW;
     if (selectedId === '__custom__') {
       setToken(''); setModels([]); setSceneRoutes([]); setModel(''); setManualModel(true); return;
@@ -2865,7 +2994,16 @@ export default function Debug() {
           const preferred = mapped.filter(m => imageMode ? m.type === 'image' : m.type !== 'image');
           // 默认选第一个游乐场能直接调用的模型；都不可用时仍选第一个，由输入区提示引导
           const usable = preferred.filter(m => !m.needsClientAuth);
-          setModel(modelSelectValue(usable[0] || preferred[0] || mapped[0]));
+          const first = usable[0] || preferred[0] || mapped[0];
+          // 网关页点「游乐场-模型」带来的值优先；对得上才用，对不上就回到第一个
+          const want = pendingPlayModel.current;
+          const scenes = Array.isArray(lc?.scene_routes) ? lc.scene_routes : [];
+          const wantOk = !!want && (
+            scenes.some(r => (r.model_key || r.id) === want)
+            || mapped.some(m => modelSelectValue(m) === want || routeOptionValue(m) === want || m.id === want || want === `p2p:${m.id}`)
+          );
+          if (want) pendingPlayModel.current = '';
+          setModel(wantOk ? want : (first ? routeOptionValue(first) : ''));
           setManualModel(mapped.length === 0);
         } catch {
           if (!cancelled) { setModels([]); setManualModel(true); }
@@ -2915,7 +3053,7 @@ export default function Debug() {
       }
     };
     doFetch();
-  }, [selectedId, provOpts, imageMode]);
+  }, [selectedId, provOpts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When imageMode changes, try to switch to right model type
   useEffect(() => {
@@ -2926,8 +3064,14 @@ export default function Debug() {
       usableSceneRoutes(sceneRoutes, models).map(r => r.model_key || r.id).filter(Boolean),
     );
     if (!imageMode && sceneKeys.has(model)) return;
-    if (preferred.length && !preferred.some(m => modelSelectValue(m) === model)) {
-      setModel(modelSelectValue(preferred.find(m => !m.needsClientAuth) || preferred[0]));
+    // 选中值可能是 tier:模型、钉账户的值、裸模型名（降级链头）或社区值，都认
+    const matches = (m) => modelSelectValue(m) === model || routeOptionValue(m) === model || m.id === model
+      || model === `p2p:${m.id}`;
+    if (preferred.length && !preferred.some(matches)) {
+      // 先回到这个模式上次选的那个
+      const prev = lastModelByMode.current[imageMode ? 'image' : 'chat'];
+      const back = prev && preferred.some(m => modelSelectValue(m) === prev || routeOptionValue(m) === prev || m.id === prev || prev === `p2p:${m.id}`);
+      setModel(back ? prev : routeOptionValue(preferred.find(m => !m.needsClientAuth) || preferred[0]));
     }
   }, [imageMode, models, model, sceneRoutes]);
 
@@ -3050,7 +3194,7 @@ export default function Debug() {
   const anthropic     = isAnthropicUrl(effectiveBase);
   const filteredModels = models.filter(m => imageMode ? m.type === 'image' : m.type !== 'image');
   // 本地网关下无可直接调用的模型（列表为空，或选中的是需客户端凭证的源且未填 Key）→ 输入区给出引导
-  const selectedModelEntry = models.find(m => modelSelectValue(m) === model);
+  const selectedModelEntry = models.find(m => modelSelectValue(m) === model || routeOptionValue(m) === model || m.id === model);
   const modelBlockReason = (selectedId !== '__local_gw__' || loadingModels || manualModel || token) ? null
     : filteredModels.length === 0 ? 'none'
     : selectedModelEntry?.needsClientAuth ? 'clientAuth'
@@ -3273,20 +3417,10 @@ export default function Debug() {
   // 正文 14px；占位提示小一号，输入后的文字仍是 14px
   const composerField = 'tb-soft-field flex-1 rounded-xl px-3 py-2.5 text-[14px] leading-normal text-zinc-900 dark:text-zinc-100 placeholder:text-[13px] placeholder-zinc-400 overflow-y-auto disabled:opacity-50';
 
-  const modeSwitcher = (
-    <div className={segTrack}>
-      <button type="button" onClick={() => setMode('llm')} className={segItem(mode === 'llm')}>
-        {t('debug.modeLlm')}
-      </button>
-      <button type="button" onClick={() => setMode('agent')} className={segItem(mode === 'agent')}>
-        {t('debug.modeAgent')}
-      </button>
-    </div>
-  );
 
   return (
     /* 顶栏拉通；智能体列表仅在 Agent 模式内容区内 */
-    <div className="relative h-full min-h-0 flex flex-col bg-transparent">
+    <div className="tb-debug-root relative h-full min-h-0 flex flex-col bg-transparent">
       {/* ── 顶栏两层：模式+连接 / 模型（对话选项下沉到输入区上方）── */}
       <div className={`${chromeTop} px-4 pt-3 pb-2 electron-drag ${mode === 'llm' ? 'space-y-2' : ''}`}>
 
@@ -3294,15 +3428,47 @@ export default function Debug() {
         {/* 窄屏按行排开：模式和网关一行，地址一行，密钥一行 */}
         <div className="flex flex-col gap-2 md:flex-row md:gap-2 md:items-center md:flex-wrap md:min-h-[2rem]">
           <div className="electron-no-drag flex items-center gap-2 flex-nowrap min-w-0">
-            {modeSwitcher}
+            {/* 模型对话 / 智能体在左侧「和谁说话」里选，这里不再放切换 */}
+            {mode === 'agent' && (() => {
+              // 智能体模式的页头：在和谁说话、在哪个目录里干活
+              const dir = normalizeWorkingDir(agentWorkingDir);
+              const name = selectedAgent
+                ? (selectedAgent.guardian ? t('debug.tabs.guardian') : selectedAgent.name)
+                : t('debug.tabs.hub');
+              return (
+                <span className="flex items-baseline gap-2 min-w-0 flex-wrap">
+                  <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50 truncate">{name}</span>
+                  {!selectedAgent && hubRoutes.length > 0 && (
+                    <label className="electron-no-drag inline-flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                      {t('debug.header.route')}
+                      <select value={hubRoutes.some(r => r.id === hubRouteId) ? hubRouteId : 'agent-router-default'} onChange={e => setHubRouteId(e.target.value)}
+                        className="min-h-[32px] bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 text-xs text-zinc-900 dark:text-zinc-100">
+                        {hubRoutes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      </select>
+                    </label>
+                  )}
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate" title={dir || undefined}>
+                    {isCommunityPlaygroundAgent(selectedAgent) ? t('debug.header.remote')
+                      : isRemotePlaygroundAgent(selectedAgent) ? t('debug.header.external')
+                      : dir ? t('debug.header.inDir', { dir }) : t('debug.header.noDir')}
+                  </span>
+                </span>
+              );
+            })()}
             {mode === 'llm' && (
               <select value={selectedId} onChange={e => setSelectedId(e.target.value)}
                 className="min-w-0 flex-1 md:flex-none bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-blue-500">
                 {provOpts.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
             )}
+            {mode === 'llm' && selectedId !== '__custom__' && !token && (
+              <button type="button" onClick={() => setShowAdvanced(v => !v)} aria-expanded={showAdvanced}
+                className="shrink-0 min-h-[32px] px-2 text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200">
+                {showAdvanced ? t('debug.advancedHide') : t('debug.advanced')}
+              </button>
+            )}
           </div>
-          {mode === 'llm' && (
+          {mode === 'llm' && (showAdvanced || selectedId === '__custom__' || !!token) && (
             <div className="electron-no-drag flex flex-col gap-2 md:flex-row md:items-center md:flex-wrap md:flex-1 md:min-w-0">
               {selectedId === '__custom__' ? (
                 <input value={manualBaseUrl} onChange={e => setManualBaseUrl(e.target.value)}
@@ -3342,41 +3508,29 @@ export default function Debug() {
                 {t('debug.loadingModels')}
               </span>
             ) : !manualModel && (filteredModels.length > 0 || debugSceneRoutes.length > 0) ? (
-              <select value={model} onChange={e => setModel(e.target.value)}
-                className="min-w-0 w-full md:w-auto bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-blue-500 md:max-w-[280px]">
-                {debugSceneRoutes.length > 0 && (
-                  <optgroup label={t('gateway.app.sceneRoutes')}>
-                    {debugSceneRoutes.map(r => (
-                      <option key={r.id} value={r.model_key || r.id}>
-                        {r.icon && !String(r.icon).startsWith('icon:') ? `${r.icon} ` : ''}{r.scene_name}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                {filteredModels.some(m => m.tier)
-                  ? [{ key: 'local', tiers: ['free', 'paid'] }, { key: 'remote', tiers: ['p2p'] }].map(g => {
-                      const tms = uniqueBySelectValue(filteredModels.filter(m => g.tiers.includes(m.tier)));
-                      return tms.length ? (
-                        <optgroup key={g.key} label={t(`debug.tier.${g.key}`)}>
-                          {tms.map(m => <option key={modelSelectValue(m)} value={modelSelectValue(m)}>{formatModelDropdownLabel(m)}{m.needsClientAuth ? t('debug.needsClientAuthTag') : ''}</option>)}
-                        </optgroup>
-                      ) : null;
-                    })
-                  : uniqueBySelectValue(filteredModels).map(m => <option key={m.name} value={m.name}>{formatModelDropdownLabel(m)}</option>)
-                }
-              </select>
+              // 和网关页同一个选模型下拉框：按厂商分组、每个模型一行、写出来源、可搜索、可指定账户
+              <div className="min-w-0 w-full md:w-[280px]">
+                <RouteSelect
+                  value={model}
+                  onChange={(val) => { if (val) setModel(val); }}
+                  routes={selectedId === '__local_gw__' && !imageMode ? sceneRoutes : []}
+                  availableModels={filteredModels}
+                  showOfficial={false}
+                  t={t}
+                />
+              </div>
             ) : (
               <input value={model} onChange={e => setModel(e.target.value)}
                 placeholder={t('debug.modelPh')}
                 className="bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-3 py-1.5 text-xs font-mono text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:border-blue-500 w-44" />
             )}
-            {!loadingModels && models.length > 0 && (
+            {!loadingModels && models.length > 0 && (showAdvanced || manualModel) && (
               <button onClick={() => setManualModel(v => !v)}
                 className="text-xs text-zinc-400 hover:text-blue-500 transition-colors shrink-0">
                 {manualModel ? t('debug.pickFromList') : t('debug.manualInput')}
               </button>
             )}
-            {!imageMode && (
+            {!imageMode && (showAdvanced || !streamMode) && (
               <label className="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer select-none">
                 <input type="checkbox" checked={streamMode} onChange={e => setPanel({ streamMode: e.target.checked })} className="w-3.5 h-3.5 accent-blue-600" />
                 {t('debug.stream')}
@@ -3404,13 +3558,14 @@ export default function Debug() {
 
       {/* ── 主体：Agent 模式下左侧智能体列表 + 右侧对话 ── */}
       <div className="tb-debug-body flex flex-nowrap flex-1 min-h-0 min-w-0">
-        {mode === 'agent' && (
+        {(
           <AgentTabBar
-            agents={agents}
+            agents={playAgents}
             selectedAgent={selectedAgent}
             mainAgentId={mainAgentId}
-            onSelect={switchAgent}
-            onSetMainAgent={setMainAgent}
+            onSelect={(agent) => { if (mode !== 'agent') setMode('agent'); switchAgent(agent); }}
+            modelChat={{ active: mode === 'llm', onSelect: () => setMode('llm') }}
+            onHireMore={() => navigate('/contribute', { state: { tradeTab: 'hire' } })}
             loading={loadingAgents && agents.length === 0}
             runningKeys={runningAgentKeys}
             onInstallCursorCli={() => installCursorCli({ confirm: true })}
@@ -3430,8 +3585,16 @@ export default function Debug() {
           <>
         {conversation.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center text-zinc-400 dark:text-zinc-500 select-none">
-            <p className="text-[14px] leading-normal font-medium text-zinc-500 dark:text-zinc-400 mb-1">{imageMode ? t('debug.modeImage') : t('debug.modeChat')}</p>
-            <p className="text-[14px] leading-normal max-w-sm">{imageMode ? t('debug.emptyImage') : t('debug.emptyChat')}</p>
+            <p className="text-[14px] leading-normal max-w-sm">{imageMode ? t('debug.emptyImage') : t('debug.emptyChat2')}</p>
+            {/* 点一个示例就填进输入框，改一改再发 */}
+            <div className="mt-3 flex flex-wrap justify-center gap-2 max-w-md select-auto">
+              {(imageMode ? ['debug.sampleImage1', 'debug.sampleImage2'] : ['debug.sampleChat1', 'debug.sampleChat2', 'debug.sampleChat3']).map(k => (
+                <button key={k} type="button" onClick={() => { setPanel({ input: t(k) }); textareaRef.current?.focus(); }}
+                  className="min-h-[36px] px-3 rounded-full border border-zinc-200 dark:border-zinc-700 bg-white/70 dark:bg-zinc-900/50 text-xs text-zinc-600 dark:text-zinc-300 hover:border-blue-300 hover:text-blue-600">
+                  {t(k)}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -3581,6 +3744,7 @@ export default function Debug() {
                   agentNames={agentNameMap}
                   onPreviewImage={setLightbox}
                   footer={turnFooter}
+                  pushedByTask={pushedByTask}
                 />
               )
             ) : selectedAgent?.id === 'cursor' && selectedAgent.installed === false ? (
@@ -3655,6 +3819,11 @@ export default function Debug() {
                 agentName={selectedAgent?.name}
                 onPreviewImage={setLightbox}
                 footer={turnFooter}
+                pushedByTask={pushedByTask}
+                strayPushes={strayPushes}
+                externalAgent={isRemotePlaygroundAgent(selectedAgent) && !isCommunityPlaygroundAgent(selectedAgent)
+                  ? { name: selectedAgent.name, intervalMs: selectedAgent.intervalMs || 0, lastSeenAt: selectedAgent.lastSeenAt || 0 }
+                  : null}
               />
             )}
           </div>
@@ -3687,32 +3856,27 @@ export default function Debug() {
             )}
             {/* 提示词模板 / 历史 */}
             <div className="flex gap-2 items-center flex-wrap">
-              <select
-                value={selectedPromptId}
-                onChange={e => applyPromptSelection(e.target.value)}
-                title={t('debug.promptSelectTitle')}
-                className={`${fieldCls} px-2 py-1 max-w-[280px]`}
-              >
-                {(() => {
-                  // 图像模式只列图片类；对话模式只列文本类（缺省视为文本）
-                  const modePrompts = promptList.filter(p => {
-                    const kind = p?.metadata?.promptKind === 'image' ? 'image' : 'text';
-                    return imageMode ? kind === 'image' : kind === 'text';
-                  });
-                  return (
-                    <>
-                      <option value="">
-                        {modePrompts.length === 0 ? t('debug.promptEmpty') : t('debug.promptNone')}
-                      </option>
-                      {modePrompts.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.display_name || p.name}
-                        </option>
-                      ))}
-                    </>
-                  );
-                })()}
-              </select>
+              {(() => {
+                // 图像模式只列图片类；对话模式只列文本类（缺省视为文本）。一个都没有就不显示这个下拉框
+                const modePrompts = promptList.filter(p => {
+                  const kind = p?.metadata?.promptKind === 'image' ? 'image' : 'text';
+                  return imageMode ? kind === 'image' : kind === 'text';
+                });
+                if (!modePrompts.length) return null;
+                return (
+                  <select
+                    value={selectedPromptId}
+                    onChange={e => applyPromptSelection(e.target.value)}
+                    title={t('debug.promptSelectTitle')}
+                    className={`${fieldCls} px-2 py-1 max-w-[280px]`}
+                  >
+                    <option value="">{t('debug.promptNone')}</option>
+                    {modePrompts.map(p => (
+                      <option key={p.id} value={p.id}>{p.display_name || p.name}</option>
+                    ))}
+                  </select>
+                );
+              })()}
               <div className="ml-auto flex items-center gap-2 shrink-0">
                 <button type="button" onClick={() => setLlmHistoryOpen(true)} className={ghostBtn}>
                   {t('debug.agent.history')}
@@ -3790,7 +3954,7 @@ export default function Debug() {
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 onPaste={handleComposerPaste}
-                placeholder={imageMode ? t('debug.inputImagePh') : t('debug.inputChatPh')}
+                placeholder={(imageMode ? t('debug.inputImagePh2') : t('debug.inputChatPh2')) + (SEND_KEY ? t('debug.sendKeyHint', { key: SEND_KEY }) : '')}
                 rows={2}
                 style={{ resize: 'none', height: composerTextH, minHeight: COMPOSER_H_MIN }}
                 className={composerField}
@@ -3991,9 +4155,10 @@ export default function Debug() {
                 placeholder={
                   !activeAgent
                     ? t('debug.agent.needAgent')
-                    : isHubMode
+                    : (isHubMode
                       ? t('debug.agent.hubPlaceholder', { name: mainAgent?.name || '' })
-                      : t('debug.agent.directPlaceholder', { name: selectedAgent.name })
+                      : t('debug.agent.directPlaceholder', { name: selectedAgent.name }))
+                      + (SEND_KEY ? t('debug.sendKeyHint', { key: SEND_KEY }) : '')
                 }
                 rows={2}
                 style={{ resize: 'none', height: composerTextH, minHeight: COMPOSER_H_MIN }}
