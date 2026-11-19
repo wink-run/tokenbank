@@ -116,6 +116,9 @@ const sid = resumed || crypto.randomUUID();
 // 提示词里带 SLOW 就先等 3 秒，用来看几个子任务是不是并行跑
 if (prompt.includes('SLOW')) { const end = Date.now() + 3000; while (Date.now() < end) {} }
 fs.writeFileSync(path.join(process.cwd(), 'mesh-proof.txt'), 'written on device B for: ' + prompt + '\\n');
+// CODE：改一处代码；REPORT：出一份报告（非代码产出）
+if (prompt.includes('CODE')) fs.writeFileSync(path.join(process.cwd(), 'feature.js'), 'export const feature = ' + JSON.stringify(prompt) + ';\\n');
+if (prompt.includes('REPORT')) fs.writeFileSync(path.join(process.cwd(), 'report.pdf'), '%PDF-1.4 report for ' + prompt + '\\n');
 const files = fs.readdirSync(process.cwd()).filter((f) => !f.startsWith('.')).sort();
 const text = (resumed ? '（续上会话 ' + resumed + '）' : '') + '已在设备 B 的工作区执行「' + prompt + '」。工作目录：' + process.cwd() + '。目录里现在有：' + files.join(', ');
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
@@ -224,7 +227,11 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   const work = path.join(B.home, 'code', 'demo-repo');
   fs.mkdirSync(work, { recursive: true });
   fs.writeFileSync(path.join(work, 'README.md'), '# demo repo on device B\n');
-  execFileSync('git', ['init', '-q'], { cwd: work });
+  const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 'demo', GIT_AUTHOR_EMAIL: 'demo@example.test', GIT_COMMITTER_NAME: 'demo', GIT_COMMITTER_EMAIL: 'demo@example.test' };
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: work });
+  fs.writeFileSync(path.join(work, '.gitignore'), 'mesh-proof.txt\n');
+  execFileSync('git', ['add', '-A'], { cwd: work });
+  execFileSync('git', ['commit', '-qm', 'init'], { cwd: work, env: gitEnv });
   writeJson(path.join(B.meshDir, 'workspaces.json'), { default: 'demo', workspaces: { demo: { path: work } } });
 
   // 不写对端地址：两台设备只靠局域网广播找到对方
@@ -432,6 +439,73 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   await req(gwB, 'PUT', '/v1/devices/self/settings', { headers: authB, body: { max_tasks: 2 } });
   const delWs = await req(gwB, 'DELETE', '/v1/devices/self/workspaces/site', { headers: authB });
   check('删除工作区', delWs.status === 200 && !(delWs.json?.workspaces || []).some((w) => w.name === 'site'));
+
+  // 3e. 产出与协作：子任务独立工作树、改动取回本机分支、产出文件、远程只读查看、提问和续上、会话锁
+  console.log('\n[3e] 产出与协作');
+  const aRepo = path.join(A.home, 'code', 'demo-repo');
+  execFileSync('git', ['clone', '-q', work, aRepo]);
+  const statusBefore = execFileSync('git', ['status', '--porcelain'], { cwd: work, encoding: 'utf8' });
+  const codeTask = await req(gwA, 'POST', '/v1/agent/responses', {
+    headers: auth,
+    body: { input: 'CODE REPORT 加一个功能并出报告', metadata: { harness_id: 'mine:claude-code@studio', parent_id: parentId } },
+  });
+  const cg = codeTask.json?.git || {};
+  check('子任务在 B 上用独立工作树改代码，结果里带改动统计', codeTask.status === 200 && cg.changed && cg.worktree && cg.files_changed >= 1,
+    `分支 ${cg.branch}  ${cg.files_changed} 个文件 +${cg.insertions}/-${cg.deletions}`);
+  check('子任务的分支按父任务起名（tb/collab/<父任务>/…）', /^tb\/collab\/[A-Za-z0-9]+\//.test(cg.branch || ''), cg.branch);
+  check('B 上用户自己的工作区没被动过', execFileSync('git', ['status', '--porcelain'], { cwd: work, encoding: 'utf8' }) === statusBefore
+    && !fs.existsSync(path.join(work, 'feature.js')));
+  const pdf = (codeTask.json?.artifacts || []).find((a) => a.path === 'report.pdf');
+  check('非代码产出（报告）列在清单里，没进提交', !!pdf && pdf.snapshot, JSON.stringify(pdf || codeTask.json?.artifacts));
+  const got = await req(gwA, 'POST', `/v1/agent/responses/${encodeURIComponent(codeTask.json?.id || '')}/collect`, { headers: auth, body: { dirs: [aRepo] } });
+  const branchOk = got.json?.imported && execFileSync('git', ['show', `${got.json.branch}:feature.js`], { cwd: aRepo, encoding: 'utf8' }).includes('CODE');
+  check('在 A 上取回：改动进了本机仓库的 tb/mesh/ 分支，当前分支不变', !!branchOk
+    && execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: aRepo, encoding: 'utf8' }).trim() === 'main', JSON.stringify(got.json));
+  const blob = pdf ? await req(gwA, 'GET', `/v1/agent/responses/${encodeURIComponent(codeTask.json.id)}/artifacts/file?path=report.pdf&sha256=${pdf.sha256}`, { headers: auth }) : {};
+  check('在 A 上按清单拉回报告文件', blob.status === 200 && String(blob.text || '').startsWith('%PDF'), `${String(blob.text || '').trim().slice(0, 40)}`);
+  const stale = pdf ? await req(gwA, 'GET', `/v1/agent/responses/${encodeURIComponent(codeTask.json.id)}/artifacts/file?path=report.pdf&sha256=${'0'.repeat(64)}`, { headers: auth }) : {};
+  check('sha256 对不上时不给错的内容（409 changed）', stale.status === 409);
+  const ls = await req(gwA, 'GET', '/v1/workspaces/demo/fs?device=studio', { headers: auth });
+  const diffView = await req(gwA, 'GET', `/v1/workspaces/demo/diff?device=studio&task_id=${encodeURIComponent(codeTask.json?.id || '')}`, { headers: auth });
+  const logView = await req(gwA, 'GET', '/v1/workspaces/demo/log?device=studio&limit=3', { headers: auth });
+  check('在 A 上只读查看 B 的工作区：目录、这个任务的 diff、提交记录',
+    (ls.json?.entries || []).some((e) => e.name === 'README.md') && /feature\.js/.test(diffView.json?.diff || '') && logView.json?.commits?.[0]?.subject === 'init',
+    `目录 ${(ls.json?.entries || []).map((e) => e.name).join(',')}`);
+  const escape = await req(gwA, 'GET', '/v1/workspaces/demo/file?device=studio&path=../../.ssh/id_rsa', { headers: auth });
+  check('只读查看出不了工作区', escape.status === 400, escape.json?.error?.message);
+
+  // 提问：子任务停下来等回答；回答续上原会话。B 上的执行器收到 tb_ask（这里直接调它的派发服务）
+  const askTask = await req(gwA, 'POST', '/v1/agent/responses', {
+    headers: auth,
+    body: { input: 'SLOW 需要确认方案', background: true, metadata: { harness_id: 'mine:claude-code@studio', parent_id: parentId } },
+  });
+  const askId = askTask.json?.id || '';
+  const dispB = JSON.parse(fs.readFileSync(path.join(B.home, '.tokenbank', 'dispatch-server.json'), 'utf8'));
+  const askRes = await new Promise((resolve) => {
+    const u = new URL(`${dispB.url}/ask`);
+    const r = http.request({ hostname: u.hostname, port: u.port, path: u.pathname, method: 'POST', headers: { authorization: `Bearer ${dispB.token}`, 'content-type': 'application/json' } },
+      (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+    r.end(JSON.stringify({ taskId: askId.split(':').pop(), question: '用方案 A 还是方案 B？' }));
+  });
+  const waiting = await until(async () => {
+    const r = await req(gwA, 'GET', `/v1/agent/responses/${encodeURIComponent(askId)}`, { headers: auth });
+    return r.json?.status === 'requires_input' ? r.json : null;
+  }, 20000);
+  check('子任务提问后停在 requires_input，问题带在结果里', askRes === 200 && waiting?.required_input?.question === '用方案 A 还是方案 B？');
+  const answer = await req(gwA, 'POST', '/v1/agent/responses', {
+    headers: auth,
+    body: { input: 'SLOW 用方案 A', previous_response_id: askId, background: true, metadata: { harness_id: 'mine:claude-code@studio' } },
+  });
+  const dup = await req(gwA, 'POST', '/v1/agent/responses', {
+    headers: auth,
+    body: { input: '再续一次', previous_response_id: askId, metadata: { harness_id: 'mine:claude-code@studio' } },
+  });
+  check('同一个会话同时只能续一轮：第二个 409', answer.status === 200 && dup.status === 409, dup.json?.error?.message);
+  const answered = await until(async () => {
+    const r = await req(gwA, 'GET', `/v1/agent/responses/${encodeURIComponent(answer.json?.id || '')}`, { headers: auth });
+    return r.json?.status === 'completed' ? r.json : null;
+  }, 30000);
+  check('回答后接着原来的会话做完', !!answered && /续上会话/.test(answered.output?.[0]?.content?.[0]?.text || ''));
 
   // 4. 防回环与边界
   console.log('\n[4] 安全边界');

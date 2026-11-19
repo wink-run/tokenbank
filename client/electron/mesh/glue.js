@@ -424,7 +424,11 @@ async function routeAgentCreate({ harnessId, body, req, res, extraMeta }) {
 
   const dev = picked.device;
   // parent_id 是本机的任务号，那台设备不认识：任务树记在本机
+  // 带了 parent_id 的是子任务：那边按子任务处理（会改代码时用独立工作树）
   const { parent_id: _parent, ...restMeta } = meta;
+  if (_parent && restMeta.subtask === undefined) restMeta.subtask = true;
+  // 只给个短引用，那边用来给分支起名（tb/collab/<父任务>/…），不是能查的任务号
+  if (_parent && !restMeta.parent_ref) restMeta.parent_ref = String(_parent).split(':').pop().replace(/[^A-Za-z0-9]/g, '').slice(-10);
   const forward = { ...body, metadata: { ...restMeta, harness_id: target.id } };
   if (prev) forward.previous_response_id = prev.id;
   const headers = { 'content-type': 'application/json' };
@@ -734,6 +738,28 @@ async function removeWorkspace(name) {
   return getSelfSettings();
 }
 
+function meshDirPath() { return meshDir(); }
+
+/** 工作区的配置（worktree_init 等）。没写名字时用默认工作区 */
+function workspaceConfig(name) {
+  try {
+    const ws = workspaces.read(meshDir());
+    const n = String(name || '').trim() || ws.default;
+    return n ? { name: n, ...(ws.workspaces[n] || {}) } : null;
+  } catch { return null; }
+}
+
+function isSelfDevice(name) {
+  if (!node) return true;
+  const self = node.directory.list().find((d) => d.self);
+  return !!self && scheduler.matchesDevice(self, name);
+}
+
+function findDevice(name) {
+  if (!node) return null;
+  return node.directory.list().find((d) => !d.self && scheduler.matchesDevice(d, name)) || null;
+}
+
 function resolveWorkspace(name) {
   return workspaces.resolve(meshDir(), name);
 }
@@ -741,6 +767,7 @@ function resolveWorkspace(name) {
 module.exports = {
   setCloud, cloudStatus: () => ({ connected: !!cloud?.ready, ...cloudState }),
   getSelfSettings, updateSelfSettings, addWorkspace, removeWorkspace, selfLoad,
+  meshDirPath, workspaceConfig, isSelfDevice, findDevice,
   submitAgentTask,
   fetchAgentTask,
   parseMeshTaskId,

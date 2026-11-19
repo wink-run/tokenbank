@@ -19,6 +19,11 @@ const ALLOWED = [
   ['GET', /^\/v1\/agent\/responses\/[^/]+$/],
   ['POST', /^\/v1\/agent\/responses\/[^/]+\/cancel$/],
   ['PUT', /^\/v1\/devices\/self\/name$/],
+  // 产出（§8.4）：代码改动的 bundle、单个产出文件、工作区只读查看。都只读
+  ['GET', /^\/v1\/agent\/responses\/[^/]+\/bundle$/],
+  ['GET', /^\/v1\/agent\/responses\/[^/]+\/artifacts\/file$/],
+  ['GET', /^\/v1\/workspaces$/],
+  ['GET', /^\/v1\/workspaces\/[^/]+\/(fs|file|diff|log)$/],
 ];
 
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'proxy-connection', 'te', 'trailer']);

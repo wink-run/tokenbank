@@ -45,6 +45,15 @@ const ORCHESTRATOR_SYSTEM = [
   formatOrchestratorCapabilityHint(),
 ].join('\n');
 
+/** 大任务的检查点：这几处停下来问用户（tb_ask），回答后接着做 */
+const CHECKPOINT_RULES = [
+  '【检查点 — 这几处先停下来问用户】',
+  '1. 拆解完、派活前：用 tb_ask 列出子任务（谁做、在哪台设备、做什么、哪些可并行），等用户确认。只有一个子任务的简单活跳过这一步。',
+  '2. 把子任务的改动合进用户的分支前：用 tb_ask 说明合哪些、冲突和测试结果，等用户确认。',
+  '3. 遇到下面任一情况也先停：单个子任务改动超过 500 行或 20 个文件；同一个子任务失败重试超过 2 次；要动工作区以外的东西。',
+  '4. 子任务提问（状态「在等回答」）时：你能回答就直接用 previous_task_id 续上；要用户定的，用 tb_ask 转问。',
+].join('\n');
+
 /**
  * 本次启动用的编排说明：固定部分 + 看护根据用户纠正学到的派发偏好 / 汇总要求（只影响下一次任务）。
  * 看护不可用或没有学到东西时与 ORCHESTRATOR_SYSTEM 相同。
@@ -537,7 +546,7 @@ class MCPManager {
     const bridge = db.prepare('SELECT id, status, metadata FROM mcp_servers WHERE id = ?').get(BUILTIN_BRIDGE_ID);
     const bridgeMeta = JSON.stringify({
       description: '内置 Agent 派发桥：tb_list_agents / tb_dispatch_agent',
-      tools: ['tb_list_agents', 'tb_dispatch_agent', 'tb_task_status'],
+      tools: ['tb_list_agents', 'tb_dispatch_agent', 'tb_task_status', 'tb_ask', 'tb_collect'],
     });
     if (!bridge) {
       db.prepare(`
@@ -1704,7 +1713,7 @@ class MCPManager {
    * 为编排任务生成 Agent 启动参数
    * @returns {{ extraArgs: string[], promptPrefix?: string, cleanup: Function }}
    */
-  buildOrchestratorLaunch({ agentId, taskId, workingDir, mainAgentId, profileId = DEFAULT_PROFILE_ID, sessionKey, sessionInstanceId, agentRouteId = '' }) {
+  buildOrchestratorLaunch({ agentId, taskId, workingDir, mainAgentId, profileId = DEFAULT_PROFILE_ID, sessionKey, sessionInstanceId, agentRouteId = '', checkpoints = 'default' }) {
     this.init();
     this._ensureBuiltinBridge();
     // 智能体路由：把这条路由的派发规则接在编排说明后面；名单由 tb_list_agents 按路由过滤
@@ -1716,7 +1725,9 @@ class MCPManager {
         if (route) routeRules = routes.rulesText(route);
       } catch { /* 路由读不到就按默认编排 */ }
     }
-    const orchestratorSystem = () => (routeRules ? `${orchestratorSystemBase()}\n\n${routeRules}` : orchestratorSystemBase());
+    // 检查点（D16）：默认开；请求里 metadata.checkpoints: "none" 关掉
+    const checkpointRules = checkpoints === 'none' ? '' : CHECKPOINT_RULES;
+    const orchestratorSystem = () => [orchestratorSystemBase(), routeRules, checkpointRules].filter(Boolean).join('\n\n');
 
     if (!this.supportsOrchestrator(agentId)) {
       throw new Error(`编排模式暂不支持 Agent: ${agentId}`);

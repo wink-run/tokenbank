@@ -83,8 +83,32 @@ const TOOLS = [
           type: 'number',
           description: '最多等多久，默认 60，最多 600。到时没做完的照样返回当前状态',
         },
+        detail: {
+          type: 'boolean',
+          description: '默认只给摘要和产出清单；为 true 时给完整结果（只在摘要不够时用，省上下文）',
+        },
       },
       required: ['ids'],
+    },
+  },
+  {
+    name: 'tb_collect',
+    description: '【仅编排】把一个子任务的代码改动取回本机仓库，放在新分支 tb/mesh/<任务号>（只建分支，不合并、不切换当前分支）。之后你可以在本机 git merge / cherry-pick 并跑测试；合进用户的分支前按检查点先问用户。',
+    inputSchema: {
+      type: 'object',
+      properties: { task_id: { type: 'string', description: 'tb_dispatch_agent 返回的任务号' } },
+      required: ['task_id'],
+    },
+  },
+  {
+    name: 'tb_ask',
+    description: '遇到只有派活的人能回答的问题（需求不清、要选方案、要授权动工作区以外的东西）时用：提出问题，然后结束本轮回复，等回答。回答会接在这个会话后面发给你。不要为能自己查清的事提问。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: '一个具体的问题，写清背景和可选项' },
+      },
+      required: ['question'],
     },
   },
   {
@@ -133,14 +157,28 @@ function textResult(text, isError = false) {
   };
 }
 
+/** 产出清单：代码改动和文件，不带内容 */
+function outputsText(result) {
+  const lines = [];
+  const g = result?.git;
+  if (g && g.head) {
+    lines.push(`代码改动：${g.files_changed || 0} 个文件 +${g.insertions || 0}/-${g.deletions || 0}，${g.commits || 0} 个提交，在 ${g.ref || g.branch || ''}${g.worktree ? '（独立工作树）' : ''}。用 tb_collect 取回到本机分支`);
+  }
+  const arts = Array.isArray(result?.artifacts) ? result.artifacts : [];
+  if (arts.length) {
+    lines.push(`产出文件 ${arts.length} 个：${arts.slice(0, 12).map((a) => `${a.path}（${Math.round((a.size || 0) / 1024)} KB）`).join('、')}${arts.length > 12 ? ' …' : ''}`);
+  }
+  return lines.join('\n');
+}
+
 const STATUS_TEXT = {
   pending: '排队中', running: '进行中', completed: '完成', failed: '失败',
-  cancelled: '已取消', unreachable: '那台设备暂时连不上', not_found: '找不到',
+  cancelled: '已取消', unreachable: '那台设备暂时连不上', not_found: '找不到', requires_input: '在等回答',
 };
 
 /** tb_task_status 的文字结果：先列状态，再贴已做完的结果 */
-function formatTaskStatus(tasks = []) {
-  const done = ['completed', 'failed', 'cancelled'];
+function formatTaskStatus(tasks = [], { detail = false } = {}) {
+  const done = ['completed', 'failed', 'cancelled', 'requires_input'];
   const lines = tasks.map((t) => {
     const device = t.result?.device || t.context?.meshDevice;
     return `- ${t.id} [${t.agent_id || '?'}${device ? ` @${device}` : ''}] ${STATUS_TEXT[t.status] || t.status}`;
@@ -148,10 +186,16 @@ function formatTaskStatus(tasks = []) {
   const bodies = tasks.filter((t) => done.includes(t.status)).map((t) => {
     const parseAs = t.agent_id === 'codex' ? 'codex' : 'claude-code';
     const raw = t.result?.output || t.result?.summary || '';
+    if (t.status === 'requires_input') {
+      return `### ${t.id}（在等回答）\n问题：${t.result?.question || ''}\n回答：tb_dispatch_agent(agent_id="${t.agent_id}", previous_task_id="${t.id}", prompt="<你的回答>")`;
+    }
     const out = t.status === 'completed'
       ? (t.result?.summary || summarizeAgentStdout(raw, parseAs) || '(无输出)')
       : (t.error || raw || t.status);
-    return `### ${t.id}（${STATUS_TEXT[t.status] || t.status}）\n${String(out).slice(0, 8000)}`;
+    // 默认只交摘要和产出清单（D14），要全文再带 detail
+    const text = String(out);
+    const body = detail ? text.slice(0, 20000) : (text.length > 1500 ? `${text.slice(0, 1500)}…（摘要，全文用 detail=true）` : text);
+    return [`### ${t.id}（${STATUS_TEXT[t.status] || t.status}）`, body, outputsText(t.result)].filter(Boolean).join('\n');
   });
   const left = tasks.length - tasks.filter((t) => done.includes(t.status) || t.status === 'not_found').length;
   const tail = left > 0 ? `\n还有 ${left} 个没做完，可再用 tb_task_status 等。` : '';
@@ -293,7 +337,10 @@ async function handleToolCall(name, args = {}) {
         const out = status.result?.summary
           || summarizeAgentStdout(raw, parseAs)
           || '(无输出)';
-        return textResult(`[${canonicalId}] 任务完成:\n${out}`);
+        return textResult(`[${canonicalId}] 任务完成:\n${[out, outputsText(status.result)].filter(Boolean).join('\n')}`);
+      }
+      if (status.status === 'requires_input') {
+        return textResult(`[${canonicalId}] 子任务停下来提问（任务号 ${status.id}）：\n${status.result?.question || ''}\n\n能自己回答就用 tb_dispatch_agent(agent_id="${agentId}", previous_task_id="${status.id}", prompt="<回答>") 续上；需要用户定的，用 tb_ask 转问用户。`);
       }
 
       const err = status.error || status.result?.output || '未知错误';
@@ -311,9 +358,36 @@ async function handleToolCall(name, args = {}) {
     const secs = Math.min(Math.max(Number(args.timeout_seconds) || 60, 1), 600);
     try {
       const tasks = await dispatchClient.taskStatus(ids, { wait, timeoutMs: secs * 1000 });
-      return textResult(formatTaskStatus(tasks));
+      return textResult(formatTaskStatus(tasks, { detail: args.detail === true || args.detail === 'true' }));
     } catch (e) {
       return textResult(`查询失败: ${e.message}`, true);
+    }
+  }
+
+  if (name === 'tb_collect') {
+    const taskId = String(args.task_id || '').trim();
+    if (!taskId) return textResult('缺少 task_id', true);
+    try {
+      const r = await dispatchClient.collect(taskId, currentDispatchContext().workingDir);
+      if (r.imported) {
+        return textResult(`已取回到 ${r.repo} 的分支 ${r.branch}（${r.commits || 0} 个提交，${r.files_changed || 0} 个文件）。看改动：git -C "${r.repo}" diff HEAD...${r.branch}`);
+      }
+      return textResult(`没有取进仓库：${r.reason}${r.bundle ? `\nbundle 在：${r.bundle}` : ''}`, !r.bundle);
+    } catch (e) {
+      return textResult(`取回失败: ${e.message}`, true);
+    }
+  }
+
+  if (name === 'tb_ask') {
+    const question = String(args.question || '').trim();
+    const taskId = currentDispatchContext().parentTaskId;
+    if (!question) return textResult('缺少 question', true);
+    if (!taskId) return textResult('不在一个任务里，没法提问', true);
+    try {
+      await dispatchClient.ask(taskId, question);
+      return textResult('问题已经记下。现在结束本轮回复（简短说明你停在哪、在等什么），回答会接着这个会话发给你。');
+    } catch (e) {
+      return textResult(`提问失败: ${e.message}`, true);
     }
   }
 

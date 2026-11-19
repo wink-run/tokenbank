@@ -116,6 +116,7 @@ function taskToResponse(task) {
     completed: 'completed',
     failed: 'failed',
     cancelled: 'cancelled',
+    requires_input: 'requires_input',
   };
   const text = task?.result?.summary || task?.result?.output || task?.error || '';
   const created = Number(task?.created_at) || 0;
@@ -135,6 +136,12 @@ function taskToResponse(task) {
       : [],
   };
   if (created && done && done >= created) response.usage = { duration_ms: done - created };
+  // 停下来提问：回答用 previous_response_id 指向这个任务，input 写答案
+  const question = task?.result?.question || ctx.pendingQuestion?.question;
+  if (task?.status === 'requires_input' && question) response.required_input = { question };
+  // 产出：代码改动（git 提交、统计）和文件清单。大文件按清单再拉
+  if (task?.result?.git) response.git = task.result.git;
+  if (Array.isArray(task?.result?.artifacts) && task.result.artifacts.length) response.artifacts = task.result.artifacts;
   // 进展：本机任务数步骤；跑在别的设备上的用那台设备报的
   if (Array.isArray(task?.steps)) response.step_count = task.steps.length;
   if (Number.isFinite(task?.result?.remoteSteps)) response.step_count = task.result.remoteSteps;
@@ -334,6 +341,8 @@ async function handleExternal(req, res, method, cleanPath) {
 async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
   const started = Date.now();
   if (await handleExternal(req, res, method, cleanPath)) return true;
+  // 产出：bundle、产出文件、取回（设计 §8.4）
+  if (await require('./mesh/outputs-http').handle(req, res, { method, cleanPath, knownKey })) return true;
   const route = parseAgentRoute(method, cleanPath);
   if (!route && String(cleanPath || '').startsWith('/v1/agent')) {
     sendJson(res, 404, { error: { message: 'not_found', type: 'invalid_request_error' } });
@@ -579,8 +588,36 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
         return true;
       }
     }
+    // 产出（§8.4）：其他设备派来的、子任务、指定了工作区的，开工前准备工作区、拍快照，结束后记下改动和产出文件。
+    // 子任务（parent_id / subtask）会改代码时各用一个 git worktree（D15）；metadata.readonly 的共用原工作区
+    let prep = null;
+    const parentId = parentIdFromBody(body);
+    const isSubtask = !!parentId || body.metadata?.subtask === true;
+    if (workingDir && (fromMesh || isSubtask || workspaceName)) {
+      let previous = null;
+      if (body.previous_response_id) {
+        try { previous = (await executor.getTaskStatus(body.previous_response_id))?.context?.outputs || null; } catch { previous = null; }
+      }
+      try {
+        prep = await require('./mesh/outputs').prepare({
+          cwd: workingDir,
+          isolate: body.metadata?.isolate === true || (isSubtask && body.metadata?.isolate !== false),
+          readonly: body.metadata?.readonly === true,
+          branch: typeof body.metadata?.branch === 'string' ? body.metadata.branch : undefined,
+          parentId: parentId || (typeof body.metadata?.parent_ref === 'string' ? body.metadata.parent_ref : undefined),
+          worktreeInit: meshGlue.workspaceConfig(workspaceName)?.worktree_init,
+          previous,
+        });
+        workingDir = prep.cwd;
+      } catch (e) {
+        console.warn('[agent-http] 准备工作区失败，在原目录做：', e.message);
+        prep = null;
+      }
+    }
     const { taskId } = await executor.execute(resolved.agentId, prompt, {
       ...resolved.options,
+      outputsInfo: prep ? prep.info : undefined,
+      finalizeOutputs: prep ? (_result, id) => require('./mesh/outputs').finalize(prep, id) : undefined,
       continueSession,
       cliSessionId: cliSessionId || undefined,
       workingDir,
@@ -588,6 +625,8 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
       stream: !!body.stream && !body.background,
       callContext: callContext || undefined,
       parentTaskId: parentIdFromBody(body) || undefined,
+      previousTaskId: body.previous_response_id || undefined,
+      checkpoints: body.metadata?.checkpoints === 'none' ? 'none' : undefined,
     });
     // 等结果之前就记住键，连接断开后同样的请求接上这一单
     rememberIdempotency(idem, raw, null, taskId);
@@ -666,7 +705,7 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
       }
       return true;
     }
-    const status = message === 'Task not found' ? 404 : 400;
+    const status = e.status || (message === 'Task not found' ? 404 : 400);
     sendJson(res, status, { error: { message, type: 'invalid_request_error' } });
     return true;
   }

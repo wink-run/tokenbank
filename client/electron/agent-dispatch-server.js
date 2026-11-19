@@ -190,6 +190,30 @@ function startDispatchServer(agentExecutor, resourceManager) {
         return;
       }
 
+      // 取回子任务的代码改动到本机分支（tb_collect）
+      if (req.method === 'POST' && url.pathname === '/collect') {
+        const body = await readJsonBody(req);
+        try {
+          const r = await require('./mesh/outputs-http').collectTask(String(body.taskId || body.task_id || ''), { dirs: [body.workingDir].filter(Boolean) });
+          sendJson(res, 200, r);
+        } catch (e) {
+          sendJson(res, e.status || 400, { error: e.message });
+        }
+        return;
+      }
+
+      // 子任务提问（tb_ask）：这一轮结束时停在 requires_input，等主智能体或人回答
+      if (req.method === 'POST' && url.pathname === '/ask') {
+        const body = await readJsonBody(req);
+        const taskId = String(body.taskId || body.task_id || '').trim();
+        try {
+          sendJson(res, 200, agentExecutor.askQuestion(taskId, body.question));
+        } catch (e) {
+          sendJson(res, e.message === 'Task not found' ? 404 : 400, { error: e.message });
+        }
+        return;
+      }
+
       // 点将/取用命中 → 主窗口息票（不挡 MCP）
       if (req.method === 'POST' && url.pathname === '/resource-hit') {
         const body = await readJsonBody(req);

@@ -4548,6 +4548,17 @@ function handleRequest(req, res) {
     return;
   }
 
+  // 设备网络：工作区只读查看（/v1/workspaces、/v1/workspaces/{名字}/fs|file|diff|log），只本人
+  if (cleanPath === '/v1/workspaces' || cleanPath.startsWith('/v1/workspaces/')) {
+    require('./mesh/outputs-http').handle(req, res, {
+      method, cleanPath,
+      knownKey: (key) => _appKeys.has(key) || (!!_agentApiKey && key === _agentApiKey) || require('./mesh/glue').isMeshKey(key),
+    }).then((handled) => {
+      if (!handled) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'not_found' } })); }
+    });
+    return;
+  }
+
   // 设备网络：本人所有设备的在线状态和能力
   if (method === 'GET' && cleanPath === '/v1/devices') {
     const view = require('./mesh/glue').devicesView();
