@@ -1389,7 +1389,7 @@ function renderShots(t) {
     const lt = t - j * VS_EACH;
     const op = j === 0 ? (lt < VS_EACH ? 1 : 1 - eio(p(lt, VS_EACH, VS_EACH + .35))) : eio(p(lt, 0, .35)) * (j === VSHOTS.length - 1 || lt < VS_EACH ? 1 : 1 - eio(p(lt, VS_EACH, VS_EACH + .35)));
     el.style.opacity = clamp(op);
-    el.style.transform = `scale(${1 + .14 * eio(p(lt, .3, VS_EACH + .35))})`;
+    el.style.transform = `scale(${1 + .06 * eio(p(lt, .3, VS_EACH + .35))})`;
   });
   const lt = t - i * VS_EACH, ck = eo5(p(lt, .25, .7)) * (1 - eio(p(lt, VS_EACH - .2, VS_EACH))) * (1 - out);
   $('vsCapT').textContent = tr(VSHOTS[i].cap);
