@@ -16,6 +16,14 @@ let endpoint = null;
 /** 主进程注册：MCP 命中后弹息票 */
 let onResourceHit = null;
 
+
+/** 派发目标：本机智能体 + 我的其他设备上的（执行器没有这个方法时只给本机的） */
+function dispatchTargets(executor) {
+  return typeof executor.listDispatchTargets === 'function'
+    ? executor.listDispatchTargets()
+    : executor.listAvailableAgents();
+}
+
 function setResourceHitHandler(fn) {
   onResourceHit = typeof fn === 'function' ? fn : null;
 }
@@ -105,7 +113,7 @@ function startDispatchServer(agentExecutor, resourceManager) {
       }
 
       if (req.method === 'GET' && url.pathname === '/agents') {
-        let agents = await agentExecutor.listAvailableAgents();
+        let agents = await dispatchTargets(agentExecutor);
         // 按智能体路由收窄名单：只给主智能体看这条路由允许派的
         const routeId = url.searchParams.get('route') || '';
         if (routeId) {
@@ -142,21 +150,43 @@ function startDispatchServer(agentExecutor, resourceManager) {
         if (routeId) {
           const routes = require('./agent-routes');
           const route = routes.get(routeId);
-          if (route && !routes.canDispatchTo(route, agentId, await agentExecutor.listAvailableAgents())) {
+          if (route && !routes.canDispatchTo(route, agentId, await dispatchTargets(agentExecutor))) {
             sendJson(res, 403, { error: `「${route.name}」的名单里没有 ${agentId}，只能派给 tb_list_agents 列出的智能体` });
             return;
           }
         }
 
-        const status = await agentExecutor.dispatchAndWait(agentId, prompt, {
+        const opts = {
           workingDir: body.workingDir || body.working_dir,
           parentTaskId: body.parentTaskId || body.parent_task_id,
           parentSessionKey: body.parentSessionKey || body.parent_session_key,
           parentSessionInstanceId: body.parentSessionInstanceId || body.parent_session_instance_id,
+          previousTaskId: body.previousTaskId || body.previous_task_id || undefined,
           clientId: body.clientId || body.client_id || process.env.TB_CLIENT_ID || '',
           mode: 'worker',
-        });
+        };
+        // 后台派：马上交回任务号，之后用 /tasks 查
+        if (body.background) {
+          const started = await agentExecutor.dispatch(agentId, prompt, opts);
+          sendJson(res, 200, { task: started });
+          return;
+        }
+        const status = await agentExecutor.dispatchAndWait(agentId, prompt, opts);
         sendJson(res, 200, { status });
+        return;
+      }
+
+      // 查几个任务：wait=any 等到有一个做完，wait=all 等全部做完，默认不等
+      if (req.method === 'GET' && url.pathname === '/tasks') {
+        const ids = String(url.searchParams.get('ids') || '').split(',').map((x) => x.trim()).filter(Boolean);
+        if (!ids.length) {
+          sendJson(res, 400, { error: 'missing ids' });
+          return;
+        }
+        const wait = ['any', 'all'].includes(url.searchParams.get('wait')) ? url.searchParams.get('wait') : 'none';
+        const timeoutMs = Math.min(Number(url.searchParams.get('timeout_ms')) || 60 * 1000, 10 * 60 * 1000);
+        const tasks = await agentExecutor.waitTasks(ids, { wait, timeoutMs });
+        sendJson(res, 200, { tasks });
         return;
       }
 

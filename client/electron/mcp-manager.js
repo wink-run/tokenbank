@@ -25,6 +25,7 @@ const ORCHESTRATOR_SYSTEM = [
   '3. 匹配：只根据本次 tb_list_agents 返回的名称、能力和描述来选，不要假设存在某个固定智能体。本地优先于社区，社区优先于 CLI。任务已有工程、时间线或指定工具链时，选描述里覆盖这条链路的；不要因为名字更泛（如「生成」）就派给另一个。',
   '4. 派发：有匹配必须 tb_dispatch_agent（本地在本机执行，社区在对方设备执行）；禁止自己做本可派发的专业活。',
   '   子任务 prompt 要自洽：目标 + 输入/上下文 + 约束 + 期望产出（路径/格式）；勿丢用户关键细节。',
+  '   互不依赖的子任务并行：每个都用 tb_dispatch_agent(background=true) 先派出去，再反复 tb_task_status(ids, wait="any") 收结果；要返工时带 previous_task_id 接着原来的会话。',
   '5. 汇总：综合各子结果，用清晰结构回复用户（结论 → 关键产出/路径 → 未完成项）；去掉过程噪音。',
   '',
   '【决策优先级】',
@@ -536,7 +537,7 @@ class MCPManager {
     const bridge = db.prepare('SELECT id, status, metadata FROM mcp_servers WHERE id = ?').get(BUILTIN_BRIDGE_ID);
     const bridgeMeta = JSON.stringify({
       description: '内置 Agent 派发桥：tb_list_agents / tb_dispatch_agent',
-      tools: ['tb_list_agents', 'tb_dispatch_agent'],
+      tools: ['tb_list_agents', 'tb_dispatch_agent', 'tb_task_status'],
     });
     if (!bridge) {
       db.prepare(`

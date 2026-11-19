@@ -116,6 +116,8 @@ function filterAgents(route, agents = []) {
   return (agents || []).filter((a) => {
     if (!a || !a.id || a.guardian) return false;
     if (isCommunity(a)) return !!route?.allowHired && (!pick || pick.has(a.id));
+    // 我的其他设备上的（mine:x@设备）：勾了 x 就算在名单里
+    if (a.type === 'mine') return !pick || pick.has(a.id) || (!!a.base && pick.has(a.base));
     return !pick || pick.has(a.id);
   });
 }

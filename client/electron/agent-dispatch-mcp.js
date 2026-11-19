@@ -39,20 +39,52 @@ const TOOLS = [
   },
   {
     name: 'tb_dispatch_agent',
-    description: '【仅编排】向 tb_list_agents 返回的目标派发子任务并等待完成。优先 assistant:<id>（本机执行）；社区用 community:<assistantId>@<用户名>（对方设备执行，不下载正文）。prompt 须含目标+约束+期望产出。',
+    description: '【仅编排】向 tb_list_agents 返回的目标派发子任务。默认等它做完再返回；background=true 时马上返回任务号，几个互不依赖的子任务可以先都派出去，再用 tb_task_status(wait="any") 收结果。优先 assistant:<id>（本机执行）；我的其他设备用 mine:<智能体>@<设备>；社区用 community:<assistantId>@<用户名>（对方设备执行，不下载正文）。prompt 须含目标+约束+期望产出。',
     inputSchema: {
       type: 'object',
       properties: {
         agent_id: {
           type: 'string',
-          description: '目标 ID：优先 assistant:<resourceId>；社区为 community:<assistantId>@<用户名>；兜底可用 codex、claude-code、cursor',
+          description: '目标 ID：优先 assistant:<resourceId>；我的其他设备为 mine:<智能体>@<设备>（不写 @设备 自动挑）；社区为 community:<assistantId>@<用户名>；兜底可用 codex、claude-code、cursor',
         },
         prompt: {
           type: 'string',
           description: '自洽任务描述：目标、输入/上下文、约束、期望产出（路径/格式）；勿省略用户关键细节',
         },
+        background: {
+          type: 'boolean',
+          description: '为 true 时不等结果，马上返回任务号。互不依赖的子任务用它并行；之后用 tb_task_status 收结果',
+        },
+        previous_task_id: {
+          type: 'string',
+          description: '接着之前某个子任务的会话继续（同一个智能体、同一台设备），例如让它按反馈再改一版',
+        },
       },
       required: ['agent_id', 'prompt'],
+    },
+  },
+  {
+    name: 'tb_task_status',
+    description: '【仅编排】查子任务的状态和结果。wait="any" 等到其中一个做完就返回（适合并行派出去后逐个收），wait="all" 等全部做完，不写就立刻返回。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'tb_dispatch_agent 返回的任务号',
+        },
+        wait: {
+          type: 'string',
+          enum: ['none', 'any', 'all'],
+          description: 'none（默认）立刻返回；any 有一个做完就返回；all 全部做完才返回',
+        },
+        timeout_seconds: {
+          type: 'number',
+          description: '最多等多久，默认 60，最多 600。到时没做完的照样返回当前状态',
+        },
+      },
+      required: ['ids'],
     },
   },
   {
@@ -101,6 +133,31 @@ function textResult(text, isError = false) {
   };
 }
 
+const STATUS_TEXT = {
+  pending: '排队中', running: '进行中', completed: '完成', failed: '失败',
+  cancelled: '已取消', unreachable: '那台设备暂时连不上', not_found: '找不到',
+};
+
+/** tb_task_status 的文字结果：先列状态，再贴已做完的结果 */
+function formatTaskStatus(tasks = []) {
+  const done = ['completed', 'failed', 'cancelled'];
+  const lines = tasks.map((t) => {
+    const device = t.result?.device || t.context?.meshDevice;
+    return `- ${t.id} [${t.agent_id || '?'}${device ? ` @${device}` : ''}] ${STATUS_TEXT[t.status] || t.status}`;
+  });
+  const bodies = tasks.filter((t) => done.includes(t.status)).map((t) => {
+    const parseAs = t.agent_id === 'codex' ? 'codex' : 'claude-code';
+    const raw = t.result?.output || t.result?.summary || '';
+    const out = t.status === 'completed'
+      ? (t.result?.summary || summarizeAgentStdout(raw, parseAs) || '(无输出)')
+      : (t.error || raw || t.status);
+    return `### ${t.id}（${STATUS_TEXT[t.status] || t.status}）\n${String(out).slice(0, 8000)}`;
+  });
+  const left = tasks.length - tasks.filter((t) => done.includes(t.status) || t.status === 'not_found').length;
+  const tail = left > 0 ? `\n还有 ${left} 个没做完，可再用 tb_task_status 等。` : '';
+  return [lines.join('\n'), ...bodies].join('\n\n') + tail;
+}
+
 async function handleToolCall(name, args = {}) {
   if (name === 'tb_list_agents') {
     const routeId = currentDispatchContext().agentRouteId;
@@ -112,7 +169,9 @@ async function handleToolCall(name, args = {}) {
       rank(a.type) - rank(b.type) || String(a.name || '').localeCompare(String(b.name || '')),
     );
     const lines = sorted.map((a) => {
-      const kind = a.type === 'assistant' ? '本地智能体' : a.type === 'community' ? '社区智能体(远程)' : 'CLI';
+      const kind = a.type === 'assistant' ? '本地智能体'
+        : a.type === 'community' ? '社区智能体(远程)'
+        : a.type === 'mine' ? '我的设备' : 'CLI';
       const caps = (a.capabilities || []).join(', ');
       const desc = a.description ? ` — ${String(a.description).slice(0, 160)}` : '';
       const ver = a.version ? ` (v${a.version})` : '';
@@ -212,13 +271,20 @@ async function handleToolCall(name, args = {}) {
 
     try {
       const ctx = currentDispatchContext();
-      const status = await dispatchClient.dispatchAndWait(agentId, prompt, {
+      const opts = {
         workingDir: ctx.workingDir,
         parentTaskId: ctx.parentTaskId,
         parentSessionKey: ctx.parentSessionKey || undefined,
         parentSessionInstanceId: ctx.parentSessionInstance || undefined,
+        previousTaskId: String(args.previous_task_id || '').trim() || undefined,
         mode: 'worker',
-      });
+      };
+      if (args.background === true || args.background === 'true') {
+        const t = await dispatchClient.dispatch(agentId, prompt, opts);
+        const where = t.device ? `，在「${t.device}」上执行` : '';
+        return textResult(`[${t.agentId || agentId}] 已派出${where}。任务号：${t.taskId}\n用 tb_task_status(ids=["${t.taskId}"], wait="any") 收结果。`);
+      }
+      const status = await dispatchClient.dispatchAndWait(agentId, prompt, opts);
 
       const canonicalId = status.agent_id || agentId;
       const parseAs = canonicalId === 'codex' ? 'codex' : 'claude-code';
@@ -234,6 +300,20 @@ async function handleToolCall(name, args = {}) {
       return textResult(`[${canonicalId}] 任务失败 (${status.status}):\n${err}`, true);
     } catch (e) {
       return textResult(`派发失败: ${e.message}`, true);
+    }
+  }
+
+  if (name === 'tb_task_status') {
+    const ids = (Array.isArray(args.ids) ? args.ids : String(args.ids || '').split(','))
+      .map((x) => String(x || '').trim()).filter(Boolean);
+    if (!ids.length) return textResult('缺少 ids', true);
+    const wait = ['any', 'all'].includes(args.wait) ? args.wait : 'none';
+    const secs = Math.min(Math.max(Number(args.timeout_seconds) || 60, 1), 600);
+    try {
+      const tasks = await dispatchClient.taskStatus(ids, { wait, timeoutMs: secs * 1000 });
+      return textResult(formatTaskStatus(tasks));
+    } catch (e) {
+      return textResult(`查询失败: ${e.message}`, true);
     }
   }
 

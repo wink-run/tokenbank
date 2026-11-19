@@ -1,0 +1,143 @@
+// 派活到我的其他设备、任务树、后台派发（E2-1 / E4-1 / E4-3）
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert');
+
+const http = require('../agent-http');
+const routes = require('../agent-routes');
+const executor = require('../agent-executor');
+
+function memoryDb() {
+  const Database = require('better-sqlite3');
+  const db = new Database(':memory:');
+  db.exec(`
+    CREATE TABLE agent_tasks (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, prompt TEXT NOT NULL, context TEXT,
+      status TEXT NOT NULL, result TEXT, error TEXT, created_at INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER);
+    CREATE TABLE agent_task_steps (id TEXT PRIMARY KEY, task_id TEXT, step_number INTEGER, step_type TEXT, content TEXT, created_at INTEGER);
+    CREATE TABLE agent_modified_files (task_id TEXT, path TEXT);
+  `);
+  return db;
+}
+
+/** 临时把执行器换到内存库上，测完换回去 */
+function withDb(fn) {
+  const db = memoryDb();
+  const orig = executor._getDb;
+  executor._getDb = () => db;
+  return Promise.resolve(fn(db)).finally(() => { executor._getDb = orig; db.close(); });
+}
+
+test('GET /v1/agent/responses 是列任务（按 parent_id）', () => {
+  assert.deepStrictEqual(http.parseAgentRoute('GET', '/v1/agent/responses'), { op: 'list_responses' });
+  assert.deepStrictEqual(http.parseAgentRoute('POST', '/v1/agent/responses'), { op: 'create' });
+  assert.deepStrictEqual(http.parseAgentRoute('GET', '/v1/agent/responses/mesh%3Adev-b%3At1'), { op: 'get', id: 'mesh:dev-b:t1' });
+});
+
+test('任务响应带 parent_id、执行设备和进展', () => {
+  const r = http.taskToResponse({
+    id: 'mesh:dev-b:t1', agent_id: 'mine:codex@mini', status: 'running',
+    context: { parentTaskId: 'task_p', meshDevice: 'mini' },
+    result: { output: '做到一半', remoteSteps: 4 },
+    steps: [],
+  });
+  assert.strictEqual(r.status, 'in_progress');
+  assert.strictEqual(r.metadata.parent_id, 'task_p');
+  assert.strictEqual(r.metadata.mesh_device, 'mini');
+  assert.strictEqual(r.step_count, 4);
+  const local = http.taskToResponse({ id: 't2', agent_id: 'codex', status: 'completed', context: {}, steps: [{}, {}] });
+  assert.strictEqual(local.metadata.parent_id, undefined);
+  assert.strictEqual(local.step_count, 2);
+});
+
+test('路由名单里勾了 codex，其他设备上的 codex 也算', () => {
+  const agents = [
+    { id: 'codex', type: 'cli' },
+    { id: 'mine:codex@mini', type: 'mine', base: 'codex' },
+    { id: 'mine:cursor@mini', type: 'mine', base: 'cursor' },
+  ];
+  const route = { candidates: ['codex'] };
+  assert.deepStrictEqual(routes.filterAgents(route, agents).map((a) => a.id), ['codex', 'mine:codex@mini']);
+  assert.ok(routes.canDispatchTo(route, 'mine:codex@mini', agents));
+  assert.ok(!routes.canDispatchTo(route, 'mine:cursor@mini', agents));
+  assert.strictEqual(routes.filterAgents({}, agents).length, 3);
+});
+
+test('执行器认得 mine: 目标和 mesh: 任务号', () => {
+  assert.ok(executor.isMeshTarget('mine:codex@mini'));
+  assert.ok(!executor.isMeshTarget('codex'));
+  assert.ok(executor.isMeshTaskId('mesh:dev-b:t1'));
+  assert.ok(!executor.isMeshTaskId('task_1'));
+});
+
+test('waitTasks：any 有一个做完就返回，all 等全部，none 立刻返回', async () => {
+  const orig = executor.getTaskStatus;
+  const t0 = Date.now();
+  executor.getTaskStatus = async (id) => {
+    if (id === 'fast') return { id, status: Date.now() - t0 > 300 ? 'completed' : 'running' };
+    if (id === 'slow') return { id, status: Date.now() - t0 > 1200 ? 'completed' : 'running' };
+    throw new Error('Task not found');
+  };
+  try {
+    const none = await executor.waitTasks(['fast', 'slow'], { wait: 'none' });
+    assert.deepStrictEqual(none.map((t) => t.status), ['running', 'running']);
+    const any = await executor.waitTasks(['fast', 'slow', 'fast'], { wait: 'any', timeoutMs: 5000 });
+    assert.deepStrictEqual(any.map((t) => t.status), ['completed', 'running'], '去重并保持顺序');
+    const all = await executor.waitTasks(['fast', 'slow', 'nope'], { wait: 'all', timeoutMs: 5000 });
+    assert.deepStrictEqual(all.map((t) => t.status), ['completed', 'completed', 'not_found']);
+    const t1 = Date.now();
+    const timeout = await executor.waitTasks(['slow2'], { wait: 'all', timeoutMs: 300 });
+    assert.strictEqual(timeout[0].status, 'not_found');
+    assert.ok(Date.now() - t1 < 1000);
+  } finally {
+    executor.getTaskStatus = orig;
+  }
+});
+
+test('远端任务的本机镜像：跟着远端更新，到终态后不再变；子任务按父任务查得到', () => withDb(async (db) => {
+  const pollerOrig = executor._pollMeshTask;
+  executor._pollMeshTask = () => {};   // 不真的去连设备
+  try {
+    executor.trackMeshTask('mesh:dev-b:t1', {
+      agentId: 'mine:codex@mini', device: 'mini', prompt: '修登录页', parentTaskId: 'task_parent',
+      response: { id: 'mesh:dev-b:t1', status: 'in_progress', metadata: { mesh_device: 'mini' }, output: [], step_count: 2 },
+    });
+    let row = await executor.getTaskStatus('mesh:dev-b:t1');
+    assert.strictEqual(row.status, 'running');
+    assert.strictEqual(row.context.parentTaskId, 'task_parent');
+    assert.strictEqual(row.result.remoteSteps, 2);
+
+    // 连不上：不动
+    assert.strictEqual(executor._applyMeshResponse('mesh:dev-b:t1', { status: 'unreachable' }), false);
+    const done = executor._applyMeshResponse('mesh:dev-b:t1', {
+      status: 'completed', metadata: { mesh_device: 'mini' },
+      output: [{ type: 'message', content: [{ type: 'output_text', text: '改好了' }] }],
+    });
+    assert.strictEqual(done, true);
+    row = await executor.getTaskStatus('mesh:dev-b:t1');
+    assert.strictEqual(row.status, 'completed');
+    assert.strictEqual(row.result.output, '改好了');
+    assert.strictEqual(row.result.device, 'mini');
+    // 终态之后远端再报什么也不覆盖
+    executor._applyMeshResponse('mesh:dev-b:t1', { status: 'failed', output: [] });
+    assert.strictEqual((await executor.getTaskStatus('mesh:dev-b:t1')).status, 'completed');
+
+    executor.trackMeshTask('mesh:dev-b:t2', { agentId: 'mine:codex@mini', prompt: '写测试', parentTaskId: 'task_parent' });
+    executor.trackMeshTask('mesh:dev-b:t3', { agentId: 'mine:codex@mini', prompt: '别的', parentTaskId: 'task_other' });
+    const kids = executor.listChildTasks('task_parent');
+    assert.deepStrictEqual(kids.map((k) => k.id), ['mesh:dev-b:t1', 'mesh:dev-b:t2']);
+    assert.strictEqual(kids[0].result.output, '改好了');
+
+    const resumed = [];
+    executor._pollMeshTask = (id) => resumed.push(id);
+    assert.strictEqual(executor.resumeMeshTasks(), 2);
+    assert.deepStrictEqual(resumed.sort(), ['mesh:dev-b:t2', 'mesh:dev-b:t3']);
+    assert.ok(db.prepare('SELECT COUNT(*) c FROM agent_tasks').get().c === 3);
+  } finally {
+    executor._pollMeshTask = pollerOrig;
+  }
+}));
+
+test('设备网络没启动时派 mine: 目标给出明确原因', async () => {
+  await assert.rejects(() => executor.execute('mine:codex@mini', 'x'), /设备网络没有启动/);
+});

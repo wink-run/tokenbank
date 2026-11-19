@@ -85,6 +85,8 @@ async function startFromConfig({ gatewayPort, log } = {}) {
     node = null;
     return null;
   }
+  // 接着跟上次没做完的远端任务
+  try { require('../agent-executor').resumeMeshTasks(); } catch { /* 执行器没就绪 */ }
   return node;
 }
 
@@ -154,10 +156,10 @@ function extraHarnesses() {
     for (const a of items) {
       if (!seen.has(a.id)) {
         seen.add(a.id);
-        out.push({ id: `mine:${a.id}`, name: `${a.name}（我的设备，自动选）`, kind: 'mine' });
+        out.push({ id: `mine:${a.id}`, name: `${a.name}（我的设备，自动选）`, kind: 'mine', base: a.id });
       }
       const label = deviceLabel(d);
-      out.push({ id: `mine:${a.id}@${label}`, name: `${a.name} @ ${label}`, kind: 'mine', device: label, online: true });
+      out.push({ id: `mine:${a.id}@${label}`, name: `${a.name} @ ${label}`, kind: 'mine', base: a.id, device: label, online: true });
     }
   }
   return out;
@@ -275,7 +277,9 @@ async function routeAgentCreate({ harnessId, body, req, res, extraMeta }) {
   if (picked.device.self) return { handled: false, local: target.id };
 
   const dev = picked.device;
-  const forward = { ...body, metadata: { ...meta, harness_id: target.id } };
+  // parent_id 是本机的任务号，那台设备不认识：任务树记在本机
+  const { parent_id: _parent, ...restMeta } = meta;
+  const forward = { ...body, metadata: { ...restMeta, harness_id: target.id } };
   if (prev) forward.previous_response_id = prev.id;
   const headers = { 'content-type': 'application/json' };
   if (req.headers['idempotency-key']) headers['idempotency-key'] = req.headers['idempotency-key'];
@@ -295,31 +299,94 @@ async function routeAgentCreate({ harnessId, body, req, res, extraMeta }) {
     const out = rewriteResponse(obj, dev.device_id, deviceLabel(dev));
     if (extraMeta && out.metadata && typeof out.metadata === 'object') Object.assign(out.metadata, extraMeta);
     sendJson(res, resp.status, out);
-    return { handled: true, ok: resp.status < 400, error: obj.error?.message, device: deviceLabel(dev) };
+    return { handled: true, ok: resp.status < 400, error: obj.error?.message, device: deviceLabel(dev), taskId: resp.status < 400 ? out.id : undefined, status: out.status, target: target.id, response: out };
   } catch (e) {
     sendJson(res, e.status || 502, { error: { message: `${deviceLabel(dev)}：${e.message}`, type: 'mesh_error' } });
     return { handled: true, ok: false, error: e.message };
   }
 }
 
-/** GET /v1/agent/responses/mesh:<设备>:<任务号>（以及 /cancel）转到那台设备 */
-async function routeAgentById({ id, op, res }) {
+// ── 程序内派活（执行器、MCP、游乐场用） ─────────────────────────────────────
+
+/**
+ * 把一个 mine: 任务交给某台设备，后台跑，马上返回任务号。
+ * 选到本机时返回 { local: '<本机 harness>' }，由调用方照常在本机执行。
+ * @returns {Promise<{ id: string, device: string, deviceId: string, response: object } | { local: string }>}
+ */
+async function submitAgentTask({ harnessId, input, metadata = {}, previousResponseId, idempotencyKey } = {}) {
+  if (!node) throw Object.assign(new Error('设备网络没有启动'), { status: 503 });
+  const target = scheduler.parseMineHarness(harnessId);
+  if (!target) throw Object.assign(new Error(`不是设备网络的目标：${harnessId}`), { status: 400 });
+  const prev = parseMeshTaskId(previousResponseId);
+  if (prev) {
+    const d = node.directory.get(prev.deviceId);
+    if (d) target.device = d.name;
+  }
+  const picked = scheduler.pickDevice({ target, workspace: metadata.workspace, devices: node.directory.list() });
+  if (!picked.device) throw Object.assign(new Error(picked.reason), { status: 404 });
+  if (picked.device.self) return { local: target.id };
+  const dev = picked.device;
+  const forward = {
+    input,
+    background: true,
+    metadata: { ...metadata, harness_id: target.id },
+  };
+  if (prev) forward.previous_response_id = prev.id;
+  const headers = { 'content-type': 'application/json' };
+  if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
+  let resp;
+  try {
+    resp = await node.proxy(dev.device_id, {
+      method: 'POST', path: '/v1/agent/responses', headers, body: Buffer.from(JSON.stringify(forward)),
+    });
+  } catch (e) {
+    throw Object.assign(new Error(`${deviceLabel(dev)}：${e.message}`), { status: e.status || 502 });
+  }
+  const text = (await tunnel.readAll(resp)).toString('utf8');
+  let obj = null;
+  try { obj = JSON.parse(text); } catch { /* 下面报错 */ }
+  if (!obj || resp.status >= 400 || !obj.id) {
+    const msg = obj?.error?.message || text.slice(0, 200) || `HTTP ${resp.status}`;
+    throw Object.assign(new Error(`${deviceLabel(dev)}：${msg}`), { status: resp.status >= 400 ? resp.status : 502 });
+  }
+  console.log(`[mesh] 智能体 ${target.id} → ${deviceLabel(dev)}（后台）`);
+  const out = rewriteResponse(obj, dev.device_id, deviceLabel(dev));
+  return { id: out.id, device: deviceLabel(dev), deviceId: dev.device_id, target: target.id, response: out };
+}
+
+/**
+ * 查或取消另一台设备上的任务。连不上时 status 为 'unreachable'（结果还在那台设备上）。
+ * @param {string} id mesh:<device_id>:<任务号>
+ * @param {'get'|'cancel'} op
+ */
+async function fetchAgentTask(id, op = 'get') {
   const parsed = parseMeshTaskId(id);
-  if (!parsed) return false;
-  if (!node) { sendJson(res, 503, { error: { message: '设备网络没有启动', type: 'mesh_disabled' } }); return true; }
+  if (!parsed) throw Object.assign(new Error(`不是设备网络的任务号：${id}`), { status: 400 });
+  if (!node) return { id, object: 'response', status: 'unreachable', error: { message: '设备网络没有启动', type: 'mesh_disabled' } };
   const dev = node.directory.get(parsed.deviceId);
+  const label = dev ? deviceLabel(dev) : parsed.deviceId;
   const p = `/v1/agent/responses/${encodeURIComponent(parsed.id)}${op === 'cancel' ? '/cancel' : ''}`;
   try {
     const resp = await node.proxy(parsed.deviceId, { method: op === 'cancel' ? 'POST' : 'GET', path: p, headers: {} });
     const text = (await tunnel.readAll(resp)).toString('utf8');
-    let obj;
-    try { obj = JSON.parse(text); } catch { obj = null; }
-    if (!obj) { res.writeHead(resp.status, { 'Content-Type': 'application/json' }); res.end(text); return true; }
-    sendJson(res, resp.status, rewriteResponse(obj, parsed.deviceId, dev ? deviceLabel(dev) : parsed.deviceId));
+    let obj = null;
+    try { obj = JSON.parse(text); } catch { /* 下面处理 */ }
+    if (!obj) return { id, object: 'response', status: 'unreachable', httpStatus: resp.status, error: { message: text.slice(0, 200), type: 'mesh_error' } };
+    const out = rewriteResponse(obj, parsed.deviceId, label);
+    if (resp.status >= 400) out.httpStatus = resp.status;
+    return out;
   } catch (e) {
-    // 那台设备暂时连不上：结果还在它那里，稍后再查
-    sendJson(res, 503, { id, object: 'response', status: 'unreachable', error: { message: `${dev?.name || parsed.deviceId}：${e.message}`, type: 'mesh_unreachable' } });
+    return { id, object: 'response', status: 'unreachable', error: { message: `${label}：${e.message}`, type: 'mesh_unreachable' } };
   }
+}
+
+/** GET /v1/agent/responses/mesh:<设备>:<任务号>（以及 /cancel）转到那台设备 */
+async function routeAgentById({ id, op, res }) {
+  if (!parseMeshTaskId(id)) return false;
+  const out = await fetchAgentTask(id, op);
+  const status = out.status === 'unreachable' ? (out.httpStatus || 503) : (out.httpStatus || 200);
+  delete out.httpStatus;
+  sendJson(res, status, out);
   return true;
 }
 
@@ -388,6 +455,9 @@ function resolveWorkspace(name) {
 }
 
 module.exports = {
+  submitAgentTask,
+  fetchAgentTask,
+  parseMeshTaskId,
   startFromConfig, stop, getNode,
   isMeshKey, isMeshRequest, isHop,
   devicesView, extraModels, extraHarnesses,

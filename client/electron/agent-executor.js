@@ -487,6 +487,23 @@ function invalidateAgentListCache() {
   AGENT_LIST_CACHE.agents = null;
 }
 
+const TERMINAL = ['completed', 'failed', 'cancelled'];
+/** 远端响应状态 → 本机任务状态 */
+const MESH_STATUS = { in_progress: 'running', queued: 'pending', completed: 'completed', failed: 'failed', cancelled: 'cancelled' };
+function isMeshTarget(id) { return String(id || '').trim().startsWith('mine:'); }
+function isMeshTaskId(id) { return String(id || '').startsWith('mesh:'); }
+function safeJson(text, fallback) { try { return JSON.parse(text); } catch { return fallback; } }
+/** 远端响应里的正文 */
+function meshOutputText(resp) {
+  const parts = [];
+  for (const item of Array.isArray(resp?.output) ? resp.output : []) {
+    for (const c of Array.isArray(item?.content) ? item.content : []) {
+      if (typeof c?.text === 'string') parts.push(c.text);
+    }
+  }
+  return parts.join('\n');
+}
+
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
@@ -508,7 +525,8 @@ function taskActivityMark(status) {
   const last = steps[steps.length - 1];
   const tail = last ? String(last.content || '').length : 0;
   const out = String(status?.result?.output || status?.result?.summary || '').length;
-  return `${status?.status || ''}|${steps.length}|${last?.id || ''}|${tail}|${out}`;
+  const remote = status?.result?.remoteSteps ?? '';
+  return `${status?.status || ''}|${steps.length}|${last?.id || ''}|${tail}|${out}|${remote}`;
 }
 
 /**
@@ -560,6 +578,8 @@ class AgentExecutor extends EventEmitter {
     this.taskMetaCache = new Map(); // taskId → { agentId, sessionKey, parentTaskId }
     /** stream-json content_block index → type（thinking / text） */
     this._streamState = new Map(); // taskId → { blockTypes: Map }
+    /** 设备网络：派到其他设备的任务，本机有一行镜像，由轮询跟着远端更新 */
+    this._meshPollers = new Map(); // taskId → { stop }
   }
 
   /**
@@ -945,8 +965,23 @@ class AgentExecutor extends EventEmitter {
    * @returns {Promise<{taskId: string}>}
    */
   async execute(agentId, prompt, options = {}) {
+    // mine:<智能体>[@设备]：交给我的某台设备。选到本机就照常往下走
+    if (isMeshTarget(agentId)) {
+      const r = await this._submitMeshTask(agentId, prompt, options);
+      if (!r.local) return { taskId: r.taskId, device: r.device };
+      agentId = r.local;
+    }
     const db = this._getDb();
     const canonicalId = await this.resolveAgentId(agentId);
+    // 接着上一轮（previousTaskId 是本机任务号）：同一个 CLI 会话续上
+    if (options.previousTaskId && !options.cliSessionId && !isMeshTaskId(options.previousTaskId)) {
+      try {
+        const prev = await this.getTaskStatus(options.previousTaskId);
+        if (prev?.result?.cliSessionId) {
+          options = { ...options, continueSession: true, cliSessionId: prev.result.cliSessionId };
+        }
+      } catch { /* 找不到上一轮就当新任务 */ }
+    }
     const { workingDir = process.cwd(), assistantId, mcpProfile, mode = 'direct', mainAgentId } = options;
 
     // 创建任务记录
@@ -1000,17 +1035,43 @@ class AgentExecutor extends EventEmitter {
    * 派发子任务并阻塞等待完成（供 MCP tb_dispatch_agent 使用）
    */
   async dispatchAndWait(agentId, prompt, options = {}) {
-    const parentTaskId = options.parentTaskId;
-    const canonicalId = await this.resolveAgentId(agentId);
-
-    // 社区雇佣武将：远程派发（对方本机执行，不下载正文）
     const { isCommunityAgentId } = require('./hired-community-agents');
-    if (isCommunityAgentId(canonicalId)) {
-      return this._dispatchCommunityAndWait(canonicalId, prompt, options);
+    if (!isMeshTarget(agentId)) {
+      const canonicalId = await this.resolveAgentId(agentId);
+      // 社区雇佣武将：远程派发（对方本机执行，不下载正文）
+      if (isCommunityAgentId(canonicalId)) {
+        return this._dispatchCommunityAndWait(canonicalId, prompt, options);
+      }
     }
+    const started = await this._startDispatch(agentId, prompt, options);
+    return this._waitDispatch(started, options);
+  }
+
+  /**
+   * 派发子任务，不等结果（MCP tb_dispatch_agent background=true）。
+   * 后台照样等它做完，好把「派发卡片」收尾；调用方用 getTaskStatus / waitTasks 查。
+   * @returns {Promise<{ taskId: string, agentId: string, device?: string }>}
+   */
+  async dispatch(agentId, prompt, options = {}) {
+    const { isCommunityAgentId } = require('./hired-community-agents');
+    if (!isMeshTarget(agentId) && isCommunityAgentId(await this.resolveAgentId(agentId))) {
+      throw new Error('社区智能体暂不支持后台派发，请不带 background 调用');
+    }
+    const started = await this._startDispatch(agentId, prompt, options);
+    this._waitDispatch(started, options).catch((e) => {
+      console.warn(`[AgentExecutor] 后台子任务 ${started.taskId}：${e.message}`);
+    });
+    return { taskId: started.taskId, agentId: started.canonicalId, device: started.device };
+  }
+
+  /** 建子任务、发「已派发」事件。本机智能体、mine: 目标都走这里 */
+  async _startDispatch(agentId, prompt, options = {}) {
+    const parentTaskId = options.parentTaskId;
+    const mesh = isMeshTarget(agentId);
+    const canonicalId = mesh ? String(agentId).trim() : await this.resolveAgentId(agentId);
 
     // 召唤专业智能体：记命中并弹息票（与 tb_get_resource 点将对齐）
-    if (isAssistantAgentId(canonicalId) && !require('./guardian/chat').isGuardianAgent(canonicalId)) {
+    if (!mesh && isAssistantAgentId(canonicalId) && !require('./guardian/chat').isGuardianAgent(canonicalId)) {
       try {
         const resourceManager = require('./resource-manager');
         const rid = assistantResourceId(canonicalId);
@@ -1038,7 +1099,7 @@ class AgentExecutor extends EventEmitter {
         || sessionInstanceId;
     }
 
-    const { taskId } = await this.execute(canonicalId, prompt, {
+    const { taskId, device } = await this.execute(canonicalId, prompt, {
       ...options,
       mode: options.mode || 'worker',
       sessionKey,
@@ -1061,6 +1122,7 @@ class AgentExecutor extends EventEmitter {
       parentTaskId,
       childTaskId: taskId,
       agentId: canonicalId,
+      device: device || undefined,
       prompt,
       parentSessionKey: sessionKey,
       parentSessionInstanceId: sessionInstanceId,
@@ -1074,11 +1136,16 @@ class AgentExecutor extends EventEmitter {
         phase: 'start',
         agentId: canonicalId,
         childTaskId: taskId,
+        device: device || undefined,
         content: prompt,
         timestamp: Date.now(),
       });
     }
+    return { taskId, canonicalId, agentId, parentTaskId, device, stepListener };
+  }
 
+  /** 等子任务到终态；空闲或总时长超时就取消 */
+  async _waitDispatch({ taskId, canonicalId, agentId, parentTaskId, stepListener }, options = {}) {
     // 空闲超时：一直有新步骤就续上，避免查到一半被墙钟掐掉。停住超过 idleMs，或总时长到 hardMs，才取消。
     const idleMs = options.timeoutMs || 10 * 60 * 1000;
     const hardMs = options.hardTimeoutMs || idleMs * 3;
@@ -1094,7 +1161,7 @@ class AgentExecutor extends EventEmitter {
           lastMark = mark;
           lastActivity = Date.now();
         }
-        if (['completed', 'failed', 'cancelled'].includes(status.status)) {
+        if (TERMINAL.includes(status.status)) {
           if (parentTaskId) {
             const summary = status.result?.summary
               || status.result?.output
@@ -1139,6 +1206,214 @@ class AgentExecutor extends EventEmitter {
     } finally {
       if (stepListener) this.off('task:step', stepListener);
     }
+  }
+
+  /**
+   * 等几个任务：wait='any' 有一个到终态就返回，'all' 全部到终态，'none' 立刻返回。
+   * @returns {Promise<Array<object>>} 和 ids 同序的任务状态（查不到的给 { id, status: 'not_found' }）
+   */
+  async waitTasks(ids = [], { wait = 'none', timeoutMs = 60 * 1000 } = {}) {
+    const list = [...new Set((ids || []).map((x) => String(x || '').trim()).filter(Boolean))].slice(0, 50);
+    const read = async () => Promise.all(list.map(async (id) => {
+      try { return await this.getTaskStatus(id); }
+      catch { return { id, status: 'not_found' }; }
+    }));
+    const deadline = Date.now() + Math.max(0, Math.min(Number(timeoutMs) || 0, 10 * 60 * 1000));
+    for (;;) {
+      const all = await read();
+      const done = all.filter((t) => TERMINAL.includes(t.status) || t.status === 'not_found');
+      if (wait === 'none' || !list.length) return all;
+      if (wait === 'any' && done.length > 0) return all;
+      if (wait === 'all' && done.length === all.length) return all;
+      if (Date.now() >= deadline) return all;
+      await sleep(400);
+    }
+  }
+
+  // ── 设备网络（mine: 目标、mesh: 任务号） ───────────────────────────────────
+
+  /** 交给另一台设备；选到本机时返回 { local } */
+  async _submitMeshTask(agentId, prompt, options = {}) {
+    const glue = require('./mesh/glue');
+    const metadata = {};
+    if (options.workspace) metadata.workspace = options.workspace;
+    const prevMesh = isMeshTaskId(options.previousTaskId) ? options.previousTaskId : undefined;
+    const r = await glue.submitAgentTask({
+      harnessId: agentId,
+      input: prompt,
+      metadata,
+      previousResponseId: prevMesh,
+      idempotencyKey: options.idempotencyKey,
+    });
+    if (r.local) return { local: r.local };
+    this.trackMeshTask(r.id, {
+      agentId: `mine:${r.target}@${r.device}`,
+      device: r.device,
+      prompt,
+      parentTaskId: options.parentTaskId || null,
+      sessionKey: options.sessionKey || String(agentId).trim(),
+      sessionInstanceId: options.sessionInstanceId || null,
+      workingDir: options.workingDir || null,
+      mode: options.mode || 'direct',
+      previousTaskId: options.previousTaskId || null,
+      response: r.response,
+    });
+    return { taskId: r.id, device: r.device };
+  }
+
+  /**
+   * 在本机记下一个跑在别的设备上的任务，并跟着远端更新状态和结果。
+   * 这样任务树（父子关系）、游乐场、getTaskStatus 都和本机任务一样用。
+   */
+  trackMeshTask(taskId, info = {}) {
+    const db = this._getDb();
+    const now = Date.now();
+    db.prepare(`
+      INSERT OR IGNORE INTO agent_tasks (id, agent_id, prompt, context, status, created_at, started_at)
+      VALUES (?, ?, ?, ?, 'running', ?, ?)
+    `).run(
+      taskId,
+      info.agentId || 'mine:',
+      String(info.prompt || ''),
+      JSON.stringify({
+        mesh: true,
+        meshDevice: info.device || null,
+        workingDir: info.workingDir || null,
+        mode: info.mode || 'direct',
+        parentTaskId: info.parentTaskId || null,
+        sessionKey: info.sessionKey || info.agentId || null,
+        sessionInstanceId: info.sessionInstanceId || null,
+        previousTaskId: info.previousTaskId || null,
+        callContext: 'owner',
+      }),
+      now,
+      now,
+    );
+    this.taskMetaCache.set(taskId, {
+      agentId: info.agentId,
+      sessionKey: info.sessionKey || info.agentId,
+      parentTaskId: info.parentTaskId || null,
+      sessionInstanceId: info.sessionInstanceId || null,
+      clientId: null,
+    });
+    if (info.response) this._applyMeshResponse(taskId, info.response);
+    this._pollMeshTask(taskId);
+  }
+
+  /** 把远端的响应写进本机镜像行。返回是否到了终态 */
+  _applyMeshResponse(taskId, resp) {
+    if (!resp || resp.status === 'unreachable') return false;
+    const status = MESH_STATUS[resp.status] || 'running';
+    const text = meshOutputText(resp);
+    const db = this._getDb();
+    const row = db.prepare('SELECT status, result FROM agent_tasks WHERE id = ?').get(taskId);
+    if (!row) return true;
+    if (TERMINAL.includes(row.status)) return true;
+    let prev = {};
+    try { prev = row.result ? JSON.parse(row.result) : {}; } catch { prev = {}; }
+    const result = {
+      ...prev,
+      output: text,
+      summary: text,
+      device: (resp.metadata?.mesh_device || resp.metadata?.device) || prev.device || null,
+      remoteHarness: resp.metadata?.harness_id || prev.remoteHarness || null,
+      remoteSteps: Number.isFinite(resp.step_count) ? resp.step_count : (prev.remoteSteps ?? null),
+    };
+    if (TERMINAL.includes(status)) {
+      const error = status === 'completed' ? null : (resp.error?.message || text || status);
+      db.prepare('UPDATE agent_tasks SET status = ?, result = ?, error = ?, completed_at = ? WHERE id = ?')
+        .run(status, JSON.stringify(result), error, Date.now(), taskId);
+      return true;
+    }
+    db.prepare("UPDATE agent_tasks SET status = 'running', result = ? WHERE id = ?").run(JSON.stringify(result), taskId);
+    return false;
+  }
+
+  /** 每秒查一次远端，连不上时慢慢放宽；最多跟 6 小时 */
+  _pollMeshTask(taskId) {
+    if (this._meshPollers.has(taskId)) return;
+    const glue = require('./mesh/glue');
+    const started = Date.now();
+    let delay = 1000;
+    let timer = null;
+    let stopped = false;
+    const stop = () => { stopped = true; if (timer) clearTimeout(timer); this._meshPollers.delete(taskId); };
+    const tick = async () => {
+      if (stopped) return;
+      let terminal = false;
+      try {
+        const resp = await glue.fetchAgentTask(taskId, 'get');
+        if (resp.status === 'unreachable') {
+          delay = Math.min(delay * 2, 15000);
+        } else {
+          delay = 1000;
+          terminal = this._applyMeshResponse(taskId, resp);
+        }
+      } catch (e) {
+        delay = Math.min(delay * 2, 15000);
+      }
+      if (terminal || Date.now() - started > 6 * 3600 * 1000) {
+        if (terminal) {
+          try { this._notifyTaskTerminal(taskId, await this.getTaskStatus(taskId)); } catch { /* 行没了 */ }
+        }
+        stop();
+        return;
+      }
+      timer = setTimeout(tick, delay);
+      timer.unref?.();
+    };
+    this._meshPollers.set(taskId, { stop });
+    timer = setTimeout(tick, delay);
+    timer.unref?.();
+  }
+
+  /** 应用重启或设备网络重新连上后，接着跟还没做完的远端任务 */
+  resumeMeshTasks() {
+    try {
+      const rows = this._getDb().prepare(`
+        SELECT id FROM agent_tasks WHERE id LIKE 'mesh:%' AND status IN ('pending', 'running')
+      `).all();
+      for (const r of rows) this._pollMeshTask(r.id);
+      return rows.length;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** 子任务（直接的孩子），按创建时间排 */
+  listChildTasks(parentId, limit = 200) {
+    if (!parentId) return [];
+    try {
+      return this._getDb().prepare(`
+        SELECT * FROM agent_tasks
+        WHERE json_extract(context, '$.parentTaskId') = ?
+        ORDER BY created_at ASC
+        LIMIT ?
+      `).all(String(parentId), limit).map((t) => ({
+        ...t,
+        context: t.context ? safeJson(t.context, {}) : {},
+        result: t.result ? safeJson(t.result, null) : null,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /** 派发目标：本机智能体 + 我的其他设备上的（mine:x、mine:x@设备） */
+  async listDispatchTargets(options = {}) {
+    const local = await this.listAvailableAgents(options);
+    let mesh = [];
+    try {
+      mesh = require('./mesh/glue').extraHarnesses().map((h) => ({
+        id: h.id,
+        name: h.name,
+        type: 'mine',
+        base: h.base || null,
+        device: h.device || null,
+        description: h.device ? `在我的设备「${h.device}」上执行` : '在我的设备里自动挑一台在线的执行',
+      }));
+    } catch { /* 设备网络没启动 */ }
+    return [...local, ...mesh];
   }
 
   /**
@@ -2429,6 +2704,16 @@ class AgentExecutor extends EventEmitter {
    * 取消单个任务（进程已退出时也更新 DB 状态）
    */
   async cancel(taskId) {
+    if (isMeshTaskId(taskId)) {
+      const resp = await require('./mesh/glue').fetchAgentTask(taskId, 'cancel');
+      this._applyMeshResponse(taskId, resp);
+      this._meshPollers.get(taskId)?.stop();
+      const payload = this._persistCancelledTask(taskId, null);
+      if (resp.status === 'unreachable') {
+        return { success: !!payload, error: resp.error?.message, unreachable: true };
+      }
+      return { success: true, cliSessionId: null };
+    }
     const task = this.runningTasks.get(taskId);
     const cliSid = normalizeCliSessionId(task?.cli_session_id);
     if (task?.process) {
@@ -2611,6 +2896,23 @@ class AgentExecutor extends EventEmitter {
     const db = this._getDb();
     const task = db.prepare('SELECT * FROM agent_tasks WHERE id = ?').get(taskId);
 
+    if (!task && isMeshTaskId(taskId)) {
+      // 本机没有镜像（比如别的入口派的）：直接问那台设备
+      const resp = await require('./mesh/glue').fetchAgentTask(taskId, 'get');
+      if (resp.httpStatus === 404) throw new Error('Task not found');
+      const text = meshOutputText(resp);
+      return {
+        id: taskId,
+        agent_id: resp.metadata?.harness_id ? `mine:${resp.metadata.harness_id}` : 'mine:',
+        prompt: '',
+        context: { mesh: true, meshDevice: (resp.metadata?.mesh_device || resp.metadata?.device) || null },
+        status: resp.status === 'unreachable' ? 'unreachable' : (MESH_STATUS[resp.status] || 'running'),
+        result: text ? { output: text, summary: text, device: (resp.metadata?.mesh_device || resp.metadata?.device) || null } : null,
+        error: resp.error?.message || null,
+        steps: [],
+        files: [],
+      };
+    }
     if (!task) {
       throw new Error('Task not found');
     }
@@ -2714,6 +3016,8 @@ module.exports.canonicalBuiltinAgentId = canonicalBuiltinAgentId;
 module.exports.invalidateAgentListCache = invalidateAgentListCache;
 module.exports.taskWaitAlive = taskWaitAlive;
 module.exports.taskActivityMark = taskActivityMark;
+module.exports.isMeshTarget = isMeshTarget;
+module.exports.isMeshTaskId = isMeshTaskId;
 module.exports.buildClaudeCodeArgs = buildClaudeCodeArgs;
 module.exports.buildClaudeContinueArgs = buildClaudeContinueArgs;
 module.exports.buildClaudeStreamFlags = buildClaudeStreamFlags;

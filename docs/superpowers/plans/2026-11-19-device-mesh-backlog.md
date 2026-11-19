@@ -47,7 +47,10 @@
 | 局域网广播发现（断网也能找到本账号设备） | ✅ | f9b9032 |
 | 路由里 `/xx` 点名执行者；路由明细显示「指定」和执行设备 | ✅ | 842e318 |
 | 设备名称统一：交易页、盘点「改名」、`@名称`、设备心跳上报 | ✅ | 7285a23 |
-| 端到端演示 `scripts/mesh-demo.js`（33 项）、单测 | ✅ | 各提交 |
+| E2-1 执行器认识 `mine:`：MCP `tb_dispatch_agent`、游乐场 `/codex@studio` 派到其他设备；本机镜像远端任务 | ✅ | 7a7cc37 |
+| E4-1 任务树：`metadata.parent_id`、`children`、`?tree=1`、`?parent_id=` | ✅ | 7a7cc37 |
+| E4-3 MCP 后台派活：`background`、`previous_task_id`、`tb_task_status(wait any/all)`；无依赖子任务并行 | ✅ | 7a7cc37 |
+| 端到端演示 `scripts/mesh-demo.js`（44 项）、单测 | ✅ | 各提交 |
 | 设计文档、实现方案、界面原型（基于最新版真实界面） | ✅ | 18d9128 等 |
 
 ---
@@ -73,7 +76,7 @@
 
 | ID | 任务 | 要改的地方 | 验收 | 优先级 | 估算 |
 |---|---|---|---|---|---|
-| E2-1 | 执行器认识 `mine:` 目标：MCP `tb_dispatch_agent`、游乐场（IPC）都能派到其他设备 | `agent-executor.js`（新增 `_dispatchMeshAndWait`）、`ipc-handlers-agent.js` | 主智能体在本机经 MCP 把子任务派到 studio；游乐场 `/codex@studio` 生效 | P0 | 3 天 |
+| E2-1 ✅ | 执行器认识 `mine:` 目标：MCP `tb_dispatch_agent`、游乐场（IPC）都能派到其他设备 | `agent-executor.js`（新增 `_dispatchMeshAndWait`）、`ipc-handlers-agent.js` | 主智能体在本机经 MCP 把子任务派到 studio；游乐场 `/codex@studio` 生效 | P0 | 3 天 |
 | E2-2 | 模型「我的设备」层排进降级链：本机 → 我的设备 → 免费 → 社区 → 付费；首 token 前失败换设备 | `local-gateway.js`（`enabledProviders` 加 mesh 虚拟源）、`gateway-cooldown` | 设计 §14 M3 验收 | P1 | 3 天 |
 | E2-3 | 统计：`local-stats` 记 `route='mesh'`、发起设备、执行设备 | `local-stats.js`、`agent-http.js` | 盘点能按「发起 → 执行」看 | P2 | 1 天 |
 
@@ -90,9 +93,9 @@
 
 | ID | 任务 | 要改的地方 | 验收 | 优先级 | 估算 |
 |---|---|---|---|---|---|
-| E4-1 | 任务树：请求可带 `metadata.parent_id`（MCP 派活自动带）；`GET /v1/agent/responses/{id}` 返回 `children`，`?tree=1` 返回整棵树；`GET /v1/agent/responses?parent_id=` | `agent-http.js`、`agent-executor.js`（`agent_tasks.context.parentTaskId` 已有） | 主任务能看到所有子任务和状态，包括其他设备上的 | P1 | 2 天 |
+| E4-1 ✅ | 任务树：请求可带 `metadata.parent_id`（MCP 派活自动带）；`GET /v1/agent/responses/{id}` 返回 `children`，`?tree=1` 返回整棵树；`GET /v1/agent/responses?parent_id=` | `agent-http.js`、`agent-executor.js`（`agent_tasks.context.parentTaskId` 已有） | 主任务能看到所有子任务和状态，包括其他设备上的 | P1 | 2 天 |
 | E4-2 | 新状态 `requires_input`：子任务用 MCP `tb_ask(question)` 停下提问；主任务按 D16 在检查点停下等人（拆解后、合并前、按条件），`metadata.checkpoints: "none"` 可关；用 `previous_response_id` 回答后接着做 | `agent-http.js`（`taskToResponse`）、`agent-dispatch-mcp.js`、`agent-executor.js` | 子任务提问 → 主智能体回答 → 子任务续上原会话完成 | P1 | 2 天 |
-| E4-3 | MCP 异步派活：`tb_dispatch_agent` 加 `background`、`previous_task_id`；新增 `tb_task_status(ids, wait:"any")` | `agent-dispatch-mcp.js`、`agent-dispatch-server.js` | 主智能体一次派出 3 个无依赖子任务，并行执行，等任意一个完成再派依赖它的 | P1 | 2 天 |
+| E4-3 ✅ | MCP 异步派活：`tb_dispatch_agent` 加 `background`、`previous_task_id`；新增 `tb_task_status(ids, wait:"any")` | `agent-dispatch-mcp.js`、`agent-dispatch-server.js` | 主智能体一次派出 3 个无依赖子任务，并行执行，等任意一个完成再派依赖它的 | P1 | 2 天 |
 | E4-4 | 并行隔离（D15）：会改代码的子任务默认各用一个 git worktree 和分支 `tb/collab/<父任务>/<子任务>`；请求可带 `metadata.branch`、`metadata.readonly`；工作区配置 `worktree_init`（如 `npm ci`） | `mesh/workspaces.js`、`agent-http.js` | 3 个子任务同时改同一仓库互不覆盖 | P1 | 2 天 |
 | E4-5 | 同一会话加锁：同时续同一个子任务时第二个排队或返回「进行中」 | `agent-executor.js` | 并发续同一任务不会同时 `--resume` | P1 | 0.5 天 |
 | E4-6 | 产出回收：`GET /v1/agent/responses/{id}/bundle`、MCP `tb_collect`；取回到 `tb/mesh/<任务号>` 分支（设计 §8.4.3，命令已在 git 2.43 验证） | `mesh/git-bundle.js`、`agent-http.js`、`tunnel.js` 白名单 | 主智能体收齐子任务改动合并、跑测试；合并到你的分支前停下等确认 | P1 | 3 天 |
@@ -132,3 +135,7 @@ Q1–Q7 已于 2026-11-19 按建议定下，见上面 D14–D20。剩下：
 - 改设备名称后，盘点按「名字 + 系统」合并同一台电脑的多条记录，可能暂时分成两条。
 - 出租接单上报的名称在 worker 重连后才更新。
 - 交易页以前保存过带空格的名称：能显示，但不能用来 `@`，要改一次。
+- 派到其他设备的任务：游乐场中途看不到逐条步骤，只在做完时收到结果（E4-7 做任务板时一起补：远端步骤经 SSE 转过来）。
+- 经 HTTP `stream: true` 派到其他设备的任务不记本机镜像，任务树里缺它。
+- 社区智能体还不支持 `background` 派发。
+- CLI 网关只在设备网络开着时起派发服务（桌面端一直由 `main.js` 起）。

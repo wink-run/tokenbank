@@ -15,6 +15,14 @@ const INFO_PATH = path.join(os.homedir(), '.tokenbank', 'dispatch-server.json');
  * 每次调用再读端点。启动脚本里的 TB_DISPATCH_URL 在客户端重启后会过期
  * （端口是 listen(0) 随机分配的），以 dispatch-server.json 为准。
  */
+
+/** 派发目标：本机智能体 + 我的其他设备上的（执行器没有这个方法时只给本机的） */
+function dispatchTargets(executor) {
+  return typeof executor.listDispatchTargets === 'function'
+    ? executor.listDispatchTargets()
+    : executor.listAvailableAgents();
+}
+
 function currentDispatchEndpoint() {
   try {
     const parsed = JSON.parse(fs.readFileSync(INFO_PATH, 'utf8'));
@@ -69,7 +77,7 @@ async function listAgents({ route = '' } = {}) {
     const data = await httpRequest('GET', route ? `/agents?route=${encodeURIComponent(route)}` : '/agents');
     return data.agents || [];
   }
-  const agents = await agentExecutor.listAvailableAgents();
+  const agents = await dispatchTargets(agentExecutor);
   if (!route) return agents;
   const routes = require('./agent-routes');
   const r = routes.get(route);
@@ -86,17 +94,52 @@ async function dispatchAndWait(agentId, prompt, options = {}) {
       route: options.route,
       parentSessionKey: options.parentSessionKey,
       parentSessionInstanceId: options.parentSessionInstanceId,
+      previousTaskId: options.previousTaskId,
     });
     return data.status;
   }
-  if (options.route) {
-    const routes = require('./agent-routes');
-    const r = routes.get(options.route);
-    if (r && !routes.canDispatchTo(r, agentId, await agentExecutor.listAvailableAgents())) {
-      throw new Error(`「${r.name}」的名单里没有 ${agentId}，只能派给 tb_list_agents 列出的智能体`);
-    }
-  }
+  await checkRoute(agentId, options.route);
   return agentExecutor.dispatchAndWait(agentId, prompt, options);
+}
+
+async function checkRoute(agentId, routeId) {
+  if (!routeId) return;
+  const routes = require('./agent-routes');
+  const r = routes.get(routeId);
+  if (r && !routes.canDispatchTo(r, agentId, await dispatchTargets(agentExecutor))) {
+    throw new Error(`「${r.name}」的名单里没有 ${agentId}，只能派给 tb_list_agents 列出的智能体`);
+  }
+}
+
+/** 后台派：马上返回 { taskId, agentId, device } */
+async function dispatch(agentId, prompt, options = {}) {
+  if (useHttpDispatch()) {
+    const data = await httpRequest('POST', '/dispatch', {
+      agentId,
+      prompt,
+      background: true,
+      workingDir: options.workingDir,
+      parentTaskId: options.parentTaskId,
+      route: options.route,
+      parentSessionKey: options.parentSessionKey,
+      parentSessionInstanceId: options.parentSessionInstanceId,
+      previousTaskId: options.previousTaskId,
+    });
+    return data.task;
+  }
+  await checkRoute(agentId, options.route);
+  return agentExecutor.dispatch(agentId, prompt, options);
+}
+
+/** 查几个任务的状态；wait='any'|'all' 时等到条件满足或超时 */
+async function taskStatus(ids, { wait = 'none', timeoutMs } = {}) {
+  if (useHttpDispatch()) {
+    const q = new URLSearchParams({ ids: ids.join(','), wait });
+    if (timeoutMs) q.set('timeout_ms', String(timeoutMs));
+    const data = await httpRequest('GET', `/tasks?${q.toString()}`);
+    return data.tasks || [];
+  }
+  return agentExecutor.waitTasks(ids, { wait, timeoutMs });
 }
 
 function resolvePrompt(ref, args, clientId = '') {
@@ -111,5 +154,7 @@ module.exports = {
   useHttpDispatch,
   listAgents,
   dispatchAndWait,
+  dispatch,
+  taskStatus,
   resolvePrompt,
 };

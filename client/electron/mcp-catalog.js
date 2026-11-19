@@ -110,7 +110,7 @@ function fallbackCatalog() {
       category: 'agent',
       categoryGroup: 'tokenbank',
       icon: '🔗',
-      tools: ['tb_list_agents', 'tb_dispatch_agent', 'tb_get_prompt'],
+      tools: ['tb_list_agents', 'tb_dispatch_agent', 'tb_task_status', 'tb_get_prompt'],
       tags: ['内置', '编排'],
     },
     configFields: [],

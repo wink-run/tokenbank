@@ -110,10 +110,14 @@ const fs = require('fs'); const path = require('path'); const crypto = require('
 const args = process.argv.slice(2);
 if (args.includes('--version')) { console.log('2.0.0 (Claude Code, mesh demo)'); process.exit(0); }
 const prompt = args[args.length - 1];
-const sid = crypto.randomUUID();
+const ri = args.indexOf('--resume');
+const resumed = ri >= 0 ? args[ri + 1] : '';
+const sid = resumed || crypto.randomUUID();
+// 提示词里带 SLOW 就先等 3 秒，用来看几个子任务是不是并行跑
+if (prompt.includes('SLOW')) { const end = Date.now() + 3000; while (Date.now() < end) {} }
 fs.writeFileSync(path.join(process.cwd(), 'mesh-proof.txt'), 'written on device B for: ' + prompt + '\\n');
 const files = fs.readdirSync(process.cwd()).filter((f) => !f.startsWith('.')).sort();
-const text = '已在设备 B 的工作区执行「' + prompt + '」。工作目录：' + process.cwd() + '。目录里现在有：' + files.join(', ');
+const text = (resumed ? '（续上会话 ' + resumed + '）' : '') + '已在设备 B 的工作区执行「' + prompt + '」。工作目录：' + process.cwd() + '。目录里现在有：' + files.join(', ');
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 out({ type: 'system', subtype: 'init', session_id: sid, cwd: process.cwd() });
 out({ type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text }] } });
@@ -155,6 +159,36 @@ function startGateway(dev, envExtra = {}) {
   });
   procs.push(p);
   return p;
+}
+
+/** 起一个派发 MCP（和主智能体用的同一个 stdio 进程），按 JSON-RPC 调工具 */
+function startMcp(dev, env = {}) {
+  const p = spawn(process.execPath, [path.join(CLIENT, 'electron', 'agent-dispatch-mcp.js')], {
+    cwd: CLIENT, env: { ...process.env, HOME: dev.home, ...env }, stdio: ['pipe', 'pipe', 'ignore'],
+  });
+  procs.push(p);
+  let buf = '';
+  let nextId = 1;
+  const waiting = new Map();
+  p.stdout.on('data', (d) => {
+    buf += d;
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i); buf = buf.slice(i + 1);
+      let msg; try { msg = JSON.parse(line); } catch { continue; }
+      const w = waiting.get(msg.id); if (w) { waiting.delete(msg.id); w(msg); }
+    }
+  });
+  const rpc = (method, params = {}) => new Promise((resolve) => {
+    const id = nextId++;
+    waiting.set(id, resolve);
+    p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+  });
+  const call = async (name, args = {}) => {
+    const r = await rpc('tools/call', { name, arguments: args });
+    return { text: (r.result?.content || []).map((c) => c.text).join('\n'), isError: !!r.result?.isError };
+  };
+  return { rpc, call, stop: () => p.kill() };
 }
 
 function agentKey(dev) {
@@ -315,6 +349,55 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   check('名称带空格时拒绝', bad.status === 400, bad.json?.error?.message);
   const noKey = await req(gwA, 'PUT', '/v1/devices/self/name', { body: { name: 'x' } });
   check('没有 Key 不能改名称', noKey.status === 401);
+
+  // 3c. 主智能体在 A 上用 MCP 派活给 B：同步、后台并行、续上一轮、任务树
+  console.log('\n[3c] 派活：MCP 派到其他设备、后台并行、任务树');
+  const parentId = taskId;   // 拿前面那个任务当「父任务」，子任务都挂在它下面
+  const mcp = startMcp(A, { TB_PARENT_TASK_ID: parentId });
+  await mcp.rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'mesh-demo', version: '1' } });
+  const toolList = await mcp.rpc('tools/list');
+  const toolNames = (toolList.result?.tools || []).map((t) => t.name);
+  const dispatchSchema = (toolList.result?.tools || []).find((t) => t.name === 'tb_dispatch_agent')?.inputSchema?.properties || {};
+  check('MCP 有 tb_task_status，tb_dispatch_agent 有 background / previous_task_id',
+    toolNames.includes('tb_task_status') && !!dispatchSchema.background && !!dispatchSchema.previous_task_id, toolNames.join(', '));
+  const listed = await mcp.call('tb_list_agents');
+  check('tb_list_agents 列出我的其他设备上的智能体', /mine:claude-code@studio: .*\[我的设备\]/.test(listed.text),
+    (listed.text.split('\n').find((l) => l.includes('mine:claude-code@studio')) || '').trim());
+
+  const syncRun = await mcp.call('tb_dispatch_agent', { agent_id: 'mine:claude-code@studio', prompt: 'MCP 同步派活' });
+  check('tb_dispatch_agent 派到 studio 并等到结果（执行器认识 mine:）', !syncRun.isError && /已在设备 B/.test(syncRun.text), syncRun.text.slice(0, 120));
+
+  const t0 = Date.now();
+  const bg1 = await mcp.call('tb_dispatch_agent', { agent_id: 'mine:claude-code@studio', prompt: 'SLOW 子任务一', background: true });
+  const bg2 = await mcp.call('tb_dispatch_agent', { agent_id: 'mine:claude-code@studio', prompt: 'SLOW 子任务二', background: true });
+  const idOf = (t) => (t.match(/任务号：(mesh:\S+)/) || [])[1] || '';
+  const id1 = idOf(bg1.text);
+  const id2 = idOf(bg2.text);
+  check('background=true 马上返回任务号', !!id1 && !!id2 && Date.now() - t0 < 2500, `${id1}  ${id2}  用时 ${Date.now() - t0}ms`);
+  const anyDone = await mcp.call('tb_task_status', { ids: [id1, id2], wait: 'any', timeout_seconds: 30 });
+  check('tb_task_status(wait="any") 有一个做完就返回', /完成/.test(anyDone.text), anyDone.text.split('\n').slice(0, 2).join(' | '));
+  const allDone = await mcp.call('tb_task_status', { ids: [id1, id2], wait: 'all', timeout_seconds: 30 });
+  const both = (allDone.text.match(/\] 完成/g) || []).length === 2;
+  const took = Date.now() - t0;
+  check('两个各要 3 秒的子任务并行跑完（总用时不到 6 秒）', both && took < 5800, `总用时 ${took}ms`);
+
+  const again = await mcp.call('tb_dispatch_agent', { agent_id: 'mine:claude-code@studio', prompt: '按反馈再改一版', previous_task_id: id1 });
+  check('previous_task_id：在同一台设备上续上原来的会话', !again.isError && /续上会话/.test(again.text), again.text.slice(0, 120));
+  mcp.stop();
+
+  const viaHttp = await req(gwA, 'POST', '/v1/agent/responses', {
+    headers: auth,
+    body: { input: 'HTTP 派的子任务', metadata: { harness_id: 'mine:claude-code@studio', parent_id: parentId } },
+  });
+  check('HTTP 接口带 metadata.parent_id 派子任务', viaHttp.status === 200 && viaHttp.json?.status === 'completed');
+  const parentView = await req(gwA, 'GET', `/v1/agent/responses/${encodeURIComponent(parentId)}`, { headers: auth });
+  const kids = parentView.json?.children || [];
+  check('GET 父任务带 children（MCP 和 HTTP 派的都在，都已完成，标着设备）', kids.length === 5 && kids.every((k) => k.status === 'completed' && k.metadata?.parent_id === parentId && k.metadata?.mesh_device === 'studio'),
+    kids.map((k) => `${k.id.slice(-8)} ${k.status} @${k.metadata?.mesh_device}`).join(' | '));
+  const byParent = await req(gwA, 'GET', `/v1/agent/responses?parent_id=${encodeURIComponent(parentId)}`, { headers: auth });
+  check('GET /v1/agent/responses?parent_id= 列出子任务', byParent.status === 200 && (byParent.json?.data || []).length === 5);
+  const treeView = await req(gwA, 'GET', `/v1/agent/responses/${encodeURIComponent(parentId)}?tree=1`, { headers: auth });
+  check('?tree=1 返回整棵树', Array.isArray(treeView.json?.children) && treeView.json.children.every((k) => Array.isArray(k.children)));
 
   // 4. 防回环与边界
   console.log('\n[4] 安全边界');

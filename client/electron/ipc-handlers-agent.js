@@ -82,11 +82,14 @@ function registerAgentHandlers() {
     try {
       // 游乐场「聚合入口」带着智能体路由来：和智能体接口用同一个解析（谁来派、编排模式、按路由的规则和名单）
       if (options.agentRouteId) {
-        // 「/codex 修一下」：点名本机的智能体就直接交给它，跳过主智能体的挑选
+        // 「/codex 修一下」「/codex@mini 修一下」：点名了就直接交给它，跳过主智能体的挑选。
+        // 点名到别的设备（mine:…）也一样交给执行器，由它转到那台设备
+        const meshNode = require('./mesh/glue').getNode();
         const designation = require('./agent-designation').resolveDesignation(prompt, {
           agents: await agentExecutor.listAvailableAgents(),
+          devices: meshNode ? meshNode.directory.list() : [],
         });
-        if (designation && !String(designation.harnessId).startsWith('mine:')) {
+        if (designation) {
           const { agentRouteId, mainAgentId, ...rest } = options;
           const result = await agentExecutor.execute(designation.harnessId, designation.text, rest);
           return { success: true, ...result, designated: designation.raw };

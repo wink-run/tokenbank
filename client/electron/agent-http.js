@@ -38,6 +38,8 @@ function readBody(req) {
 function parseAgentRoute(method, cleanPath) {
   if (method === 'GET' && cleanPath === '/v1/agent/harnesses') return { op: 'list' };
   if (method === 'POST' && cleanPath === '/v1/agent/responses') return { op: 'create' };
+  // 列任务：?parent_id=<父任务> 列它的子任务
+  if (method === 'GET' && cleanPath === '/v1/agent/responses') return { op: 'list_responses' };
   const m = String(cleanPath || '').match(/^\/v1\/agent\/responses\/([^/]+)(?:\/(cancel))?$/);
   if (!m) return null;
   let id = m[1];
@@ -45,6 +47,12 @@ function parseAgentRoute(method, cleanPath) {
   if (method === 'GET' && !m[2]) return { op: 'get', id };
   if (method === 'POST' && m[2] === 'cancel') return { op: 'cancel', id };
   return null;
+}
+
+/** metadata.parent_id：这个任务是哪个任务派出来的（任务树） */
+function parentIdFromBody(body) {
+  const v = body?.metadata?.parent_id;
+  return typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : null;
 }
 
 function inputText(input) {
@@ -112,16 +120,44 @@ function taskToResponse(task) {
   const text = task?.result?.summary || task?.result?.output || task?.error || '';
   const created = Number(task?.created_at) || 0;
   const done = Number(task?.completed_at) || 0;
+  const ctx = task?.context && typeof task.context === 'object' ? task.context : {};
+  const metadata = { harness_id: task.agent_id || null };
+  if (ctx.parentTaskId) metadata.parent_id = ctx.parentTaskId;
+  const device = task?.result?.device || ctx.meshDevice;
+  if (device) metadata.mesh_device = device;
   const response = {
     id: task.id,
     object: 'response',
     status: statusMap[task.status] || task.status || 'in_progress',
-    metadata: { harness_id: task.agent_id || null },
+    metadata,
     output: text
       ? [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: String(text).slice(0, 20000) }] }]
       : [],
   };
   if (created && done && done >= created) response.usage = { duration_ms: done - created };
+  // 进展：本机任务数步骤；跑在别的设备上的用那台设备报的
+  if (Array.isArray(task?.steps)) response.step_count = task.steps.length;
+  if (Number.isFinite(task?.result?.remoteSteps)) response.step_count = task.result.remoteSteps;
+  return response;
+}
+
+/** 任务树里的一个节点：只要能看懂进度的几项，不带完整步骤 */
+function taskNode(task) {
+  const r = taskToResponse(task);
+  delete r.step_count;
+  return r;
+}
+
+/** children：直接的子任务；tree=true 时一直往下展开（最多 6 层、500 个） */
+function attachChildren(executor, response, { tree = false } = {}) {
+  let budget = 500;
+  const walk = (node, depth) => {
+    const kids = executor.listChildTasks(node.id).slice(0, Math.max(0, budget));
+    budget -= kids.length;
+    node.children = kids.map(taskNode);
+    if (tree && depth < 6) for (const k of node.children) walk(k, depth + 1);
+  };
+  walk(response, 1);
   return response;
 }
 
@@ -349,13 +385,41 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
       sendJson(res, 200, { object: 'list', data: boundAgent ? all.filter(h => h.id === boundAgent) : all });
       return true;
     }
-    // mesh:<设备>:<任务号>：结果在那台设备上，转过去查或取消
-    if ((route.op === 'get' || route.op === 'cancel') && await meshGlue.routeAgentById({ id: route.id, op: route.op, res })) {
+    const query = new URL(req.url || '/', 'http://x').searchParams;
+    const tree = ['1', 'true'].includes(String(query.get('tree') || ''));
+    // mesh:<设备>:<任务号>：结果在那台设备上，转过去查；它派出的子任务记在本机，接在后面
+    if (route.op === 'get' && meshGlue.parseMeshTaskId(route.id)) {
+      const out = await meshGlue.fetchAgentTask(route.id, 'get');
+      const code = out.status === 'unreachable' ? (out.httpStatus || 503) : (out.httpStatus || 200);
+      delete out.httpStatus;
+      if (code < 400) attachChildren(executor, out, { tree });
+      sendJson(res, code, out);
+      return true;
+    }
+    if (route.op === 'cancel' && meshGlue.parseMeshTaskId(route.id)) {
+      // 走执行器：转给那台设备取消，本机镜像同时收尾
+      const r = await executor.cancel(route.id);
+      const out = r.unreachable
+        ? { id: route.id, object: 'response', status: 'unreachable', error: { message: r.error, type: 'mesh_unreachable' } }
+        : await meshGlue.fetchAgentTask(route.id, 'get');
+      delete out.httpStatus;
+      sendJson(res, out.status === 'unreachable' ? 503 : 200, out);
       return true;
     }
     if (route.op === 'get') {
       const task = await executor.getTaskStatus(route.id);
-      sendJson(res, 200, taskToResponse(task));
+      sendJson(res, 200, attachChildren(executor, taskToResponse(task), { tree }));
+      return true;
+    }
+    if (route.op === 'list_responses') {
+      const parentId = String(query.get('parent_id') || '').trim();
+      if (!parentId) {
+        sendJson(res, 400, { error: { message: 'parent_id is required', type: 'invalid_request_error' } });
+        return true;
+      }
+      const limit = Math.min(Math.max(Number(query.get('limit')) || 200, 1), 500);
+      const data = executor.listChildTasks(parentId, limit).map(taskNode);
+      sendJson(res, 200, { object: 'list', parent_id: parentId, data });
       return true;
     }
     if (route.op === 'cancel') {
@@ -401,6 +465,19 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
       const r = await meshGlue.routeAgentCreate({ harnessId, body, req, res, extraMeta: designationMeta });
       if (r.handled) {
         if (r.device) logExtra = { ...logExtra, device: r.device };
+        // 本机记一行镜像：任务树里看得到它，GET 本机也能查
+        if (r.ok && r.taskId) {
+          try {
+            executor.trackMeshTask(r.taskId, {
+              agentId: `mine:${r.target}@${r.device}`,
+              device: r.device,
+              prompt,
+              parentTaskId: parentIdFromBody(body),
+              mode: 'direct',
+              response: r.response,
+            });
+          } catch { /* 镜像失败不影响任务 */ }
+        }
         report({ ok: !!r.ok, error: r.error, prompt, harnessId });
         return true;
       }
@@ -500,6 +577,7 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
       // 只有请求显式打开 stream 才边收边推。background 马上返回，不占着连接。
       stream: !!body.stream && !body.background,
       callContext: callContext || undefined,
+      parentTaskId: parentIdFromBody(body) || undefined,
     });
     // 等结果之前就记住键，连接断开后同样的请求接上这一单
     rememberIdempotency(idem, raw, null, taskId);

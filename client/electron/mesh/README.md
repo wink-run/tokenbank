@@ -20,7 +20,7 @@ node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.
 - 设备 A「macbook」：发起方；
 - 设备 B「mini」：有一个模拟的本地模型 `demo-model`、一个模拟的 Claude Code、一个 git 工作区 `demo`。
 
-两台之间是真实的 iroh QUIC 连接。两台都**不写对端地址**，靠局域网广播找到对方后直连。脚本依次检查 33 项：局域网发现、入网和设备目录、模型统一入口（流式、钉设备）、智能体统一入口（异步、流式、幂等、真实工作区、路由里 /xx 点名执行）、设备名称、防回环、伪造头、其他账号拒绝、断线。加 `--keep` 跑完不退出，可以继续手动 `curl` 设备 A。
+两台之间是真实的 iroh QUIC 连接。两台都**不写对端地址**，靠局域网广播找到对方后直连。脚本依次检查 44 项：局域网发现、入网和设备目录、模型统一入口（流式、钉设备）、智能体统一入口（异步、流式、幂等、真实工作区、路由里 /xx 点名执行）、设备名称、主智能体经 MCP 派到其他设备（同步、后台并行、续上一轮）、任务树、防回环、伪造头、其他账号拒绝、断线。加 `--keep` 跑完不退出，可以继续手动 `curl` 设备 A。
 
 ## 统一入口
 
@@ -31,7 +31,9 @@ node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.
 | 智能体 | `metadata.harness_id: "mine:claude-code"`（自动选）/ `"mine:claude-code@mini"`（指定）；`metadata.workspace: "demo"` |
 | 设备名称 | 和交易页「设备名称」是同一个（`~/.llm-agent/config.json` 的 `name`）。`PUT /v1/devices/{设备}/name` `{"name":"studio"}`，或盘点页「改名」；之后 `@studio` 和电脑名一样能用 |
 | 点名执行 | 调智能体路由时输入以 `/codex 修一下` 或 `/codex@mini 修一下` 开头：跳过主智能体，直接交给点名的智能体（见 `../agent-designation.js`） |
-| 远端任务 | 任务号是 `mesh:<device_id>:<远端任务号>`，`GET /v1/agent/responses/{id}`、`/cancel` 自动转到那台设备 |
+| 远端任务 | 任务号是 `mesh:<device_id>:<远端任务号>`，`GET /v1/agent/responses/{id}`、`/cancel` 自动转到那台设备。本机另记一行镜像（`agent_tasks`），由轮询跟着远端更新，应用重启后接着跟 |
+| 子任务 / 任务树 | 请求带 `metadata.parent_id`。`GET /v1/agent/responses/{id}` 带 `children`，`?tree=1` 展开整棵树；`GET /v1/agent/responses?parent_id=` 列子任务。别的设备上的子任务也在里面，标着 `metadata.mesh_device` |
+| 主智能体派活（MCP） | `tb_dispatch_agent` 的 `agent_id` 可以是 `mine:codex@studio`；`background: true` 马上返回任务号，`previous_task_id` 接着之前的会话；`tb_task_status(ids, wait: "any" \| "all")` 收结果。互不依赖的子任务并行跑 |
 | 列表 | `/v1/models`、`/v1/agent/harnesses` 会带上其他设备的 |
 
 ## 模块
@@ -49,7 +51,7 @@ node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.
 | `node.js` | 节点：拨号、握手、presence、接收隧道请求、回环代理 |
 | `glue.js` | 接进网关：`/v1/devices`、模型、智能体、本机描述 |
 
-接入点：`local-gateway.js`（`/v1/models`、`/v1/devices`、模型请求、`knownKey`）、`agent-http.js`（`mine:` 寻址、`mesh:` 任务号、本人模式、工作区）、`cli/gateway.js`（启动和退出）。
+接入点：`local-gateway.js`（`/v1/models`、`/v1/devices`、模型请求、`knownKey`）、`agent-http.js`（`mine:` 寻址、`mesh:` 任务号、本人模式、工作区、任务树）、`agent-executor.js`（`mine:` 目标、远端任务镜像、后台派发、`waitTasks`）、`agent-dispatch-*`（MCP 派活）、`cli/gateway.js`（启动和退出；设备网络开着时也起派发服务）。
 
 ## 配置（原型阶段手写）
 
@@ -96,4 +98,7 @@ node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.
 - 设备描述里还没有会话列表（`mine:session:` 未实现）、负载是固定值。
 - 产出：小文件随结果返回（现有逻辑），git bundle 和远程只读查看（设计 §8.4.3–8.4.5）未实现。
 - 设备纳管页（UI）未做，数据接口 `/v1/devices` 已有。
+- 派到其他设备的任务，游乐场里只在做完时收到结果，中途的步骤不逐条推过来（镜像里只有进展计数 `step_count`）。
+- 经 HTTP 流式（`stream: true`）派到其他设备的任务，本机不记镜像，任务树里看不到；后台和非流式的都记。
+- 社区智能体还不能后台派（`background`）。
 - 统计里还没有 `route='mesh'`、`from_device` / `to_device`。
