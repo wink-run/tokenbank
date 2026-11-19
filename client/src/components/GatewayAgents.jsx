@@ -1,8 +1,8 @@
 // 网关页「智能体」「路由」两个标签里新加的部分：专业智能体、外部智能体、智能体路由，以及智能体接口的钥匙。
 // 宽屏一行一条（像表格），窄屏每条一张卡片，按钮至少 44px 高。
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useLang } from '../store/lang';
 import { getConfig, getLocalConfig } from '../api/adapter';
 import { resolveBrandIcon } from '../lib/brandIcons';
@@ -408,8 +408,17 @@ function TodayTaskList({ agentId, name, onClose, t }) {
 export function ProfessionalAgents() {
   const { t, lang } = useLang();
   const navigate = useNavigate();
+  const location = useLocation();
   const [reload, setReload] = useState(0);
   const { agents, blocked, stats, rentIds } = useAgentData(reload);
+  const onGateway = location.pathname === '/gateway';
+  const wasOnGateway = useRef(onGateway);
+  // 去资产里改完技能清单再回来：重拉「跑不起来」，不用重启
+  useEffect(() => {
+    const cameBack = onGateway && !wasOnGateway.current;
+    wasOnGateway.current = onGateway;
+    if (cameBack) setReload((v) => v + 1);
+  }, [onGateway]);
   const [apiFor, setApiFor] = useState('');   // 哪一行展开了「接口示例」
   const [tasksFor, setTasksFor] = useState(null);   // 弹窗里看哪个智能体今天的任务
   const [runtimeErr, setRuntimeErr] = useState('');
@@ -559,7 +568,8 @@ export function ProfessionalAgents() {
                       <span className="flex gap-2 md:justify-end [&>*]:flex-1 md:[&>*]:flex-none" onClick={e => e.stopPropagation()}>
                         {b ? (
                           <button type="button" className={BTN_PRIMARY}
-                            onClick={() => navigate('/resources', { state: { resourceType: b.reason === 'skills' ? 'skill' : 'assistant', selectKey: b.reason === 'skills' ? undefined : `r-${a.resourceId}` } })}>
+                            // 缺技能也进这条智能体模板去改，不跳到技能列表
+                            onClick={() => navigate('/resources', { state: { resourceType: 'assistant', selectKey: a.resourceId ? `r-${a.resourceId}` : undefined } })}>
                             {t('gw2.pro.fix')}
                           </button>
                         ) : (
@@ -635,9 +645,12 @@ export const MAIN_BUTTON_CLASS = BTN_MAIN;
 /** 「智能体」标签里的三个分组：一次只看一组，页面不会太长 */
 export function AgentsSubTabs({ tab, onTab, renderApps, renderRoutes }) {
   const { t } = useLang();
+  const location = useLocation();
   const setTab = onTab;
   const [counts, setCounts] = useState({ pro: 0, broken: 0, ext: 0, pending: 0 });
+  const onGateway = location.pathname === '/gateway';
   useEffect(() => {
+    if (!onGateway) return undefined;
     const api = agentApi();
     Promise.all([
       Promise.resolve(api.listAgents?.()).catch(() => null),
@@ -650,7 +663,8 @@ export function AgentsSubTabs({ tab, onTab, renderApps, renderRoutes }) {
       const ext = ex?.agents || [];
       setCounts({ pro: pros.size, broken: blockedIds.size, ext: ext.length, pending: ext.filter(a => a.status === 'pending').length });
     });
-  }, [tab]);
+    return undefined;
+  }, [tab, onGateway]);
   const items = [
     { id: 'apps', label: t('gw2.generic.title'), hint: t('gw2.generic.hint') },
     { id: 'pro', label: t('gw2.sub.pro', { n: counts.pro }), badge: counts.broken ? t('gw2.pro.broken', { n: counts.broken }) : '', tone: 'red' },

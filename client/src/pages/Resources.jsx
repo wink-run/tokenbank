@@ -1010,6 +1010,13 @@ export default function Resources() {
     return undefined;
   }, [pageActive, refreshCommunityCatalog]);
 
+  // 技能清单改完「有问题」要马上消失，不能等重启（keep-alive 不会重新挂载）
+  useEffect(() => {
+    if (!pageActive) return undefined;
+    loadAssetFlags();
+    return undefined;
+  }, [pageActive, loadAssetFlags]);
+
   // Esc 关闭编辑 / 清理模态（忙碌中不可关）
   useEffect(() => {
     if (!editorOpen && !cleanupOpen) return undefined;
@@ -2491,6 +2498,8 @@ export default function Resources() {
       setMsg(t('resources.saveOk'));
       changeViewTab('managed');
       if (res.resource) upsertResourceLocally(res.resource);
+      // 智能体技能清单、技能本身一改，缺技能状态就要按库重算
+      if (editorForm.type === 'assistant' || editorForm.type === 'skill') loadAssetFlags();
       // 新建：保存后直接启用（投射到常用应用 + 复制调用口令），并在对应类型列表里选中
       if (res.resource && !editorForm.id) {
         focusResource(res.resource);
