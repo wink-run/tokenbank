@@ -399,6 +399,30 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   const treeView = await req(gwA, 'GET', `/v1/agent/responses/${encodeURIComponent(parentId)}?tree=1`, { headers: auth });
   check('?tree=1 返回整棵树', Array.isArray(treeView.json?.children) && treeView.json.children.every((k) => Array.isArray(k.children)));
 
+  // 3d. 本机设置：接活开关、开放模型的源、工作区（盘点页选中本机时改的就是这些）
+  console.log('\n[3d] 本机设置：接活、开放模型、工作区');
+  const authB = { authorization: `Bearer ${agentKey(B)}` };
+  const devOnA = async () => ((await req(gwA, 'GET', '/v1/devices', { headers: auth })).json?.data || []).find((d) => d.device_id === 'dev-b');
+  const bShared = await devOnA();
+  check('B 开放模型时，A 看到 B 的模型源（名字、类型、模型数，没有地址和密钥）',
+    (bShared?.providers || []).length > 0 && !JSON.stringify(bShared.providers).includes('http'), JSON.stringify(bShared?.providers || []));
+  const offTasks = await req(gwB, 'PUT', '/v1/devices/self/settings', { headers: authB, body: { accept_agent_tasks: false } });
+  const hidden = await until(async () => { const d = await devOnA(); return d && d.apps.length === 0 ? d : null; }, 15000);
+  check('B 关掉「接我其他设备派来的活」后，A 看不到 B 上的应用', offTasks.status === 200 && offTasks.json?.accept_agent_tasks === false && !!hidden);
+  await req(gwB, 'PUT', '/v1/devices/self/settings', { headers: authB, body: { accept_agent_tasks: true } });
+  await until(async () => { const d = await devOnA(); return d && d.apps.length > 0; }, 15000);
+  const site = path.join(B.home, 'code', 'site');
+  fs.mkdirSync(site, { recursive: true });
+  const addWs = await req(gwB, 'POST', '/v1/devices/self/workspaces', { headers: authB, body: { path: site } });
+  check('在 B 上添加工作区：名字取目录名，路径存成 ~/…', addWs.status === 200 && (addWs.json?.workspaces || []).some((w) => w.name === 'site' && w.path === '~/code/site'),
+    JSON.stringify((addWs.json?.workspaces || []).map((w) => `${w.name}=${w.path}`)));
+  const seenWs = await until(async () => { const d = await devOnA(); return d && d.workspaces.some((w) => w.name === 'site') ? d : null; }, 15000);
+  check('A 只看到工作区的名字，看不到 B 上的路径', !!seenWs && !JSON.stringify(seenWs.workspaces).includes(B.home), JSON.stringify(seenWs?.workspaces || []));
+  const viaTunnel = await req(gwA, 'GET', '/v1/devices/self/settings', { headers: { authorization: 'Bearer x' } });
+  check('本机设置要本机的 Key', viaTunnel.status === 401);
+  const delWs = await req(gwB, 'DELETE', '/v1/devices/self/workspaces/site', { headers: authB });
+  check('删除工作区', delWs.status === 200 && !(delWs.json?.workspaces || []).some((w) => w.name === 'site'));
+
   // 4. 防回环与边界
   console.log('\n[4] 安全边界');
   const loop = await req(gwB, 'POST', '/v1/agent/responses', { headers: { authorization: `Bearer ${agentKey(B)}`, 'x-tb-mesh-hop': '1' }, body: { input: 'x', metadata: { harness_id: 'mine:claude-code' } } });

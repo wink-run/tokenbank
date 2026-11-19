@@ -1237,7 +1237,18 @@ class AgentExecutor extends EventEmitter {
     const glue = require('./mesh/glue');
     const metadata = {};
     if (options.workspace) metadata.workspace = options.workspace;
-    const prevMesh = isMeshTaskId(options.previousTaskId) ? options.previousTaskId : undefined;
+    let prevMesh = isMeshTaskId(options.previousTaskId) ? options.previousTaskId : undefined;
+    // 游乐场「接着聊」：同一个会话里上一轮派到其他设备的任务，就接着那台设备上的会话
+    if (!prevMesh && options.continueSession) {
+      try {
+        const row = this._getDb().prepare(`
+          SELECT id FROM agent_tasks
+          WHERE id LIKE 'mesh:%' AND agent_id = ? AND json_extract(context, '$.sessionKey') = ?
+          ORDER BY created_at DESC LIMIT 1
+        `).get(String(agentId).trim(), options.sessionKey || String(agentId).trim());
+        if (row?.id) prevMesh = row.id;
+      } catch { /* 找不到就开新会话 */ }
+    }
     const r = await glue.submitAgentTask({
       harnessId: agentId,
       input: prompt,

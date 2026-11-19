@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { resolveBrandIcon } from '../lib/brandIcons';
 import KimiAvatar from './KimiAvatar';
 import { useLang } from '../store/lang';
+import { DeviceChip } from './DeviceChips';
 
 /** 未命中品牌时的文字回退 */
 const FALLBACK_ICON = {
@@ -127,6 +128,8 @@ export default function AgentTabBar({
   modelChat = null,
   /** 列表底部「去交易里再雇一个」 */
   onHireMore = null,
+  /** 我有多台设备时传入设备列表：每项标上所在设备 */
+  meshDevices = null,
 }) {
   const { t } = useLang();
   const narrow = useWebNarrow();
@@ -333,7 +336,13 @@ export default function AgentTabBar({
           const cursorNeedLogin = !missing && agent.id === 'cursor' && agent.needsCliLogin;
           const installing = cursorNeedCli && !!installingCursorCli;
           const loggingIn = cursorNeedLogin && !!loggingInCursorCli;
-          const dimmed = (missing && !cursorNeedCli) || cursorNeedLogin;
+          // 所在设备：本机的标「本机」，其他设备上的（mine:…@设备）标那台设备；离线的压暗、不能点
+          const remote = agent.mesh?.device || null;
+          const remoteOff = !!remote && !remote.online;
+          const deviceTag = meshDevices && groupOf(agent) !== 'hired' && groupOf(agent) !== 'external'
+            ? (remote || { label: '', self: true, online: true, device_id: 'self' })
+            : null;
+          const dimmed = (missing && !cursorNeedCli) || cursorNeedLogin || remoteOff;
           const versionLabel = !missing && !cursorNeedLogin && !isCommunity && !isCustom && agent.version
             ? `v${agent.version}`
             : '';
@@ -401,11 +410,12 @@ export default function AgentTabBar({
                       {subLine}
                     </span>
                   ) : null}
-                  {versionLabel ? (
-                    <span className={`block text-[10px] font-normal truncate mt-0.5 leading-tight ${
+                  {versionLabel || deviceTag ? (
+                    <span className={`flex items-center gap-1.5 min-w-0 text-[10px] font-normal mt-0.5 leading-tight ${
                       active ? 'text-zinc-500 dark:text-zinc-400' : 'text-zinc-400 dark:text-zinc-500'
                     }`}>
-                      {versionLabel}
+                      {versionLabel ? <span className="truncate">{versionLabel}</span> : null}
+                      {deviceTag ? <DeviceChip device={deviceTag} small /> : null}
                     </span>
                   ) : null}
                 </span>

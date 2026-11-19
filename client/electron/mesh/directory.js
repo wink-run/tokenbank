@@ -40,6 +40,9 @@ function sanitizeDescriptor(d) {
     apps: (d.apps || []).map((a) => ({ id: String(a.id), name: String(a.name || a.id) })),
     assistants: (d.assistants || []).map((a) => ({ id: String(a.id), name: String(a.name || a.id) })),
     models: (d.models || []).map(String),
+    providers: (d.providers || []).slice(0, 50).map((p) => ({
+      id: String(p.id || ''), name: String(p.name || ''), type: String(p.type || ''), models: Number(p.models) || 0,
+    })),
     workspaces: (d.workspaces || []).map((w) => ({ name: String(w.name), repo: w.repo ? String(w.repo) : null, default: !!w.default })),
     sessions: (d.sessions || []).slice(0, 20).map((s) => ({
       agent: String(s.agent || ''), id: String(s.id || ''), title: String(s.title || '').slice(0, 80),

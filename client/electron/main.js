@@ -6090,6 +6090,9 @@ app.whenReady().then(() => {
       if (err && err.code === 'EADDRINUSE') gatewayPortOccupied();
     });
     try { require('./guardian/ipc').startGuardian({ gateway }); } catch (e) { console.warn('[guardian] start:', e.message); }
+    // 设备网络（原型）：~/.tokenbank/mesh/config.json 里 enabled 为 true 才启动，和 CLI 网关一样
+    require('./mesh/glue').startFromConfig({ gatewayPort: GATEWAY_PORT })
+      .catch((e) => console.warn('[mesh] start:', e && e.message));
   })();
 
   // ChatGPT 网页源：仅当用户已启用时自启本地 server（未启用不开浏览器/不占端口）
@@ -6207,6 +6210,7 @@ app.on('before-quit', () => {
   isQuitting = true;
   destroyTray();
   agent.stop(); gateway.stop(); localStats.close();
+  try { require('./mesh/glue').stop().catch(() => {}); } catch { /* 没启动 */ }
   // 退出即还原所有接入：删 shim / 还原 PATH / 还原配置文件 / 停 MITM，绝不残留
   try { revertCliInstanceEndpointConfigs(); } catch (e) { console.error('[cli-instance] revert on exit failed:', e.message); }
   try { agentLinker.revertEverythingOnExit(); } catch (e) { console.error('[agent-linker] revert on exit failed:', e.message); }

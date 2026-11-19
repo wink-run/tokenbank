@@ -7,6 +7,8 @@ import { useLang } from '../store/lang';
 import { getConfig, getLocalConfig } from '../api/adapter';
 import { resolveBrandIcon } from '../lib/brandIcons';
 import { buildInvokeText, copyText } from '../lib/resource-enable';
+import { useMeshDevices, devicesHaving, remoteOnly } from '../api/meshDevices';
+import DeviceChips from './DeviceChips';
 
 const agentApi = () => window.electronAPI?.agent || {};
 
@@ -22,6 +24,15 @@ const ROW = 'tb-table-row flex flex-col gap-1.5 px-3 py-3 md:grid md:items-cente
 const HEAD = 'tb-table-head hidden md:grid md:items-center md:gap-x-2 px-2.5 py-2.5';
 // 专业 / 外部同一套列：智能体 | 状态 | 今天 | 各自一列 | 操作。切换时表头不跳动
 const AGENT_GRID = 'md:grid-cols-[minmax(9rem,1.4fr)_6rem_11rem_minmax(8rem,1fr)_11rem]';
+// 我有多台设备时，「状态」后面多一列「所在设备」
+const AGENT_GRID_DEV = 'md:grid-cols-[minmax(9rem,1.4fr)_6rem_minmax(6.5rem,1fr)_11rem_minmax(8rem,1fr)_11rem]';
+
+/** 本机的「所在设备」标签（外部智能体接在本机网关上） */
+function useDeviceColumn() {
+  const mesh = useMeshDevices();
+  const showDev = mesh.enabled && mesh.devices.length > 1;
+  return { mesh, showDev, GRID: showDev ? AGENT_GRID_DEV : AGENT_GRID };
+}
 const NAME = 'text-xs font-medium tracking-tight text-zinc-800 dark:text-zinc-100 truncate';
 const META = 'tb-table-cell-meta';
 
@@ -485,20 +496,22 @@ export function ProfessionalAgents() {
     return [...m.entries()].sort((a, b) => (b[1].some(r => blocked[r.id]) - a[1].some(r => blocked[r.id])) || b[1].length - a[1].length);
   }, [rows, blocked]);
   const brokenN = rows.filter(a => blocked[a.id]).length;
-  const GRID = AGENT_GRID;
+  const { mesh, showDev, GRID } = useDeviceColumn();
+  // 只在我的其他设备上的专业智能体：那边新建的，这里只能派活
+  const remoteAssistants = showDev ? remoteOnly(mesh.devices, 'assistants', rows.map(a => a.id)) : [];
   return (
     <section className="px-2.5 py-3 min-w-0">
       <Toolbar main={<button type="button" className={BTN_MAIN} onClick={() => navigate('/resources', { state: { resourceType: 'assistant' } })}>{t('gw2.pro.newPlus')}</button>}
         hint={t('gw2.pro.hint')}
         right={<button type="button" className={BTN_SIDE} onClick={() => navigate('/resources', { state: { resourceType: 'assistant' } })}>{t('gw2.pro.templates')}</button>} />
-      {rows.length === 0 ? (
+      {rows.length === 0 && remoteAssistants.length === 0 ? (
         <div className="py-6 text-center text-xs text-zinc-400">{t('gw2.pro.empty')}</div>
       ) : (
         <div className="space-y-3">
           {runtimeErr && <p className="m-0 px-1 text-xs text-red-600 dark:text-red-400">{runtimeErr}</p>}
           <div className={SHELL}>
           <div className={`${HEAD} ${GRID}`}>
-            <span>{t('gw2.col.agent')}</span><span>{t('gw2.col.state')}</span><span>{t('gw2.col.today')}</span><span>{t('gw2.col.rent')}</span><span className="text-right">{t('gw2.col.actions')}</span>
+            <span>{t('gw2.col.agent')}</span><span>{t('gw2.col.state')}</span>{showDev && <span>{t('mesh.colDevice')}</span>}<span>{t('gw2.col.today')}</span><span>{t('gw2.col.rent')}</span><span className="text-right">{t('gw2.col.actions')}</span>
           </div>
           {groups.map(([appId, list]) => {
             const app = appOf(appId);
@@ -550,6 +563,7 @@ export function ProfessionalAgents() {
                           </>
                         ) : <Status tone="ok">{t('gw2.pro.ok')}</Status>}
                       </span>
+                      {showDev && <span className="min-w-0"><DeviceChips devices={devicesHaving(mesh.devices, 'assistants', a.id)} /></span>}
                       <span className="min-w-0" onClick={e => e.stopPropagation()}>
                         <TodayCell st={st} onOpen={() => setTasksFor({ id: a.id, name: a.name })} t={t} />
                       </span>
@@ -577,6 +591,31 @@ export function ProfessionalAgents() {
               </React.Fragment>
             );
           })}
+          {remoteAssistants.length > 0 && (
+            <>
+              <div className="tb-table-row flex flex-wrap items-center gap-x-2 gap-y-1 px-3 md:px-2.5 py-2.5 bg-zinc-50/60 dark:bg-white/[0.02]">
+                <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">{t('mesh.otherDevices')}</span>
+                <span className="text-[11px] text-zinc-500 dark:text-zinc-400">{t('gw2.pro.groupN', { n: remoteAssistants.length })}</span>
+                <span className="basis-full md:basis-auto md:ml-auto text-[11px] text-zinc-500 dark:text-zinc-400">{t('mesh.otherDevicesHint')}</span>
+              </div>
+              {remoteAssistants.map(ra => {
+                const anyOnline = ra.devices.some(d => d.online);
+                const target = ra.devices.length === 1 ? `mine:${ra.id}@${ra.devices[0].label}` : `mine:${ra.id}`;
+                return (
+                  <div key={'mesh-' + ra.id} className={`${ROW} ${GRID}`}>
+                    <NameCell name={ra.name} />
+                    <span className="min-w-0">{anyOnline ? <Status tone="ok">{t('mesh.statusRemote')}</Status> : <Status tone="off">{t('mesh.statusOffline')}</Status>}</span>
+                    <span className="min-w-0"><DeviceChips devices={ra.devices} /></span>
+                    <span className={META}>—</span>
+                    <span className={META}>{t('mesh.routeOnDevice')}</span>
+                    <span className="flex gap-2 md:justify-end [&>*]:flex-1 md:[&>*]:flex-none">
+                      <button type="button" className={BTN} disabled={!anyOnline} onClick={() => navigate('/debug', { state: { agentId: target } })}>{t('gw2.pro.tryPlay')}</button>
+                    </span>
+                  </div>
+                );
+              })}
+            </>
+          )}
           </div>
         </div>
       )}
@@ -751,7 +790,7 @@ export function ExternalAgents() {
   const rows = [...list].sort((a, b) => (b.status === 'pending') - (a.status === 'pending'));
   const gateway = (() => { try { return `${window.location.protocol}//${window.location.hostname}:11430`; } catch { return 'http://127.0.0.1:11430'; } })();
   const skillUrl = `${gateway}/v1/agent/external/skill`;
-  const GRID = AGENT_GRID;
+  const { mesh, showDev, GRID } = useDeviceColumn();
   return (
     <section className="px-2.5 py-3 min-w-0">
       <Toolbar main={<button type="button" className={BTN_MAIN} aria-expanded={open} onClick={() => (open ? setOpen(false) : newCode())}>{t('gw2.ext.connectPlus')}</button>}
@@ -811,7 +850,7 @@ export function ExternalAgents() {
       ) : (
         <div className={SHELL} style={{ overflowX: 'auto' }}>
           <div className={`${HEAD} ${GRID}`}>
-            <span>{t('gw2.col.agent')}</span><span>{t('gw2.col.state')}</span><span>{t('gw2.col.today')}</span>
+            <span>{t('gw2.col.agent')}</span><span>{t('gw2.col.state')}</span>{showDev && <span>{t('mesh.colDevice')}</span>}<span>{t('gw2.col.today')}</span>
             <span>{t('gw2.col.can')}</span><span className="text-right">{t('gw2.col.actions')}</span>
           </div>
           {rows.map(a => {
@@ -838,6 +877,7 @@ export function ExternalAgents() {
                   )}
                   {a.skillOutdated && <span className="block text-amber-700 dark:text-amber-400" title={t('gw2.ext.skillOldHint')}>{t('gw2.ext.skillOld')}</span>}
                 </span>
+                {showDev && <span className="min-w-0"><DeviceChips devices={mesh.self ? devicesHaving([mesh.self], 'apps', '') : []} /></span>}
                 <span className="min-w-0" onClick={e => e.stopPropagation()}>
                   <TodayCell st={st} onOpen={() => setTasksFor({ id: a.id, name: a.name })} t={t} />
                 </span>

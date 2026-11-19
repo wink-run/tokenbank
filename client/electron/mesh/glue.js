@@ -42,6 +42,7 @@ async function describeSelf() {
   // 默认不把本机模型借给别的设备用，设备页打开后才上报
   if (accepts.model_requests) {
     try { out.models = require('../local-gateway').localModelNames(); } catch { out.models = []; }
+    try { out.providers = require('../local-gateway').localProviderSummary(); } catch { out.providers = []; }
   }
   if (!accepts.agent_tasks) { out.apps = []; out.assistants = []; }
   try { out.workspaces = workspaces.listPublic(meshDir()); } catch { out.workspaces = []; }
@@ -123,6 +124,8 @@ function devicesView() {
       apps: d.descriptor?.apps || [],
       assistants: d.descriptor?.assistants || [],
       models: d.descriptor?.models || [],
+      providers: d.descriptor?.providers || [],
+      accepts: d.descriptor?.accepts || null,
       workspaces: d.descriptor?.workspaces || [],
       load: d.descriptor?.load || null,
     })),
@@ -450,11 +453,122 @@ async function setName(deviceId, raw) {
 }
 
 /** 隧道转来的任务：metadata.workspace → 本机路径；都没给时用默认工作区 */
+// ── 本机设置（盘点页选中本机时：接活、开放模型、工作区） ─────────────────────
+// 只在本机改：路径不出本机，接口也不在隧道白名单里
+
+function writeConfig(next) {
+  fs.mkdirSync(meshDir(), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(meshDir(), 'config.json'), JSON.stringify(next, null, 2), { mode: 0o600 });
+  cfg = next;
+}
+
+function meshOff() {
+  return Object.assign(new Error('设备网络没有开启'), { status: 503 });
+}
+
+/** 最近用过的目录（智能体任务的工作目录），给「从最近项目添加」用 */
+function recentDirs(limit = 10) {
+  const out = [];
+  try {
+    const db = require('../local-stats').getDb();
+    const rows = db ? db.prepare(`
+      SELECT json_extract(context, '$.workingDir') AS dir, MAX(created_at) AS ts
+      FROM agent_tasks WHERE id NOT LIKE 'mesh:%' GROUP BY dir ORDER BY ts DESC LIMIT 200
+    `).all() : [];
+    const home = os.homedir();
+    for (const r of rows) {
+      const d = String(r.dir || '');
+      if (!d || d === home || d === '/' || !path.isAbsolute(d)) continue;
+      try { if (!fs.statSync(d).isDirectory()) continue; } catch { continue; }
+      out.push(d);
+      if (out.length >= limit) break;
+    }
+  } catch { /* 统计库不可用 */ }
+  return out;
+}
+
+function getSelfSettings() {
+  const c = readConfig();
+  if (!c || !c.enabled) return { enabled: false };
+  const ws = workspaces.read(meshDir());
+  return {
+    enabled: true,
+    running: !!node,
+    accept_agent_tasks: c.accept_agent_tasks !== false,
+    accept_model_requests: !!c.accept_model_requests,
+    default_workspace: ws.default || '',
+    workspaces: Object.entries(ws.workspaces).map(([name, w]) => {
+      const p = workspaces.expandHome(w && w.path);
+      let exists = false;
+      try { exists = !!p && fs.statSync(p).isDirectory(); } catch { exists = false; }
+      return { name, path: String(w?.path || ''), exists, default: name === ws.default };
+    }),
+    recent: recentDirs(),
+  };
+}
+
+/** 改接活 / 开放模型 / 默认工作区；改完马上推给其他设备 */
+async function updateSelfSettings(patch = {}) {
+  const c = readConfig();
+  if (!c || !c.enabled) throw meshOff();
+  const next = { ...c };
+  if (typeof patch.accept_agent_tasks === 'boolean') next.accept_agent_tasks = patch.accept_agent_tasks;
+  if (typeof patch.accept_model_requests === 'boolean') next.accept_model_requests = patch.accept_model_requests;
+  writeConfig(next);
+  if (typeof patch.default_workspace === 'string') {
+    const ws = workspaces.read(meshDir());
+    const name = patch.default_workspace.trim();
+    if (name && !ws.workspaces[name]) throw Object.assign(new Error(`没有工作区 ${name}`), { status: 404 });
+    ws.default = name;
+    workspaces.write(meshDir(), ws);
+  }
+  try { await node?.tick?.(); } catch { /* 下一轮 presence 再推 */ }
+  return getSelfSettings();
+}
+
+const WS_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
+
+async function addWorkspace({ name, path: dirPath } = {}) {
+  const c = readConfig();
+  if (!c || !c.enabled) throw meshOff();
+  const p = String(dirPath || '').trim();
+  if (!p) throw Object.assign(new Error('缺少目录'), { status: 400 });
+  const abs = path.resolve(workspaces.expandHome(p));
+  try { if (!fs.statSync(abs).isDirectory()) throw new Error(); } catch {
+    throw Object.assign(new Error(`目录不存在：${p}`), { status: 400 });
+  }
+  const n = String(name || '').trim() || path.basename(abs).replace(/[^A-Za-z0-9._-]/g, '-').replace(/^[^A-Za-z0-9]+/, '').slice(0, 40);
+  if (!WS_NAME.test(n)) throw Object.assign(new Error('工作区名只能用字母、数字、点、横线、下划线，最多 40 个字'), { status: 400 });
+  const ws = workspaces.read(meshDir());
+  if (ws.workspaces[n] && workspaces.expandHome(ws.workspaces[n].path) !== abs) {
+    throw Object.assign(new Error(`工作区名「${n}」已经有了`), { status: 409 });
+  }
+  const home = os.homedir();
+  ws.workspaces[n] = { path: abs.startsWith(home + path.sep) ? '~' + abs.slice(home.length) : abs };
+  if (!ws.default) ws.default = n;
+  workspaces.write(meshDir(), ws);
+  try { await node?.tick?.(); } catch { /* 下一轮再推 */ }
+  return getSelfSettings();
+}
+
+async function removeWorkspace(name) {
+  const c = readConfig();
+  if (!c || !c.enabled) throw meshOff();
+  const ws = workspaces.read(meshDir());
+  if (!ws.workspaces[name]) throw Object.assign(new Error(`没有工作区 ${name}`), { status: 404 });
+  delete ws.workspaces[name];
+  if (ws.default === name) ws.default = Object.keys(ws.workspaces)[0] || '';
+  workspaces.write(meshDir(), ws);
+  try { await node?.tick?.(); } catch { /* 下一轮再推 */ }
+  return getSelfSettings();
+}
+
 function resolveWorkspace(name) {
   return workspaces.resolve(meshDir(), name);
 }
 
 module.exports = {
+  getSelfSettings, updateSelfSettings, addWorkspace, removeWorkspace,
   submitAgentTask,
   fetchAgentTask,
   parseMeshTaskId,

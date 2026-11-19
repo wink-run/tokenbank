@@ -28,6 +28,8 @@ import {
 import { alignSyncAccountSecretsFromCloud } from '../lib/sync-account-secrets';
 import { formatDeviceSubtitle, formatDeviceTitle } from '../lib/device-display';
 import UsageMeter, { UsageInline, usageProviderForDirect } from '../components/UsageMeter';
+import { useMeshDevices, remoteProviders } from '../api/meshDevices';
+import DeviceChips from '../components/DeviceChips';
 
 /** Ollama 本地实例不校验 API Key。与 shared/provider-test.js 一致，不引 CJS，避免渲染进程白屏。 */
 function isOllamaProvider(provider) {
@@ -4788,6 +4790,12 @@ export default function Providers() {
     return matchFilter(getPersonalSourceTag(liveStateOf(p), meta, userPayg, userSubscriptions));
   });
   // 列表视图：网关 / 直连 / 无账户实例的免费源，统一按添加顺序渲染
+  // 所在设备：我有多台设备时，账户表多一列，并列出其他设备开放出来的模型源
+  const mesh = useMeshDevices();
+  const showDev = mesh.enabled && mesh.devices.length > 1;
+  const ACC_COLS = showDev ? 'md:grid-cols-[minmax(0,1fr)_8rem_9rem_4rem_6.5rem]' : 'md:grid-cols-[minmax(0,1fr)_9rem_4rem_6.5rem]';
+  const selfChip = mesh.self ? [{ label: '', self: true, online: true, device_id: mesh.self.device_id }] : [];
+  const sharedSources = showDev ? remoteProviders(mesh.devices) : [];
   const personalSourceRows = useMemo(() => {
     const rows = [];
     const extraBase = accountInstances.reduce((max, inst) => {
@@ -5336,7 +5344,7 @@ export default function Providers() {
         role="option"
         aria-selected={sel}
         onClick={() => setSelectedSourceKey(sel ? null : sm.key)}
-        className={`${libRowCls(sel)} grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1fr)_9rem_4rem_6.5rem]`}
+        className={`${libRowCls(sel)} grid-cols-[minmax(0,1fr)_auto] ${ACC_COLS}`}
       >
         <LibraryRowTitle
           logo={(
@@ -5358,6 +5366,11 @@ export default function Providers() {
           sub={sm.cooldown ? t('providers.list.coolingHint') : undefined}
           subClass="text-amber-600 dark:text-amber-400"
         />
+        {showDev && (
+          <div className="hidden md:flex items-center min-w-0">
+            {sm.community ? <span className="text-[11px] text-zinc-400">—</span> : <DeviceChips devices={selfChip} />}
+          </div>
+        )}
         <div className="hidden md:flex items-center gap-1.5 min-w-0 text-[11px] text-zinc-600 dark:text-zinc-300">
           {sm.community ? (
             <span className="truncate">{t('providers.community.billing')}{community.balance != null ? ` · ${t('providers.community.balance', { n: community.balance })}` : ''}</span>
@@ -5372,6 +5385,32 @@ export default function Providers() {
         <span className="flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300">
           <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} aria-hidden />
           {st.label}
+        </span>
+      </li>
+    );
+  }
+
+  /** 其他设备开放出来的模型源：一行，不能选中（设置在那台设备上） */
+  function renderSharedSourceRow(ps) {
+    return (
+      <li key={'mesh-' + ps.key} className={`${libRowCls(false)} grid-cols-[minmax(0,1fr)_auto] ${ACC_COLS} cursor-default`} title={t('mesh.sharedSourceTitle', { name: ps.device.label })}>
+        <LibraryRowTitle
+          logo={(
+            <ServiceIcon id={ps.type || ps.id} name={ps.name}
+              boxClass="w-9 h-9 !bg-zinc-100/80 dark:!bg-zinc-800/80 !rounded-xl" imgClass="w-5 h-5" />
+          )}
+          name={ps.name}
+          sub={t('mesh.sharedSourceSub')}
+          subClass="text-zinc-400"
+        />
+        <div className="hidden md:flex items-center min-w-0"><DeviceChips devices={[ps.device]} /></div>
+        <div className="hidden md:flex items-center gap-1.5 min-w-0 text-[11px] text-zinc-600 dark:text-zinc-300">
+          <span className="truncate">{t('mesh.sharedSourceType')}</span>
+        </div>
+        <span className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{ps.models || '—'}</span>
+        <span className="flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300">
+          <span className={`w-1.5 h-1.5 rounded-full ${ps.device.online ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} aria-hidden />
+          {ps.device.online ? t('mesh.statusRemote') : t('mesh.statusOffline')}
         </span>
       </li>
     );
@@ -5515,14 +5554,18 @@ export default function Providers() {
                   <div className={`${LIB_LIST_CLS} text-xs text-zinc-400 text-center py-8`}>{t('providers.filter.empty')}</div>
                 ) : (
                   <div className={LIB_LIST_CLS}>
-                    <div className="hidden md:grid md:grid-cols-[minmax(0,1fr)_9rem_4rem_6.5rem] gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]">
+                    <div className={`hidden md:grid ${ACC_COLS} gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]`}>
                       <span>{t('providers.list.name')}</span>
+                      {showDev && <span>{t('mesh.colDevice')}</span>}
                       <span>{t('providers.list.type')}</span>
                       <span className="text-right">{t('providers.list.models')}</span>
                       <span>{t('providers.list.status')}</span>
                     </div>
                     <ul role="listbox" aria-label={tierConfig.local.label}>
-                      {summaries.map(sm => renderSourceRow(sm, sm.key === selectedSourceKey))}
+                      {summaries.filter(sm => !sm.community).map(sm => renderSourceRow(sm, sm.key === selectedSourceKey))}
+                      {/* 其他设备开放出来的模型源：在那台设备上管理，这里只是列出来、能被路由用 */}
+                      {personalFilter === 'all' && sharedSources.map(ps => renderSharedSourceRow(ps))}
+                      {summaries.filter(sm => sm.community).map(sm => renderSourceRow(sm, sm.key === selectedSourceKey))}
                     </ul>
                   </div>
                 )}

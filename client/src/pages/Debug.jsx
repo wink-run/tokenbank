@@ -77,6 +77,7 @@ import {
 } from '../lib/debug-image-store';
 import { presentRemoteAgentResult, presentRemoteAgentSteps } from '../../shared/remote-artifact-paths.js';
 import { useResolvedImageSrc } from '../components/ResolvedDebugImage';
+import { useMeshDevices, withMeshAgents } from '../api/meshDevices';
 
 /** 下拉 value：同 id 跨层时用 tier:id，避免 HTML option 重复 value 选中错位 */
 function modelSelectValue(m) {
@@ -949,7 +950,11 @@ export default function Debug() {
   }, [mode]);
   // 智能管家有自己的对话页，不在游乐场里出现
   const isGuardianEntry = (a) => !!a && (a.guardian || a.id === 'assistant:tb-guardian');
-  const playAgents = useMemo(() => (agents || []).filter(a => a && !isGuardianEntry(a)), [agents]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 我的其他设备上的智能体也列出来（mine:<id>@<设备>），点了就派到那台设备
+  const mesh = useMeshDevices();
+  const showDev = mesh.enabled && mesh.devices.length > 1;
+  const allAgents = useMemo(() => (showDev ? withMeshAgents(agents, mesh.devices) : (agents || [])), [agents, showDev, mesh.devices]);
+  const playAgents = useMemo(() => (allAgents || []).filter(a => a && !isGuardianEntry(a)), [allAgents]); // eslint-disable-line react-hooks/exhaustive-deps
   // 之前选中过智能管家：回到聚合入口
   useEffect(() => {
     if (isGuardianEntry(selectedAgent)) switchAgent(null);
@@ -1060,7 +1065,7 @@ export default function Debug() {
   const executeAgentRef = useRef(null);
   const maybeAutoContinueRef = useRef(null);
   const agentsRef = useRef([]);
-  agentsRef.current = agents;
+  agentsRef.current = allAgents;
   const syncSessionToStateRef = useRef(null);
   const finalizeTaskInUiRef = useRef(null);
   const finishDelegatedChildRef = useRef(null);
@@ -1599,8 +1604,8 @@ export default function Debug() {
       }
     }
     const savedId = getStoreSelectedAgentId();
-    if (savedId && agents.some(a => a.id === savedId)) {
-      const agent = agents.find(a => a.id === savedId);
+    if (savedId && allAgents.some(a => a.id === savedId)) {
+      const agent = allAgents.find(a => a.id === savedId);
       if (agent && selectedAgent?.id !== savedId) {
         setSelectedAgent(agent);
         selectedAgentRef.current = agent;
@@ -1609,7 +1614,7 @@ export default function Debug() {
         recoverSessionHistory(savedId);
       }
     }
-  }, [agents, mainAgentId]);
+  }, [allAgents, mainAgentId]);
 
   function setMainAgent(agent) {
     if (!agent?.id || agent.custom || agent.type === 'assistant') return;
@@ -3450,6 +3455,7 @@ export default function Debug() {
                   <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate" title={dir || undefined}>
                     {isCommunityPlaygroundAgent(selectedAgent) ? t('debug.header.remote')
                       : isRemotePlaygroundAgent(selectedAgent) ? t('debug.header.external')
+                      : selectedAgent?.mesh ? t('mesh.runsOnDevice', { name: selectedAgent.mesh.device.label })
                       : dir ? t('debug.header.inDir', { dir }) : t('debug.header.noDir')}
                   </span>
                 </span>
@@ -3568,6 +3574,7 @@ export default function Debug() {
             onHireMore={() => navigate('/contribute', { state: { tradeTab: 'hire' } })}
             loading={loadingAgents && agents.length === 0}
             runningKeys={runningAgentKeys}
+            meshDevices={showDev ? mesh.devices : null}
             onInstallCursorCli={() => installCursorCli({ confirm: true })}
             installingCursorCli={installingCursorCli}
             onLoginCursorCli={() => loginCursorCli({ confirm: true })}
@@ -3981,6 +3988,12 @@ export default function Debug() {
           <div className="space-y-2">
             {/* 工作目录 + 历史 / 新会话：始终可见 */}
             <div className="flex items-center gap-2 flex-wrap min-w-0">
+              {/* 在我的其他设备上执行：用那台设备的工作区，本机目录用不上 */}
+              {selectedAgent?.mesh ? (
+                <span className="flex-1 min-w-0 truncate text-xs text-zinc-500 dark:text-zinc-400" title={t('mesh.runsOnDeviceHint')}>
+                  {t('mesh.runsOnDeviceDir', { name: selectedAgent.mesh.device.label })}
+                </span>
+              ) : (<>
               <button
                 type="button"
                 onClick={pickWorkingDir}
@@ -4021,6 +4034,7 @@ export default function Debug() {
                   {t('debug.agent.noWorkingDir')}
                 </span>
               )}
+              </>)}
               {!communityAgent && agentRouteApp ? (
                 <div className="shrink-0 w-full sm:w-[200px] min-w-0" title={t('debug.agent.modelPick')}>
                   <RouteSelect

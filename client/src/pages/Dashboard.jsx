@@ -12,6 +12,7 @@ import { formatDeviceTitle, deviceIdentityKey, mergeSameDevices } from '../lib/d
 import { getUserDevices } from '../api/client';
 import { getReportedDeviceId, requestAccountsHeartbeat } from '../hooks/useDeviceReporter';
 import { renameDevice, deviceNameError } from '../api/deviceName';
+import SelfDeviceSettings from '../components/SelfDeviceSettings';
 
 /** 几行用量相加成一台（次数、Token、费用、分层、模型） */
 function sumUsageRows(rows, base) {
@@ -746,6 +747,8 @@ export default function Dashboard() {
             </span>
           </form>
         )}
+        {/* 选中本机：接活、开放模型、工作区（设备网络开着才有） */}
+        {useLocal && !renaming && <SelfDeviceSettings />}
       </div>
 
       {/* Summary cards — 5列 */}

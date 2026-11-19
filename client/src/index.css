@@ -1448,6 +1448,22 @@ html.tb-electron .tb-scroll-layer {
   html.tb-web .tb-apps-grid > :nth-child(6) { grid-area: used; }
   html.tb-web .tb-apps-grid > :nth-child(7) { grid-area: route; min-width: 0; width: 100%; }
   html.tb-web .tb-apps-grid > :nth-child(8) { grid-area: actions; min-width: 0; }
+  /* 多一列「所在设备」（第 4 个），放在名字下面一行 */
+  html.tb-web .tb-apps-grid.tb-apps-dev {
+    grid-template-areas:
+      "icon name status"
+      "device device device"
+      "link usage usage"
+      "used used used"
+      "route route route"
+      "actions actions actions";
+  }
+  html.tb-web .tb-apps-grid.tb-apps-dev > :nth-child(4) { grid-area: device; }
+  html.tb-web .tb-apps-grid.tb-apps-dev > :nth-child(5) { grid-area: link; }
+  html.tb-web .tb-apps-grid.tb-apps-dev > :nth-child(6) { grid-area: usage; }
+  html.tb-web .tb-apps-grid.tb-apps-dev > :nth-child(7) { grid-area: used; }
+  html.tb-web .tb-apps-grid.tb-apps-dev > :nth-child(8) { grid-area: route; min-width: 0; width: 100%; }
+  html.tb-web .tb-apps-grid.tb-apps-dev > :nth-child(9) { grid-area: actions; min-width: 0; }
   html.tb-web .tb-apps-grid > :empty,
   html.tb-web .tb-app-route:not(:has(*)) {
     display: none;

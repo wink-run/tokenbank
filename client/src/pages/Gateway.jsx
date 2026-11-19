@@ -26,6 +26,8 @@ import { getNetwork } from '../api/client';
 import { normalizeNetworkPayload, workerInfo, workersForModel } from '../lib/networkModelStats';
 import { buildInvokeText, buildMcpInvokeText } from '../lib/resource-enable';
 import { speedDotClass, statusDotBucket } from '../lib/speed';
+import { useMeshDevices, devicesHaving, remoteOnly } from '../api/meshDevices';
+import DeviceChips from '../components/DeviceChips';
 
 // tier:id 作为下拉唯一 value，避免同模型跨层选中错位
 function modelTierKey(m) {
@@ -842,6 +844,8 @@ function tildify(p) {
 // 应用列保留 modest 最小宽；不设表格 min-width，避免常态出现横向滚动条
 // 应用列加大最小宽；固定短列与路由 min 适当压缩，空间让给应用名
 const APPS_TABLE_GRID = 'tb-apps-grid grid w-full grid-cols-[1.75rem_minmax(8rem,2fr)_5rem_1.75rem_7.5rem_3.75rem_minmax(4.5rem,1.6fr)_minmax(7.75rem,auto)] gap-x-2 items-center px-2.5 [&>*]:min-w-0';
+// 我有多台设备时：「状态」后面多一列「所在设备」
+const APPS_TABLE_GRID_DEV = 'tb-apps-grid tb-apps-dev grid w-full grid-cols-[1.75rem_minmax(8rem,2fr)_5rem_minmax(6.5rem,1.2fr)_1.75rem_7.5rem_3.75rem_minmax(4.5rem,1.6fr)_minmax(7.75rem,auto)] gap-x-2 items-center px-2.5 [&>*]:min-w-0';
 
 /** 应用行测试状态：成功/进行中行内短提示；失败用浮层展示完整错误（避免窄列截断） */
 function AppTestResultHint({ ts, t }) {
@@ -3191,6 +3195,13 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
 
   // 列表只显示非草稿条目（新建面板未保存的临时条目 draft:true 不进列表）
   const visibleApps = apps.filter(a => !a.draft);
+  // 所在设备：只有一台设备（或没开设备网络）时不显示这一列
+  const mesh = useMeshDevices();
+  const showDev = mesh.enabled && mesh.devices.length > 1;
+  const GRID = showDev ? APPS_TABLE_GRID_DEV : APPS_TABLE_GRID;
+  const remoteApps = showDev
+    ? remoteOnly(mesh.devices, 'apps', visibleApps.map(a => runnableHarnessId(a) || a.id))
+    : [];
 
   // CLI 多账号分组：同 agent_id 的 shim 实例 ≥2 → 插一条父行 + 子行；单实例(或非实例)照旧一行。
   const renderList = (() => {
@@ -3309,7 +3320,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                 <div className="w-5 h-5 border-2 border-zinc-300 dark:border-zinc-600 border-t-blue-500 rounded-full animate-spin" />
                 {t('gateway.apps.loading')}
               </div>
-            ) : visibleApps.length === 0 ? (
+            ) : visibleApps.length === 0 && remoteApps.length === 0 ? (
               <div className="py-6 text-center text-xs text-zinc-400">
                 {t('gateway.apps.empty')}
               </div>
@@ -3318,10 +3329,11 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
               <div className={`tb-table-shell rounded-xl ${visibleApps.length > 20 ? 'max-h-[min(75vh,900px)] overflow-y-auto' : ''}`}>
                 <div className="tb-apps-scroll overflow-x-auto">
                 <div className="tb-hscroll">
-                <div className={`${APPS_TABLE_GRID} tb-table-head py-2.5 sticky top-0 z-10`}>
+                <div className={`${GRID} tb-table-head py-2.5 sticky top-0 z-10`}>
                   <span className="text-base text-center shrink-0 invisible">🔧</span>
                   <div className="min-w-0">{t('gateway.apps.colApp')}</div>
                   <div className="text-center min-w-0">{t('gateway.apps.colStatus')}</div>
+                  {showDev && <div className="min-w-0">{t('mesh.colDevice')}</div>}
                   <div className="text-center min-w-0">{t('gateway.apps.colLink')}</div>
                   <div className="text-center min-w-0 whitespace-nowrap">{t('gateway.apps.colCalls')}</div>
                   <div className="text-center min-w-0">{t('gateway.apps.colLastUsed')}</div>
@@ -3335,7 +3347,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                     const toolName = String(s.name || '').split(' · ')[0] || s.name;
                     const pbrand = brandIconFor(s);
                     return (
-                      <div key={'grp-' + entry.agentId} className={`${APPS_TABLE_GRID} tb-table-row py-2.5`}>
+                      <div key={'grp-' + entry.agentId} className={`${GRID} tb-table-row py-2.5`}>
                         {pbrand ? <img src={pbrand} alt="" className="w-[18px] h-[18px] mx-auto object-contain shrink-0" />
                           : isAppIcon(s.icon) ? appIconSvg(s.icon, 'w-[18px] h-[18px] mx-auto shrink-0')
                           : <span className="text-base text-center shrink-0">{s.icon}</span>}
@@ -3343,7 +3355,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                           <span className="truncate">{toolName}</span>
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-700/60 text-zinc-500 dark:text-zinc-400 shrink-0">{t('gateway.apps.instanceCount', { n: entry.count })}</span>
                         </div>
-                        <div /><div /><div /><div />
+                        <div /><div /><div /><div />{showDev && <div />}
                         <div className="text-center text-[10px] text-zinc-400">{t('gateway.apps.byInstance')}</div>
                         <div className="flex justify-end">
                           <button onClick={() => rescanInstances()} title={t('gateway.apps.addAccount')}
@@ -3418,7 +3430,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                     // 离线不整行压暗（否则操作按钮看着像禁用）；离线感由灰底/灰点/「离线」标签/
                     // 图标灰度/灰名体现，操作按钮保持全亮可点（含「测试」）。
                     <React.Fragment key={app.id}>
-                    <div className={`${APPS_TABLE_GRID} tb-table-row py-3 ${rowBg}`}>
+                    <div className={`${GRID} tb-table-row py-3 ${rowBg}`}>
                       {/* 图标 + 名称（命中品牌则用 lobehub logo，否则回退 emoji）*/}
                       {(() => {
                         const brand = brandIconFor(app);
@@ -3446,6 +3458,13 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                         <span className={`w-2 h-2 rounded-full shrink-0 ${statusDot}`} />
                         <span className={`text-xs font-medium truncate ${statusText}`}>{statusLabel}</span>
                       </div>
+
+                      {/* 所在设备：本机 + 也装了它的其他设备 */}
+                      {showDev && (
+                        <div className="min-w-0" data-label={t('mesh.colDevice')}>
+                          <DeviceChips devices={devicesHaving(mesh.devices, 'apps', runnableHarnessId(app) || app.id)} />
+                        </div>
+                      )}
 
                       {/* 接入方式列（居中，与表头对齐）*/}
                       <div className="min-w-0 tb-table-cell-meta truncate text-center" data-label={t('gateway.apps.colLink')}>
@@ -3637,6 +3656,35 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                       />
                     )}
                     </React.Fragment>
+                  );
+                })}
+                {/* 只装在我的其他设备上的应用：在那台设备上纳管和选路由，这里只能派活 */}
+                {remoteApps.map(ra => {
+                  const brand = resolveBrandIcon(`${ra.id} ${ra.name}`);
+                  const anyOnline = ra.devices.some(d => d.online);
+                  const target = ra.devices.length === 1 ? `mine:${ra.id}@${ra.devices[0].label}` : `mine:${ra.id}`;
+                  return (
+                    <div key={'mesh-' + ra.id} className={`${GRID} tb-table-row py-3`}>
+                      {brand ? <img src={brand} alt="" className="w-[18px] h-[18px] mx-auto object-contain shrink-0" />
+                        : <span className="w-[18px] h-[18px] mx-auto shrink-0 rounded bg-zinc-200 dark:bg-zinc-700" />}
+                      <div className="text-xs font-medium tracking-tight text-zinc-800 dark:text-zinc-100 truncate min-w-0" title={ra.name}>{ra.name}</div>
+                      <div className="min-w-0 flex items-center gap-1.5 overflow-hidden">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${anyOnline ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} />
+                        <span className={`text-xs font-medium truncate ${anyOnline ? 'text-green-600 dark:text-green-400' : 'text-zinc-400'}`}>{anyOnline ? t('mesh.statusRemote') : t('mesh.statusOffline')}</span>
+                      </div>
+                      <div className="min-w-0" data-label={t('mesh.colDevice')}><DeviceChips devices={ra.devices} /></div>
+                      <div className="min-w-0 tb-table-cell-meta truncate text-center" data-label={t('gateway.apps.colLink')}>{linkMethodLabel('shim', t)}</div>
+                      <div className="text-center tb-table-cell-meta" data-label={t('gateway.apps.colCalls')}>—</div>
+                      <div className="text-center tb-table-cell-meta" data-label={t('gateway.apps.colLastUsed')}>—</div>
+                      <div className="tb-app-route min-w-0 text-xs text-zinc-400 truncate" title={t('mesh.routeOnDeviceTitle')}>{t('mesh.routeOnDevice')}</div>
+                      <div className="flex justify-end">
+                        <button type="button" disabled={!anyOnline}
+                          onClick={() => navigate('/debug', { state: { agentId: target } })}
+                          className="text-[11px] px-1.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:border-blue-400 hover:text-blue-500 transition-colors shrink-0 disabled:opacity-40 disabled:pointer-events-none">
+                          {t('gateway.apps.try')}
+                        </button>
+                      </div>
+                    </div>
                   );
                 })}
                 </div>

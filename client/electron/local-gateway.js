@@ -4440,7 +4440,7 @@ function buildDefaultModelList() {
 function handleRequest(req, res) {
   // CORS preflight
   res.setHeader('Access-Control-Allow-Origin',  '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, x-api-key, anthropic-version, x-p2p-hop');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
@@ -4492,6 +4492,34 @@ function handleRequest(req, res) {
     } catch { /* 设备网络不可用时只列本机 */ }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ object: 'list', data }));
+    return;
+  }
+
+  // 本机设置（盘点页选中本机）：接活、开放模型、工作区。只在本机改，不走设备网络；要网关 Key 或智能体 Key
+  if (cleanPath === '/v1/devices/self/settings' || cleanPath.startsWith('/v1/devices/self/workspaces')) {
+    const meshGlue = require('./mesh/glue');
+    const authRaw = String(req.headers['authorization'] || req.headers['x-api-key'] || '');
+    const key = authRaw.startsWith('Bearer ') ? authRaw.slice(7).trim() : authRaw.trim();
+    const allowed = !!key && !meshGlue.isMeshRequest(req.headers)
+      && (_appKeys.has(key) || (!!_agentApiKey && key === _agentApiKey) || !!require('./agent-keys').agentForKey(key));
+    const reply = (status, obj) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
+    if (!allowed) { req.resume(); reply(401, { error: { message: 'invalid api key', type: 'auth_error' } }); return; }
+    const wsMatch = cleanPath.match(/^\/v1\/devices\/self\/workspaces(?:\/([^/]+))?$/);
+    const parts = [];
+    req.on('data', (c) => parts.push(c));
+    req.on('end', async () => {
+      let body = {};
+      try { body = JSON.parse(Buffer.concat(parts).toString() || '{}'); } catch { reply(400, { error: { message: 'Invalid JSON' } }); return; }
+      try {
+        if (cleanPath === '/v1/devices/self/settings' && method === 'GET') return reply(200, meshGlue.getSelfSettings());
+        if (cleanPath === '/v1/devices/self/settings' && method === 'PUT') return reply(200, await meshGlue.updateSelfSettings(body));
+        if (wsMatch && !wsMatch[1] && method === 'POST') return reply(200, await meshGlue.addWorkspace(body));
+        if (wsMatch && wsMatch[1] && method === 'DELETE') return reply(200, await meshGlue.removeWorkspace(decodeURIComponent(wsMatch[1])));
+        reply(404, { error: { message: 'not_found' } });
+      } catch (e) {
+        reply(e.status || 500, { error: { message: e.message, type: 'invalid_request_error' } });
+      }
+    });
     return;
   }
 
@@ -4777,6 +4805,19 @@ function localModelNames() {
   return [...names];
 }
 
+/** 设备网络：本机开放给其他设备的模型供给源（只有名字、类型和模型数，不带地址和密钥） */
+function localProviderSummary() {
+  let list = [];
+  try { list = enabledProviders(); } catch { list = []; }
+  const out = [];
+  for (const p of list) {
+    if (!p || p.type === 'p2p') continue;
+    const models = (p.models || []).filter((m) => !(m && typeof m === 'object' && (m.type === 'image' || m.type === 'embedding')));
+    out.push({ id: String(p.id || p.name || ''), name: String(p.name || p.id || ''), type: String(p.type || ''), models: models.length });
+  }
+  return out.slice(0, 50);
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 function start(port, getConfig, saveConfig, bindHost = '127.0.0.1', onListenError) {
@@ -4941,7 +4982,7 @@ function setLocalConfigReader(fn) {
 }
 
 module.exports = {
-  start, stop, restart, setStrategy, getStatus, getLog, recordAgentRouteLog, setGuardianListener, localModelNames,
+  start, stop, restart, setStrategy, getStatus, getLog, recordAgentRouteLog, setGuardianListener, localModelNames, localProviderSummary,
   setKeySceneMap, setClaudeShimScene, setCodexGptFallback, setRouterModelMap, setPeerModels, setBackendConfig, setUserAuth,
   setStatsRecorder, setLocalStats, setLocalConfigReader, setAppControls, setAgentApiKey,
   setClaudeModels,
