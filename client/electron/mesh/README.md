@@ -1,77 +1,100 @@
 # 设备网络（原型）
 
-本人名下的设备组成对等网络。任何一台设备的本地网关都是统一入口，用同一套接口调用任何一台设备上的模型和智能体。
+本人名下的设备组成对等网络。任何一台设备的本地网关都是统一入口：用同一套接口调到自己所有设备上的模型和智能体。
 
 - 测试手册：`TESTING.md`
 - 设计：`docs/superpowers/specs/2026-11-18-personal-device-mesh-design.md`
 - 实现方案：`docs/superpowers/plans/2026-11-18-personal-device-mesh.md`
 
-**状态：原型。** 覆盖方案的 M0（技术验证）和 M1 / M2 / M3 的主干。默认关闭，不影响现有功能。
+**状态：原型。** 默认关闭，不影响现有功能。只依赖 Node 自带的 `crypto` 和 `ws`，没有原生模块。
 
 ## 跑起来看
 
 ```bash
 cd client
-npm install                          # @number0/iroh 是可选依赖
-node scripts/mesh-demo.js            # 一台电脑上模拟两台设备，跑完整流程，约 1 分钟（手写证书，不连云端）
+npm install
+node scripts/mesh-demo.js            # 一台电脑上模拟三台设备 + 官方中继，跑完整流程，约 2 分钟（手写证书，不连云端）
 MESH_CLOUD_SERVER=http://127.0.0.1:18000 node scripts/mesh-cloud-demo.js   # 云端模式：要本机跑着的服务端
-node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.test.js
+node --test electron/__tests__/mesh-*.test.js
 ```
 
-演示脚本会用两个独立的 HOME 起两个 CLI 网关：
-- 设备 A「macbook」：发起方；
-- 设备 B「mini」：有一个模拟的本地模型 `demo-model`、一个模拟的 Claude Code、一个 git 工作区 `demo`。
+演示脚本用独立的 HOME 起三个 CLI 网关：
+- A「macbook」：发起方，不给别人当中继；
+- B「mini」：有模拟的本地模型 `demo-model`、模拟的 Claude Code、git 工作区 `demo`，自动当中继；
+- C「phone」：不开入口（像在运营商 NAT 后面），只能经中继，有自己的模型 `phone-model`。
 
-两台之间是真实的 iroh QUIC 连接。两台都**不写对端地址**，靠局域网广播找到对方后直连。脚本依次检查 65 项：局域网发现、入网和设备目录、模型统一入口（流式、钉设备）、智能体统一入口（异步、流式、幂等、真实工作区、路由里 /xx 点名执行）、设备名称、主智能体经 MCP 派到其他设备（同步、后台并行、续上一轮）、任务树、本机设置（接活、开放模型、工作区、同时接几个）、产出与协作（独立工作树、取回改动、产出文件、只读查看、提问和续上、会话锁）、模型降级链和路由明细、防回环、伪造头、其他账号拒绝、断线。加 `--keep` 跑完不退出，可以继续手动 `curl` 设备 A。
+A 和 B 不写对端地址，靠局域网广播找到对方后直连；C 经 B 中继。脚本依次检查 67 项：入网和设备目录、模型统一入口、智能体统一入口（异步、流式、幂等、真实工作区、点名执行）、设备名称、MCP 派活和任务树、本机设置、防回环和伪造头、其他账号被拒、经 B 中继和经官方中继（两个中继都只看到密文）、手动改中继全账号同步、中继设备掉线回落官方中继。加 `--keep` 跑完不退出，可以继续手动 `curl` 或打开管理界面。
+
+## 通道
+
+设备之间只有一种通道：WebSocket，消息是 JSON。
+
+```
+直连：           A ──ws──▶ B 的入口 /mesh/ws
+经我的设备中继：  A ──ws──▶ B（中继）◀──ws── C        B 按 to 转发
+经官方中继：      A ──ws──▶ 官方中继 ◀──ws── C        和 B 上的中继是同一份代码（relay.js）
+```
+
+- **入口**：每台默认监听 `[::]:41750`（没开 IPv6 时退回 `0.0.0.0`），路径 `/mesh/ws`；`GET /mesh/ping` 给云端回拨验证用。`listen: false` 表示不开入口，只走中继。
+- **接入**：连上后中继发 `challenge`，设备回 `register {cert, sig}`（设备密钥签 `tb-mesh-register|<nonce>`）。设备上的中继只接本账号的设备；官方中继接所有账号，但只在同一账号的设备之间转发。
+- **端到端加密**（`keys.js`）：两台设备之间先握手（各出一个临时 X25519 公钥，用设备密钥签名），再用 AES-256-GCM 收发。中继只看到密文。
+- **上层**：`node.proxy(device, httpRequest)` 把一次 HTTP 请求交给那台设备的本机网关，流式响应原样回来（`http_request` / `http_head` / `chunk` / `done`）。
+
+**选中继**（全账号同一个）：
+
+1. 手动指定的以最近一次为准（经设备描述同步到所有设备）：某台设备，或官方中继。
+2. 自动：在开着中继的设备里挑 device_id 最小的（大家算出来是同一台）。登录时只算云端回拨验证过、从外面连得到的设备；只在局域网里用时，开着入口就算。
+3. 都没有，或者连不上选中的那台：官方中继。
+
+每台另外挂着一条到官方中继的空闲连接当碰头点：哪怕两台一时选的中继不一样，也总能互相找到。数据还是先直连、再经我的设备中继，都不通才经官方中继。
+
+**权限只看连接身份**：同账号证书 → 本人。消息里的字段不决定权限。雇佣社区智能体暂时还走原来的 `/ws/worker`，没有改。
 
 ## 统一入口
 
 | 调用 | 写法 |
 |---|---|
-| 设备列表 | `GET /v1/devices` |
+| 设备列表 | `GET /v1/devices`：每台带 `connection`（`self` / `direct` / `relay` / `offline`）、`addr_kind`（`lan` / `tailscale` / `ipv6` / `public`）、`via`（经哪个中继）、`relay`（这台在替哪些设备转发）；顶层 `relay` 是本机在用哪个中继 |
 | 模型 | `model: "demo-model"`：本机除社区以外的供给源都没有时，交给有它的设备。`model: "mine:mini/demo-model"`：钉设备 |
 | 智能体 | `metadata.harness_id: "mine:claude-code"`（自动选）/ `"mine:claude-code@mini"`（指定）；`metadata.workspace: "demo"` |
-| 设备名称 | 和交易页「设备名称」是同一个（`~/.llm-agent/config.json` 的 `name`）。`PUT /v1/devices/{设备}/name` `{"name":"studio"}`，或盘点页「改名」；之后 `@studio` 和电脑名一样能用 |
-| 点名执行 | 调智能体路由时输入以 `/codex 修一下` 或 `/codex@mini 修一下` 开头：跳过主智能体，直接交给点名的智能体（见 `../agent-designation.js`） |
-| 远端任务 | 任务号是 `mesh:<device_id>:<远端任务号>`，`GET /v1/agent/responses/{id}`、`/cancel` 自动转到那台设备。本机另记一行镜像（`agent_tasks`），由轮询跟着远端更新，应用重启后接着跟 |
-| 子任务 / 任务树 | 请求带 `metadata.parent_id`。`GET /v1/agent/responses/{id}` 带 `children`，`?tree=1` 展开整棵树；`GET /v1/agent/responses?parent_id=` 列子任务。别的设备上的子任务也在里面，标着 `metadata.mesh_device` |
-| 产出 | 结果里带 `git`（改动统计、`refs/tokenbank/mesh/<任务号>`）和 `artifacts`（产出文件清单）。`GET /v1/agent/responses/{id}/bundle`、`/artifacts/file?path=&sha256=`、`POST /v1/agent/responses/{id}/collect`（改动进本机 `tb/mesh/<任务号>` 分支） |
-| 只读查看 | `GET /v1/workspaces/{名字}/fs|file|diff|log?device=<设备>` |
-| 提问 | 子任务 MCP `tb_ask` → 状态 `requires_input`、`required_input.question`；回答：`previous_response_id` 指向它 |
-| 主智能体派活（MCP） | `tb_dispatch_agent` 的 `agent_id` 可以是 `mine:codex@studio`；`background: true` 马上返回任务号，`previous_task_id` 接着之前的会话；`tb_task_status(ids, wait: "any" \| "all")` 收结果。互不依赖的子任务并行跑 |
-| 列表 | `/v1/models`、`/v1/agent/harnesses` 会带上其他设备的 |
-| 本机设置 | `GET/PUT /v1/devices/self/settings`（`accept_agent_tasks`、`accept_model_requests`、`default_workspace`），`POST /v1/devices/self/workspaces` `{path, name?}`、`DELETE /v1/devices/self/workspaces/{名字}`。只在本机改，不走设备网络 |
+| 设备名称 | 和交易页「设备名称」是同一个。`PUT /v1/devices/{设备}/name` `{"name":"studio"}`，或盘点页「改名」 |
+| 点名执行 | 调智能体路由时输入以 `/codex 修一下` 或 `/codex@mini 修一下` 开头：跳过主智能体，直接交给点名的智能体 |
+| 远端任务 | 任务号是 `mesh:<device_id>:<远端任务号>`，查询、取消自动转到那台设备；本机另记一行镜像，重启后接着跟 |
+| 子任务 / 任务树 | 请求带 `metadata.parent_id`；`GET /v1/agent/responses/{id}` 带 `children`，`?tree=1` 展开整棵树 |
+| 主智能体派活（MCP） | `tb_dispatch_agent` 的 `agent_id` 可以是 `mine:codex@studio`；`background: true` 马上返回任务号；`tb_task_status(ids, wait)` 收结果 |
+| 本机设置 | `GET/PUT /v1/devices/self/settings`：`accept_agent_tasks`、`accept_model_requests`、`max_tasks`、`default_workspace`、`relay_mode`（`auto` / `on` / `off`）、`relay_pref`（`auto` / `official` / 某台的 device_id）；工作区 `POST/DELETE /v1/devices/self/workspaces` |
+| 新设备批准 | `GET /v1/devices/pending`；`POST /v1/devices/pending/{device_id}` `{"approve": true}` |
+| 路由明细 | 交给别的设备的请求记 `device` 和 `mesh_path`（直连 / 经哪个中继） |
+
+界面：盘点页选中本机时的设置条（中继、给其他设备当中继、批准新设备），设备胶囊上的「中继 · N」，各页「所在设备」的「经 X」，路由明细的「路径」。
 
 ## 模块
 
 | 文件 | 职责 |
 |---|---|
-| `frames.js` | 一条流上的分帧（JSON 帧 + 字节帧） |
-| `identity.js` | 设备密钥；证书签发、校验和准入（`scope` / `circles` / `team` 已预留） |
-| `cloud.js` | 和云端打交道：领证书、报地址、地址簿、吊销列表 |
-| `transport.js` | iroh 封装。只有它依赖 `@number0/iroh` |
-| `tunnel.js` | HTTP 走隧道：发起端发请求；接收端校验白名单、换鉴权头，转给本机网关 |
+| `keys.js` | 设备密钥（Ed25519）、端到端会话（X25519 + HKDF + AES-GCM） |
+| `identity.js` | 设备证书签发、校验和准入 |
+| `relay.js` | 中继：接入校验、按 to 转发、在线设备列表、转发统计 |
+| `relay-server.js` | 官方中继：`relay.js` 加一个 HTTP 服务，定时拉吊销列表 |
+| `node.js` | 节点：入口、直连、选中继、握手、presence、`proxy()` |
+| `tunnel.js` | 接收端：校验路径白名单、换鉴权头，转给本机网关 |
+| `cloud.js` | 和云端打交道：领证书、报地址、地址簿、吊销列表、批准 |
 | `directory.js` | 设备目录；描述里出现本机路径直接报错 |
 | `scheduler.js` | 本地选设备（纯函数） |
 | `workspaces.js` | 命名工作区 |
-| `lan-discovery.js` | 局域网发现：UDP 组播 + 广播兜底，校验证书后交给节点拨号；断网也能用 |
-| `node.js` | 节点：拨号、握手、presence、接收隧道请求、回环代理 |
-| `glue.js` | 接进网关：`/v1/devices`、模型、智能体、本机描述 |
-
-接入点：`local-gateway.js`（`/v1/models`、`/v1/devices`、模型请求、`knownKey`）、`agent-http.js`（`mine:` 寻址、`mesh:` 任务号、本人模式、工作区、任务树）、`agent-executor.js`（`mine:` 目标、远端任务镜像、后台派发、`waitTasks`）、`agent-dispatch-*`（MCP 派活）、`cli/gateway.js`（启动和退出；设备网络开着时也起派发服务）。
+| `lan-discovery.js` | 局域网发现：UDP 组播 + 广播兜底，校验证书后交给节点拨号 |
+| `glue.js` | 接进网关：`/v1/devices`、模型、智能体、本机设置、云端同步 |
 
 ## 云端模式（正式用法）
 
-登录后不用手写任何东西：在盘点页选中本机，打开「设备网络」即可。之后：
+登录后在盘点页选中本机，打开「设备网络」即可：
 
-1. 用设备密钥向云端领证书（`POST /mesh/cert`，30 天，剩 7 天时自动续）；换了密钥（重装）时旧的那把自动吊销。
-2. 每分钟报一次自己的地址（`POST /mesh/address`），拉地址簿（`GET /mesh/peers`）去连其他设备，拉吊销列表（`GET /mesh/revocations`），被吊销的马上断开。
-3. 在云端删除设备 = 吊销它的证书；中继也只放行持有效证书的设备（`/mesh/relay-access`）。
+1. 用设备密钥向云端领证书（`POST /mesh/cert`，30 天，剩 7 天时自动续）。账号的第一台直接通过；之后的新设备要一台已入网的设备批准（那台用设备密钥签名，只有登录令牌批准不了）。
+2. 每分钟报一次地址（`POST /mesh/address`）：云端回拨公网地址验证能不能从外面连到（内网地址不验证），验证过的设备才会被自动选成中继。拉地址簿去直连，拉吊销列表，被吊销的马上断开。
+3. 在云端删除设备 = 吊销它的证书；官方中继每分钟拉一次吊销列表（`/mesh/revoked-endpoints`）。
 4. 退出登录时证书来自云端的设备网络一起停。
 
-服务端：`server/mesh_router.py`、`server/mesh_cert.py`，部署见仓库根目录 `DEPLOY.md`「设备网络」。客户端：`cloud.js`；登录上下文从 `shared/device-reporter.js`（CLI）或渲染进程的 `useDeviceReporter`（桌面版，经 IPC `mesh:set-cloud`）交给 `glue.setCloud`。
-
-`scripts/mesh-cloud-demo.js` 关掉局域网发现、不写对端地址，只靠云端：领证书 → 地址簿找到对方 → 派活 → 删除设备后被断开、再连被拒 → 退出登录后停。
+服务端：`server/mesh_router.py`、`server/mesh_cert.py`；部署见仓库根目录 `DEPLOY.md`「设备网络」。
 
 ## 配置（开发用，手写）
 
@@ -83,36 +106,24 @@ node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.
   "user_id": "1001",
   "cert": "<设备证书 JWS>",
   "issuer_keys": [{ "kid": "…", "x": "…" }],
-  "bind_addr": "0.0.0.0:41641",
-  "peers": [{ "endpoint_id": "<对端公钥>", "direct_addrs": ["192.168.1.20:41641"] }],
+  "port": 41750,
+  "listen": "::",
+  "public_addr": "203.0.113.5:41750",
+  "peers": [{ "endpoint_id": "<对端公钥>", "direct_addrs": ["192.168.1.20:41750"] }],
+  "relay_urls": ["wss://tokenbank.example/mesh/ws"],
+  "relay_mode": "auto",
+  "relay_pref": "auto",
   "lan_discovery": true,
-  "lan_port": 41700,
-  "relay_urls": [],
   "accept_model_requests": false
 }
 ```
 
-`~/.tokenbank/mesh/workspaces.json`：`{ "default": "tokenbank", "workspaces": { "tokenbank": { "path": "~/code/tokenbank" } } }`
-
-## M0 验证结果（Linux x64，@number0/iroh 1.2.0）
-
-| 项 | 结果 |
-|---|---|
-| 自定义 ALPN（`tokenbank/mesh/1`） | 通过 |
-| 指定中继（`RelayMode.custom` + `authToken`） | 接口具备；未连真实中继验证 |
-| 关闭 n0 发现（`applyMinimal`） | 通过：只靠配置的地址连接 |
-| 局域网直连 | 通过：绑定 `0.0.0.0` 后，节点自动把本机网卡地址放进直连地址 |
-| 局域网发现（mDNS） | 绑定里没有这个接口。**已用 Node `dgram` 补上**（`lan-discovery.js`）：组播 `239.255.77.77` + 广播兜底，每 5 秒一次，校验证书后才拨号。不需要 Rust |
-| 跨网打洞 | iroh 内核支持，需要中继协助（Rust 版也一样）。绑定有自定义中继接口，待部署 TokenBank 中继后实测成功率 |
-| 连接方式和延迟（`paths()`） | 通过：能区分 direct / relay，拿到 rtt |
-| 双向流吞吐 | 本机回环约 **9–16 MB/s**（`node scripts/mesh-bench.js`；这台容器 9 MB/s，分帧后 8 MB/s），低于方案定的 50 MB/s 目标。原因是绑定只收 JS 数组（试过 Buffer 被拒，块大小 16 KB–1 MB 没差别）。按设计上限算：50 MB 的 bundle 约 6 秒、200 MB 的文件约 25 秒，**够用，暂不优化**；以后换支持 Buffer 的绑定或 iroh-blobs，接口不变 |
-| Electron 主进程加载、签名公证 | 未验证（本环境没有 macOS / Windows） |
+`listen: false` 只走中继；`public_addr` 是做了端口映射时手填的公网地址。
 
 ## 原型和正式版的差距
 
 - 签发方公钥现在随证书一起从云端下发；正式版要内置进客户端，防止被冒充的云端换掉。
-- 跨网靠云端地址簿；同一局域网另有广播发现，断网也能用。
-- 中继：服务端放行接口和部署配置已写好（`deploy/mesh-relay/`、`nginx/templates/relay.conf.template`），还没部署实测。
-- CLI 网关和桌面端 `main.js` 都接了：网关起来后 `startFromConfig`，退出时 `stop`。
-- 设备描述里还没有会话列表（`mine:session:` 未实现）。
-- 界面：不加新页面，各页「所在设备」见 `src/api/meshDevices.js`、`src/components/DeviceChips.jsx`。只有一台设备（或没开设备网络）时不显示这一列。
+- 打洞（两台都在 NAT 后面时直连）没做：这种情况走中继。
+- 官方中继按账号限连接数，还没有按流量限速和计费。
+- 雇佣社区智能体还走 `/ws/worker`；以后把设备间的消息换成同一套词汇（`agent_task` / `request`），雇佣只多一层计费和授权。
+- Electron 主进程加载、签名公证没在 macOS / Windows 上验证。

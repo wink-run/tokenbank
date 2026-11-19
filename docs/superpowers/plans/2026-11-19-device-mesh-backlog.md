@@ -1,10 +1,29 @@
 # 本人设备互联 · 需求与任务清单
 
 > 更新：2026-11-19（待定问题 Q1–Q7 已按建议定下）
-> 分支：`claude/personal-device-mesh-prototype`（基于 `main` @ 17ee836，**尚未推送**）
+> 分支：`claude/personal-device-mesh-prototype`（基于 `main` @ 17ee836，已推送）
 > 相关：[设计](../specs/2026-11-18-personal-device-mesh-design.md) · [实现方案](./2026-11-18-personal-device-mesh.md) · [原型说明](../../client/electron/mesh/README.md) · [界面原型](https://claude.ai/artifact/TwJj1AJ8ePH6N5JNHfrhAa)
 
-状态：✅ 原型已完成　🟡 部分完成　⬜ 未开始　❓ 待决定
+状态：✅ 原型已完成　🟡 部分完成　⬜ 未开始　❓ 待决定　🗑 已删
+
+---
+
+## 〇、精简和换通道（2026-11-19，以这一节为准）
+
+对用户只有一件事：任意一台 app 上的网关都能调到自己所有不在这台上的智能体和模型；中继可以手选也可以自动选。
+
+| # | 改动 | 提交 |
+|---|---|---|
+| R1 | 删掉过度设计：独立工作树、取回改动（`tb_collect`）、产出快照和按清单拉文件、远程只读查看、提问（`tb_ask` / `requires_input`）、检查点、游乐场任务板、按订阅账号算并发、吞吐基准。保留：任务树、后台并行派活、会话锁 | 9dc3cb2 |
+| R2 | 不用 iroh：设备之间改走 WebSocket（JSON 消息），端到端加密用 Node 自带的 `crypto`（Ed25519 身份、X25519 + AES-GCM 会话）。设备身份 `endpoint_id` 不变，已签发的证书照用 | 79acea2 |
+| R3 | 对等中继：每个 app 的入口里都有一份中继（`relay.js`），开着就能替同账号的其他设备转发；TokenBank 官方中继跑的是同一份代码（`relay-server.js`）。顺序：直连 → 我的设备中继 → 官方中继 | 79acea2 |
+| R4 | 选中继：手动指定（全账号同步，最近一次为准）或自动（能当中继的设备里挑同一台；登录时要云端回拨验证过）；中继设备掉线回落官方中继。每台挂一条到官方中继的空闲连接当碰头点 | 79acea2、3d8fd78 |
+| R5 | 界面：本机设置里选中继、开关「给其他设备当中继」；设备胶囊标「中继 · N」，所在设备标「经 X」，路由明细「路径」 | 3d8fd78 |
+| R6 | 新设备入网要已入网的设备批准（设备密钥签名），账号第一台自动通过 | 3d8fd78 |
+| R7 | 部署：`mesh-relay` 换成 Node 版，nginx 在 `/mesh/ws` 转发；删掉 iroh-relay 配置和单独的中继域名 | 113b487 |
+| R8 | 雇佣社区智能体暂不改（方案 C：还走 `/ws/worker`）。二期：设备间消息换成雇佣同一套词汇（`agent_task` / `request`），雇佣只多一层计费和授权，云端也看不到内容 | — |
+
+下面第一到第三节里 D3、D4、D15、D16、D19，E1-3、E1-5、E1-7、E1-8，E4-2、E4-4、E4-6、E4-7、E4-8、E4-10，E5 按这一节改过。
 
 ---
 
@@ -14,8 +33,8 @@
 |---|---|
 | D1 | 本人设备对等互联：每台设备装同一套节点，任何一台都能发起、都能执行；调度在发起设备本地完成 |
 | D2 | 云端只做控制面：登录、设备证书、地址簿、加密中继；任务和内容不经过云端 |
-| D3 | 中继由 TokenBank 服务端提供；不用 n0 公共中继和发现，不做用户自建 |
-| D4 | 不支持 Intel Mac；网络层用 `@number0/iroh`（napi），局域网发现用 Node `dgram` 补，不写 Rust |
+| D3 | 中继：先用我名下能被连到的设备（每个 app 都能当），没有再用 TokenBank 官方中继；两者同一份代码（R3） |
+| D4 | 网络层只用 Node 自带模块和 `ws`，不依赖 iroh、没有原生模块（R2） |
 | D5 | 本人任务完整权限：不审查、不脱敏、不计积分；社区和圈子沿用现有雇佣链路和权限 |
 | D6 | 设备证书预留 `scope` / `circles` / `team`，一期只签 `self` |
 | D7 | 云端助手（Muse、GrokBot）保持现状：经某台设备的本地 App 接入 |
@@ -26,11 +45,11 @@
 | D12 | 协作完成大任务：在现有智能体接口上做，不加「群」；一个大任务 = 一个主任务 + 挂在它下面的子任务 |
 | D13 | 没有依赖的子任务并行执行 |
 | D14 | 子任务之间只经主智能体中转；子任务报告只交摘要和产出清单。以后可放宽到「依赖上下游可直接续会话」，接口不变 |
-| D15 | 会改代码的子任务默认各用一个 git worktree + 分支；只读子任务（派活时声明 `metadata.readonly: true`）共用原工作区；工作区可配置 worktree 初始化命令 |
-| D16 | 检查点：拆解完成后、合并到你的分支前固定停下；另按条件停下（单个子任务改动超过 500 行或 20 个文件、失败重试超过 2 次、要动工作区以外的东西）；`metadata.checkpoints: "none"` 可关，默认开 |
+| D15 | 🗑（R1 已删） 会改代码的子任务默认各用一个 git worktree + 分支；只读子任务（派活时声明 `metadata.readonly: true`）共用原工作区；工作区可配置 worktree 初始化命令 |
+| D16 | 🗑（R1 已删） 检查点：拆解完成后、合并到你的分支前固定停下；另按条件停下（单个子任务改动超过 500 行或 20 个文件、失败重试超过 2 次、要动工作区以外的东西）；`metadata.checkpoints: "none"` 可关，默认开 |
 | D17 | 主持人一期固定用发起设备（本机）的主智能体；本机休眠时子任务照跑，回来用 `previous_response_id` 续上主任务 |
 | D18 | 本机设置放在盘点页选中本机后「改名」旁边：接活开关（默认开）、开放模型开关（默认关）、工作区（「从最近项目添加」和删除） |
-| D19 | 产出快照：代码不另存（提交在 `refs/tokenbank/mesh/<任务号>`）；非代码文件在子任务结束时复制到 `~/.tokenbank/mesh/outbox/<任务号>/`，保留 7 天，单任务上限 500 MB |
+| D19 | 🗑（R1 已删） 产出快照：代码不另存（提交在 `refs/tokenbank/mesh/<任务号>`）；非代码文件在子任务结束时复制到 `~/.tokenbank/mesh/outbox/<任务号>/`，保留 7 天，单任务上限 500 MB |
 | D20 | 中继先只部署一个区域；实测打洞成功率 ≥ 80% 且走中继时模型首 token 额外延迟 ≤ 300 ms 就够用，否则加第二个区域 |
 
 ---
@@ -53,17 +72,21 @@
 | E3 界面「所在设备」：网关三张表、模型账户表、游乐场列表、盘点里的本机设置（接活、开放模型、工作区）；桌面端启动设备网络 | ✅ | c74911f |
 | E1-1 / E1-2 云端证书、地址簿、吊销、中继放行接口；登录后自动入网、退出登录即停；盘点里一键开关设备网络 | ✅ | 3d24e74 |
 | E1-6 真实负载、同时接几个可设，满了回 429；自动挑设备时避开满负载的 | ✅ | 3d24e74 |
-| E1-3 中继部署配置（compose `mesh` profile、nginx 模板、iroh-relay 配置）——写好，未部署实测 | 🟡 | 3d24e74 |
-| E1-5 桌面端：登录后经 IPC 交出登录上下文、退出登录即停——已接；打包 napi 模块、签名公证未做 | 🟡 | 3d24e74 |
-| E1-7 `package-lock.json` 只剩 iroh 的新增；`docs/` 的忽略规则待定（见「待你决定」Q9） | 🟡 | 3d24e74 |
+| E1-3 官方中继：Node 版 `relay-server.js`，compose `mesh` profile，nginx `/mesh/ws`——写好，未部署实测 | 🟡 | 113b487 |
+| E1-5 桌面端：登录后经 IPC 交出登录上下文、退出登录即停——已接；不再有原生模块，签名公证没在 macOS / Windows 上验证 | 🟡 | 3d24e74 |
+| E1-7 `package-lock.json` 已去掉 iroh；`docs/` 的忽略规则待定（见「待你决定」Q9） | 🟡 | 79acea2 |
 | 云端模式演示 `scripts/mesh-cloud-demo.js`（7 项，连本机服务端）、服务端单测 `test_mesh_cert.py` | ✅ | 3d24e74 |
-| E4-2 / E4-5 / E4-9 提问（`tb_ask`、`requires_input`）、检查点、会话锁、子任务只交摘要和产出清单 | ✅ | ca69cc7 |
-| E4-4 / E4-6 / E4-10 / E5 独立工作树、改动取回（`tb_collect`）、产出快照、按清单拉文件、远程只读查看 | ✅ | ca69cc7 |
-| E4-7 游乐场任务板（回答、改派、叫停、取回改动）；路由明细显示父任务、发起设备；远端执行步骤同步到游乐场 | ✅ | a9ae3e3 |
-| E4-8 调度看同一订阅账号上的并发 | ✅ | a9ae3e3 |
+| E4-5 会话锁 | ✅ | ca69cc7 |
+| E4-2 / E4-9 提问、检查点、只交摘要 | 🗑 | R1 |
+| E4-4 / E4-6 / E4-10 / E5 独立工作树、改动取回、产出快照、远程只读查看 | 🗑 | R1 |
+| E4-7 游乐场任务板 | 🗑 | R1（路由明细的父任务、发起设备保留） |
+| E4-8 按订阅账号算并发 | 🗑 | R1 |
 | E2-2 模型降级链：本机 → 我的设备 → 免费 → 社区 → 付费，首包前失败换下一个 | ✅ | a9ae3e3 |
 | E2-3 路由明细记 `route: mesh`、执行设备、发起设备 | ✅ | a9ae3e3 |
-| E1-8 吞吐基准 `scripts/mesh-bench.js`：约 9–16 MB/s，按设计上限够用，暂不优化 | ✅ | a9ae3e3 |
+| E1-8 吞吐基准 | 🗑 | R1 |
+| E1-9 云端回拨验证公网地址（`/mesh/address` 返回 `verified`），官方中继拉吊销列表（`/mesh/revoked-endpoints`） | ✅ | 79acea2 |
+| E1-10 新设备批准（`/mesh/pending`、`/mesh/approve`，设备密钥签名） | ✅ | 3d8fd78 |
+| E1-11 中继选择和界面标注（R4、R5） | ✅ | 3d8fd78 |
 | 已知问题清掉：流式派活也记镜像、社区智能体能后台派、外部智能体标所在设备、游乐场能选那台设备的工作区 | ✅ | a9ae3e3 |
 | 端到端演示 `scripts/mesh-demo.js`（65 项）、单测 | ✅ | 各提交 |
 | 设计文档、实现方案、界面原型（基于最新版真实界面） | ✅ | 18d9128 等 |
@@ -80,12 +103,13 @@
 |---|---|---|---|---|---|
 | E1-1 ✅ | 云端签发设备证书 `POST /mesh/cert`、吊销列表 `GET /mesh/revocations`；删除设备即吊销 | `server/mesh_cert.py`、`server/mesh_router.py`、`device_router.py` | 登录后自动拿到证书；删除设备后它的连接被拒 | P0 | 3 天 |
 | E1-2 ✅ | 地址簿：心跳带 `endpoint_id`、中继地址、直连地址；`GET /mesh/peers` | `useDeviceReporter.js`、`shared/device-reporter.js`、`device_router.py`、`mesh/glue.js` | 不手写 `peers`，两台跨网设备能找到彼此 | P0 | 2 天 |
-| E1-3 🟡 | 部署 `iroh-relay`（和现有服务一起，nginx 443），只放行持有效证书的设备 | `docker-compose.yml`、`nginx/` | 禁掉直连后仍能经中继完成演示全流程 | P0 | 2 天 |
-| E1-4 | 跨网打洞实测：家宽 + 热点、两地宽带、公司网络 | 测试记录 | 有成功率、耗时、走中继比例和延迟的数据；按 D20 的标准决定要不要加第二个区域的中继 | P0 | 2 天 |
-| E1-5 🟡 | Electron 主进程接入：登录后 `startFromConfig`，退出登录 / 退出应用时 `stop`；打包 napi 模块、签名公证 | `electron/main.js`、`package.json`（electron-builder `asarUnpack`） | 桌面版 macOS arm64、Windows x64 能入网 | P0 | 3 天 |
+| E1-3 🟡 | 部署官方中继（`mesh-relay`，nginx `/mesh/ws`），只接持有效证书的设备 | `docker-compose.yml`、`nginx/`、`deploy/mesh-relay/` | 真机经官方中继完成 `TESTING.md` 第八节 | P0 | 1 天 |
+| E1-4 | 真机实测：同一局域网、Tailscale、经我的设备中继、经官方中继 | 测试记录 | 有连接方式和延迟的数据；按 D20 的标准决定要不要加第二个区域的中继 | P0 | 2 天 |
+| E1-5 🟡 | Electron 主进程接入：登录后 `startFromConfig`，退出登录 / 退出应用时 `stop`；签名公证 | `electron/main.js` | 桌面版 macOS arm64、Windows x64 能入网 | P0 | 1 天 |
 | E1-6 ✅ | 设备上报真实负载（`runningTasks`），并发上限可配置 | `mesh/glue.js`、`agent-executor.js` | 自动选设备时把任务分散开 | P1 | 1 天 |
 | E1-7 🟡 | 清理 `package-lock.json` 里与 iroh 无关的改动；`docs/` 被 `.gitignore` 忽略的问题 | `client/package-lock.json`、`.gitignore` | 合并前 diff 干净 | P1 | 0.5 天 |
-| E1-8 ✅ | 吞吐评估：napi 用 JS 数组传字节，本机约 15.7 MB/s | 基准测试 | 决定大文件 / bundle 是否需要优化或后备方案 | P2 | 1 天 |
+| E1-8 🗑 | 吞吐评估 | — | R1 已删 | — | — |
+| E1-12 | 二期：设备间消息换成雇佣同一套词汇，雇佣也走设备通道、端到端加密（R8） | `mesh/node.js`、`server/` 雇佣链路 | 雇佣和本人设备一套协议，云端看不到内容 | P2 | 5 天 |
 
 ### E2 · 统一入口完善
 
@@ -109,22 +133,22 @@
 | ID | 任务 | 要改的地方 | 验收 | 优先级 | 估算 |
 |---|---|---|---|---|---|
 | E4-1 ✅ | 任务树：请求可带 `metadata.parent_id`（MCP 派活自动带）；`GET /v1/agent/responses/{id}` 返回 `children`，`?tree=1` 返回整棵树；`GET /v1/agent/responses?parent_id=` | `agent-http.js`、`agent-executor.js`（`agent_tasks.context.parentTaskId` 已有） | 主任务能看到所有子任务和状态，包括其他设备上的 | P1 | 2 天 |
-| E4-2 ✅ | 新状态 `requires_input`：子任务用 MCP `tb_ask(question)` 停下提问；主任务按 D16 在检查点停下等人（拆解后、合并前、按条件），`metadata.checkpoints: "none"` 可关；用 `previous_response_id` 回答后接着做 | `agent-http.js`（`taskToResponse`）、`agent-dispatch-mcp.js`、`agent-executor.js` | 子任务提问 → 主智能体回答 → 子任务续上原会话完成 | P1 | 2 天 |
+| E4-2 🗑 | 新状态 `requires_input`：子任务用 MCP `tb_ask(question)` 停下提问；主任务按 D16 在检查点停下等人（拆解后、合并前、按条件），`metadata.checkpoints: "none"` 可关；用 `previous_response_id` 回答后接着做 | `agent-http.js`（`taskToResponse`）、`agent-dispatch-mcp.js`、`agent-executor.js` | 子任务提问 → 主智能体回答 → 子任务续上原会话完成 | P1 | 2 天 |
 | E4-3 ✅ | MCP 异步派活：`tb_dispatch_agent` 加 `background`、`previous_task_id`；新增 `tb_task_status(ids, wait:"any")` | `agent-dispatch-mcp.js`、`agent-dispatch-server.js` | 主智能体一次派出 3 个无依赖子任务，并行执行，等任意一个完成再派依赖它的 | P1 | 2 天 |
-| E4-4 ✅ | 并行隔离（D15）：会改代码的子任务默认各用一个 git worktree 和分支 `tb/collab/<父任务>/<子任务>`；请求可带 `metadata.branch`、`metadata.readonly`；工作区配置 `worktree_init`（如 `npm ci`） | `mesh/workspaces.js`、`agent-http.js` | 3 个子任务同时改同一仓库互不覆盖 | P1 | 2 天 |
+| E4-4 🗑 | 并行隔离（D15）：会改代码的子任务默认各用一个 git worktree 和分支 `tb/collab/<父任务>/<子任务>`；请求可带 `metadata.branch`、`metadata.readonly`；工作区配置 `worktree_init`（如 `npm ci`） | `mesh/workspaces.js`、`agent-http.js` | 3 个子任务同时改同一仓库互不覆盖 | P1 | 2 天 |
 | E4-5 ✅ | 同一会话加锁：同时续同一个子任务时第二个排队或返回「进行中」 | `agent-executor.js` | 并发续同一任务不会同时 `--resume` | P1 | 0.5 天 |
-| E4-6 ✅ | 产出回收：`GET /v1/agent/responses/{id}/bundle`、MCP `tb_collect`；取回到 `tb/mesh/<任务号>` 分支（设计 §8.4.3，命令已在 git 2.43 验证） | `mesh/git-bundle.js`、`agent-http.js`、`tunnel.js` 白名单 | 主智能体收齐子任务改动合并、跑测试；合并到你的分支前停下等确认 | P1 | 3 天 |
-| E4-7 ✅ | 游乐场：按 `children` 显示子任务状态卡（所在设备、状态），`requires_input` 高亮、可直接回复；路由明细详情显示父任务 | `Debug.jsx`、`Gateway.jsx` | 你能看着任务板插话、改派、叫停 | P1 | 2 天 |
-| E4-8 ✅ | 调度考虑订阅账号并发（同一 Claude / Codex 账号上的并行数） | `mesh/scheduler.js` | 多个子任务优先分散到不同设备 / 账号 | P2 | 1 天 |
-| E4-9 ✅ | 子任务报告只交摘要和产出清单（D14），主智能体按需再拉详情 | `agent-dispatch-mcp.js`（`tb_task_status` 返回摘要）、`agent-http.js` | 主智能体上下文里没有子任务的完整对话 | P1 | 1 天 |
-| E4-10 ✅ | 非代码产出快照到 `outbox`（D19）：子任务结束时复制本轮新增的非代码文件，保留 7 天，单任务 500 MB 上限 | `mesh/` 新增 outbox、`agent-worker` 同款 `collectWorkspaceArtifacts` | 子任务结束后工作区里的报告被改，仍能从快照拉回原样 | P2 | 1 天 |
+| E4-6 🗑 | 产出回收：`GET /v1/agent/responses/{id}/bundle`、MCP `tb_collect`；取回到 `tb/mesh/<任务号>` 分支（设计 §8.4.3，命令已在 git 2.43 验证） | `mesh/git-bundle.js`、`agent-http.js`、`tunnel.js` 白名单 | 主智能体收齐子任务改动合并、跑测试；合并到你的分支前停下等确认 | P1 | 3 天 |
+| E4-7 🗑 | 游乐场：按 `children` 显示子任务状态卡（所在设备、状态），`requires_input` 高亮、可直接回复；路由明细详情显示父任务 | `Debug.jsx`、`Gateway.jsx` | 你能看着任务板插话、改派、叫停 | P1 | 2 天 |
+| E4-8 🗑 | 调度考虑订阅账号并发（同一 Claude / Codex 账号上的并行数） | `mesh/scheduler.js` | 多个子任务优先分散到不同设备 / 账号 | P2 | 1 天 |
+| E4-9 🗑 | 子任务报告只交摘要和产出清单（D14），主智能体按需再拉详情 | `agent-dispatch-mcp.js`（`tb_task_status` 返回摘要）、`agent-http.js` | 主智能体上下文里没有子任务的完整对话 | P1 | 1 天 |
+| E4-10 🗑 | 非代码产出快照到 `outbox`（D19）：子任务结束时复制本轮新增的非代码文件，保留 7 天，单任务 500 MB 上限 | `mesh/` 新增 outbox、`agent-worker` 同款 `collectWorkspaceArtifacts` | 子任务结束后工作区里的报告被改，仍能从快照拉回原样 | P2 | 1 天 |
 
 ### E5 · 产出查看
 
 | ID | 任务 | 要改的地方 | 验收 | 优先级 | 估算 |
 |---|---|---|---|---|---|
-| E5-1 ✅ | 远程只读查看：`/v1/workspace/{名字}/fs`、`/file`、`/diff`、`/log`（设计 §8.4.5），路径限定在工作区内 | `agent-http.js` 或新文件、`tunnel.js` 白名单 | 在 A 上看 B 工作区的 diff | P2 | 2 天 |
-| E5-2 ✅ | 大文件按需拉取 `blob.get`（设计 §8.4.4） | `tunnel.js`、`agent-http.js` | 拉一个 50 MB 产物不出错 | P2 | 1.5 天 |
+| E5-1 🗑 | 远程只读查看：`/v1/workspace/{名字}/fs`、`/file`、`/diff`、`/log`（设计 §8.4.5），路径限定在工作区内 | `agent-http.js` 或新文件、`tunnel.js` 白名单 | 在 A 上看 B 工作区的 diff | P2 | 2 天 |
+| E5-2 🗑 | 大文件按需拉取 `blob.get`（设计 §8.4.4） | `tunnel.js`、`agent-http.js` | 拉一个 50 MB 产物不出错 | P2 | 1.5 天 |
 
 ### E6 · 以后再做
 
@@ -151,6 +175,6 @@ Q1–Q7 已于 2026-11-19 按建议定下，见上面 D14–D20。剩下：
 - 改设备名称后，盘点按「名字 + 系统」合并同一台电脑的多条记录，可能暂时分成两条。
 - 出租接单上报的名称在 worker 重连后才更新。
 - 交易页以前保存过带空格的名称：能显示，但不能用来 `@`，要改一次。
-- 设备之间吞吐约 9–16 MB/s（napi 绑定只收 JS 数组），大文件慢一些。
+- 两台都在 NAT 后面、又没有能当中继的设备时走官方中继（没做打洞）。
 - 游乐场里其他设备开放的模型源只出现在降级链里；要钉某台设备用 `mine:<设备>/<模型>`。
 - CLI 网关只在设备网络开着时起派发服务（桌面端一直由 `main.js` 起）。

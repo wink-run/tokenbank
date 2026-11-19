@@ -6,6 +6,8 @@
 参考：[reason-network](https://github.com/reason-machines/reason-network)（iroh P2P、会话目录、投递语义）、[gary-ai-link](https://github.com/garycaogan/gary-ai-link)（命名工作区、权限由主人定、`uncertain` 状态）
 相关：[贡献武将 WS 接单](./2026-07-26-contribute-agents-ws-design.md)
 
+> **修订（2026-11-19）**：网络层不再用 iroh。设备之间走 WebSocket（JSON 消息），端到端加密用 Node 自带的 `crypto`；每个 app 都能给同账号的其他设备当中继，TokenBank 官方中继跑同一份代码；顺序是直连 → 我的设备中继 → 官方中继，中继可手选、可自动选。新设备要已入网的设备批准。工作树、取回改动、产出快照、提问和检查点等协作功能已删。下文提到 iroh、QUIC、`iroh-relay`、`@number0/iroh` 的地方以 `client/electron/mesh/README.md`「通道」一节和任务清单第〇节为准。
+
 ---
 
 ## 1. 背景
