@@ -488,11 +488,8 @@ function invalidateAgentListCache() {
 }
 
 const TERMINAL = ['completed', 'failed', 'cancelled'];
-/** 停下来等人回答（子任务 tb_ask、主任务检查点）。等结果的一方把它当「这一轮结束了」 */
-const NEEDS_INPUT = 'requires_input';
-const ROUND_DONE = [...TERMINAL, NEEDS_INPUT];
 /** 远端响应状态 → 本机任务状态 */
-const MESH_STATUS = { in_progress: 'running', queued: 'pending', completed: 'completed', failed: 'failed', cancelled: 'cancelled', requires_input: NEEDS_INPUT };
+const MESH_STATUS = { in_progress: 'running', queued: 'pending', completed: 'completed', failed: 'failed', cancelled: 'cancelled' };
 function isMeshTarget(id) { return String(id || '').trim().startsWith('mine:'); }
 function isMeshTaskId(id) { return String(id || '').startsWith('mesh:'); }
 function safeJson(text, fallback) { try { return JSON.parse(text); } catch { return fallback; } }
@@ -1015,8 +1012,6 @@ class AgentExecutor extends EventEmitter {
         // local / owner = 本机，hired = 雇佣。来自请求 metadata.call_context。
         callContext: options.callContext || null,
         previousTaskId: options.previousTaskId || null,
-        checkpoints: options.checkpoints || null,
-        outputs: options.outputsInfo || null,
       }),
       Date.now(),
     );
@@ -1167,7 +1162,7 @@ class AgentExecutor extends EventEmitter {
           lastMark = mark;
           lastActivity = Date.now();
         }
-        if (ROUND_DONE.includes(status.status)) {
+        if (TERMINAL.includes(status.status)) {
           if (parentTaskId) {
             const summary = status.result?.summary
               || status.result?.output
@@ -1227,7 +1222,7 @@ class AgentExecutor extends EventEmitter {
     const deadline = Date.now() + Math.max(0, Math.min(Number(timeoutMs) || 0, 10 * 60 * 1000));
     for (;;) {
       const all = await read();
-      const done = all.filter((t) => ROUND_DONE.includes(t.status) || t.status === 'not_found');
+      const done = all.filter((t) => TERMINAL.includes(t.status) || t.status === 'not_found');
       if (wait === 'none' || !list.length) return all;
       if (wait === 'any' && done.length > 0) return all;
       if (wait === 'all' && done.length === all.length) return all;
@@ -1236,39 +1231,9 @@ class AgentExecutor extends EventEmitter {
     }
   }
 
-  // ── 提问、会话锁（E4-2 / E4-5） ─────────────────────────────────────────────
+  // ── 会话锁 ─────────────────────────────────────────────────────────────────
 
-  /** 子任务提问（MCP tb_ask）：记下问题，这一轮结束时任务停在 requires_input */
-  askQuestion(taskId, question) {
-    const q = String(question || '').trim().slice(0, 4000);
-    if (!taskId || !q) throw new Error('缺少 task_id 或 question');
-    const db = this._getDb();
-    const row = db.prepare('SELECT status, context FROM agent_tasks WHERE id = ?').get(taskId);
-    if (!row) throw new Error('Task not found');
-    if (!['pending', 'running'].includes(row.status)) throw new Error(`任务已经${row.status}，不能再提问`);
-    const ctx = safeJson(row.context, {}) || {};
-    ctx.pendingQuestion = { question: q, asked_at: Date.now() };
-    db.prepare('UPDATE agent_tasks SET context = ? WHERE id = ?').run(JSON.stringify(ctx), taskId);
-    const meta = this._taskEventMeta(taskId);
-    this.emit('task:step', { taskId, stepType: 'question', content: q, timestamp: Date.now(), ...meta });
-    if (meta.parentTaskId) {
-      this.emit('task:step', { taskId: meta.parentTaskId, stepType: 'delegation', phase: 'question', childTaskId: taskId, content: q, timestamp: Date.now() });
-    }
-    return { ok: true };
-  }
-
-  _pendingQuestion(taskId) {
-    try {
-      const row = this._getDb().prepare('SELECT context FROM agent_tasks WHERE id = ?').get(taskId);
-      const q = safeJson(row?.context, {})?.pendingQuestion;
-      return q && !q.answered_at ? q.question : null;
-    } catch { return null; }
-  }
-
-  /**
-   * 续上一轮之前：上一轮还在跑、或者已经有一轮在接着它做 → 报「进行中」（409）。
-   * 上一轮在等回答（requires_input）时，这一轮就是回答：把它标成已回答、完成。
-   */
+  /** 续上一轮之前：上一轮还在跑、或者已经有一轮在接着它做 → 报「进行中」（409），免得两个进程同时续同一个会话 */
   _lockSession(prevId) {
     const db = this._getDb();
     const prev = db.prepare('SELECT status, context FROM agent_tasks WHERE id = ?').get(prevId);
@@ -1282,11 +1247,6 @@ class AgentExecutor extends EventEmitter {
       LIMIT 1
     `).get(prevId);
     if (busy) throw Object.assign(new Error(`已经有一轮在接着它做（${busy.id}），等它结束`), { status: 409 });
-    if (prev.status === NEEDS_INPUT) {
-      const ctx = safeJson(prev.context, {}) || {};
-      if (ctx.pendingQuestion) ctx.pendingQuestion.answered_at = Date.now();
-      db.prepare("UPDATE agent_tasks SET status = 'completed', context = ? WHERE id = ?").run(JSON.stringify(ctx), prevId);
-    }
   }
 
   // ── 设备网络（mine: 目标、mesh: 任务号） ───────────────────────────────────
@@ -1296,12 +1256,6 @@ class AgentExecutor extends EventEmitter {
     const glue = require('./mesh/glue');
     const metadata = {};
     if (options.workspace) metadata.workspace = options.workspace;
-    // 子任务：那边会改代码时用独立工作树（D15）
-    if (options.parentTaskId) {
-      metadata.subtask = true;
-      metadata.parent_ref = String(options.parentTaskId).split(':').pop().replace(/[^A-Za-z0-9]/g, '').slice(-10);
-    }
-    if (options.readonly) metadata.readonly = true;
     let prevMesh = isMeshTaskId(options.previousTaskId) ? options.previousTaskId : undefined;
     // 游乐场「接着聊」：同一个会话里上一轮派到其他设备的任务，就接着那台设备上的会话
     if (!prevMesh && options.continueSession) {
@@ -1404,11 +1358,8 @@ class AgentExecutor extends EventEmitter {
       remoteHarness: resp.metadata?.harness_id || prev.remoteHarness || null,
       remoteSteps: Number.isFinite(resp.step_count) ? resp.step_count : (prev.remoteSteps ?? null),
     };
-    if (resp.required_input?.question) result.question = resp.required_input.question;
-    if (resp.git) result.git = resp.git;
-    if (Array.isArray(resp.artifacts)) result.artifacts = resp.artifacts;
-    if (ROUND_DONE.includes(status)) {
-      const error = (status === 'completed' || status === NEEDS_INPUT) ? null : (resp.error?.message || text || status);
+    if (TERMINAL.includes(status)) {
+      const error = status === 'completed' ? null : (resp.error?.message || text || status);
       db.prepare('UPDATE agent_tasks SET status = ?, result = ?, error = ?, completed_at = ? WHERE id = ?')
         .run(status, JSON.stringify(result), error, Date.now(), taskId);
       return true;
@@ -2058,7 +2009,6 @@ class AgentExecutor extends EventEmitter {
           sessionKey: options.sessionKey || null,
           sessionInstanceId: options.sessionInstanceId || null,
           agentRouteId: options.agentRouteId || '',
-          checkpoints: options.checkpoints || 'default',
         });
         orchestratorCleanup = orch.cleanup;
         if (orch.promptPrefix) execPrompt = orch.promptPrefix + userPrompt;
@@ -2184,20 +2134,7 @@ class AgentExecutor extends EventEmitter {
         return;
       }
 
-      // 产出：git 改动、文件清单、快照（派活时准备过工作区的才有）。先记好再标完成，查到完成时产出已经在了
-      if (typeof options.finalizeOutputs === 'function') {
-        try {
-          const out = await options.finalizeOutputs(result, taskId);
-          if (out && typeof out === 'object') Object.assign(result, out);
-        } catch (e) {
-          console.warn('[AgentExecutor] finalize outputs:', e.message);
-          result.outputsError = e.message;
-        }
-      }
-      // 子任务用 tb_ask 提了问：这一轮停在「等回答」，回答用 previous_response_id 续上
-      const question = this._pendingQuestion(taskId);
-      if (question) result.question = question;
-      const doneStatus = question ? NEEDS_INPUT : 'completed';
+      const doneStatus = 'completed';
 
       // 更新任务结果（失败也不阻断完成事件，避免 UI 卡在 executing）
       try {
@@ -2224,7 +2161,6 @@ class AgentExecutor extends EventEmitter {
           files: result.files,
           stepCount: result.stepCount,
           cliSessionId: result.cliSessionId,
-          question: result.question || null,
         },
         status: doneStatus,
         ...this._taskEventMeta(taskId),
@@ -3125,8 +3061,6 @@ module.exports.taskWaitAlive = taskWaitAlive;
 module.exports.taskActivityMark = taskActivityMark;
 module.exports.isMeshTarget = isMeshTarget;
 module.exports.isMeshTaskId = isMeshTaskId;
-module.exports.NEEDS_INPUT = NEEDS_INPUT;
-module.exports.ROUND_DONE = ROUND_DONE;
 module.exports.buildClaudeCodeArgs = buildClaudeCodeArgs;
 module.exports.buildClaudeContinueArgs = buildClaudeContinueArgs;
 module.exports.buildClaudeStreamFlags = buildClaudeStreamFlags;

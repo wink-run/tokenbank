@@ -131,18 +131,6 @@ async function dispatch(agentId, prompt, options = {}) {
   return agentExecutor.dispatch(agentId, prompt, options);
 }
 
-/** 把子任务的代码改动取回本机分支（tb_collect） */
-async function collect(taskId, workingDir) {
-  if (useHttpDispatch()) return httpRequest('POST', '/collect', { taskId, workingDir });
-  return require('./mesh/outputs-http').collectTask(taskId, { dirs: [workingDir].filter(Boolean) });
-}
-
-/** 当前任务提问（tb_ask） */
-async function ask(taskId, question) {
-  if (useHttpDispatch()) return httpRequest('POST', '/ask', { taskId, question });
-  return agentExecutor.askQuestion(taskId, question);
-}
-
 /** 查几个任务的状态；wait='any'|'all' 时等到条件满足或超时 */
 async function taskStatus(ids, { wait = 'none', timeoutMs } = {}) {
   if (useHttpDispatch()) {
@@ -168,7 +156,5 @@ module.exports = {
   dispatchAndWait,
   dispatch,
   taskStatus,
-  ask,
-  collect,
   resolvePrompt,
 };

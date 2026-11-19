@@ -1,4 +1,4 @@
-"""设备网络：签发设备证书、地址簿、吊销列表、中继放行。
+"""设备网络：签发设备证书、地址簿、吊销列表。
 
 内容不经过这里：设备之间直连（打不通时走 TokenBank 中继，中继只转发加密的包）。
 云端只管谁是谁（证书）、去哪找（地址簿）、谁被踢了（吊销）。
@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 import mesh_cert
@@ -154,7 +152,6 @@ async def request_cert(req: CertRequest, uid: int = Depends(get_current_user_id)
         "user_id": str(uid),
         "issuer_keys": mesh_cert.issuer_keys(iss),
         "relay_urls": mesh_cert.relay_urls(),
-        "relay_token": mesh_cert.relay_token(uid, iss) if mesh_cert.relay_urls() else None,
     }
 
 
@@ -223,43 +220,3 @@ async def list_revocations(uid: int = Depends(get_current_user_id)):
         ) as cur:
             rows = await cur.fetchall()
     return {"revoked": [{"endpoint_id": r[0], "device_id": r[1], "revoked_at": r[2]} for r in rows]}
-
-
-# ── 中继放行 ──────────────────────────────────────────────────────────────────
-
-def _relay_endpoint_id(request: Request, body: dict) -> str:
-    for h in ("x-iroh-endpoint-id", "x-iroh-node-id", "x-iroh-nodeid"):
-        v = request.headers.get(h)
-        if v:
-            return v.strip().lower()
-    return str(body.get("endpoint_id") or body.get("node_id") or request.query_params.get("endpoint_id") or "").strip().lower()
-
-
-@router.post("/mesh/relay-access")
-async def relay_access(request: Request):
-    """iroh-relay 的 HTTP 放行回调：只放行持有效证书、没被吊销的设备。
-
-    由中继服务带 MESH_RELAY_ACCESS_TOKEN 调用；回 "true" 放行、"false" 拒绝。
-    """
-    want = os.environ.get("MESH_RELAY_ACCESS_TOKEN", "")
-    got = request.headers.get("authorization", "")
-    if not want or got != f"Bearer {want}":
-        return PlainTextResponse("false", status_code=401)
-    try:
-        body = await request.json()
-        if not isinstance(body, dict):
-            body = {}
-    except Exception:
-        body = {}
-    endpoint_id = _relay_endpoint_id(request, body)
-    if not mesh_cert.ENDPOINT_ID_RE.match(endpoint_id):
-        return PlainTextResponse("false", status_code=403)
-    await ensure_tables()
-    async with connect() as db:
-        async with db.execute(
-            """SELECT 1 FROM mesh_endpoints m WHERE m.endpoint_id=? AND m.cert_exp > ?
-                 AND NOT EXISTS (SELECT 1 FROM mesh_revocations r WHERE r.endpoint_id = m.endpoint_id)""",
-            (endpoint_id, int(time.time())),
-        ) as cur:
-            ok = await cur.fetchone()
-    return PlainTextResponse("true" if ok else "false", status_code=200 if ok else 403)

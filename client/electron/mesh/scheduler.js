@@ -96,18 +96,9 @@ function pickDevice({ target, workspace, devices, priorities = {} }) {
   const relay = (d) => (d.path && d.path.kind === 'relay' ? 1 : 0);
   const rtt = (d) => (d.path && Number.isFinite(d.path.rttMs) ? d.path.rttMs : 1e9);
   const running = (d) => Number(((d.descriptor || {}).load || {}).running || 0);
-  // 同一个应用的订阅账号上已经在跑几个（E4-8）：两台设备登的是同一个账号时合起来算，多个子任务优先分散到不同账号
-  const accountOf = (d) => ((d.descriptor || {}).apps || []).find((a) => a.id === target.id)?.account || null;
-  const appRunning = (d) => Number((((d.descriptor || {}).load || {}).by_app || {})[target.id] || 0);
-  const accountBusy = (d) => {
-    const acc = accountOf(d);
-    if (!acc) return appRunning(d);
-    return (devices || []).filter((x) => x && accountOf(x) === acc).reduce((n, x) => n + appRunning(x), 0);
-  };
   free.sort((a, b) =>
     (b.self ? 1 : 0) - (a.self ? 1 : 0)     // 本机能做就在本机做
     || prio(b) - prio(a)                     // 用户设的优先级
-    || accountBusy(a) - accountBusy(b)       // 同一个订阅账号上并行少的
     || running(a) - running(b)               // 负载低的
     || relay(a) - relay(b)                   // 直连优先于中继
     || rtt(a) - rtt(b));                     // 延迟低的

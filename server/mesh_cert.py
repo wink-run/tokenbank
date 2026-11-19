@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import os
 import re
@@ -151,14 +150,6 @@ def verify_cert(token: str, keys: list[dict], now: int | None = None) -> dict | 
 
 
 def relay_urls(env: dict | None = None) -> list[str]:
-    """TokenBank 中继地址（MESH_RELAY_URLS，逗号分隔）"""
+    """TokenBank 官方中继地址（MESH_RELAY_URLS，逗号分隔，如 wss://relay.example.com/mesh/ws）"""
     env = os.environ if env is None else env
     return [u.strip() for u in str(env.get("MESH_RELAY_URLS", "") or "").split(",") if u.strip()]
-
-
-def relay_token(user_id, issuer: Issuer, now: int | None = None, ttl_sec: int = DEFAULT_TTL_SEC) -> str:
-    """连中继用的令牌：按用户派生，中继侧只认持有效证书的设备（见 /mesh/relay-access），这个只是第二道门"""
-    now = int(time.time()) if now is None else int(now)
-    day = now // 86400
-    digest = hashlib.sha256(f"{issuer.kid}:{user_id}:{day}".encode()).hexdigest()[:32]
-    return f"tbr1.{user_id}.{day}.{digest}"

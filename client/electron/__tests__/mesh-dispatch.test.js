@@ -198,22 +198,3 @@ test('同一个模型：本机的源 → 我的设备 → 免费 → 社区 → 
   ]).map((p) => p.id);
   assert.deepStrictEqual(order, ['sub', 'ollama', 'mesh:dev-b', 'free-cloud', 'paid', 'p2p']);
 });
-
-// ── 调度看订阅账号并发（E4-8） ───────────────────────────────────────────────
-test('多个子任务优先分散到不同账号：两台登同一个账号时合起来算', () => {
-  const scheduler = require('../mesh/scheduler');
-  const dev = (id, account, codexRunning) => ({
-    device_id: id, name: id, online: true,
-    descriptor: { apps: [{ id: 'codex', name: 'Codex', account }], load: { running: codexRunning, max: 4, by_app: { codex: codexRunning } } },
-  });
-  const target = { kind: 'app', id: 'codex' };
-  // a、b 同一个账号，a 上已经跑着 1 个；c 是另一个账号，空着但总负载更高也先选 c
-  const a = dev('a', 'acc1', 1);
-  const b = dev('b', 'acc1', 0);
-  const c = { ...dev('c', 'acc2', 0), descriptor: { ...dev('c', 'acc2', 0).descriptor, load: { running: 2, max: 4, by_app: { codex: 0 } } } };
-  assert.strictEqual(scheduler.pickDevice({ target, devices: [a, b, c] }).device.device_id, 'c');
-  // 没有账号信息时按这个应用在各台上的并行数
-  const x = dev('x', null, 2);
-  const y = dev('y', null, 0);
-  assert.strictEqual(scheduler.pickDevice({ target, devices: [x, y] }).device.device_id, 'y');
-});

@@ -78,7 +78,6 @@ import {
 import { presentRemoteAgentResult, presentRemoteAgentSteps } from '../../shared/remote-artifact-paths.js';
 import { useResolvedImageSrc } from '../components/ResolvedDebugImage';
 import { useMeshDevices, withMeshAgents } from '../api/meshDevices';
-import TaskBoard from '../components/TaskBoard';
 
 /** 下拉 value：同 id 跨层时用 tier:id，避免 HTML option 重复 value 选中错位 */
 function modelSelectValue(m) {
@@ -3990,11 +3989,6 @@ export default function Debug() {
           </div>
         ) : (
           <div className="space-y-2">
-            {/* 任务板：这一轮派出的子任务（含其他设备上的），能回答提问、改派、叫停、取回改动 */}
-            <TaskBoard
-              parentTaskId={currentTask?.id || conversationTurns[conversationTurns.length - 1]?.taskId || ''}
-              agents={playAgents}
-            />
             {/* 工作目录 + 历史 / 新会话：始终可见 */}
             <div className="flex items-center gap-2 flex-wrap min-w-0">
               {/* 在我的其他设备上执行：用那台设备的工作区，本机目录用不上 */}

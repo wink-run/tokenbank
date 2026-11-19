@@ -119,45 +119,6 @@ function registerAgentHandlers() {
     }
   });
 
-  /**
-   * 任务板：某个任务派出的子任务（含其他设备上的），只要看进度的几项
-   */
-  ipcMain.handle('agent:children', async (event, parentId) => {
-    try {
-      const rows = agentExecutor.listChildTasks(String(parentId || ''));
-      return {
-        success: true,
-        children: rows.map((t) => ({
-          id: t.id,
-          agentId: t.agent_id,
-          prompt: String(t.prompt || '').slice(0, 400),
-          status: t.status,
-          device: t.result?.device || t.context?.meshDevice || null,
-          question: t.status === 'requires_input' ? (t.result?.question || t.context?.pendingQuestion?.question || '') : '',
-          summary: String(t.result?.summary || t.result?.output || t.error || '').slice(0, 600),
-          git: t.result?.git ? {
-            changed: !!t.result.git.changed, files: t.result.git.files_changed || 0,
-            insertions: t.result.git.insertions || 0, deletions: t.result.git.deletions || 0, branch: t.result.git.branch || null,
-          } : null,
-          artifacts: Array.isArray(t.result?.artifacts) ? t.result.artifacts.length : 0,
-          createdAt: t.created_at,
-          completedAt: t.completed_at || null,
-        })),
-      };
-    } catch (error) {
-      return { success: false, error: error.message, children: [] };
-    }
-  });
-
-  /** 任务板「取回改动」：子任务的代码改动进本机仓库的 tb/mesh/ 分支 */
-  ipcMain.handle('agent:collect', async (event, taskId) => {
-    try {
-      return { success: true, ...(await require('./mesh/outputs-http').collectTask(String(taskId || ''))) };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-
   ipcMain.handle('agent:cancelAllActive', async () => {
     try {
       return await agentExecutor.cancelAllActive();

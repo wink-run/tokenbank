@@ -33,36 +33,13 @@ function maxTasks() {
   return Number.isInteger(n) && n >= 1 && n <= 16 ? n : 2;
 }
 
-/** 本机负载：正在跑的智能体任务（不含派到别的设备的镜像），按应用分开数（E4-8：同一个订阅账号上的并行数） */
+/** 本机负载：正在跑的智能体任务（不含派到别的设备的镜像） */
 function selfLoad() {
   let running = 0;
-  const byApp = {};
   try {
-    for (const [id, t] of require('../agent-executor').runningTasks) {
-      if (String(id).startsWith('mesh:')) continue;
-      running += 1;
-      const app = String(t?.gateway_agent_id || t?.agent_id || '');
-      if (app) byApp[app] = (byApp[app] || 0) + 1;
-    }
+    for (const id of require('../agent-executor').runningTasks.keys()) if (!String(id).startsWith('mesh:')) running += 1;
   } catch { running = 0; }
-  return { running, max: maxTasks(), by_app: byApp };
-}
-
-/** 应用登录的订阅账号（只给一个短哈希，不带邮箱）：同一个账号在两台设备上时，调度把它们当一份并发 */
-function appAccount(appId) {
-  try {
-    if (appId === 'claude-code') {
-      const j = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8'));
-      const id = j?.oauthAccount?.accountUuid || j?.oauthAccount?.emailAddress;
-      if (id) return require('crypto').createHash('sha256').update(String(id)).digest('hex').slice(0, 12);
-    }
-    if (appId === 'codex') {
-      const j = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.codex', 'auth.json'), 'utf8'));
-      const id = j?.tokens?.account_id || j?.account_id;
-      if (id) return require('crypto').createHash('sha256').update(String(id)).digest('hex').slice(0, 12);
-    }
-  } catch { /* 没登录或读不到 */ }
-  return null;
+  return { running, max: maxTasks() };
 }
 
 async function describeSelf() {
@@ -72,7 +49,7 @@ async function describeSelf() {
     const agents = await require('../agent-executor').listAvailableAgents();
     for (const a of agents || []) {
       if (!a || a.guardian) continue;
-      if (a.type === 'cli' && a.installed) out.apps.push({ id: a.id, name: a.name || a.id, account: appAccount(a.id) });
+      if (a.type === 'cli' && a.installed) out.apps.push({ id: a.id, name: a.name || a.id });
       else if (a.type === 'assistant') out.assistants.push({ id: a.id, name: a.name || a.id });
       // 外部智能体接在这台设备的网关上：别的设备派给它也要经这台
       else if (a.type === 'external' || String(a.id || '').startsWith('external:')) out.externals.push({ id: a.id, name: a.name || a.id });
@@ -458,11 +435,8 @@ async function routeAgentCreate({ harnessId, body, req, res, extraMeta }) {
 
   const dev = picked.device;
   // parent_id 是本机的任务号，那台设备不认识：任务树记在本机
-  // 带了 parent_id 的是子任务：那边按子任务处理（会改代码时用独立工作树）
+  // parent_id 是本机的任务号，那台设备不认识：任务树记在本机
   const { parent_id: _parent, ...restMeta } = meta;
-  if (_parent && restMeta.subtask === undefined) restMeta.subtask = true;
-  // 只给个短引用，那边用来给分支起名（tb/collab/<父任务>/…），不是能查的任务号
-  if (_parent && !restMeta.parent_ref) restMeta.parent_ref = String(_parent).split(':').pop().replace(/[^A-Za-z0-9]/g, '').slice(-10);
   const forward = { ...body, metadata: { ...restMeta, harness_id: target.id } };
   if (prev) forward.previous_response_id = prev.id;
   const headers = { 'content-type': 'application/json' };
