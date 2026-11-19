@@ -12,8 +12,9 @@ from scipy.signal import butter, sosfilt, fftconvolve
 SR = 44100
 V7 = 26.0  # 0.7.0 chapter (统一接口 / 外部智能体 / 智能管家 / 应用工厂) inserted right after the logo (cue 9.5)
 V7_AT = 9.5
+VS = 12.5  # real product screenshots right after the 0.7.0 chapter
 SHIFT = False  # while True, place() moves cues at or after V7_AT later by V7 (the old timeline after the insert)
-DUR = 78.5 + V7
+DUR = 78.5 + V7 + VS
 OFF = 0.0  # set to INTRO after the intro block: every later cue is placed INTRO seconds later
 INTRO = 2.0  # intro grew from 5s to 7s
 SH = 22.5  # 资产纳管 / 资源投射 / 游乐场 / 共享市场 (36-64.5s) replace the old 36-42s scene; montage + finale shift by SH
@@ -34,7 +35,7 @@ def hz(note):
 
 def place(sig, t, gain=1.0, pan=0.0, rev=0.0):
     if SHIFT and t >= V7_AT:
-        t += V7
+        t += V7 + VS
     i = int((t + OFF) * SR)
     if i >= N:
         return
@@ -215,7 +216,7 @@ place(bell(93, 3, 1.4), 6.9, 0.4, rev=0.8)  # coin shine
 place(riser(1.3, 500, 7000), 8.2, 0.35)
 
 # ------------------------------------------------------------------ groove (9.5 - 42)
-g0, g1 = 9.5, 42.0 + SH + V7
+g0, g1 = 9.5, 42.0 + SH + V7 + VS
 nbeats = int((g1 - g0) / BEAT)
 duck = np.ones(N)  # sidechain envelope for pad/bass
 for b in range(nbeats):
@@ -349,6 +350,11 @@ for k in range(6):
     place(blip([69, 72, 76, 81, 84, 88][k], 0.2), d0 + 0.8 + k * 0.35, 0.6, pan=-0.5 + k * 0.2, rev=0.4)
 place(impact(2.0) * 0.6, d0 + 3.2, 0.55, rev=0.5)
 place(riser(1.6), v0 + 24.4, 0.6, rev=0.3)
+s0 = V7_AT + V7  # VS real screenshots: one soft swish + bell per page
+for k in range(5):
+    place(whoosh(0.5), s0 + k * 2.5 - 0.3, 0.35, pan=-0.3 + k * 0.15)
+    place(bell([81, 84, 88, 86, 91][k], 1.0), s0 + k * 2.5 + 0.3, 0.3, pan=0.3, rev=0.5)
+place(riser(1.2), s0 + VS - 1.4, 0.45, rev=0.3)
 SHIFT = True
 
 # ------------------------------------------------------------------ S8 montage (42 - 47)
@@ -381,7 +387,7 @@ wetR = fftconvolve(send, ir[1])[:N]
 mixL = hp(L + wetL, 25)
 mixR = hp(R + wetR, 25)
 fade = np.ones(N)
-fs, fe = int((52.2 + SH + V7 + OFF) * SR), N
+fs, fe = int((52.2 + SH + V7 + VS + OFF) * SR), N
 fade[fs:fe] = np.linspace(1, 0, fe - fs) ** 2
 mix = np.stack([mixL, mixR]) * fade
 mix /= np.abs(mix).max()

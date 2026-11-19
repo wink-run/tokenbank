@@ -30,6 +30,7 @@ const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: p
 const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
 await page.goto(pathToFileURL(path.join(here, 'video.html')).href + (query ? '?' + query : ''));
 await page.evaluate(() => window.ready);
+await page.evaluate(() => Promise.all([...document.images].map(i => i.decode().catch(() => {}))));
 const duration = await page.evaluate(() => window.DURATION);
 const stage = await page.$('#stage');
 const shot = async (t, opts) => { await page.evaluate(t => window.renderFrame(t), t); return stage.screenshot(opts); };
