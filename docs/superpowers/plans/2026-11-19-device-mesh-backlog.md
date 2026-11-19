@@ -50,7 +50,7 @@
 | E2-1 执行器认识 `mine:`：MCP `tb_dispatch_agent`、游乐场 `/codex@studio` 派到其他设备；本机镜像远端任务 | ✅ | 53e2af7 |
 | E4-1 任务树：`metadata.parent_id`、`children`、`?tree=1`、`?parent_id=` | ✅ | 53e2af7 |
 | E4-3 MCP 后台派活：`background`、`previous_task_id`、`tb_task_status(wait any/all)`；无依赖子任务并行 | ✅ | 53e2af7 |
-| E3 界面「所在设备」：网关三张表、模型账户表、游乐场列表、盘点里的本机设置（接活、开放模型、工作区）；桌面端启动设备网络 | ✅ | 本次 |
+| E3 界面「所在设备」：网关三张表、模型账户表、游乐场列表、盘点里的本机设置（接活、开放模型、工作区）；桌面端启动设备网络 | ✅ | c74911f |
 | 端到端演示 `scripts/mesh-demo.js`（50 项）、单测 | ✅ | 各提交 |
 | 设计文档、实现方案、界面原型（基于最新版真实界面） | ✅ | 18d9128 等 |
 
