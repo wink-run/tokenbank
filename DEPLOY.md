@@ -115,7 +115,7 @@ docker compose up -d
 
 ## 设备网络（证书、地址簿、中继）
 
-用户名下的设备互相直连（`client/electron/mesh/`），云端只负责签设备证书、地址簿和吊销列表（`server/mesh_router.py`），打不通时走 TokenBank 中继。内容不经过云端。
+用户名下的设备互相直连（`client/electron/mesh/`，WebSocket），云端只负责签设备证书、地址簿和吊销列表（`server/mesh_router.py`）。连不上时先经用户自己的某台设备中继，没有再走 TokenBank 官方中继。设备之间端到端加密，云端和中继都看不到内容。
 
 **服务端环境变量**（`.env`）：
 
@@ -123,17 +123,24 @@ docker compose up -d
 |---|---|
 | `MESH_ISSUER_KEY` | 签证书的密钥：32 字节随机数的 hex（`python3 -c "import os;print(os.urandom(32).hex())"`）。多台服务端要配同一把。不配时用 `data/mesh_issuer.key`，第一次用时生成，只适合单实例 |
 | `MESH_ISSUER_OLD_KEYS` | 换钥匙时把旧公钥（`kid:x`，逗号分隔）放这里，旧证书到期前仍能互相校验 |
-| `MESH_RELAY_URLS` | 中继地址，逗号分隔，如 `https://relay.tokenbank.example/`。设备领证书时一起拿到 |
-| `MESH_RELAY_ACCESS_TOKEN` | 中继问云端「这台设备放不放行」时带的令牌，和中继配置里的 `bearer_token` 一致 |
+| `MESH_RELAY_URLS` | 官方中继地址，逗号分隔：`wss://<DOMAIN>/mesh/ws`。设备领证书时一起拿到；不填就没有官方中继，只能直连或经自己的设备中继 |
+| `MESH_RELAY_ACCESS_TOKEN` | 官方中继拉吊销列表（`/mesh/revoked-endpoints`）时带的令牌，服务端和 `mesh-relay` 用同一个值 |
+| `MESH_DIAL_BACK` | 设备上报地址时，云端回拨它的公网地址验证能不能从外面连到（验证过的设备才会被自动选成中继）。默认开，`0` 关掉 |
 
-**设备网络中继**（可选，未实测）：
+**官方中继**（可选）：
 
 ```bash
-cp deploy/mesh-relay/iroh-relay.example.toml deploy/mesh-relay/iroh-relay.toml   # 改 bearer_token
 docker compose --profile mesh up -d mesh-relay
+docker compose --profile https up -d nginx      # nginx 已把 wss://<DOMAIN>/mesh/ws 转给 mesh-relay
 ```
 
-再把 `nginx/templates/relay.conf.template` 挂进 `nginx` 服务（加一行 volume，环境变量 `RELAY_DOMAIN`、`RELAY_UPSTREAM=mesh-relay:3340`），放好 `nginx/certs/relay-fullchain.pem`、`relay-privkey.pem`。中继镜像版本要和客户端 iroh 内核一致（现在是 1.4.1）。上线前用 `client/scripts/mesh-demo.js` 关掉直连走一遍。
+中继和每个 app 里的中继是同一份代码（`client/electron/mesh/relay-server.js`），每分钟从服务端拉签发公钥和吊销列表；只接持有效设备证书的设备，只在同一账号的设备之间转发。`MESH_RELAY_MAX_PER_USER` 限制每个账号同时连几台（默认 20）。不用 Docker 也能直接跑：
+
+```bash
+PORT=8790 MESH_REVOCATIONS_URL=https://<DOMAIN>/mesh/revoked-endpoints MESH_RELAY_ACCESS_TOKEN=<令牌> node client/electron/mesh/relay-server.js
+```
+
+设备自己当中继：设备入口默认监听 41750 端口（TCP）。有公网 IP 或做了端口映射的设备，云端回拨验证通过后会被自动选成中继；也可以在 app 的「本机设置」里手动指定。
 
 ## 监控和维护
 

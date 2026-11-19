@@ -74,6 +74,25 @@ server {
         proxy_read_timeout    300s;
     }
 
+    # 设备网络官方中继（compose profile mesh）。没起 mesh-relay 时 nginx 照常启动，这里回 502
+    location = /mesh/ws {
+        resolver 127.0.0.11 valid=30s ipv6=off;
+        set $mesh_relay mesh-relay:8790;
+        proxy_pass http://$mesh_relay;
+        proxy_http_version 1.1;
+
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host       $host;
+        proxy_set_header X-Real-IP  $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering off;
+
+        proxy_connect_timeout 60s;
+        proxy_send_timeout    1d;
+        proxy_read_timeout    1d;
+    }
+
     # Worker WebSocket（长连接）
     location /ws/ {
         proxy_pass http://${UPSTREAM};

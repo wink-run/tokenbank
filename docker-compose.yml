@@ -108,17 +108,21 @@ services:
       - gateway
     restart: unless-stopped
 
-  # ── 设备网络中继（可选）──────────────────────────────────────────────────────
-  # 用法见 DEPLOY.md「设备网络中继」：先从 deploy/mesh-relay/iroh-relay.example.toml 复制出 iroh-relay.toml，
-  # 再 docker compose --profile mesh up -d mesh-relay。镜像版本和客户端 iroh 内核对齐。未实测。
+  # ── 设备网络官方中继（可选）────────────────────────────────────────────────
+  # 设备之间连不上、名下也没有能当中继的设备时才走这里；只在同一账号的设备之间转发，内容端到端加密。
+  # 和每个 app 里的中继是同一份代码。用法见 DEPLOY.md「设备网络」：docker compose --profile mesh up -d mesh-relay
   mesh-relay:
-    image: ${IROH_RELAY_IMAGE:-n0computer/iroh-relay:v1.4.1}
+    build:
+      context: .
+      dockerfile: deploy/mesh-relay/Dockerfile
     profiles: [mesh]
     expose:
-      - "3340"
-    volumes:
-      - ./deploy/mesh-relay/iroh-relay.toml:/etc/iroh-relay.toml:ro
-    command: ["--config-path", "/etc/iroh-relay.toml"]
+      - "8790"
+    environment:
+      # 每分钟从服务端拉一次签发公钥和被吊销的设备
+      MESH_REVOCATIONS_URL: http://proxy:8000/mesh/revoked-endpoints
+      MESH_RELAY_ACCESS_TOKEN: ${MESH_RELAY_ACCESS_TOKEN:-}
+      MESH_RELAY_MAX_PER_USER: ${MESH_RELAY_MAX_PER_USER:-20}
     depends_on:
       - proxy
     restart: unless-stopped
