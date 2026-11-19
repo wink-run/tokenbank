@@ -2,28 +2,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { FrameStream, memoryPair } = require('../mesh/frames');
 const identity = require('../mesh/identity');
 const scheduler = require('../mesh/scheduler');
 const { Directory, sanitizeDescriptor } = require('../mesh/directory');
 const glue = require('../mesh/glue');
 
-// ── 分帧 ──────────────────────────────────────────────────────────────────────
-
-test('frames: JSON 和字节帧按顺序到达，写完后读到 null', async () => {
-  const [a, b] = memoryPair();
-  const w = new FrameStream(a);
-  const r = new FrameStream(b);
-  const big = Buffer.alloc(200 * 1024, 3);   // 超过单块大小，会被切开
-  await w.writeJson({ t: 'http', path: '/v1/models' });
-  await w.writeData(big);
-  await w.finish();
-  assert.deepEqual(await r.nextJson(), { t: 'http', path: '/v1/models' });
-  const got = [];
-  for (let f = await r.next(); f; f = await r.next()) got.push(f.value);
-  assert.equal(Buffer.concat(got).length, big.length);
-  assert.equal(await r.next(), null);
-});
 
 // ── 证书 ──────────────────────────────────────────────────────────────────────
 

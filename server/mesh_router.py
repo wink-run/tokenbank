@@ -6,11 +6,13 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
+import os
 import time
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 import mesh_cert
@@ -47,6 +49,8 @@ async def ensure_tables() -> None:
                 updated_at   BIGINT NOT NULL DEFAULT 0
             )
         """)
+        # 云端回拨验证过、从外面真的连得到的地址（能当中继的前提）
+        await db.execute("ALTER TABLE mesh_endpoints ADD COLUMN IF NOT EXISTS verified_addrs TEXT")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_mesh_endpoints_user ON mesh_endpoints(user_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_mesh_endpoints_endpoint ON mesh_endpoints(endpoint_id)")
         await db.execute("""
@@ -164,21 +168,80 @@ class AddressRequest(BaseModel):
     direct_addrs: list[str] = Field(default_factory=list)
 
 
+def _split_addr(addr: str):
+    """'1.2.3.4:41750' / '[2408::1]:41750' → (host, port)；不合法返回 None"""
+    a = str(addr or "").strip()
+    try:
+        if a.startswith("["):
+            host, _, port = a[1:].partition("]:")
+        else:
+            host, _, port = a.rpartition(":")
+        ip = ipaddress.ip_address(host)
+        return ip, int(port)
+    except ValueError:
+        return None
+
+
+def _public(ip) -> bool:
+    """云端只回拨公网地址：局域网、运营商 NAT（100.64/10，Tailscale 也在这里）、回环、链路本地都跳过"""
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved:
+        return False
+    if ip.version == 4 and ip in ipaddress.ip_network("100.64.0.0/10"):
+        return False
+    return True
+
+
+async def _dial_back(addrs: list[str], endpoint_id: str) -> list[str]:
+    """逐个公网地址连一次 http://<地址>/mesh/ping，回的 endpoint_id 对得上才算「从外面连得到」"""
+    import httpx
+    ok = []
+    async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
+        for a in addrs:
+            hp = _split_addr(a)
+            if not hp or not _public(hp[0]):
+                continue
+            host = f"[{hp[0]}]" if hp[0].version == 6 else str(hp[0])
+            try:
+                r = await client.get(f"http://{host}:{hp[1]}/mesh/ping")
+                if r.status_code == 200 and str(r.json().get("endpoint_id", "")).lower() == endpoint_id:
+                    ok.append(a)
+            except Exception:
+                continue
+    return ok
+
+
 @router.post("/mesh/address")
-async def publish_address(req: AddressRequest, uid: int = Depends(get_current_user_id)):
-    """设备每分钟报一次自己在哪（中继地址、直连地址），其他设备按这个找它"""
+async def publish_address(req: AddressRequest, request: Request, uid: int = Depends(get_current_user_id)):
+    """设备每分钟报一次自己在哪；云端回拨验证哪些地址从外面连得到，并告诉设备它的出口 IP"""
     await ensure_tables()
+    endpoint_id = req.endpoint_id.strip().lower()
+    addrs = _clean_addrs(req.direct_addrs)
+    verified = await _dial_back(addrs, endpoint_id) if os.environ.get("MESH_DIAL_BACK", "1") != "0" else []
     async with connect() as db:
         cur = await db.execute(
-            """UPDATE mesh_endpoints SET relay_url=?, direct_addrs=?, updated_at=?
+            """UPDATE mesh_endpoints SET relay_url=?, direct_addrs=?, verified_addrs=?, updated_at=?
                WHERE device_id=? AND user_id=? AND endpoint_id=?""",
-            (req.relay_url.strip()[:200] or None, json.dumps(_clean_addrs(req.direct_addrs)), int(time.time()),
-             req.device_id.strip(), uid, req.endpoint_id.strip().lower()),
+            (req.relay_url.strip()[:200] or None, json.dumps(addrs), json.dumps(verified), int(time.time()),
+             req.device_id.strip(), uid, endpoint_id),
         )
         await db.commit()
     if getattr(cur, "rowcount", 1) == 0:
         raise HTTPException(404, "这台设备还没领证书")
-    return {"ok": True}
+    observed = request.headers.get("x-real-ip") or (request.client.host if request.client else "")
+    return {"ok": True, "verified": verified, "observed_ip": observed}
+
+
+@router.get("/mesh/revoked-endpoints")
+async def revoked_endpoints(request: Request):
+    """给官方中继用：被吊销的设备密钥和签发方公钥（带 MESH_RELAY_ACCESS_TOKEN）"""
+    want = os.environ.get("MESH_RELAY_ACCESS_TOKEN", "")
+    if not want or request.headers.get("authorization", "") != f"Bearer {want}":
+        raise HTTPException(401, "unauthorized")
+    await ensure_tables()
+    async with connect() as db:
+        async with db.execute("SELECT endpoint_id FROM mesh_revocations ORDER BY revoked_at DESC LIMIT 100000") as cur:
+            rows = await cur.fetchall()
+    return {"endpoints": [r[0] for r in rows], "issuer_keys": mesh_cert.issuer_keys(issuer())}
 
 
 @router.get("/mesh/peers")

@@ -1,5 +1,5 @@
 // client/electron/mesh/identity.js
-// 设备身份：设备密钥（iroh 用的 32 字节 ed25519 种子）和云端签发的设备证书。
+// 设备身份：设备密钥（32 字节 Ed25519 种子）和云端签发的设备证书。
 // 证书是紧凑 JWS（EdDSA）。设备之间用内置的签发方公钥离线校验，不用联网问云端。
 // 原型阶段由开发用签发方（dev issuer）在本机签发；正式版改由云端 POST /mesh/cert 签发，证书格式不变。
 'use strict';

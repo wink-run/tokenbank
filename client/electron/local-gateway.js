@@ -4617,7 +4617,7 @@ function handleRequest(req, res) {
   if (method === 'GET' && cleanPath === '/v1/devices') {
     const view = require('./mesh/glue').devicesView();
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ object: 'list', enabled: view.enabled, data: view.devices }));
+    res.end(JSON.stringify({ object: 'list', enabled: view.enabled, relay: view.relay || null, data: view.devices }));
     return;
   }
 

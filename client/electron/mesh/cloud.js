@@ -43,7 +43,7 @@ class MeshCloud {
     return json || {};
   }
 
-  /** @returns {Promise<{ cert, expires_at, user_id, issuer_keys, relay_urls, relay_token }>} */
+  /** @returns {Promise<{ cert, expires_at, user_id, issuer_keys, relay_urls }>} */
   requestCert({ endpointId, name }) {
     return this.call('POST', '/mesh/cert', { device_id: this.deviceId, endpoint_id: endpointId, name: name || '' });
   }

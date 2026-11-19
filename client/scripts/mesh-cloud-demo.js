@@ -82,7 +82,7 @@ function device({ label, home, port, jwt, name, extraPath }) {
   writeJson(path.join(home, '.llm-agent', 'local-config.json'), { user_session: { jwt }, scene_routes: [], local_keys: [] });
   writeJson(path.join(home, '.llm-agent', 'config.json'), { name, providers: [] });
   // 只开设备网络：不写证书、不写对端，局域网发现关掉，同步快一点
-  writeJson(path.join(home, '.tokenbank', 'mesh', 'config.json'), { enabled: true, lan_discovery: false, bind_addr: '0.0.0.0:0', presence_ms: 2000, cloud_sync_ms: 3000 });
+  writeJson(path.join(home, '.tokenbank', 'mesh', 'config.json'), { enabled: true, lan_discovery: false, port: 0, presence_ms: 2000, cloud_sync_ms: 3000 });
   const log = fs.openSync(path.join(ROOT, `${label}.log`), 'a');
   const p = spawn(process.execPath, [path.join(CLIENT, 'cli', 'gateway.js'), 'start', '--port', String(port), '--admin-port', String(port + 1)], {
     cwd: CLIENT,
@@ -126,6 +126,12 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   const bOnA = await until(async () => (await devicesOf(A)).data?.find((d) => !d.self && d.online), 40000);
   check('A 看到 B 在线（没配对端地址，局域网发现关着）', !!bOnA && !/局域网发现/.test(logOf(A) + logOf(B)), bOnA ? `${bOnA.label} 连接方式=${bOnA.connection}` : '');
 
+  // 云端回拨：只验证公网地址；本机测试里两台都只有内网地址，所以都不算「验证过」，自动模式下不给别人当中继
+  const viewA = await devicesOf(A);
+  const bRelay = viewA.data?.find((d) => !d.self)?.relay;
+  check('云端回拨不验证内网地址：两台都没被标成可用中继（自动模式）', viewA.relay?.active === false && bRelay && bRelay.verified === false && bRelay.enabled === false,
+    `A 本机中继=${JSON.stringify(viewA.relay)}  B=${JSON.stringify(bRelay)}`);
+
   console.log('\n[3] 派活');
   const run = await req(`http://127.0.0.1:${A.port}/v1/agent/responses`, 'POST', {
     headers: { authorization: `Bearer ${agentKey(A)}` },
@@ -139,6 +145,10 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   const del = await req(`${SERVER}/device/${encodeURIComponent(bId)}`, 'DELETE', { headers: { authorization: `Bearer ${jwt}` } });
   const gone = await until(async () => !(await devicesOf(A)).data?.find((d) => d.device_id === bId && d.online), 30000);
   check('删除设备后，A 拉到吊销列表就断开 B', del.status === 200 && !!gone && /已被吊销/.test(logOf(A)), (logOf(A).match(/\[mesh\][^\n]*吊销[^\n]*/) || [''])[0]);
+  const rv = await req(`${SERVER}/mesh/revoked-endpoints`, 'GET', { headers: { authorization: 'Bearer relay-secret' } });
+  const rvNo = await req(`${SERVER}/mesh/revoked-endpoints`);
+  check('官方中继拉得到吊销列表（要中继的访问令牌）', rv.status === 200 && (rv.json?.endpoints || []).length > 0 && (rv.json?.issuer_keys || []).length > 0 && rvNo.status === 401,
+    `吊销 ${(rv.json?.endpoints || []).length} 个，不带令牌 HTTP ${rvNo.status}`);
   const rejected = await until(() => /revoked/.test(logOf(A)) || /被 [0-9a-f]+ 拒绝：revoked/.test(logOf(B)), 30000);
   check('B 再连 A 时被拒（revoked）', !!rejected);
 

@@ -103,7 +103,7 @@ function selfName() {
 async function ensureCloudCert() {
   if (!cloud?.ready) return false;
   const identity = require('./identity');
-  const { endpointIdFromSecret } = require('./transport');
+  const { endpointIdFromSecret } = require('./keys');
   const endpointId = endpointIdFromSecret(identity.loadOrCreateDeviceSecret(meshDir()));
   const cur = readConfig() || {};
   const claims = certClaims(cur.cert);
@@ -118,7 +118,7 @@ async function ensureCloudCert() {
     issuer_keys: r.issuer_keys || [],
     relay_urls: (r.relay_urls && r.relay_urls.length) ? r.relay_urls : (cur.relay_urls || []),
   };
-  if (r.relay_token) next.relay_token = r.relay_token;
+  delete next.relay_token;
   // 云端地址簿取代手写的对端；局域网发现照常
   if (switchedUser) next.peers = [];
   writeConfig(next);
@@ -136,7 +136,9 @@ async function cloudSync() {
     await ensureCloudCert();
     if (!node) return;
     const a = node.addrInfo();
-    await cloud.publishAddress({ endpointId: a.endpoint_id, relayUrl: a.relay_url, directAddrs: a.direct_addrs });
+    // 云端回拨验证：从外面真的连得到的地址，才能自动当中继
+    const pub = await cloud.publishAddress({ endpointId: a.endpoint_id, relayUrl: a.relay_url, directAddrs: a.direct_addrs });
+    node.setVerified(pub?.verified || [], pub?.observed_ip || '');
     // 按密钥吊销：同一台设备重装后换了密钥，旧密钥作废，新的照常
     const revoked = await cloud.revocations();
     node.setRevoked(revoked.map((r) => r.endpoint_id));
@@ -175,6 +177,7 @@ async function setCloud(ctx) {
   if (!ctx || !ctx.token || !ctx.serverUrl || !ctx.deviceId) {
     const had = !!cloud;
     cloud = null;
+    if (node) node.opts.cloud = false;
     stopCloudSync();
     if (had && node && readConfig()?.cloud) {
       logLine('[mesh] 已退出登录，设备网络停止');
@@ -184,6 +187,7 @@ async function setCloud(ctx) {
   }
   if (cloud && cloud.token === ctx.token && cloud.deviceId === ctx.deviceId && cloud.serverUrl === String(ctx.serverUrl).replace(/\/+$/, '')) return;
   cloud = new MeshCloud(ctx);
+  if (node) node.opts.cloud = true;
   if (!node) await startFromConfig({});
   if (node) { stopCloudSync(); startCloudSync(); }
 }
@@ -213,8 +217,13 @@ async function startFromConfig({ gatewayPort, log } = {}) {
     peers: cfg.peers || [],
     revoked: cfg.revoked || [],
     relayUrls: cfg.relay_urls || [],
-    relayToken: cfg.relay_token,
-    bindAddr: cfg.bind_addr,
+    // 入口：默认 [::]:41750；listen: false 表示不开入口、只走中继
+    listen: cfg.listen === false ? false : (cfg.listen || '::'),
+    port: Number.isInteger(cfg.port) ? cfg.port : 41750,
+    publicAddr: cfg.public_addr || undefined,
+    relay: { mode: cfg.relay_mode || 'auto', pref: cfg.relay_pref || 'auto', prefAt: Number(cfg.relay_pref_at) || 0 },
+    cloud: !!cloud?.ready,
+    relayDumpFile: cfg.relay_dump || undefined,
     gatewayPort: saved.gatewayPort,
     describeSelf,
     presenceMs: cfg.presence_ms || 5000,
@@ -254,6 +263,7 @@ function devicesView() {
   const now = Date.now();
   return {
     enabled: true,
+    relay: node.relayInfo(),
     devices: node.directory.list().map((d) => ({
       device_id: d.device_id,
       name: d.name,
@@ -262,8 +272,13 @@ function devicesView() {
       self: !!d.self,
       online: !!d.online,
       last_seen_sec_ago: d.self ? 0 : Math.round((now - (d.lastSeen || now)) / 1000),
-      connection: d.path ? d.path.kind : 'unknown',
+      // 连接方式：self / direct（addr_kind：lan、tailscale、ipv6、public）/ relay（via：经哪个中继）
+      connection: d.self ? 'self' : !d.online ? 'offline' : (d.path ? d.path.kind : 'unknown'),
+      addr_kind: d.path?.addr_kind || null,
+      via: d.path?.kind === 'relay' ? { kind: d.path.relay_kind, device_id: d.path.relay_device, label: d.path.via } : null,
       rtt_ms: d.path && Number.isFinite(d.path.rttMs) ? d.path.rttMs : null,
+      // 这台在当中继：正在替哪些设备转发（界面标「中继 · N」）
+      relay: relayView(d),
       platform: d.descriptor?.platform || '',
       version: d.descriptor?.version || '',
       apps: d.descriptor?.apps || [],
@@ -275,6 +290,19 @@ function devicesView() {
       workspaces: d.descriptor?.workspaces || [],
       load: d.descriptor?.load || null,
     })),
+  };
+}
+
+/** 设备描述里的中继信息，把设备号换成名字 */
+function relayView(d) {
+  const r = d.descriptor?.relay;
+  if (!r) return null;
+  const name = (id) => { const x = node.directory.get(id) || (String(id) === node.deviceId ? node.directory.list().find((y) => y.self) : null); return x ? deviceLabel(x) : id; };
+  return {
+    enabled: !!r.enabled,
+    verified: !!r.verified,
+    sessions: Number(r.sessions) || 0,
+    serving: (r.serving || []).map(([a, b]) => [name(a), name(b)]),
   };
 }
 
@@ -657,6 +685,10 @@ function getSelfSettings() {
     accept_model_requests: !!c.accept_model_requests,
     max_tasks: maxTasks(),
     load: selfLoad(),
+    // 中继：本机当不当（auto / on / off）；用哪个（auto / official / 某台设备的 device_id），全账号同一个
+    relay_mode: c.relay_mode || 'auto',
+    relay_pref: node ? node.relayInfo().pref.value : (c.relay_pref || 'auto'),
+    relay: node ? node.relayInfo() : null,
     default_workspace: ws.default || '',
     workspaces: Object.entries(ws.workspaces).map(([name, w]) => {
       const p = workspaces.expandHome(w && w.path);
@@ -694,6 +726,18 @@ async function updateSelfSettings(patch = {}) {
   const next = { ...c };
   if (typeof patch.accept_agent_tasks === 'boolean') next.accept_agent_tasks = patch.accept_agent_tasks;
   if (typeof patch.accept_model_requests === 'boolean') next.accept_model_requests = patch.accept_model_requests;
+  if (patch.relay_mode !== undefined) {
+    if (!['auto', 'on', 'off'].includes(patch.relay_mode)) throw Object.assign(new Error('relay_mode 只能是 auto、on、off'), { status: 400 });
+    next.relay_mode = patch.relay_mode;
+  }
+  if (patch.relay_pref !== undefined) {
+    const v = String(patch.relay_pref || 'auto');
+    if (v !== 'auto' && v !== 'official' && !(node && node.directory.list().some((d) => String(d.device_id) === v))) {
+      throw Object.assign(new Error('没有这台设备'), { status: 400 });
+    }
+    next.relay_pref = v;
+    next.relay_pref_at = Date.now();
+  }
   if (patch.max_tasks !== undefined) {
     const n = Number(patch.max_tasks);
     if (!Number.isInteger(n) || n < 1 || n > 16) throw Object.assign(new Error('同时接的任务数要在 1 到 16 之间'), { status: 400 });
@@ -707,6 +751,8 @@ async function updateSelfSettings(patch = {}) {
     ws.default = name;
     workspaces.write(meshDir(), ws);
   }
+  if (node && patch.relay_mode !== undefined) await node.setRelayMode(next.relay_mode).catch(() => {});
+  if (node && patch.relay_pref !== undefined) await node.setRelayPref(next.relay_pref).catch(() => {});
   try { await node?.tick?.(); } catch { /* 下一轮 presence 再推 */ }
   return getSelfSettings();
 }

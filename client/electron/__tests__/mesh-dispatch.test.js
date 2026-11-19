@@ -176,12 +176,13 @@ test('换上吊销列表：已连着的被吊销设备马上断开', () => {
   const { MeshNode } = require('../mesh/node');
   const n = new MeshNode({ log: () => {} });
   const closed = [];
-  n.conns.set('dev-b', { conn: { close: (r) => closed.push(['dev-b', r]) }, endpointId: 'eb', claims: { name: 'b' } });
-  n.conns.set('dev-c', { conn: { close: (r) => closed.push(['dev-c', r]) }, endpointId: 'ec', claims: { name: 'c' } });
-  n.byEndpoint.set('eb', 'dev-b'); n.byEndpoint.set('ec', 'dev-c');
+  n.sessions.set('dev-b', { endpointId: 'eb' });
+  n.sessions.set('dev-c', { endpointId: 'ec' });
+  n.inbound.set('dev-b', { ws: { close: (c, r) => closed.push(['dev-b', r]) } });
+  n.inbound.set('dev-c', { ws: { close: (c, r) => closed.push(['dev-c', r]) } });
   n.setRevoked(['eb']);
   assert.deepStrictEqual(closed, [['dev-b', 'revoked']]);
-  assert.ok(!n.conns.has('dev-b') && n.conns.has('dev-c'));
+  assert.ok(!n.sessions.has('dev-b') && n.sessions.has('dev-c'));
   assert.ok(n.revoked.has('eb'));
 });
 

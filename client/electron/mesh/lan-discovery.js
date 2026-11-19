@@ -1,6 +1,6 @@
 // client/electron/mesh/lan-discovery.js
 // 局域网发现：不靠云端地址簿，在同一个局域网里找到本账号的其他设备。断网时也能用。
-// 每台设备定时用 UDP 组播（再加一份广播兜底，有的路由器屏蔽组播）喊一声：我的 endpoint_id、iroh 端口、设备证书。
+// 每台设备定时用 UDP 组播（再加一份广播兜底，有的路由器屏蔽组播）喊一声：我的 endpoint_id、设备网络入口端口、设备证书。
 // 收到的一方先校验证书，确认是本账号的设备，才把「来源 IP:端口」交给节点去拨。
 // 安全：广播内容谁都能伪造或重放，但没用。拨号时 QUIC 握手会验证对方确实持有这把设备密钥，
 // 连上之后还要再交换一次证书。伪造的广播最多让我们白拨一次。
@@ -41,7 +41,7 @@ function buildAnnouncement({ endpointId, port, cert }) {
 
 class LanDiscovery {
   /**
-   * @param {{ endpointId: string, irohPort: number, cert: string, selfUserId, issuerKeys, revoked?: Set,
+   * @param {{ endpointId: string, meshPort: number, cert: string, selfUserId, issuerKeys, revoked?: Set,
    *   port?: number, onPeer: (peer) => void, log?: Function }} opts
    */
   constructor(opts) {
@@ -88,7 +88,7 @@ class LanDiscovery {
 
   announce() {
     if (!this.sock) return;
-    const pkt = buildAnnouncement({ endpointId: this.opts.endpointId, port: this.opts.irohPort, cert: this.opts.cert });
+    const pkt = buildAnnouncement({ endpointId: this.opts.endpointId, port: this.opts.meshPort, cert: this.opts.cert });
     this.sock.send(pkt, this.port, GROUP, () => {});
     this.sock.send(pkt, this.port, '255.255.255.255', () => {});
   }

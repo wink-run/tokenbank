@@ -1,11 +1,10 @@
 // client/electron/mesh/tunnel.js
-// 隧道：一条设备网络的流承载一次 HTTP 请求。
-// 发起端把请求原样发过去；接收端校验路径白名单、换掉鉴权头，转给自己本机的网关 127.0.0.1:<端口>。
-// 这样调用另一台设备，就等于调用那台设备自己的 :11430，接口完全一样。
+// 设备之间转一次 HTTP 请求：发起端把请求原样发过去；接收端校验路径白名单、换掉鉴权头，
+// 转给自己本机的网关 127.0.0.1:<端口>。这样调用另一台设备，就等于调用那台设备自己的 :11430，接口完全一样。
+// 消息怎么走（直连、经中继）由 node.js 管，这里只管 HTTP 这一层。
 'use strict';
 
 const http = require('http');
-const { FrameStream } = require('./frames');
 
 const MAX_REQUEST_BODY = 32 * 1024 * 1024;
 
@@ -19,11 +18,6 @@ const ALLOWED = [
   ['GET', /^\/v1\/agent\/responses\/[^/]+$/],
   ['POST', /^\/v1\/agent\/responses\/[^/]+\/cancel$/],
   ['PUT', /^\/v1\/devices\/self\/name$/],
-  // 产出（§8.4）：代码改动的 bundle、单个产出文件、工作区只读查看。都只读
-  ['GET', /^\/v1\/agent\/responses\/[^/]+\/bundle$/],
-  ['GET', /^\/v1\/agent\/responses\/[^/]+\/artifacts\/file$/],
-  ['GET', /^\/v1\/workspaces$/],
-  ['GET', /^\/v1\/workspaces\/[^/]+\/(fs|file|diff|log)$/],
 ];
 
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'proxy-connection', 'te', 'trailer']);
@@ -59,28 +53,7 @@ function responseHeaders(headers) {
 }
 
 // ── 发起端 ───────────────────────────────────────────────────────────────────
-
-/**
- * 在一条流上发一次请求，返回响应头和逐块读取响应体的迭代器。
- * @returns {Promise<{ status: number, headers: object, chunks: AsyncGenerator<Buffer> }>}
- */
-async function request(io, { method, path, headers, body }) {
-  const fsm = new FrameStream(io);
-  await fsm.writeJson({ t: 'http', method, path, headers: headers || {} });
-  if (body && body.length) await fsm.writeData(Buffer.isBuffer(body) ? body : Buffer.from(body));
-  await fsm.finish();
-  const head = await fsm.nextJson();
-  if (!head || head.t !== 'head') throw new Error('对端没有返回响应');
-  async function* chunks() {
-    for (;;) {
-      const f = await fsm.next();
-      if (!f) return;
-      if (f.kind === 'data') yield f.value;
-      else if (f.value && f.value.t === 'error') throw new Error(f.value.message || '对端响应中断');
-    }
-  }
-  return { status: head.status, headers: head.headers || {}, chunks: chunks() };
-}
+// 响应的形状：{ status, headers, chunks }，chunks 是逐块到达的 Buffer（异步迭代器）
 
 async function readAll(resp) {
   const parts = [];
@@ -110,56 +83,42 @@ async function pipeTo(resp, res, transform) {
 // ── 接收端 ───────────────────────────────────────────────────────────────────
 
 /**
- * 处理对端开来的一条流。
- * @param {object} io 流适配器
- * @param {{ gatewayPort: number, meshKey: string, fromDeviceId: string, log?: Function }} ctx
+ * 把对端的一次请求转给本机网关，响应逐块回调。
+ * @param {{ method, path, headers, body: Buffer }} req
+ * @param {{ gatewayPort, meshKey, fromDeviceId, log? }} ctx
+ * @param {{ head(status, headers), chunk(buf): Promise|void, done(), error(message) }} out
+ * @returns {{ cancel(): void }}
  */
-async function serve(io, ctx) {
-  const fsm = new FrameStream(io);
-  const reply = async (status, obj) => {
-    await fsm.writeJson({ t: 'head', status, headers: { 'content-type': 'application/json' } });
-    await fsm.writeData(Buffer.from(JSON.stringify(obj)));
-    await fsm.finish();
-  };
-  const head = await fsm.nextJson();
-  if (!head || head.t !== 'http') return;
-  if (!isAllowed(head.method, head.path)) {
-    ctx.log?.(`[mesh] 拒绝 ${head.method} ${head.path}（不在白名单）`);
-    await reply(403, { error: { message: 'path not allowed over device mesh', type: 'forbidden' } });
-    return;
+function serveLocal(req, ctx, out) {
+  if (!isAllowed(req.method, req.path)) {
+    ctx.log?.(`[mesh] 拒绝 ${req.method} ${req.path}（不在白名单）`);
+    out.head(403, { 'content-type': 'application/json' });
+    out.chunk(Buffer.from(JSON.stringify({ error: { message: 'path not allowed over device mesh', type: 'forbidden' } })));
+    out.done();
+    return { cancel() {} };
   }
-  const parts = [];
-  let size = 0;
-  for (;;) {
-    const f = await fsm.next();
-    if (!f) break;
-    if (f.kind !== 'data') continue;
-    size += f.value.length;
-    if (size > MAX_REQUEST_BODY) { await reply(413, { error: { message: 'request body too large' } }); return; }
-    parts.push(f.value);
+  const body = req.body || Buffer.alloc(0);
+  if (body.length > MAX_REQUEST_BODY) {
+    out.head(413, { 'content-type': 'application/json' });
+    out.chunk(Buffer.from(JSON.stringify({ error: { message: 'request body too large' } })));
+    out.done();
+    return { cancel() {} };
   }
-  const body = Buffer.concat(parts);
-  const headers = inboundHeaders(head.headers, ctx);
+  const headers = inboundHeaders(req.headers, ctx);
   headers['content-length'] = String(body.length);
-
-  await new Promise((resolve) => {
-    const req = http.request({
-      host: '127.0.0.1', port: ctx.gatewayPort, method: head.method, path: head.path, headers,
-    }, (res) => {
-      // 按顺序写回，写不完就先停住读，免得内存堆积
-      let chain = fsm.writeJson({ t: 'head', status: res.statusCode, headers: responseHeaders(res.headers) });
-      res.on('data', (c) => {
-        res.pause();
-        chain = chain.then(() => fsm.writeData(c)).then(() => res.resume(), () => res.destroy());
-      });
-      res.on('end', () => { chain.then(() => fsm.finish()).catch(() => {}).finally(resolve); });
-      res.on('error', () => { chain.then(() => fsm.finish()).catch(() => {}).finally(resolve); });
+  const r = http.request({ host: '127.0.0.1', port: ctx.gatewayPort, method: req.method, path: req.path, headers }, (res) => {
+    out.head(res.statusCode, responseHeaders(res.headers));
+    let chain = Promise.resolve();
+    res.on('data', (c) => {
+      res.pause();
+      chain = chain.then(() => out.chunk(c)).then(() => res.resume(), () => res.destroy());
     });
-    req.on('error', (e) => {
-      reply(502, { error: { message: `本机网关不可用：${e.message}`, type: 'mesh_upstream' } }).catch(() => {}).finally(resolve);
-    });
-    req.end(body);
+    res.on('end', () => { chain.then(() => out.done(), () => {}); });
+    res.on('error', (e) => { chain.then(() => out.error(e.message), () => {}); });
   });
+  r.on('error', (e) => out.error(`本机网关不可用：${e.message}`));
+  r.end(body);
+  return { cancel() { try { r.destroy(); } catch { /* 已结束 */ } } };
 }
 
-module.exports = { request, readAll, pipeTo, serve, isAllowed, inboundHeaders, ALLOWED };
+module.exports = { readAll, pipeTo, serveLocal, isAllowed, inboundHeaders, responseHeaders, ALLOWED, MAX_REQUEST_BODY };

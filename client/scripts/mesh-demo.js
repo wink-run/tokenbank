@@ -3,7 +3,8 @@
 // 设备网络原型的端到端演示：在一台电脑上用两个独立的 HOME 起两个 CLI 网关，当作两台设备。
 //   设备 A「macbook」：发起方，没有模型、没有可用的智能体
 //   设备 B「mini」   ：有一个模拟的本地模型 demo-model，装了（模拟的）Claude Code，配了工作区 demo
-// 两台之间走真实的 iroh QUIC 连接（本机回环直连），证书由开发用签发方签发。
+// 设备之间走 WebSocket（局域网直连），证书由开发用签发方签发。
+// 另外起一个官方中继（relay-server.js）和一台只能连中继的设备 C「phone」，验证：经我的设备中继、手动改官方中继、中继设备掉线回落官方中继。
 // 用法：node scripts/mesh-demo.js [--keep]   （--keep 跳过断线测试、跑完不退出，两台设备保持在线，方便手动 curl 或打开管理界面）
 'use strict';
 
@@ -16,8 +17,9 @@ const path = require('path');
 
 const CLIENT = path.resolve(__dirname, '..');
 const identity = require('../electron/mesh/identity');
-const { endpointIdFromSecret } = require('../electron/mesh/transport');
-const { MeshNode } = require('../electron/mesh/node');
+const keys = require('../electron/mesh/keys');
+const { startRelayServer } = require('../electron/mesh/relay-server');
+const WebSocket = require('ws');
 
 const KEEP = process.argv.includes('--keep');
 let LAN_PORT = 41700;
@@ -72,14 +74,14 @@ function writeJson(file, obj) {
 }
 
 /** 模拟的本地模型（OpenAI 兼容），只在设备 B 上配 */
-function startMockModel() {
+function startMockModel(who = '设备 B') {
   const server = http.createServer((rq, rs) => {
     const parts = [];
     rq.on('data', (c) => parts.push(c));
     rq.on('end', () => {
       let body = {};
       try { body = JSON.parse(Buffer.concat(parts).toString()); } catch { /* 空 */ }
-      const words = ['你好，', '我是设备 B ', '上的本地模型 ', body.model, '。'];
+      const words = ['你好，', `我是${who} `, '上的本地模型 ', body.model, '。'];
       if (body.stream) {
         rs.writeHead(200, { 'content-type': 'text/event-stream' });
         let i = 0;
@@ -132,7 +134,7 @@ out({ type: 'result', subtype: 'success', is_error: false, result: text, session
 async function prepareDevice({ name, deviceId, home, gwPort, meshPort, issuer, userId, extra = {} }) {
   const meshDir = path.join(home, '.tokenbank', 'mesh');
   const secret = identity.loadOrCreateDeviceSecret(meshDir);
-  const endpointId = endpointIdFromSecret(secret);
+  const endpointId = keys.endpointIdFromSecret(secret);
   const cert = identity.issueCert(issuer, { sub: userId, device_id: deviceId, endpoint_id: endpointId, name });
   return { name, deviceId, home, gwPort, meshPort, meshDir, endpointId, cert, userId, ...extra };
 }
@@ -143,8 +145,7 @@ function writeMeshConfig(dev, peers, issuer, extra = {}) {
     user_id: dev.userId,
     cert: dev.cert,
     issuer_keys: [issuer.publicKey],
-    // 绑 0.0.0.0，局域网里的其他设备才连得进来
-    bind_addr: `0.0.0.0:${dev.meshPort}`,
+    port: dev.meshPort,
     peers: peers.map((p) => ({ endpoint_id: p.endpointId, direct_addrs: [`127.0.0.1:${p.meshPort}`] })),
     lan_port: LAN_PORT,
     presence_ms: 2000,
@@ -211,11 +212,19 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
 (async () => {
   console.log(`演示目录：${ROOT}\n`);
   const issuer = identity.generateIssuer();
-  const [gwA, gwB, meshA, meshB, meshC] = [await freePort(), await freePort(), await freePort(), await freePort(), await freePort()];
+  const [gwA, gwB, gwC, meshA, meshB, meshC, relayPort] = [await freePort(), await freePort(), await freePort(), await freePort(), await freePort(), await freePort(), await freePort()];
   LAN_PORT = await freePort();   // 每次演示用自己的广播端口，不和本机别的节点串
 
   const A = await prepareDevice({ name: 'macbook', deviceId: 'dev-a', home: path.join(ROOT, 'homeA'), gwPort: gwA, meshPort: meshA, issuer, userId: '1001' });
   const B = await prepareDevice({ name: 'mini', deviceId: 'dev-b', home: path.join(ROOT, 'homeB'), gwPort: gwB, meshPort: meshB, issuer, userId: '1001' });
+  // 设备 C「phone」：不开入口（像在运营商 NAT 后面），只能经中继；有自己的本地模型 phone-model
+  const C = await prepareDevice({ name: 'phone', deviceId: 'dev-c', home: path.join(ROOT, 'homeC'), gwPort: gwC, meshPort: meshC, issuer, userId: '1001' });
+
+  // 官方中继：和每个 app 里的中继同一份代码；把转发的内容写进文件，验证它看不到明文
+  const officialDump = path.join(ROOT, 'official-relay.dump');
+  const relayB = path.join(ROOT, 'mini-relay.dump');
+  const official = await startRelayServer({ port: relayPort, host: '127.0.0.1', issuerKeys: [issuer.publicKey], dumpFile: officialDump, log: () => {} });
+  const relayUrls = [`ws://127.0.0.1:${official.port}/mesh/ws`];
 
   // 设备 B：模拟本地模型 + 模拟 Claude Code + 一个 git 工作区
   const mock = await startMockModel();
@@ -235,17 +244,25 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   writeJson(path.join(B.meshDir, 'workspaces.json'), { default: 'demo', workspaces: { demo: { path: work } } });
 
   // 不写对端地址：两台设备只靠局域网广播找到对方
-  writeMeshConfig(A, [], issuer);
-  writeMeshConfig(B, [], issuer, { accept_model_requests: true });
+  // A 是笔记本，不给别人当中继；B 自动当中继；C 只连中继
+  writeMeshConfig(A, [], issuer, { relay_urls: relayUrls, relay_mode: 'off' });
+  writeMeshConfig(B, [], issuer, { accept_model_requests: true, relay_urls: relayUrls, relay_dump: relayB });
+  writeMeshConfig(C, [], issuer, { accept_model_requests: true, relay_urls: relayUrls, listen: false });
+  const mockC = await startMockModel('设备 C');
+  writeJson(path.join(C.home, '.llm-agent', 'config.json'), {
+    providers: [{ id: 'mock-phone', name: '手机上的模型', type: 'free', base_url: `http://127.0.0.1:${mockC.address().port}/v1`, models: ['phone-model'], enabled: true }],
+  });
 
-  console.log('启动两台设备的网关…');
+  console.log('启动三台设备的网关…');
   // B 的 PATH 最前面放模拟的 claude；下面派活时钉到 @mini，A 本机有没有 claude 都不影响
   startGateway(A, {});
   startGateway(B, { PATH: `${binB}:${process.env.PATH}` });
+  startGateway(C, {});
 
   const upA = await until(() => req(gwA, 'GET', '/v1/devices').then((r) => r.status === 200));
   const upB = await until(() => req(gwB, 'GET', '/v1/devices').then((r) => r.status === 200));
-  check('两台网关都启动了', upA && upB);
+  const upC = await until(() => req(gwC, 'GET', '/v1/devices').then((r) => r.status === 200));
+  check('三台网关都启动了', upA && upB && upC);
   if (!upA || !upB) { console.log(logOf(A).slice(-2000), logOf(B).slice(-2000)); process.exit(1); }
 
   // 1. 入网与设备目录
@@ -458,18 +475,59 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   const spoof = await req(gwB, 'GET', '/v1/agent/harnesses', { headers: { authorization: 'Bearer tbm_guess', 'x-tb-mesh-from': 'dev-a' } });
   check('外部伪造设备网络头没有用', spoof.status === 401);
 
-  // 另一个账号的设备 C 想连 B：证书校验不过，连接被拒
-  const C = await prepareDevice({ name: 'stranger', deviceId: 'dev-c', home: path.join(ROOT, 'homeC'), gwPort: 1, meshPort: meshC, issuer, userId: '2002' });
-  const stranger = new MeshNode({
-    dir: C.meshDir, userId: '2002', cert: C.cert, issuerKeys: [issuer.publicKey],
-    peers: [{ endpoint_id: B.endpointId, direct_addrs: [`127.0.0.1:${B.meshPort}`] }],
-    bindAddr: `0.0.0.0:${C.meshPort}`, gatewayPort: 1, describeSelf: async () => ({}), log: () => {}, lanPort: LAN_PORT,
+  // 另一个账号的设备想连 B：证书校验不过，连接被拒；连官方中继可以，但到不了别人的设备
+  const X = await prepareDevice({ name: 'stranger', deviceId: 'dev-x', home: path.join(ROOT, 'homeX'), gwPort: 1, meshPort: 1, issuer, userId: '2002' });
+  const xKey = keys.deviceKey(identity.loadOrCreateDeviceSecret(X.meshDir));
+  const wsTry = (url, after) => new Promise((resolve) => {
+    const ws = new WebSocket(url);
+    const seen = [];
+    const t = setTimeout(() => { ws.terminate(); resolve(seen); }, 5000);
+    ws.on('message', (raw) => {
+      const m = JSON.parse(raw.toString());
+      seen.push(m);
+      if (m.type === 'challenge') ws.send(JSON.stringify({ type: 'register', proto: 1, cert: X.cert, sig: keys.sign(xKey.privateKey, `tb-mesh-register|${m.nonce}`) }));
+      else if (m.type === 'registered' && after) after(ws);
+      else if (m.type === 'error' || m.type === 'peer_offline') { clearTimeout(t); ws.close(); resolve(seen); }
+    });
+    ws.on('error', () => { clearTimeout(t); resolve(seen); });
   });
-  await stranger.start();
-  // 约定 id 小的一方先拨，另一方 8 秒后才自己拨，所以最多等 15 秒
-  const refused = await until(() => /other_user/.test(logOf(B)) || stranger.conns.size > 0, 15000);
-  check('其他账号的设备连不进来', refused && stranger.conns.size === 0 && /other_user/.test(logOf(B)), (logOf(B).match(/\[mesh\] 拒绝[^\n]*/) || [''])[0]);
-  await stranger.stop();
+  const toB = await wsTry(`ws://127.0.0.1:${B.meshPort}/mesh/ws`);
+  check('其他账号的设备连不进 B', toB.some((m) => m.type === 'error' && m.message === 'other_user') && /拒绝[^\n]*other_user/.test(logOf(B)), (logOf(B).match(/\[mesh\] 拒绝[^\n]*/) || [''])[0]);
+  const toOfficial = await wsTry(relayUrls[0], (ws) => ws.send(JSON.stringify({ type: 'relay', to: 'dev-b', data: { t: 'hello' } })));
+  check('其他账号连得上官方中继，但发给我的设备只会得到 peer_offline', toOfficial.some((m) => m.type === 'registered') && toOfficial.some((m) => m.type === 'peer_offline'),
+    toOfficial.map((m) => m.type).join(' → '));
+
+  // 4b. 中继：C 不开入口，经 B 中继；手动改官方中继；改回自动
+  console.log('\n[4b] 中继');
+  const secret = `SECRET-${Date.now()}`;
+  const viewA = async () => (await req(gwA, 'GET', '/v1/devices', { headers: auth })).json || {};
+  const cOnA = async () => (await viewA()).data?.find((d) => d.device_id === 'dev-c');
+  const viaB = await until(async () => { const d = await cOnA(); return d?.online && d.connection === 'relay' && d.via?.device_id === 'dev-b' ? d : null; }, 45000);
+  check('A 看到 C 在线，经 B 中继（自动选：A 关了中继，C 没开入口，只有 B 能当）', !!viaB, JSON.stringify(viaB ? { connection: viaB.connection, via: viaB.via } : await cOnA()));
+  const relayOfA = (await viewA()).relay;
+  check('A 的 /v1/devices 标明本机在用哪个中继', relayOfA?.using === 'dev-b', JSON.stringify(relayOfA));
+  const chatC = await req(gwA, 'POST', '/v1/chat/completions', { body: { model: 'phone-model', messages: [{ role: 'user', content: secret }] } });
+  check('在 A 上调用只有 C 才有的模型，经中继返回', chatC.status === 200 && /设备 C/.test(chatC.json?.choices?.[0]?.message?.content || ''), chatC.json?.choices?.[0]?.message?.content || chatC.text.slice(0, 200));
+  const bServing = await until(async () => {
+    const d = (await viewA()).data?.find((x) => x.device_id === 'dev-b');
+    return d?.relay?.sessions > 0 ? d.relay : null;
+  }, 20000);
+  check('B 被标成中继设备，A 看得到它在替哪些设备转发', !!bServing && bServing.serving.some((p) => p.includes('phone')), JSON.stringify(bServing));
+  const dumpB = fs.existsSync(relayB) ? fs.readFileSync(relayB, 'utf8') : '';
+  check('经 B 中继的内容是密文：B 的转发记录里没有提示词', dumpB.length > 0 && !dumpB.includes(secret) && !dumpB.includes('设备 C'), `转发记录 ${dumpB.length} 字节`);
+
+  const setOfficial = await req(gwA, 'PUT', '/v1/devices/self/settings', { headers: auth, body: { relay_pref: 'official' } });
+  const viaOfficial = await until(async () => { const d = await cOnA(); return d?.online && d.connection === 'relay' && d.via?.kind === 'official' ? d : null; }, 45000);
+  check('在 A 上手动改成官方中继，C 跟着换过去', setOfficial.status === 200 && !!viaOfficial, JSON.stringify(viaOfficial?.via || (await cOnA())?.via));
+  const bUsing = await until(async () => { const r = (await req(gwB, 'GET', '/v1/devices')).json?.relay; return r?.using === 'official' ? r : null; }, 20000);
+  check('手动指定同步到同账号其他设备（B 也改用官方中继）', !!bUsing, JSON.stringify(bUsing));
+  const chatC2 = await req(gwA, 'POST', '/v1/chat/completions', { body: { model: 'phone-model', messages: [{ role: 'user', content: secret }] } });
+  check('经官方中继调用 C 的模型', chatC2.status === 200 && /设备 C/.test(chatC2.json?.choices?.[0]?.message?.content || ''));
+  const dumpO = fs.existsSync(officialDump) ? fs.readFileSync(officialDump, 'utf8') : '';
+  check('官方中继也只看到密文', dumpO.length > 0 && !dumpO.includes(secret) && !dumpO.includes('设备 C'), `转发记录 ${dumpO.length} 字节`);
+  await req(gwA, 'PUT', '/v1/devices/self/settings', { headers: auth, body: { relay_pref: 'auto' } });
+  const back = await until(async () => { const d = await cOnA(); return d?.online && d.via?.device_id === 'dev-b' ? d : null; }, 45000);
+  check('改回自动：又经 B 中继', !!back, JSON.stringify((await cOnA())?.via));
 
   if (KEEP) {
     const passed = results.filter((r) => r.ok).length;
@@ -493,10 +551,16 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   check('B 关掉后 A 显示它离线，并保留最后一次描述', !!off && off.apps.length > 0, off ? `离线 ${off.last_seen_sec_ago}s，仍记得 ${off.apps.map((a) => a.id).join(',')}` : '');
   const offlineCall = await req(gwA, 'POST', '/v1/agent/responses', { headers: auth, body: { input: 'x', metadata: { harness_id: 'mine:claude-code@mini' } } });
   check('B 离线时派活返回明确原因', offlineCall.status === 404 && /离线/.test(offlineCall.json?.error?.message || ''), offlineCall.json?.error?.message);
+  const fallback = await until(async () => { const d = await cOnA(); return d?.online && d.via?.kind === 'official' ? d : null; }, 45000);
+  check('中继设备 B 掉线后，A 和 C 回落到官方中继', !!fallback, JSON.stringify((await cOnA())?.via));
+  const chatC3 = await req(gwA, 'POST', '/v1/chat/completions', { body: { model: 'phone-model', messages: [{ role: 'user', content: 'hi' }] } });
+  check('回落后照样能调 C 的模型', chatC3.status === 200 && /设备 C/.test(chatC3.json?.choices?.[0]?.message?.content || ''));
 
   const passed = results.filter((r) => r.ok).length;
-  console.log(`\n结果：${passed}/${results.length} 通过。日志：${ROOT}/macbook.log、${ROOT}/mini.log`);
+  console.log(`\n结果：${passed}/${results.length} 通过。日志：${ROOT}/macbook.log、${ROOT}/mini.log、${ROOT}/phone.log`);
   mock.close();
+  mockC.close();
+  await official.close();
   cleanup();
   process.exit(passed === results.length ? 0 : 1);
 })().catch((e) => { console.error(e); cleanup(); process.exit(1); });

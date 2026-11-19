@@ -51,6 +51,15 @@ function sanitizeDescriptor(d) {
     })),
     accepts: { agent_tasks: d.accepts?.agent_tasks !== false, model_requests: !!d.accepts?.model_requests },
     aliases: (() => { try { return normalizeAliases(d.aliases); } catch { return []; } })(),
+    // 中继：这台能不能当、对外地址、正在替谁转发；pref 是手动指定的中继（按时间取最新的，大家用同一个）
+    relay: {
+      enabled: !!d.relay?.enabled,
+      addrs: (d.relay?.addrs || []).slice(0, 8).map(String).filter((a) => /^[\w.\-[\]:]+:\d+$/.test(a)),
+      verified: !!d.relay?.verified,
+      sessions: Number(d.relay?.sessions) || 0,
+      serving: (d.relay?.serving || []).slice(0, 50).map((p) => [String(p[0]), String(p[1])]),
+      ...(d.relay?.pref ? { pref: { value: String(d.relay.pref.value || 'auto'), at: Number(d.relay.pref.at) || 0 } } : {}),
+    },
   };
   const text = JSON.stringify(out);
   if (PATH_LIKE.test(text)) throw new Error('设备描述里出现了本机路径');
