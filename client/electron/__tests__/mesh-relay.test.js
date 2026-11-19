@@ -136,3 +136,33 @@ test('两台只连官方中继的设备：握手、交换描述，经中继转�
     await relay.close();
   }
 });
+
+test('两台一时选的中继不一样（一台经 B 中继，一台只认官方中继）：经官方中继这个碰头点照样互通', async () => {
+  const relay = await startRelayServer({ port: 0, host: '127.0.0.1', issuerKeys: [issuer.publicKey], log: () => {} });
+  const gw = http.createServer((req, res) => { res.writeHead(200); res.end('ok'); });
+  await new Promise((r) => gw.listen(0, '127.0.0.1', r));
+  const mk = (dev, extra) => new MeshNode({
+    dir: dev.dir, userId: dev.userId, cert: dev.cert, issuerKeys: [issuer.publicKey], lanDiscovery: false, presenceMs: 300,
+    relayUrls: [`ws://127.0.0.1:${relay.port}/mesh/ws`], gatewayPort: gw.address().port,
+    describeSelf: async () => ({}), log: () => {}, ...extra,
+  });
+  const b = mk(device('mb', 'm-b', '9'), { listen: '0.0.0.0', port: 0 });                   // 开着入口，自动当中继
+  const c = mk(device('mc', 'm-c', '9'), { listen: false });                                // 只连中继
+  const a = mk(device('ma', 'm-a', '9'), { listen: false, cloud: true });                   // 登录了：B 没被云端验证过，不用它
+  const wait = async (fn, ms = 10000) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return true; await new Promise((r) => setTimeout(r, 100)); } return false; };
+  try {
+    await b.start(); await c.start(); await a.start();
+    assert.ok(await wait(() => c.uplinkTarget === 'm-b'), 'C 经 B 中继');
+    assert.strictEqual(a._pickRelay().target, 'official', 'A 不用没验证过的 B');
+    assert.ok(await wait(() => a.directory.get('m-c')?.online && c.directory.get('m-a')?.online), 'A 和 C 互相在线');
+    const r = await a.proxy('m-c', { method: 'GET', path: '/v1/models' });
+    const parts = [];
+    for await (const x of r.chunks) parts.push(x);
+    assert.strictEqual(Buffer.concat(parts).toString(), 'ok');
+    assert.strictEqual(a.directory.get('m-c').path.relay_kind, 'official');
+  } finally {
+    await a.stop(); await c.stop(); await b.stop();
+    gw.close();
+    await relay.close();
+  }
+});

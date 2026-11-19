@@ -3604,6 +3604,10 @@ function withMeshProviders(list, callerKey) {
   return out;
 }
 
+function meshPathOfVia(via) {
+  try { return require('./mesh/glue').meshPathOf(via); } catch { return null; }
+}
+
 function meshDeviceLabel(via) {
   try { return require('./mesh/glue').meshProviderLabel(via); } catch { return String(via || '').slice(5); }
 }
@@ -3648,7 +3652,7 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
   if (extra.meshFrom) logCtx.from_device = extra.meshFrom;
   const logRoute = (entry) => pushLog({
     ...logCtx, ...entry,
-    ...(String(entry.via || '').startsWith('mesh:') ? { device: meshDeviceLabel(entry.via), route: 'mesh' } : {}),
+    ...(String(entry.via || '').startsWith('mesh:') ? { device: meshDeviceLabel(entry.via), route: 'mesh', mesh_path: meshPathOfVia(entry.via) || undefined } : {}),
   });
   // 同一次请求里，不能看图的模型共用一份识图结果，避免降级时反复看同一张图
   const blindSeen = { ready: false, body: null, meta: null };
@@ -4561,7 +4565,7 @@ function handleRequest(req, res) {
   }
 
   // 本机设置（盘点页选中本机）：接活、开放模型、工作区。只在本机改，不走设备网络；要网关 Key 或智能体 Key
-  if (cleanPath === '/v1/devices/self/settings' || cleanPath.startsWith('/v1/devices/self/workspaces')) {
+  if (cleanPath === '/v1/devices/self/settings' || cleanPath.startsWith('/v1/devices/self/workspaces') || cleanPath.startsWith('/v1/devices/pending')) {
     const meshGlue = require('./mesh/glue');
     const authRaw = String(req.headers['authorization'] || req.headers['x-api-key'] || '');
     const key = authRaw.startsWith('Bearer ') ? authRaw.slice(7).trim() : authRaw.trim();
@@ -4579,6 +4583,10 @@ function handleRequest(req, res) {
         if (cleanPath === '/v1/devices/self/settings' && method === 'GET') return reply(200, meshGlue.getSelfSettings());
         if (cleanPath === '/v1/devices/self/settings' && method === 'PUT') return reply(200, await meshGlue.updateSelfSettings(body));
         if (wsMatch && !wsMatch[1] && method === 'POST') return reply(200, await meshGlue.addWorkspace(body));
+        // 新设备入网：本机（已入网）批准或拒绝
+        if (cleanPath === '/v1/devices/pending' && method === 'GET') return reply(200, { data: meshGlue.pendingDevices() });
+        const pendMatch = cleanPath.match(/^\/v1\/devices\/pending\/([^/]+)$/);
+        if (pendMatch && method === 'POST') return reply(200, await meshGlue.decidePending(decodeURIComponent(pendMatch[1]), body?.approve !== false));
         if (wsMatch && wsMatch[1] && method === 'DELETE') return reply(200, await meshGlue.removeWorkspace(decodeURIComponent(wsMatch[1])));
         reply(404, { error: { message: 'not_found' } });
       } catch (e) {

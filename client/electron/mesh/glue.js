@@ -78,7 +78,8 @@ async function describeSelf() {
 const saved = { gatewayPort: null, log: null };
 let cloud = null;            // MeshCloud：登录后才有
 let cloudTimer = null;
-const cloudState = { lastSync: 0, error: '', peers: 0 };
+const cloudState = { lastSync: 0, error: '', peers: 0, awaitingApproval: false, pending: [] };
+let approvalTimer = null;
 const CLOUD_SYNC_MS = 60 * 1000;
 
 function logLine(m) { (saved.log || ((x) => console.log(x)))(m); }
@@ -142,6 +143,7 @@ async function cloudSync() {
     // 按密钥吊销：同一台设备重装后换了密钥，旧密钥作废，新的照常
     const revoked = await cloud.revocations();
     node.setRevoked(revoked.map((r) => r.endpoint_id));
+    try { cloudState.pending = await cloud.pending(); } catch { /* 老服务端没有这个接口 */ }
     const peers = await cloud.peers();
     let n = 0;
     for (const p of peers) {
@@ -154,6 +156,38 @@ async function cloudSync() {
     cloudState.error = e.message;
     logLine(`[mesh] 和云端同步失败：${e.message}`);
   }
+}
+
+function scheduleApprovalRetry() {
+  if (approvalTimer) return;
+  const ms = Number(readConfig()?.cloud_sync_ms);
+  approvalTimer = setTimeout(async () => {
+    approvalTimer = null;
+    if (!node && cloud?.ready) {
+      await startFromConfig({});
+      if (node) { cloudState.awaitingApproval = false; stopCloudSync(); startCloudSync(); }
+    }
+  }, Number.isFinite(ms) && ms >= 1000 ? ms : 15000);
+  approvalTimer.unref?.();
+}
+
+/** 等批准的新设备（本机已入网时才有） */
+function pendingDevices() {
+  return node && cloud?.ready ? (cloudState.pending || []) : [];
+}
+
+/** 批准 / 拒绝新设备：本机用设备密钥签名，云端核对后才放行 */
+async function decidePending(deviceId, approve) {
+  if (!node || !cloud?.ready) throw Object.assign(new Error('本机还没入网，不能批准别的设备'), { status: 409 });
+  const list = await cloud.pending();
+  const p = list.find((x) => String(x.device_id) === String(deviceId));
+  if (!p) throw Object.assign(new Error('没有这台等批准的设备'), { status: 404 });
+  const { sign } = require('./keys');
+  const sig = sign(node.key.privateKey, `tb-mesh-approve|${p.device_id}|${p.endpoint_id}|${approve ? 'approve' : 'reject'}`);
+  await cloud.decide({ deviceId: p.device_id, approve, sig });
+  logLine(`[mesh] ${approve ? '已批准' : '已拒绝'}新设备 ${p.name || p.device_id}`);
+  cloudState.pending = await cloud.pending().catch(() => []);
+  return { ok: true, pending: cloudState.pending };
 }
 
 function startCloudSync() {
@@ -177,6 +211,8 @@ async function setCloud(ctx) {
   if (!ctx || !ctx.token || !ctx.serverUrl || !ctx.deviceId) {
     const had = !!cloud;
     cloud = null;
+    if (approvalTimer) { clearTimeout(approvalTimer); approvalTimer = null; }
+    Object.assign(cloudState, { awaitingApproval: false, pending: [] });
     if (node) node.opts.cloud = false;
     stopCloudSync();
     if (had && node && readConfig()?.cloud) {
@@ -201,7 +237,19 @@ async function startFromConfig({ gatewayPort, log } = {}) {
   cfg = readConfig();
   if (!cfg || !cfg.enabled) return null;
   if (cloud?.ready) {
-    try { await ensureCloudCert(); } catch (e) { logLine(`[mesh] 领设备证书失败：${e.message}`); }
+    try {
+      await ensureCloudCert();
+      cloudState.awaitingApproval = false;
+    } catch (e) {
+      if (e.code === 'approval_pending') {
+        // 新设备：等一台已入网的设备批准，批准后自动入网
+        if (!cloudState.awaitingApproval) logLine('[mesh] 新设备，等我已入网的设备批准');
+        cloudState.awaitingApproval = true;
+        scheduleApprovalRetry();
+        return null;
+      }
+      logLine(`[mesh] 领设备证书失败：${e.message}`);
+    }
     cfg = readConfig();
   }
   if (!cfg.cert) {
@@ -674,7 +722,10 @@ function recentDirs(limit = 10) {
 
 function getSelfSettings() {
   const c = readConfig();
-  const cloudInfo = { connected: !!cloud?.ready, last_sync: cloudState.lastSync || null, error: cloudState.error || null, peers: cloudState.peers };
+  const cloudInfo = {
+    connected: !!cloud?.ready, last_sync: cloudState.lastSync || null, error: cloudState.error || null, peers: cloudState.peers,
+    awaiting_approval: !!cloudState.awaitingApproval, pending: pendingDevices(),
+  };
   // can_enable：登录了就能一键开（证书自动领）；没登录时要有手写的证书
   if (!c || !c.enabled) return { enabled: false, can_enable: !!cloud?.ready || !!c?.cert, cloud: cloudInfo };
   const ws = workspaces.read(meshDir());
@@ -713,7 +764,7 @@ async function updateSelfSettings(patch = {}) {
     writeConfig({ ...cur, enabled: patch.enabled });
     if (patch.enabled) {
       await startFromConfig({});
-      if (!node) throw Object.assign(new Error(cloudState.error || '设备网络没能启动，看一下日志'), { status: 500 });
+      if (!node && !cloudState.awaitingApproval) throw Object.assign(new Error(cloudState.error || '设备网络没能启动，看一下日志'), { status: 500 });
     } else {
       await stop();
     }
@@ -847,14 +898,24 @@ function findDevice(name) {
   return node.directory.list().find((d) => !d.self && scheduler.matchesDevice(d, name)) || null;
 }
 
+/** 到某台设备现在怎么走，记进路由明细：{ kind: 'direct', addr_kind } 或 { kind: 'relay', via_kind, via } */
+function meshPathOf(ref) {
+  if (!node || !ref) return null;
+  const id = String(ref).replace(/^mesh:/, '');
+  const d = node.directory.get(id) || findDevice(id);
+  const p = d?.path;
+  if (!p) return null;
+  return p.kind === 'relay' ? { kind: 'relay', via_kind: p.relay_kind, via: p.via } : { kind: 'direct', addr_kind: p.addr_kind || 'lan' };
+}
+
 function resolveWorkspace(name) {
   return workspaces.resolve(meshDir(), name);
 }
 
 module.exports = {
   setCloud, cloudStatus: () => ({ connected: !!cloud?.ready, ...cloudState }),
-  getSelfSettings, updateSelfSettings, addWorkspace, removeWorkspace, selfLoad,
-  meshDirPath, workspaceConfig, isSelfDevice, findDevice, meshProviders, meshProviderLabel, meshFromLabel,
+  getSelfSettings, updateSelfSettings, addWorkspace, removeWorkspace, selfLoad, pendingDevices, decidePending,
+  meshDirPath, workspaceConfig, isSelfDevice, findDevice, meshProviders, meshProviderLabel, meshFromLabel, meshPathOf,
   submitAgentTask,
   fetchAgentTask,
   parseMeshTaskId,

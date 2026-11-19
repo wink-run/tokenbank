@@ -13,6 +13,7 @@ import { getUserDevices } from '../api/client';
 import { getReportedDeviceId, requestAccountsHeartbeat } from '../hooks/useDeviceReporter';
 import { renameDevice, deviceNameError } from '../api/deviceName';
 import SelfDeviceSettings from '../components/SelfDeviceSettings';
+import { useMeshDevices, relayBadge } from '../api/meshDevices';
 
 /** 几行用量相加成一台（次数、Token、费用、分层、模型） */
 function sumUsageRows(rows, base) {
@@ -455,6 +456,12 @@ export default function Dashboard() {
   const [renaming, setRenaming] = useState(null);   // { id, draft, error, saving }
   const [nameOverride, setNameOverride] = useState({});
   const [devicesTick, setDevicesTick] = useState(0);
+  const mesh = useMeshDevices();
+  // 设备胶囊上标「中继」：账号现在用的中继是哪台（我的设备网络里看到的）
+  const relayOf = (id) => {
+    const md = id === 'local' ? mesh.self : mesh.devices.find((x) => x.device_id === id);
+    return mesh.enabled ? relayBadge(md, mesh.relay) : null;
+  };
   useEffect(() => {
     if (!user) { setMyDevices([]); return; }
     getUserDevices().then((r) => {
@@ -703,6 +710,11 @@ export default function Dashboard() {
                 {o.id !== 'all' && <span className={`w-1.5 h-1.5 rounded-full ${o.online ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} aria-hidden />}
                 {nameOverride[o.id] || o.label}
                 {o.mine && <span className="text-[10px] px-1.5 rounded-full bg-zinc-900/[0.06] dark:bg-white/10 text-zinc-500 dark:text-zinc-300">{t('dashboard.mineTag')}</span>}
+                {o.id !== 'all' && relayOf(o.id) && (
+                  <span title={t('mesh.relayBadgeTitle')} className="text-[10px] px-1.5 rounded-full bg-violet-500/10 text-violet-700 dark:text-violet-300">
+                    {relayOf(o.id).sessions ? t('mesh.relayBadgeN', { n: relayOf(o.id).sessions }) : t('mesh.relayBadge')}
+                  </span>
+                )}
                 {cloud && o.calls != null && <span className="tabular-nums opacity-60">{t('dashboard.pillCalls', { n: Number(o.calls || 0).toLocaleString() })}</span>}
               </button>
             );

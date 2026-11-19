@@ -2,7 +2,7 @@
 // 只在本机改；其他设备只看到工作区的名字，看不到路径。
 import React, { useCallback, useEffect, useState } from 'react';
 import { useLang } from '../store/lang';
-import { getSelfSettings, updateSelfSettings, addWorkspace, removeWorkspace } from '../api/meshDevices';
+import { getSelfSettings, updateSelfSettings, addWorkspace, removeWorkspace, useMeshDevices, decidePendingDevice } from '../api/meshDevices';
 
 function Toggle({ on, disabled, onChange, label, hint }) {
   return (
@@ -16,6 +16,46 @@ function Toggle({ on, disabled, onChange, label, hint }) {
   );
 }
 
+/**
+ * 中继：本账号用哪个（自动 / 某台设备 / 官方中继，所有设备跟着最近一次的手动指定），本机当不当中继。
+ * 下拉里能选的设备：本机，以及描述里开着中继的其他设备。
+ */
+function RelayControls({ s, mesh, busy, t, run }) {
+  const relay = s.relay || {};
+  const pref = s.relay_pref || 'auto';
+  const options = [];
+  if (relay.active) options.push({ id: mesh.self?.device_id || 'self', label: t('mesh.self') });
+  for (const d of mesh.others) if (d.relay?.enabled || d.device_id === pref) options.push({ id: d.device_id, label: d.label + (d.online ? '' : ` · ${t('mesh.statusOffline')}`) });
+  if (pref !== 'auto' && pref !== 'official' && !options.some((o) => o.id === pref)) options.push({ id: pref, label: pref });
+  const using = relay.using === 'self' ? t('mesh.self') : relay.using_label;
+  const serving = (relay.serving || []).length;
+  return (
+    <>
+      <label className="inline-flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-300" title={t('mesh.settings.relayHint')}>
+        {t('mesh.settings.relay')}
+        <select value={pref} disabled={busy} onChange={(e) => run(() => updateSelfSettings({ relay_pref: e.target.value }))}
+          className="tb-soft-field text-xs px-1.5 py-0.5 rounded-md max-w-[11rem]">
+          <option value="auto">{t('mesh.settings.relayAuto')}</option>
+          {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+          <option value="official">{t('mesh.settings.relayOfficial')}</option>
+        </select>
+        {using && <span className="text-zinc-400 dark:text-zinc-500">{t('mesh.settings.relayUsing', { name: using })}</span>}
+        {relay.unavailable && <span className="text-amber-600 dark:text-amber-400">{t('mesh.settings.relayUnavailable')}</span>}
+      </label>
+      <label className="inline-flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-300" title={t('mesh.settings.relayModeHint')}>
+        {t('mesh.settings.relayMode')}
+        <select value={s.relay_mode || 'auto'} disabled={busy} onChange={(e) => run(() => updateSelfSettings({ relay_mode: e.target.value }))}
+          className="tb-soft-field text-xs px-1.5 py-0.5 rounded-md">
+          <option value="auto">{t('mesh.settings.relayModeAuto')}</option>
+          <option value="on">{t('mesh.settings.relayModeOn')}</option>
+          <option value="off">{t('mesh.settings.relayModeOff')}</option>
+        </select>
+        {serving > 0 && <span className="text-violet-600 dark:text-violet-300">{t('mesh.settings.relayServing', { n: serving })}</span>}
+      </label>
+    </>
+  );
+}
+
 export default function SelfDeviceSettings() {
   const { t } = useLang();
   const [s, setS] = useState(null);
@@ -23,6 +63,7 @@ export default function SelfDeviceSettings() {
   const [err, setErr] = useState('');
   const [wsOpen, setWsOpen] = useState(false);
   const [draft, setDraft] = useState({ path: '', name: '' });
+  const mesh = useMeshDevices();
 
   const load = useCallback(async () => { setS(await getSelfSettings()); }, []);
   useEffect(() => { load(); }, [load]);
@@ -31,6 +72,7 @@ export default function SelfDeviceSettings() {
     setBusy(true); setErr('');
     try { setS(await fn()); } catch (e) { setErr(e.message || String(e)); }
     setBusy(false);
+    mesh.refresh();
   };
 
   if (!s) return null;
@@ -53,8 +95,22 @@ export default function SelfDeviceSettings() {
   const known = new Set(workspaces.map((w) => w.path));
   const recent = (s.recent || []).filter((p) => !known.has(p) && !workspaces.some((w) => p.endsWith(w.path.replace(/^~/, ''))));
 
+  const pending = cloud.pending || [];
   return (
     <div className="flex flex-col gap-2">
+      {cloud.awaiting_approval && (
+        <p className="m-0 text-xs text-amber-700 dark:text-amber-300">{t('mesh.approval.waiting')}</p>
+      )}
+      {pending.map((p) => (
+        <div key={p.device_id} className="flex flex-wrap items-center gap-2 text-xs rounded-lg px-3 py-2 bg-amber-500/10 text-amber-800 dark:text-amber-200 max-w-2xl">
+          <span>{t('mesh.approval.request', { name: p.name || p.device_id })}</span>
+          <button type="button" disabled={busy} onClick={() => run(async () => { await decidePendingDevice(p.device_id, true); return getSelfSettings(); })}
+            className="min-h-[24px] px-2.5 rounded-md font-medium bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60">{t('mesh.approval.approve')}</button>
+          <button type="button" disabled={busy} onClick={() => run(async () => { await decidePendingDevice(p.device_id, false); return getSelfSettings(); })}
+            className="min-h-[24px] px-2 text-zinc-500 hover:text-red-500">{t('mesh.approval.reject')}</button>
+          <span className="basis-full text-[11px] opacity-70">{t('mesh.approval.hint')}</span>
+        </div>
+      ))}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <Toggle on disabled={busy} label={t('mesh.settings.network')} hint={t('mesh.settings.networkHint')}
           onChange={() => run(() => updateSelfSettings({ enabled: false }))} />
@@ -72,6 +128,7 @@ export default function SelfDeviceSettings() {
         )}
         <Toggle on={s.accept_model_requests} disabled={busy} label={t('mesh.settings.shareModels')} hint={t('mesh.settings.shareModelsHint')}
           onChange={(v) => run(() => updateSelfSettings({ accept_model_requests: v }))} />
+        <RelayControls s={s} mesh={mesh} busy={busy} t={t} run={run} />
         <button type="button" onClick={() => setWsOpen((v) => !v)} aria-expanded={wsOpen}
           className="text-xs text-blue-600 dark:text-blue-400 hover:underline">
           {t('mesh.settings.workspaces', { n: workspaces.length })}

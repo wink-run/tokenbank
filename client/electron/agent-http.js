@@ -241,7 +241,10 @@ function buildAgentRouteLog(info = {}) {
     entry.designated = String(info.designated);
     if (info.routeId) entry.route_id = String(info.routeId);
   }
-  if (info.device) entry.device = String(info.device);
+  if (info.device) {
+    entry.device = String(info.device);
+    try { const p = require('./mesh/glue').meshPathOf(info.device); if (p) entry.mesh_path = p; } catch { /* 设备网络没启动 */ }
+  }
   // 子任务：哪个任务派出来的（任务树）
   if (info.parentId) entry.parent_id = String(info.parentId);
   if (!ok) entry.error = String(info.error || 'agent_error');

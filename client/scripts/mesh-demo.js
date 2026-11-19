@@ -508,6 +508,11 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   check('A 的 /v1/devices 标明本机在用哪个中继', relayOfA?.using === 'dev-b', JSON.stringify(relayOfA));
   const chatC = await req(gwA, 'POST', '/v1/chat/completions', { body: { model: 'phone-model', messages: [{ role: 'user', content: secret }] } });
   check('在 A 上调用只有 C 才有的模型，经中继返回', chatC.status === 200 && /设备 C/.test(chatC.json?.choices?.[0]?.message?.content || ''), chatC.json?.choices?.[0]?.message?.content || chatC.text.slice(0, 200));
+  const logC = await until(async () => {
+    const r = await req(gwA + 1, 'GET', '/api/gateway/log');
+    return (r.json?.log || []).find((e) => e.requested_model === 'phone-model' && e.status === 'ok') || null;
+  }, 8000);
+  check('路由明细记下路径：经 B 中继', logC?.mesh_path?.kind === 'relay' && logC.mesh_path.via_kind === 'device', JSON.stringify(logC?.mesh_path));
   const bServing = await until(async () => {
     const d = (await viewA()).data?.find((x) => x.device_id === 'dev-b');
     return d?.relay?.sessions > 0 ? d.relay : null;

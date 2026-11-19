@@ -2,12 +2,22 @@
 import React from 'react';
 import { useLang } from '../store/lang';
 
+/** 连接方式的说明：直连（局域网 / Tailscale / 公网）或经哪个中继 */
+export function connectionText(device, t) {
+  if (!device || device.self || !device.online) return '';
+  if (device.connection === 'relay') return device.via?.kind === 'official' ? t('mesh.viaOfficial') : t('mesh.viaDevice', { name: device.via?.label || '' });
+  if (device.connection === 'direct') return t(`mesh.direct.${device.addr_kind || 'lan'}`);
+  return '';
+}
+
 export function DeviceChip({ device, small = false }) {
   const { t } = useLang();
   const label = device.self ? t('mesh.self') : device.label;
+  const conn = connectionText(device, t);
+  const relayed = !device.self && device.online && device.connection === 'relay';
   const title = device.self
     ? t('mesh.selfTitle')
-    : (device.online ? t('mesh.onlineTitle', { name: device.label }) : t('mesh.offlineTitle', { name: device.label }));
+    : (device.online ? t('mesh.onlineTitle', { name: device.label }) + (conn ? ` · ${conn}` : '') : t('mesh.offlineTitle', { name: device.label }));
   return (
     <span
       title={title}
@@ -15,6 +25,7 @@ export function DeviceChip({ device, small = false }) {
     >
       <span className={`w-[5px] h-[5px] rounded-full shrink-0 ${device.online ? 'bg-emerald-500' : 'bg-zinc-400'}`} />
       <span className="truncate">{label}</span>
+      {relayed && <span className="shrink-0 opacity-60">{device.via?.kind === 'official' ? t('mesh.viaOfficialShort') : t('mesh.viaDeviceShort', { name: device.via?.label || '' })}</span>}
     </span>
   );
 }

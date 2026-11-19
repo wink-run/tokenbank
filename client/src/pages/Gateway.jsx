@@ -4808,6 +4808,13 @@ function RouteLogDetailModal({ entry, onClose }) {
               {entry.route_id && <span className="ml-2 text-zinc-400 font-mono">{entry.route_id}</span>}
             </DetailRow>
           )}
+          {entry.mesh_path && (
+            <DetailRow label={t('gateway.log.meshPath')}>
+              {entry.mesh_path.kind === 'relay'
+                ? (entry.mesh_path.via_kind === 'official' ? t('mesh.viaOfficial') : t('mesh.viaDevice', { name: entry.mesh_path.via || '' }))
+                : t(`mesh.direct.${entry.mesh_path.addr_kind || 'lan'}`)}
+            </DetailRow>
+          )}
           {entry.from_device && (
             <DetailRow label={t('gateway.log.fromDevice')}>{entry.from_device}</DetailRow>
           )}

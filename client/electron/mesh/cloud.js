@@ -38,6 +38,7 @@ class MeshCloud {
     try { json = await res.json(); } catch { json = null; }
     if (!res.ok) {
       const detail = json?.detail || json?.error?.message || `HTTP ${res.status}`;
+      if (detail && typeof detail === 'object') throw Object.assign(new Error(detail.message || JSON.stringify(detail)), { status: res.status, code: detail.code });
       throw Object.assign(new Error(typeof detail === 'string' ? detail : JSON.stringify(detail)), { status: res.status });
     }
     return json || {};
@@ -57,6 +58,14 @@ class MeshCloud {
   async peers() { return (await this.call('GET', '/mesh/peers')).peers || []; }
 
   async revocations() { return (await this.call('GET', '/mesh/revocations')).revoked || []; }
+
+  /** 等批准的新设备 */
+  async pending() { return (await this.call('GET', '/mesh/pending')).pending || []; }
+
+  /** 本机（已入网）批准 / 拒绝一台新设备；sig 是本机设备密钥签的 `tb-mesh-approve|<新设备>|<它的 endpoint_id>|approve|reject` */
+  decide({ deviceId, approve, sig }) {
+    return this.call('POST', '/mesh/approve', { device_id: deviceId, approver_device_id: this.deviceId, approve: !!approve, sig });
+  }
 }
 
 /**

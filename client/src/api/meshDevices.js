@@ -28,18 +28,18 @@ async function gatewayJson(method, path, body) {
   return json;
 }
 
-/** @returns {Promise<{ enabled: boolean, devices: object[] }>} */
+/** @returns {Promise<{ enabled: boolean, devices: object[], relay: object|null }>} relay：本机在用哪个中继（using：'official' / 'self' / device_id） */
 export async function fetchDevices() {
   try {
     const json = await gatewayJson('GET', '/devices');
-    return { enabled: !!json?.enabled, devices: Array.isArray(json?.data) ? json.data : [] };
+    return { enabled: !!json?.enabled, devices: Array.isArray(json?.data) ? json.data : [], relay: json?.relay || null };
   } catch {
-    return { enabled: false, devices: [] };
+    return { enabled: false, devices: [], relay: null };
   }
 }
 
 // 几个页面同时用：共享一份，10 秒刷新一次
-let cache = { enabled: false, devices: [] };
+let cache = { enabled: false, devices: [], relay: null };
 let loadedAt = 0;
 let inflight = null;
 const listeners = new Set();
@@ -59,7 +59,7 @@ function load(force = false) {
 
 /**
  * 我的设备。没开设备网络时 enabled=false，各页不显示「所在设备」。
- * @returns {{ enabled: boolean, devices: object[], self: object|null, others: object[], refresh: () => Promise }}
+ * @returns {{ enabled: boolean, devices: object[], self: object|null, others: object[], relay: object|null, refresh: () => Promise }}
  */
 export function useMeshDevices({ intervalMs = 10000 } = {}) {
   const [state, setState] = useState(cache);
@@ -78,8 +78,17 @@ export function useMeshDevices({ intervalMs = 10000 } = {}) {
     devices,
     self: devices.find((d) => d.self) || null,
     others: devices.filter((d) => !d.self),
+    relay: state.relay || null,
     refresh,
   };
+}
+
+/** 这台设备是不是账号现在用的中继；是的话返回 { sessions }（正在转发几对设备） */
+export function relayBadge(device, relay) {
+  if (!device || !relay) return null;
+  const using = relay.using === 'self' ? (device.self ? device.device_id : null) : relay.using;
+  if (!using || using === 'official' || device.device_id !== using) return null;
+  return { sessions: Number(device.relay?.sessions) || 0 };
 }
 
 /** 设备显示名：设备名称优先，没有就用电脑名 */
@@ -150,6 +159,11 @@ export function addWorkspace(name, path) {
 
 export function removeWorkspace(name) {
   return gatewayJson('DELETE', `/devices/self/workspaces/${encodeURIComponent(name)}`).finally(() => load(true));
+}
+
+/** 批准 / 拒绝一台等入网的新设备（本机要已入网） */
+export function decidePendingDevice(deviceId, approve) {
+  return gatewayJson('POST', `/devices/pending/${encodeURIComponent(deviceId)}`, { approve: !!approve }).finally(() => load(true));
 }
 
 /**

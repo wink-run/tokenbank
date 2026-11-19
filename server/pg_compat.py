@@ -32,6 +32,7 @@ _TABLES_WITHOUT_ID = frozenset({
     # 设备网络：主键是 device_id / endpoint_id
     "mesh_endpoints",
     "mesh_revocations",
+    "mesh_approvals",
 })
 
 

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import base64
 import ipaddress
 import json
 import logging
@@ -62,6 +63,20 @@ async def ensure_tables() -> None:
             )
         """)
         await db.execute("CREATE INDEX IF NOT EXISTS idx_mesh_revocations_user ON mesh_revocations(user_id)")
+        # 新设备入网要一台已入网的设备批准（账号的第一台自动通过）
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS mesh_approvals (
+                device_id    TEXT PRIMARY KEY,
+                user_id      INTEGER NOT NULL,
+                endpoint_id  TEXT NOT NULL,
+                name         TEXT,
+                status       TEXT NOT NULL,
+                requested_at BIGINT NOT NULL,
+                decided_at   BIGINT,
+                decided_by   TEXT
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_mesh_approvals_user ON mesh_approvals(user_id)")
         await db.commit()
     _tables_ready = True
 
@@ -92,6 +107,7 @@ async def revoke_device(device_id: str, user_id: int) -> None:
         if row:
             await _revoke(db, user_id=user_id, device_id=device_id, endpoint_id=row[0])
             await db.execute("DELETE FROM mesh_endpoints WHERE device_id=? AND user_id=?", (device_id, user_id))
+        await db.execute("DELETE FROM mesh_approvals WHERE device_id=? AND user_id=?", (device_id, user_id))
         await db.commit()
 
 
@@ -131,6 +147,9 @@ async def request_cert(req: CertRequest, uid: int = Depends(get_current_user_id)
             "SELECT endpoint_id, user_id FROM mesh_endpoints WHERE device_id=?", (device_id,)
         ) as cur:
             old = await cur.fetchone()
+        if not old and not await _approved(db, uid, device_id, endpoint_id, req.name.strip() or (db_name or "")):
+            await db.commit()
+            raise HTTPException(403, {"code": "approval_pending", "message": "等我已入网的设备批准"})
         if old and old[0] != endpoint_id:
             await _revoke(db, user_id=uid, device_id=device_id, endpoint_id=old[0])
         # 同一把密钥只能属于一台设备
@@ -157,6 +176,101 @@ async def request_cert(req: CertRequest, uid: int = Depends(get_current_user_id)
         "issuer_keys": mesh_cert.issuer_keys(iss),
         "relay_urls": mesh_cert.relay_urls(),
     }
+
+
+# ── 新设备批准 ────────────────────────────────────────────────────────────────
+
+def _approval_required() -> bool:
+    return os.environ.get("MESH_REQUIRE_APPROVAL", "1") != "0"
+
+
+async def _approved(db, uid: int, device_id: str, endpoint_id: str, name: str) -> bool:
+    """这台能不能领证书：批准过；或者账号下还没有已入网的设备（第一台）；或者关了批准。没批准的记成待批准"""
+    async with db.execute("SELECT status FROM mesh_approvals WHERE device_id=? AND user_id=?", (device_id, uid)) as cur:
+        row = await cur.fetchone()
+    if row and row[0] == "approved":
+        return True
+    async with db.execute("SELECT COUNT(*) FROM mesh_endpoints WHERE user_id=?", (uid,)) as cur:
+        joined = (await cur.fetchone())[0]
+    now = int(time.time())
+    if joined == 0 or not _approval_required():
+        await db.execute(
+            """INSERT INTO mesh_approvals (device_id, user_id, endpoint_id, name, status, requested_at, decided_at, decided_by)
+               VALUES (?, ?, ?, ?, 'approved', ?, ?, ?)
+               ON CONFLICT (device_id) DO UPDATE SET status='approved', endpoint_id=excluded.endpoint_id, decided_at=excluded.decided_at""",
+            (device_id, uid, endpoint_id, name, now, now, "first" if joined == 0 else "auto"),
+        )
+        return True
+    await db.execute(
+        """INSERT INTO mesh_approvals (device_id, user_id, endpoint_id, name, status, requested_at)
+           VALUES (?, ?, ?, ?, 'pending', ?)
+           ON CONFLICT (device_id) DO UPDATE SET endpoint_id=excluded.endpoint_id, name=excluded.name,
+             requested_at=excluded.requested_at, status='pending'""",
+        (device_id, uid, endpoint_id, name, now),
+    )
+    return False
+
+
+def _verify_device_sig(endpoint_id: str, text: str, sig: str) -> bool:
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    try:
+        pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(endpoint_id))
+        pub.verify(base64.urlsafe_b64decode(sig + "=" * (-len(sig) % 4)), text.encode())
+        return True
+    except (InvalidSignature, ValueError):
+        return False
+
+
+@router.get("/mesh/pending")
+async def list_pending(uid: int = Depends(get_current_user_id)):
+    """等批准的新设备"""
+    await ensure_tables()
+    async with connect() as db:
+        async with db.execute(
+            "SELECT device_id, endpoint_id, name, requested_at FROM mesh_approvals WHERE user_id=? AND status='pending' ORDER BY requested_at",
+            (uid,),
+        ) as cur:
+            rows = await cur.fetchall()
+    return {"pending": [{"device_id": r[0], "endpoint_id": r[1], "name": r[2] or "", "requested_at": r[3]} for r in rows]}
+
+
+class DecisionRequest(BaseModel):
+    device_id: str                 # 要批准 / 拒绝的新设备
+    approver_device_id: str        # 已入网、做决定的这台
+    approve: bool = True
+    sig: str                       # 做决定的设备用设备密钥签 `tb-mesh-approve|<新设备>|<新设备的 endpoint_id>|<approve|reject>`
+
+
+@router.post("/mesh/approve")
+async def decide(req: DecisionRequest, uid: int = Depends(get_current_user_id)):
+    """已入网的设备批准或拒绝新设备。要那台设备的签名：只有登录令牌（比如密码泄露）加不了设备"""
+    await ensure_tables()
+    async with connect() as db:
+        async with db.execute(
+            "SELECT endpoint_id FROM mesh_endpoints WHERE device_id=? AND user_id=?", (req.approver_device_id, uid)
+        ) as cur:
+            approver = await cur.fetchone()
+        if not approver:
+            raise HTTPException(403, "只有已入网的设备能批准")
+        async with db.execute(
+            "SELECT endpoint_id FROM mesh_approvals WHERE device_id=? AND user_id=? AND status='pending'", (req.device_id, uid)
+        ) as cur:
+            pending = await cur.fetchone()
+        if not pending:
+            raise HTTPException(404, "没有这台等批准的设备")
+        verb = "approve" if req.approve else "reject"
+        if not _verify_device_sig(approver[0], f"tb-mesh-approve|{req.device_id}|{pending[0]}|{verb}", req.sig):
+            raise HTTPException(403, "签名不对")
+        if req.approve:
+            await db.execute(
+                "UPDATE mesh_approvals SET status='approved', decided_at=?, decided_by=? WHERE device_id=? AND user_id=?",
+                (int(time.time()), req.approver_device_id, req.device_id, uid),
+            )
+        else:
+            await db.execute("DELETE FROM mesh_approvals WHERE device_id=? AND user_id=?", (req.device_id, uid))
+        await db.commit()
+    return {"ok": True, "device_id": req.device_id, "approved": req.approve}
 
 
 # ── 地址簿 ────────────────────────────────────────────────────────────────────

@@ -6,6 +6,8 @@
 //   · 本机连出去：能直接连到对方就直连；连不到就经「我的中继」（我名下的某台设备，或官方中继），消息写上 to。
 //   · 两台设备之间端到端加密（keys.js），中继只看到密文。
 // 一个账号同一时间用同一个中继：手动指定的以最近一次为准，自动时大家挑同一台，都没有就用官方中继。
+// 另外每台都挂着一条到官方中继的空闲连接当「碰头点」：哪怕两台一时选的中继不一样（比如一台还没登录），也总能互相找到；
+// 数据还是先直连、再经我的设备中继，都不通才经官方中继。
 // 上层只用 proxy(device, httpRequest)：把一次 HTTP 请求交给那台设备的本机网关，接口和以前一样。
 'use strict';
 
@@ -142,9 +144,9 @@ class MeshNode extends EventEmitter {
     this.sessions = new Map();     // device_id → 会话
     this.links = new Map();        // device_id → 连出去的 Link（直连，也可能同时是中继）
     this.inbound = new Map();      // device_id → 连进来的连接（RelayHub 的 conn）
-    this.uplink = null;            // 当前用的中继连接（Link）
+    this.uplink = null;            // 经我的哪台设备中继（Link）；用官方中继时为空
     this.uplinkTarget = null;      // 'official' | device_id | 'self'
-    this.rendezvous = null;        // 本机当中继时，另连官方中继当「碰头点」：只能连官方中继的设备在那里找到本机
+    this.official = null;          // 到官方中继的连接：一直挂着，当碰头点和最后的通路
     this.pending = new Map();      // req_id → 等对端响应
     this.serving = new Map();      // `${from}:${req_id}` → 本机正在处理
     this.knownPeers = new Map();   // 直连候选地址
@@ -205,7 +207,7 @@ class MeshNode extends EventEmitter {
     this.lan?.stop();
     for (const l of this.links.values()) l.close();
     this.uplink?.close();
-    this.rendezvous?.close();
+    this.official?.close();
     this.hub?.close();
     for (const p of this.pending.values()) p.fail(new Error('设备网络已停止'));
     if (this.server) {
@@ -245,11 +247,11 @@ class MeshNode extends EventEmitter {
 
   /** 发给别的设备、写进地址簿的地址（host:port） */
   addrInfo() {
-    if (this.opts.listen === false) return { endpoint_id: this.key.endpointId, relay_url: this.uplink?.url || null, direct_addrs: [] };
+    if (this.opts.listen === false) return { endpoint_id: this.key.endpointId, relay_url: this.official?.url || null, direct_addrs: [] };
     const addrs = new Set(localAddrs(this.port));
     if (this.opts.publicAddr) addrs.add(this.opts.publicAddr);
     if (this.observedIp) addrs.add(this.observedIp.includes(':') ? `[${this.observedIp}]:${this.port}` : `${this.observedIp}:${this.port}`);
-    return { endpoint_id: this.key.endpointId, relay_url: this.uplink?.url || null, direct_addrs: [...addrs] };
+    return { endpoint_id: this.key.endpointId, relay_url: this.official?.url || null, direct_addrs: [...addrs] };
   }
 
   /** 云端回拨验证的结果：哪些地址从外面真的连得到 */
@@ -311,71 +313,67 @@ class MeshNode extends EventEmitter {
 
   async _evaluateRelay() {
     if (this.stopped) return;
+    await this._ensureOfficial();
     const pick = this._pickRelay();
     this.relayPick = pick;
-    if (pick.target === 'self') {
-      // 本机就是中继：别的设备连进来，不需要再连出去
-      if (this.uplink && ![...this.links.values()].includes(this.uplink)) this.uplink.close();
-      this.uplink = null;
-      this.uplinkTarget = 'self';
-      await this._ensureRendezvous();
+    if (pick.target === 'self' || pick.target === 'official') {
+      // 本机就是中继（别的设备连进来），或者用官方中继：都不需要再经我的设备
+      this._dropUplink();
+      this.uplinkTarget = this.official || pick.target === 'self' ? pick.target : null;
       return;
     }
-    if (this.rendezvous) { this.rendezvous.close(); this.rendezvous = null; }
     if (this.uplink && !this.uplink.closed && this.uplinkTarget === pick.target) return;
-    if (pick.target !== 'official') {
-      // 已经直连着那台：直接把这条当中继用（同一台设备上不能有两条连接）
-      const existing = this.links.get(pick.target);
-      if (existing && !existing.closed) { this._setUplink(existing, pick.target); return; }
-      for (const addr of pick.addrs || []) {
-        const link = await this._dial(addr).catch(() => null);
-        if (link && link.info?.device_id === pick.target) { this._setUplink(link, pick.target); return; }
-        link?.close();
-      }
-      this.log(`[mesh] 连不上中继 ${pick.target}，改用官方中继`);
+    // 已经直连着那台：直接把这条当中继用（同一台设备上不能有两条连接）
+    const existing = this.links.get(pick.target);
+    if (existing && !existing.closed) { this._setUplink(existing, pick.target); return; }
+    for (const addr of pick.addrs || []) {
+      const link = await this._dial(addr).catch(() => null);
+      if (link && link.info?.device_id === pick.target) { this._setUplink(link, pick.target); return; }
+      if (link && !this.links.has(link.info?.device_id)) link.close();
     }
-    await this._useOfficial();
+    this.log(`[mesh] 连不上中继 ${this._label(pick.target)}，改用官方中继`);
+    this._dropUplink();
+    this.uplinkTarget = this.official ? 'official' : null;
   }
 
-  /** 本机当中继时也连着官方中继：只连得上官方中继的设备在那里遇到本机，握手后知道该换到本机这个中继 */
-  async _ensureRendezvous() {
-    if (this.rendezvous && !this.rendezvous.closed) return;
-    for (const url of this.opts.relayUrls || []) {
-      const link = new Link(this, url);
-      try {
-        await link.open();
-        link.isRendezvous = true;
-        this.rendezvous = link;
-        for (const id of link.peers) this._greet(id);
-        return;
-      } catch { /* 下一轮再试 */ }
-    }
-  }
-
-  async _useOfficial() {
-    if (this.uplinkTarget === 'official' && this.uplink && !this.uplink.closed) return;
-    for (const url of this.opts.relayUrls || []) {
-      const link = new Link(this, url);
-      try {
-        await link.open();
-        this._setUplink(link, 'official');
-        return;
-      } catch (e) {
-        this.log(`[mesh] 官方中继连不上：${e.message}`);
-      }
-    }
-    if (this.uplink && this.uplinkTarget !== 'official') return;
+  /** 不再经我的设备中继；那条连接要是同时是直连就留着 */
+  _dropUplink() {
+    const old = this.uplink;
     this.uplink = null;
-    this.uplinkTarget = null;
+    this.relayStatus = null;
+    if (old) {
+      old.isUplink = false;
+      if (![...this.links.values()].includes(old)) old.close();
+    }
+  }
+
+  /** 到官方中继的连接：没有就连上 */
+  async _ensureOfficial() {
+    if (this.official && !this.official.closed) return;
+    if (this._officialBusy) return;
+    this._officialBusy = true;
+    try {
+      for (const url of this.opts.relayUrls || []) {
+        const link = new Link(this, url);
+        try {
+          await link.open();
+          link.isOfficial = true;
+          this.official = link;
+          for (const id of link.peers) this._greet(id);
+          return;
+        } catch (e) {
+          this.log(`[mesh] 官方中继连不上：${e.message}`);
+        }
+      }
+    } finally { this._officialBusy = false; }
   }
 
   _setUplink(link, target) {
-    const old = this.uplink;
+    if (this.uplink !== link) this._dropUplink();
     this.uplink = link;
     this.uplinkTarget = target;
     link.isUplink = true;
-    if (old && old !== link && !this.links.has(this.uplinkTarget === target ? '' : target) && ![...this.links.values()].includes(old)) old.close();
-    this.log(`[mesh] 中继：${target === 'official' ? '官方中继' : this._label(target)}`);
+    this.log(`[mesh] 中继：${this._label(target)}`);
     // 经这个中继能到的设备：握手、交换描述
     for (const id of link.peers) this._greet(id);
   }
@@ -454,19 +452,20 @@ class MeshNode extends EventEmitter {
       return;
     }
     if (msg.type === 'peer_offline') { this._refreshOnline(String(msg.to)); return; }
-    if (msg.type === 'relay_status') { if (link === this.uplink) this.relayStatus = msg; return; }
+    if (msg.type === 'relay_status') { if (link === this.uplink || (link === this.official && this.uplinkTarget === 'official')) this.relayStatus = msg; return; }
     if (msg.type === 'pong') { link.rttMs = Date.now() - Number(msg.t); }
   }
 
   _onLinkClose(link) {
     for (const [id, l] of this.links) if (l === link) this.links.delete(id);
-    if (this.rendezvous === link) this.rendezvous = null;
+    const official = this.official === link;
+    if (official) this.official = null;
     if (this.uplink === link) {
       this.uplink = null;
       this.uplinkTarget = null;
       this.relayStatus = null;
-      setTimeout(() => this._evaluateRelay().catch(() => {}), 500).unref?.();
     }
+    if ((official || link.isUplink) && !this.stopped) setTimeout(() => this._evaluateRelay().catch(() => {}), official ? 2000 : 500).unref?.();
     for (const d of this.directory.list()) if (!d.self) this._refreshOnline(d.device_id);
   }
 
@@ -480,8 +479,8 @@ class MeshNode extends EventEmitter {
     }
     const up = this.uplink;
     if (up && !up.closed && up.peers.has(id)) return { kind: 'relay', send: (data) => up.send(id, data), buffered: () => up.buffered, link: up };
-    const rv = this.rendezvous;
-    if (rv && !rv.closed && rv.peers.has(id)) return { kind: 'relay', official: true, send: (data) => rv.send(id, data), buffered: () => rv.buffered, link: rv };
+    const of = this.official;
+    if (of && !of.closed && of.peers.has(id)) return { kind: 'relay', official: true, send: (data) => of.send(id, data), buffered: () => of.buffered, link: of };
     return null;
   }
 
@@ -706,9 +705,8 @@ class MeshNode extends EventEmitter {
     }
     // 中继选择跟着描述变（谁开了中继、谁改了手动指定）
     const pick = this._pickRelay();
-    if (pick.target !== this.uplinkTarget && !(pick.target === 'official' && this.uplinkTarget === null && !(this.opts.relayUrls || []).length)) {
-      await this._evaluateRelay();
-    }
+    if (pick.target !== this.uplinkTarget && !(pick.target === 'official' && !this.official)) await this._evaluateRelay();
+    else if ((this.opts.relayUrls || []).length && !this.official) await this._ensureOfficial();
   }
 
   _pathFor(id) {
@@ -716,10 +714,11 @@ class MeshNode extends EventEmitter {
     const s = this.sessions.get(id);
     if (!r) return null;
     if (r.kind === 'direct') return { kind: 'direct', addr_kind: addrKind(r.addr), rttMs: s?.rttMs ?? r.link?.rttMs ?? null };
-    const official = this.uplinkTarget === 'official' || r.official;
+    const official = !!r.official;
+    const dev = official ? null : r.link?.info?.device_id || this.uplinkTarget;
     return {
       kind: 'relay', relay_kind: official ? 'official' : 'device',
-      relay_device: official ? null : this.uplinkTarget, via: official ? '官方中继' : this._label(this.uplinkTarget), rttMs: s?.rttMs ?? null,
+      relay_device: dev, via: official ? '官方中继' : this._label(dev), rttMs: s?.rttMs ?? null,
     };
   }
 
@@ -739,7 +738,7 @@ class MeshNode extends EventEmitter {
 
   _pingAll() {
     this.uplink?.ping();
-    this.rendezvous?.ping();
+    this.official?.ping();
     for (const l of this.links.values()) l.ping();
     for (const [id, s] of this.sessions) if (s.ready) this._send(id, { type: 'ping', t: Date.now() }).catch(() => {});
   }

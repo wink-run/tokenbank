@@ -111,10 +111,32 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   const binB = path.join(ROOT, 'binB');
   writeFakeClaude(binB);
   const A = device({ label: 'A', home: path.join(ROOT, 'homeA'), port: pa, jwt, name: 'laptop' });
-  const B = device({ label: 'B', home: path.join(ROOT, 'homeB'), port: pb, jwt, name: 'studio', extraPath: binB });
-  const certs = await until(() => A.meshConfig().cert && B.meshConfig().cert, 60000);
-  check('两台都从云端领到了设备证书（没手写）', !!certs && A.meshConfig().cloud === true && B.meshConfig().cloud === true,
+  const certA = await until(() => A.meshConfig().cert, 60000);
+  check('账号的第一台设备直接领到证书', !!certA && A.meshConfig().cloud === true,
     `A user_id=${A.meshConfig().user_id} issuer=${(A.meshConfig().issuer_keys || []).map((k) => k.kid).join(',')}`);
+
+  console.log('\n[1b] 新设备要已入网的设备批准');
+  const B = device({ label: 'B', home: path.join(ROOT, 'homeB'), port: pb, jwt, name: 'studio', extraPath: binB });
+  const waiting = await until(() => /等我已入网的设备批准/.test(logOf(B)), 30000);
+  check('第二台登录后没拿到证书，等批准', !!waiting && !B.meshConfig().cert);
+  const keyA = { authorization: `Bearer ${agentKey(A)}` };
+  const pendingOnA = await until(async () => {
+    const r = await req(`http://127.0.0.1:${A.port}/v1/devices/pending`, 'GET', { headers: keyA });
+    return (r.json?.data || []).find((p) => p.name === 'studio') || null;
+  }, 20000);
+  check('A 看到 studio 在等批准', !!pendingOnA, JSON.stringify(pendingOnA));
+  const forged = await req(`${SERVER}/mesh/approve`, 'POST', {
+    headers: { authorization: `Bearer ${jwt}` },
+    body: { device_id: pendingOnA?.device_id, approver_device_id: pendingOnA?.device_id, approve: true, sig: 'x' },
+  });
+  const forged2 = await req(`${SERVER}/mesh/approve`, 'POST', {
+    headers: { authorization: `Bearer ${jwt}` },
+    body: { device_id: pendingOnA?.device_id, approver_device_id: (A.meshConfig().cert ? JSON.parse(Buffer.from(A.meshConfig().cert.split('.')[1], 'base64url')).device_id : ''), approve: true, sig: 'AAAA' },
+  });
+  check('只有登录令牌、没有已入网设备的签名，批准不了', forged.status === 403 && forged2.status === 403, `${forged.json?.detail} / ${forged2.json?.detail}`);
+  const ok = await req(`http://127.0.0.1:${A.port}/v1/devices/pending/${encodeURIComponent(pendingOnA?.device_id || '')}`, 'POST', { headers: keyA, body: { approve: true } });
+  const certB = await until(() => B.meshConfig().cert, 30000);
+  check('A 批准后，B 自动领到证书入网', ok.status === 200 && !!certB && B.meshConfig().cloud === true, JSON.stringify(ok.json));
 
   console.log('\n[2] 地址簿：关掉局域网发现，只靠云端找到对方');
   const peers = await until(async () => {
