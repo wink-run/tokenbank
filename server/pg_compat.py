@@ -29,6 +29,9 @@ _TABLES_WITHOUT_ID = frozenset({
     "agent_chat_share_guests",
     # 主键是 assistant_id，没有 id。误加 RETURNING id 会让名片写不进库，离线列表就空。
     "public_agent_cards",
+    # 设备网络：主键是 device_id / endpoint_id
+    "mesh_endpoints",
+    "mesh_revocations",
 })
 
 

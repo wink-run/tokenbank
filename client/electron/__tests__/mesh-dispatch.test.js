@@ -141,3 +141,46 @@ test('远端任务的本机镜像：跟着远端更新，到终态后不再变�
 test('设备网络没启动时派 mine: 目标给出明确原因', async () => {
   await assert.rejects(() => executor.execute('mine:codex@mini', 'x'), /设备网络没有启动/);
 });
+
+// ── 云端：领证书、吊销（E1-1 / E1-2） ───────────────────────────────────────
+const { MeshCloud, needsCert } = require('../mesh/cloud');
+
+test('要不要重新领证书：没有、快到期、换账号 / 设备 / 密钥', () => {
+  const now = 1_000_000;
+  const ok = { sub: '1', device_id: 'dev-a', endpoint_id: 'e1', exp: now + 30 * 86400 };
+  assert.strictEqual(needsCert(null, { now }), true);
+  assert.strictEqual(needsCert(ok, { userId: '1', deviceId: 'dev-a', endpointId: 'e1', now }), false);
+  assert.strictEqual(needsCert({ ...ok, exp: now + 3 * 86400 }, { now }), true);
+  assert.strictEqual(needsCert(ok, { userId: '2', now }), true);
+  assert.strictEqual(needsCert(ok, { deviceId: 'dev-b', now }), true);
+  assert.strictEqual(needsCert(ok, { endpointId: 'e2', now }), true);
+});
+
+test('云端客户端：带登录令牌，错误里给出服务端的原因', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    if (url.endsWith('/mesh/cert')) return { ok: false, status: 404, json: async () => ({ detail: '设备没有注册' }) };
+    return { ok: true, status: 200, json: async () => ({ peers: [{ endpoint_id: 'x' }] }) };
+  };
+  const c = new MeshCloud({ serverUrl: 'http://s/', token: 'jwt', deviceId: 'dev-a', fetchImpl });
+  assert.ok(c.ready);
+  assert.deepStrictEqual(await c.peers(), [{ endpoint_id: 'x' }]);
+  assert.strictEqual(calls[0].url, 'http://s/mesh/peers');
+  assert.strictEqual(calls[0].init.headers.Authorization, 'Bearer jwt');
+  await assert.rejects(() => c.requestCert({ endpointId: 'e' }), (e) => e.status === 404 && /没有注册/.test(e.message));
+  assert.strictEqual(JSON.parse(calls[1].init.body).device_id, 'dev-a');
+});
+
+test('换上吊销列表：已连着的被吊销设备马上断开', () => {
+  const { MeshNode } = require('../mesh/node');
+  const n = new MeshNode({ log: () => {} });
+  const closed = [];
+  n.conns.set('dev-b', { conn: { close: (r) => closed.push(['dev-b', r]) }, endpointId: 'eb', claims: { name: 'b' } });
+  n.conns.set('dev-c', { conn: { close: (r) => closed.push(['dev-c', r]) }, endpointId: 'ec', claims: { name: 'c' } });
+  n.byEndpoint.set('eb', 'dev-b'); n.byEndpoint.set('ec', 'dev-c');
+  n.setRevoked(['eb']);
+  assert.deepStrictEqual(closed, [['dev-b', 'revoked']]);
+  assert.ok(!n.conns.has('dev-b') && n.conns.has('dev-c'));
+  assert.ok(n.revoked.has('eb'));
+});

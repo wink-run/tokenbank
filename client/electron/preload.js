@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   auth: {
     request: (opts) => ipcRenderer.invoke('auth:request', opts),
   },
+  // 设备网络：登录后把云端地址、登录令牌、设备号交给主进程（领证书、地址簿）；退出登录传 null
+  mesh: {
+    setCloud: (ctx) => ipcRenderer.invoke('mesh:set-cloud', ctx || null),
+  },
   agent: {
     start: () => ipcRenderer.invoke('agent:start'),
     stop: () => ipcRenderer.invoke('agent:stop'),

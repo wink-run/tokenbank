@@ -7,6 +7,19 @@ import { registerDevice, heartbeatDevice } from '../api/client';
 import { buildAccountsSummary } from '../lib/accountsSummary';
 import { buildAccountsConfig } from '../lib/account-config-sync';
 import { alignSyncAccountSecretsFromCloud } from '../lib/sync-account-secrets';
+import { getSyncServerBase } from '../config';
+
+/** 设备网络（桌面版）：注册完把云端地址、登录令牌、设备号交给主进程，它去领证书、拉地址簿；退出登录传 null */
+async function _shareMeshCloud(deviceId) {
+  const api = typeof window !== 'undefined' ? window.electronAPI?.mesh : null;
+  if (!api?.setCloud) return;
+  if (!deviceId) { api.setCloud(null).catch(() => {}); return; }
+  try {
+    const token = localStorage.getItem('token') || '';
+    const serverUrl = await getSyncServerBase();
+    if (token && serverUrl) await api.setCloud({ serverUrl, token, deviceId });
+  } catch { /* 设备网络没开或主进程没就绪 */ }
+}
 
 const HEARTBEAT_INTERVAL_MS = 60 * 1000; // 60s（服务端 2 分钟无心跳会标离线，须小于该阈值）
 const RECONNECT_INTERVAL_MS = 30 * 1000;      // retry interval while offline
@@ -277,7 +290,11 @@ export function useDeviceReporter(user) {
   const timerRef = useRef(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      // 退出登录：证书来自云端的设备网络一起停
+      _shareMeshCloud(null);
+      return;
+    }
 
     const uid = user.id;
 
@@ -293,6 +310,7 @@ export function useDeviceReporter(user) {
 
     _registrationPromise.then(() => {
       if (!active) return;
+      _shareMeshCloud(_deviceId);
       // Immediate heartbeat → device shows online right away
       _sendHeartbeat();
       // Periodic heartbeat — one global timer

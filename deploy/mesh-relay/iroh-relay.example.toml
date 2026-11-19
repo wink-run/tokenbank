@@ -1,0 +1,18 @@
+# TokenBank 设备网络中继（iroh-relay）。设备直连打不通时才走这里，只转发加密的包，看不到内容。
+#
+# 用法：复制成同目录的 iroh-relay.toml（已在 .gitignore 里），把 bearer_token 改成和服务端
+# MESH_RELAY_ACCESS_TOKEN 一样的值。镜像版本要和客户端里的 iroh 内核一致：
+# @number0/iroh 1.2.0 内带 iroh / iroh-relay 1.4.1。
+#
+# 未实测：按 iroh-relay 的配置格式写的。部署后先用 scripts/mesh-demo.js（关掉直连）走一遍再放量。
+
+# TLS 由前面的 nginx 终结，中继自己只听 HTTP
+http_bind_addr = "0.0.0.0:3340"
+enable_relay = true
+# 设备用它探测自己的公网地址（打洞要用）；打开要对外放行 UDP 端口，先关着
+enable_quic_addr_discovery = false
+
+# 只放行持有效证书、没被吊销的设备：中继每来一个设备就问一次云端 /mesh/relay-access
+[access.http]
+url = "http://proxy:8000/mesh/relay-access"
+bearer_token = "改成 MESH_RELAY_ACCESS_TOKEN 的值"

@@ -3161,6 +3161,17 @@ function registerIPC() {
   });
 
   ipcMain.handle('gateway:status',        () => gateway.getStatus());
+  ipcMain.handle('mesh:set-cloud', async (_e, ctx) => {
+    try {
+      const c = ctx && typeof ctx === 'object'
+        ? { serverUrl: String(ctx.serverUrl || ''), token: String(ctx.token || ''), deviceId: String(ctx.deviceId || '') }
+        : null;
+      await require('./mesh/glue').setCloud(c);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
   ipcMain.handle('gateway:getLog',        () => gateway.getLog());
   // 失败候选冷却表（供供给源页展示「冷却中」）。key 拆成 provider_id::model::sharer；
   // 个人直连源冷却键就是 provider_id（整源），故 model/sharer 为空。

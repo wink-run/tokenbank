@@ -230,6 +230,10 @@ async function cmdStart(port, adminPort) {
   });
   const userJwt = lc.user_session?.jwt || null;
   gateway.setUserAuth(userJwt);
+  // 设备网络：注册完、登录、退出登录时把登录上下文交给它（自动领证书、拉地址簿）
+  reporter.onContext((ctx) => {
+    require('../electron/mesh/glue').setCloud(ctx).catch((e) => console.warn('[mesh] cloud:', e && e.message));
+  });
   // 注册和心跳走云端，失败不影响本机网关。贡献 WebSocket 同样延后，不在启动路径上等待握手。
   reporter.init({
     type: 'cli',

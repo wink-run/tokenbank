@@ -436,6 +436,16 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
     // 经设备网络转来的都是本人的任务：完整权限，不审查、不脱敏、不计积分
     const fromMesh = meshGlue.isMeshRequest(req.headers);
     if (fromMesh) callContext = 'owner';
+    // 其他设备派来的：本机已经满了就直说，让对方换一台（续上一轮的不算新活）
+    const replay = idempotency.has(String(req.headers['idempotency-key'] || '').trim());
+    if (fromMesh && !body.previous_response_id && !replay) {
+      const load = meshGlue.selfLoad();
+      if (load.running >= load.max) {
+        report({ ok: false, error: 'busy', prompt, harnessId });
+        sendJson(res, 429, { error: { message: `这台设备正在跑 ${load.running} 个任务，满了`, type: 'mesh_busy' } });
+        return true;
+      }
+    }
     if (boundAgent) {
       if (!harnessId) harnessId = boundAgent;   // 用智能体自己的 Key 可以不写 harness_id
       if (harnessId !== boundAgent) {

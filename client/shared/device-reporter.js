@@ -17,6 +17,15 @@ let _config   = null;  // { type, name, platform, version, serverUrl, userJwt, d
 let _timer    = null;
 let _getStats = null;  // () => { calls, errors, providers_active }  (may be async)
 let _inventoryExtra = null;  // () => 附加到 inventory 的字段（如看护的资产清单），可为空
+let _contextListener = null; // 登录上下文变了：{ serverUrl, token, deviceId } 或 null（设备网络用）
+
+function _emitContext() {
+  if (typeof _contextListener !== 'function') return;
+  const ok = _config?.serverUrl && _config?.userJwt && _config?.device_id;
+  try {
+    _contextListener(ok ? { serverUrl: _config.serverUrl, token: _config.userJwt, deviceId: _config.device_id } : null);
+  } catch (_) { /* 监听方出错不影响心跳 */ }
+}
 
 // ── Low-level HTTP helper ─────────────────────────────────────────────────────
 
@@ -199,6 +208,8 @@ async function init(options) {
     const cfg = readAgentConfig() || {};
     cfg.device_id = _config.device_id;
     try { writeAgentConfig(cfg); } catch (_) {}
+    // 注册过了，设备在云端有记录，才能领设备网络证书
+    _emitContext();
   }).catch(() => {});
 }
 
@@ -234,17 +245,19 @@ function stop() {
 /** 登录/登出时更新 JWT；登出后停止心跳 */
 function setUserJwt(jwt) {
   if (_config) _config.userJwt = jwt || null;
-  if (!jwt && _timer) {
-    clearInterval(_timer);
-    _timer = null;
+  if (!jwt) {
+    if (_timer) { clearInterval(_timer); _timer = null; }
+    _emitContext();
     return;
   }
   // 网关先起来、后登录时，init 没能注册。CLI 在这里把新 id 换成云端已有的那条。
   if (jwt && _config && _config.type === 'cli') {
     _register().then((registeredId) => {
-      if (!registeredId || !_config || registeredId === _config.device_id) return;
-      _config.device_id = registeredId;
-      writeDeviceId(registeredId, 'cli');
+      if (registeredId && _config && registeredId !== _config.device_id) {
+        _config.device_id = registeredId;
+        writeDeviceId(registeredId, 'cli');
+      }
+      _emitContext();
     }).catch(() => {});
   }
 }
@@ -256,4 +269,9 @@ function setInventoryExtra(fn) {
   _inventoryExtra = typeof fn === 'function' ? fn : null;
 }
 
-module.exports = { init, start, stop, setUserJwt, setInventoryExtra };
+/** 登录上下文变了时回调（设备网络领证书用）；注册完成、登录、退出登录时触发 */
+function onContext(fn) {
+  _contextListener = typeof fn === 'function' ? fn : null;
+}
+
+module.exports = { init, start, stop, setUserJwt, setInventoryExtra, onContext };

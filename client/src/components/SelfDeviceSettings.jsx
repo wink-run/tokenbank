@@ -35,8 +35,20 @@ export default function SelfDeviceSettings() {
 
   if (!s) return null;
   if (!s.enabled) {
-    return <p className="m-0 text-[11px] text-zinc-400 dark:text-zinc-500">{t('mesh.settings.off')}</p>;
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <Toggle on={false} disabled={busy || !s.can_enable} label={t('mesh.settings.network')} hint={t('mesh.settings.networkHint')}
+          onChange={() => run(() => updateSelfSettings({ enabled: true }))} />
+        <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{s.can_enable ? t('mesh.settings.offCan') : t('mesh.settings.offLogin')}</span>
+        {err && <span className="text-[11px] text-red-500">{err}</span>}
+      </div>
+    );
   }
+  const cloud = s.cloud || {};
+  const syncText = !cloud.connected ? t('mesh.settings.cloudLocal')
+    : cloud.error ? t('mesh.settings.cloudError', { msg: cloud.error })
+    : cloud.last_sync ? t('mesh.settings.cloudOk', { n: cloud.peers || 0 })
+    : t('mesh.settings.cloudSyncing');
   const workspaces = s.workspaces || [];
   const known = new Set(workspaces.map((w) => w.path));
   const recent = (s.recent || []).filter((p) => !known.has(p) && !workspaces.some((w) => p.endsWith(w.path.replace(/^~/, ''))));
@@ -44,14 +56,27 @@ export default function SelfDeviceSettings() {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <Toggle on disabled={busy} label={t('mesh.settings.network')} hint={t('mesh.settings.networkHint')}
+          onChange={() => run(() => updateSelfSettings({ enabled: false }))} />
         <Toggle on={s.accept_agent_tasks} disabled={busy} label={t('mesh.settings.acceptTasks')} hint={t('mesh.settings.acceptTasksHint')}
           onChange={(v) => run(() => updateSelfSettings({ accept_agent_tasks: v }))} />
+        {s.accept_agent_tasks && (
+          <label className="inline-flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-300" title={t('mesh.settings.maxTasksHint')}>
+            {t('mesh.settings.maxTasks')}
+            <select value={s.max_tasks || 2} disabled={busy} onChange={(e) => run(() => updateSelfSettings({ max_tasks: Number(e.target.value) }))}
+              className="tb-soft-field text-xs px-1.5 py-0.5 rounded-md">
+              {[1, 2, 3, 4, 6, 8].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            {s.load ? <span className="text-zinc-400 dark:text-zinc-500">{t('mesh.settings.running', { n: s.load.running })}</span> : null}
+          </label>
+        )}
         <Toggle on={s.accept_model_requests} disabled={busy} label={t('mesh.settings.shareModels')} hint={t('mesh.settings.shareModelsHint')}
           onChange={(v) => run(() => updateSelfSettings({ accept_model_requests: v }))} />
         <button type="button" onClick={() => setWsOpen((v) => !v)} aria-expanded={wsOpen}
           className="text-xs text-blue-600 dark:text-blue-400 hover:underline">
           {t('mesh.settings.workspaces', { n: workspaces.length })}
         </button>
+        <span className={`text-[11px] ${cloud.error ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-400 dark:text-zinc-500'}`}>{syncText}</span>
         {err && <span className="text-[11px] text-red-500">{err}</span>}
       </div>
       {wsOpen && (

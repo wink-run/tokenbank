@@ -12,7 +12,8 @@
 ```bash
 cd client
 npm install                          # @number0/iroh 是可选依赖
-node scripts/mesh-demo.js            # 一台电脑上模拟两台设备，跑完整流程，约 1 分钟
+node scripts/mesh-demo.js            # 一台电脑上模拟两台设备，跑完整流程，约 1 分钟（手写证书，不连云端）
+MESH_CLOUD_SERVER=http://127.0.0.1:18000 node scripts/mesh-cloud-demo.js   # 云端模式：要本机跑着的服务端
 node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.test.js
 ```
 
@@ -20,7 +21,7 @@ node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.
 - 设备 A「macbook」：发起方；
 - 设备 B「mini」：有一个模拟的本地模型 `demo-model`、一个模拟的 Claude Code、一个 git 工作区 `demo`。
 
-两台之间是真实的 iroh QUIC 连接。两台都**不写对端地址**，靠局域网广播找到对方后直连。脚本依次检查 50 项：局域网发现、入网和设备目录、模型统一入口（流式、钉设备）、智能体统一入口（异步、流式、幂等、真实工作区、路由里 /xx 点名执行）、设备名称、主智能体经 MCP 派到其他设备（同步、后台并行、续上一轮）、任务树、本机设置（接活、开放模型、工作区）、防回环、伪造头、其他账号拒绝、断线。加 `--keep` 跑完不退出，可以继续手动 `curl` 设备 A。
+两台之间是真实的 iroh QUIC 连接。两台都**不写对端地址**，靠局域网广播找到对方后直连。脚本依次检查 52 项：局域网发现、入网和设备目录、模型统一入口（流式、钉设备）、智能体统一入口（异步、流式、幂等、真实工作区、路由里 /xx 点名执行）、设备名称、主智能体经 MCP 派到其他设备（同步、后台并行、续上一轮）、任务树、本机设置（接活、开放模型、工作区、同时接几个）、防回环、伪造头、其他账号拒绝、断线。加 `--keep` 跑完不退出，可以继续手动 `curl` 设备 A。
 
 ## 统一入口
 
@@ -43,6 +44,7 @@ node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.
 |---|---|
 | `frames.js` | 一条流上的分帧（JSON 帧 + 字节帧） |
 | `identity.js` | 设备密钥；证书签发、校验和准入（`scope` / `circles` / `team` 已预留） |
+| `cloud.js` | 和云端打交道：领证书、报地址、地址簿、吊销列表 |
 | `transport.js` | iroh 封装。只有它依赖 `@number0/iroh` |
 | `tunnel.js` | HTTP 走隧道：发起端发请求；接收端校验白名单、换鉴权头，转给本机网关 |
 | `directory.js` | 设备目录；描述里出现本机路径直接报错 |
@@ -54,7 +56,20 @@ node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.
 
 接入点：`local-gateway.js`（`/v1/models`、`/v1/devices`、模型请求、`knownKey`）、`agent-http.js`（`mine:` 寻址、`mesh:` 任务号、本人模式、工作区、任务树）、`agent-executor.js`（`mine:` 目标、远端任务镜像、后台派发、`waitTasks`）、`agent-dispatch-*`（MCP 派活）、`cli/gateway.js`（启动和退出；设备网络开着时也起派发服务）。
 
-## 配置（原型阶段手写）
+## 云端模式（正式用法）
+
+登录后不用手写任何东西：在盘点页选中本机，打开「设备网络」即可。之后：
+
+1. 用设备密钥向云端领证书（`POST /mesh/cert`，30 天，剩 7 天时自动续）；换了密钥（重装）时旧的那把自动吊销。
+2. 每分钟报一次自己的地址（`POST /mesh/address`），拉地址簿（`GET /mesh/peers`）去连其他设备，拉吊销列表（`GET /mesh/revocations`），被吊销的马上断开。
+3. 在云端删除设备 = 吊销它的证书；中继也只放行持有效证书的设备（`/mesh/relay-access`）。
+4. 退出登录时证书来自云端的设备网络一起停。
+
+服务端：`server/mesh_router.py`、`server/mesh_cert.py`，部署见仓库根目录 `DEPLOY.md`「设备网络」。客户端：`cloud.js`；登录上下文从 `shared/device-reporter.js`（CLI）或渲染进程的 `useDeviceReporter`（桌面版，经 IPC `mesh:set-cloud`）交给 `glue.setCloud`。
+
+`scripts/mesh-cloud-demo.js` 关掉局域网发现、不写对端地址，只靠云端：领证书 → 地址簿找到对方 → 派活 → 删除设备后被断开、再连被拒 → 退出登录后停。
+
+## 配置（开发用，手写）
 
 `~/.tokenbank/mesh/config.json`：
 
@@ -91,12 +106,12 @@ node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.
 
 ## 原型和正式版的差距
 
-- 证书由开发用签发方本地签发；正式版改成云端 `POST /mesh/cert`，签发方公钥内置进客户端。
-- 同一局域网靠广播自动发现；跨网的对端地址目前写在配置里，正式版从云端地址簿 `GET /mesh/peers` 取，并在心跳里上报。
-- 没有接中继，只验证了直连。
+- 签发方公钥现在随证书一起从云端下发；正式版要内置进客户端，防止被冒充的云端换掉。
+- 跨网靠云端地址簿；同一局域网另有广播发现，断网也能用。
+- 中继：服务端放行接口和部署配置已写好（`deploy/mesh-relay/`、`nginx/templates/relay.conf.template`），还没部署实测。
 - CLI 网关和桌面端 `main.js` 都接了：网关起来后 `startFromConfig`，退出时 `stop`。
 - 模型的「我的设备」层是简化版：只在本机除社区以外的供给源都没有这个模型时才用，还没排进 本机 → 我的设备 → 免费 → 社区 → 付费 的降级链。
-- 设备描述里还没有会话列表（`mine:session:` 未实现）、负载是固定值。
+- 设备描述里还没有会话列表（`mine:session:` 未实现）。
 - 产出：小文件随结果返回（现有逻辑），git bundle 和远程只读查看（设计 §8.4.3–8.4.5）未实现。
 - 界面：不加新页面，各页「所在设备」见 `src/api/meshDevices.js`、`src/components/DeviceChips.jsx`。只有一台设备（或没开设备网络）时不显示这一列。
 - 派到其他设备的任务，游乐场里只在做完时收到结果，中途的步骤不逐条推过来（镜像里只有进展计数 `step_count`）。

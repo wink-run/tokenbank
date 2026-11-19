@@ -90,6 +90,26 @@ class MeshNode extends EventEmitter {
 
   addrInfo() { return this.transport.addrInfo(); }
 
+  /** 换上新吊销列表（endpoint_id / device_id）：已连着的被吊销设备马上断开 */
+  setRevoked(ids = []) {
+    this.revoked = new Set((ids || []).map(String).filter(Boolean));
+    for (const [deviceId, c] of [...this.conns]) {
+      if (this.revoked.has(c.endpointId) || this.revoked.has(String(deviceId))) {
+        this.log(`[mesh] ${c.claims?.name || deviceId} 已被吊销，断开`);
+        try { c.conn.close('revoked'); } catch { /* 已断 */ }
+        this.conns.delete(deviceId);
+        this.byEndpoint.delete(c.endpointId);
+        this.directory.markOffline(deviceId);
+      }
+    }
+  }
+
+  /** 证书续期：之后的握手用新证书；已连着的不受影响 */
+  updateCert(cert, issuerKeys) {
+    this.opts.cert = cert;
+    if (Array.isArray(issuerKeys) && issuerKeys.length) this.opts.issuerKeys = issuerKeys;
+  }
+
   /** 只有隧道转进来的请求才带这把 Key；外部调用方拿不到 */
   isMeshKey(key) {
     const k = String(key || '');

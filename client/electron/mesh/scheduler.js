@@ -85,7 +85,9 @@ function pickDevice({ target, workspace, devices, priorities = {} }) {
   }
   const withWs = capable.filter((d) => hasWorkspace(d, workspace));
   if (!withWs.length) return { device: null, reason: `没有设备配了工作区 ${workspace}` };
-  const free = withWs.filter((d) => !busy(d));
+  // 点名了设备（或续上一轮）就交给它，满不满由它自己说（满了回 429）；自动挑才避开满负载的。
+  // 负载是几秒前报的，刚做完的设备可能还显示满
+  const free = target.device ? withWs : withWs.filter((d) => !busy(d));
   if (!free.length) return { device: null, reason: '能做的设备都满负载' };
 
   const prio = (d) => Number(priorities[d.device_id] ?? 0);

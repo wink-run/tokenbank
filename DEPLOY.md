@@ -113,6 +113,28 @@ docker compose up -d
 
 ---
 
+## 设备网络（证书、地址簿、中继）
+
+用户名下的设备互相直连（`client/electron/mesh/`），云端只负责签设备证书、地址簿和吊销列表（`server/mesh_router.py`），打不通时走 TokenBank 中继。内容不经过云端。
+
+**服务端环境变量**（`.env`）：
+
+| 变量 | 说明 |
+|---|---|
+| `MESH_ISSUER_KEY` | 签证书的密钥：32 字节随机数的 hex（`python3 -c "import os;print(os.urandom(32).hex())"`）。多台服务端要配同一把。不配时用 `data/mesh_issuer.key`，第一次用时生成，只适合单实例 |
+| `MESH_ISSUER_OLD_KEYS` | 换钥匙时把旧公钥（`kid:x`，逗号分隔）放这里，旧证书到期前仍能互相校验 |
+| `MESH_RELAY_URLS` | 中继地址，逗号分隔，如 `https://relay.tokenbank.example/`。设备领证书时一起拿到 |
+| `MESH_RELAY_ACCESS_TOKEN` | 中继问云端「这台设备放不放行」时带的令牌，和中继配置里的 `bearer_token` 一致 |
+
+**设备网络中继**（可选，未实测）：
+
+```bash
+cp deploy/mesh-relay/iroh-relay.example.toml deploy/mesh-relay/iroh-relay.toml   # 改 bearer_token
+docker compose --profile mesh up -d mesh-relay
+```
+
+再把 `nginx/templates/relay.conf.template` 挂进 `nginx` 服务（加一行 volume，环境变量 `RELAY_DOMAIN`、`RELAY_UPSTREAM=mesh-relay:3340`），放好 `nginx/certs/relay-fullchain.pem`、`relay-privkey.pem`。中继镜像版本要和客户端 iroh 内核一致（现在是 1.4.1）。上线前用 `client/scripts/mesh-demo.js` 关掉直连走一遍。
+
 ## 监控和维护
 
 ### 查看状态

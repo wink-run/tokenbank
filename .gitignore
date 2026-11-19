@@ -68,3 +68,4 @@ docs/
 
 # Docker 网关：智能体工作目录（docker-compose 挂到 /workspace）
 workspace/
+deploy/mesh-relay/iroh-relay.toml

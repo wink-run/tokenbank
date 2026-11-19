@@ -12,6 +12,7 @@ const scheduler = require('./scheduler');
 const tunnel = require('./tunnel');
 const workspaces = require('./workspaces');
 const { normalizeAliases, deviceLabel } = require('./directory');
+const { MeshCloud, needsCert } = require('./cloud');
 
 let node = null;
 let cfg = null;
@@ -26,8 +27,23 @@ function getNode() { return node; }
 
 // ── 本机描述 ─────────────────────────────────────────────────────────────────
 
+/** 同时接几个其他设备派来的任务（max_tasks，默认 2，1–16） */
+function maxTasks() {
+  const n = Number(readConfig()?.max_tasks);
+  return Number.isInteger(n) && n >= 1 && n <= 16 ? n : 2;
+}
+
+/** 本机负载：正在跑的智能体任务（不含派到别的设备的镜像） */
+function selfLoad() {
+  let running = 0;
+  try {
+    for (const id of require('../agent-executor').runningTasks.keys()) if (!String(id).startsWith('mesh:')) running += 1;
+  } catch { running = 0; }
+  return { running, max: maxTasks() };
+}
+
 async function describeSelf() {
-  const out = { platform: process.platform, apps: [], assistants: [], models: [], workspaces: [], sessions: [], load: { running: 0, max: 2 } };
+  const out = { platform: process.platform, apps: [], assistants: [], models: [], workspaces: [], sessions: [], load: selfLoad() };
   try { out.version = require('../../package.json').version; } catch { out.version = ''; }
   try {
     const agents = await require('../agent-executor').listAvailableAgents();
@@ -57,10 +73,135 @@ async function describeSelf() {
 
 // ── 生命周期 ─────────────────────────────────────────────────────────────────
 
+const saved = { gatewayPort: null, log: null };
+let cloud = null;            // MeshCloud：登录后才有
+let cloudTimer = null;
+const cloudState = { lastSync: 0, error: '', peers: 0 };
+const CLOUD_SYNC_MS = 60 * 1000;
+
+function logLine(m) { (saved.log || ((x) => console.log(x)))(m); }
+
+/** 证书内容（不校验签名，只看要不要续） */
+function certClaims(cert) {
+  try { return JSON.parse(Buffer.from(String(cert).split('.')[1], 'base64url').toString('utf8')); } catch { return null; }
+}
+
+function selfName() {
+  try {
+    const n = String(require('../../shared/config-loader').readAgentConfig()?.name || '').trim();
+    if (n) return n;
+  } catch { /* 用电脑名 */ }
+  return os.hostname();
+}
+
+/**
+ * 没有证书、快到期、换了账号或设备时，向云端领一张。领到返回 true。
+ * 写进 ~/.tokenbank/mesh/config.json（cloud: true 表示证书来自云端，退出登录时一起停）
+ */
+async function ensureCloudCert() {
+  if (!cloud?.ready) return false;
+  const identity = require('./identity');
+  const { endpointIdFromSecret } = require('./transport');
+  const endpointId = endpointIdFromSecret(identity.loadOrCreateDeviceSecret(meshDir()));
+  const cur = readConfig() || {};
+  const claims = certClaims(cur.cert);
+  if (!needsCert(claims, { deviceId: cloud.deviceId, endpointId })) return false;
+  const r = await cloud.requestCert({ endpointId, name: selfName() });
+  const switchedUser = !!claims && String(claims.sub) !== String(r.user_id);
+  const next = {
+    ...cur,
+    cloud: true,
+    cert: r.cert,
+    user_id: String(r.user_id),
+    issuer_keys: r.issuer_keys || [],
+    relay_urls: (r.relay_urls && r.relay_urls.length) ? r.relay_urls : (cur.relay_urls || []),
+  };
+  if (r.relay_token) next.relay_token = r.relay_token;
+  // 云端地址簿取代手写的对端；局域网发现照常
+  if (switchedUser) next.peers = [];
+  writeConfig(next);
+  logLine(`[mesh] 已领到设备证书（${new Date(r.expires_at * 1000).toLocaleDateString()} 到期）`);
+  if (node) {
+    if (switchedUser) { await stop(); await startFromConfig({}); } else node.updateCert(r.cert, r.issuer_keys);
+  }
+  return true;
+}
+
+/** 每分钟：续证书、报地址、拉吊销列表和地址簿 */
+async function cloudSync() {
+  if (!node || !cloud?.ready) return;
+  try {
+    await ensureCloudCert();
+    if (!node) return;
+    const a = node.addrInfo();
+    await cloud.publishAddress({ endpointId: a.endpoint_id, relayUrl: a.relay_url, directAddrs: a.direct_addrs });
+    // 按密钥吊销：同一台设备重装后换了密钥，旧密钥作废，新的照常
+    const revoked = await cloud.revocations();
+    node.setRevoked(revoked.map((r) => r.endpoint_id));
+    const peers = await cloud.peers();
+    let n = 0;
+    for (const p of peers) {
+      if (!p.endpoint_id || p.endpoint_id === a.endpoint_id) continue;
+      node.ensurePeer({ endpoint_id: p.endpoint_id, relay_url: p.relay_url, direct_addrs: p.direct_addrs || [], name: p.name }, 'cloud');
+      n += 1;
+    }
+    Object.assign(cloudState, { lastSync: Date.now(), error: '', peers: n });
+  } catch (e) {
+    cloudState.error = e.message;
+    logLine(`[mesh] 和云端同步失败：${e.message}`);
+  }
+}
+
+function startCloudSync() {
+  if (cloudTimer || !cloud?.ready) return;
+  cloudSync();
+  const ms = Number(readConfig()?.cloud_sync_ms);
+  cloudTimer = setInterval(cloudSync, Number.isFinite(ms) && ms >= 1000 ? ms : CLOUD_SYNC_MS);
+  cloudTimer.unref?.();
+}
+
+function stopCloudSync() {
+  if (cloudTimer) clearInterval(cloudTimer);
+  cloudTimer = null;
+}
+
+/**
+ * 登录状态变了：{ serverUrl, token, deviceId }，退出登录传 null。
+ * 登录后自动领证书、入网；退出登录时证书来自云端的节点一起停（手写配置的开发节点不动）。
+ */
+async function setCloud(ctx) {
+  if (!ctx || !ctx.token || !ctx.serverUrl || !ctx.deviceId) {
+    const had = !!cloud;
+    cloud = null;
+    stopCloudSync();
+    if (had && node && readConfig()?.cloud) {
+      logLine('[mesh] 已退出登录，设备网络停止');
+      await stop();
+    }
+    return;
+  }
+  if (cloud && cloud.token === ctx.token && cloud.deviceId === ctx.deviceId && cloud.serverUrl === String(ctx.serverUrl).replace(/\/+$/, '')) return;
+  cloud = new MeshCloud(ctx);
+  if (!node) await startFromConfig({});
+  if (node) { stopCloudSync(); startCloudSync(); }
+}
+
 async function startFromConfig({ gatewayPort, log } = {}) {
+  if (gatewayPort) saved.gatewayPort = gatewayPort;
+  if (log) saved.log = log;
   if (node) return node;
+  // 网关还没起来：等它起来时再来
+  if (!saved.gatewayPort) return null;
   cfg = readConfig();
   if (!cfg || !cfg.enabled) return null;
+  if (cloud?.ready) {
+    try { await ensureCloudCert(); } catch (e) { logLine(`[mesh] 领设备证书失败：${e.message}`); }
+    cfg = readConfig();
+  }
+  if (!cfg.cert) {
+    logLine('[mesh] 还没有设备证书：登录后自动领取');
+    return null;
+  }
   const { MeshNode } = require('./node');
   node = new MeshNode({
     dir: meshDir(),
@@ -72,26 +213,28 @@ async function startFromConfig({ gatewayPort, log } = {}) {
     relayUrls: cfg.relay_urls || [],
     relayToken: cfg.relay_token,
     bindAddr: cfg.bind_addr,
-    gatewayPort,
+    gatewayPort: saved.gatewayPort,
     describeSelf,
     presenceMs: cfg.presence_ms || 5000,
     lanDiscovery: cfg.lan_discovery !== false,
     lanPort: cfg.lan_port,
-    log: log || ((m) => console.log(m)),
+    log: logLine,
   });
   try {
     await node.start();
   } catch (e) {
-    (log || console.log)(`[mesh] 启动失败：${e.message}`);
+    logLine(`[mesh] 启动失败：${e.message}`);
     node = null;
     return null;
   }
   // 接着跟上次没做完的远端任务
   try { require('../agent-executor').resumeMeshTasks(); } catch { /* 执行器没就绪 */ }
+  if (cloud?.ready) startCloudSync();
   return node;
 }
 
 async function stop() {
+  stopCloudSync();
   const n = node;
   node = null;
   if (n) await n.stop();
@@ -489,13 +632,17 @@ function recentDirs(limit = 10) {
 
 function getSelfSettings() {
   const c = readConfig();
-  if (!c || !c.enabled) return { enabled: false };
+  const cloudInfo = { connected: !!cloud?.ready, last_sync: cloudState.lastSync || null, error: cloudState.error || null, peers: cloudState.peers };
+  // can_enable：登录了就能一键开（证书自动领）；没登录时要有手写的证书
+  if (!c || !c.enabled) return { enabled: false, can_enable: !!cloud?.ready || !!c?.cert, cloud: cloudInfo };
   const ws = workspaces.read(meshDir());
   return {
     enabled: true,
     running: !!node,
     accept_agent_tasks: c.accept_agent_tasks !== false,
     accept_model_requests: !!c.accept_model_requests,
+    max_tasks: maxTasks(),
+    load: selfLoad(),
     default_workspace: ws.default || '',
     workspaces: Object.entries(ws.workspaces).map(([name, w]) => {
       const p = workspaces.expandHome(w && w.path);
@@ -504,16 +651,40 @@ function getSelfSettings() {
       return { name, path: String(w?.path || ''), exists, default: name === ws.default };
     }),
     recent: recentDirs(),
+    has_cert: !!c.cert,
+    cloud: cloudInfo,
   };
 }
 
 /** 改接活 / 开放模型 / 默认工作区；改完马上推给其他设备 */
 async function updateSelfSettings(patch = {}) {
+  // 开关设备网络本身：开了就领证书、入网；关了就断开
+  if (typeof patch.enabled === 'boolean') {
+    const cur = readConfig() || {};
+    if (patch.enabled && !cur.cert && !cloud?.ready) {
+      throw Object.assign(new Error('先登录 TokenBank：登录后自动领设备证书'), { status: 409 });
+    }
+    writeConfig({ ...cur, enabled: patch.enabled });
+    if (patch.enabled) {
+      await startFromConfig({});
+      if (!node) throw Object.assign(new Error(cloudState.error || '设备网络没能启动，看一下日志'), { status: 500 });
+    } else {
+      await stop();
+    }
+    const { enabled: _e, ...rest } = patch;
+    if (!Object.keys(rest).length) return getSelfSettings();
+    patch = rest;
+  }
   const c = readConfig();
   if (!c || !c.enabled) throw meshOff();
   const next = { ...c };
   if (typeof patch.accept_agent_tasks === 'boolean') next.accept_agent_tasks = patch.accept_agent_tasks;
   if (typeof patch.accept_model_requests === 'boolean') next.accept_model_requests = patch.accept_model_requests;
+  if (patch.max_tasks !== undefined) {
+    const n = Number(patch.max_tasks);
+    if (!Number.isInteger(n) || n < 1 || n > 16) throw Object.assign(new Error('同时接的任务数要在 1 到 16 之间'), { status: 400 });
+    next.max_tasks = n;
+  }
   writeConfig(next);
   if (typeof patch.default_workspace === 'string') {
     const ws = workspaces.read(meshDir());
@@ -568,7 +739,8 @@ function resolveWorkspace(name) {
 }
 
 module.exports = {
-  getSelfSettings, updateSelfSettings, addWorkspace, removeWorkspace,
+  setCloud, cloudStatus: () => ({ connected: !!cloud?.ready, ...cloudState }),
+  getSelfSettings, updateSelfSettings, addWorkspace, removeWorkspace, selfLoad,
   submitAgentTask,
   fetchAgentTask,
   parseMeshTaskId,

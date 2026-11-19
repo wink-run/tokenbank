@@ -420,6 +420,16 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   check('A 只看到工作区的名字，看不到 B 上的路径', !!seenWs && !JSON.stringify(seenWs.workspaces).includes(B.home), JSON.stringify(seenWs?.workspaces || []));
   const viaTunnel = await req(gwA, 'GET', '/v1/devices/self/settings', { headers: { authorization: 'Bearer x' } });
   check('本机设置要本机的 Key', viaTunnel.status === 401);
+  // 并发上限：B 只接 1 个，第二个点名给它的活直接回「满了」
+  await req(gwB, 'PUT', '/v1/devices/self/settings', { headers: authB, body: { max_tasks: 1 } });
+  const slow1 = await req(gwA, 'POST', '/v1/agent/responses', { headers: auth, body: { input: 'SLOW 占着', background: true, metadata: { harness_id: 'mine:claude-code@studio' } } });
+  await sleep(500);
+  const slow2 = await req(gwA, 'POST', '/v1/agent/responses', { headers: auth, body: { input: 'SLOW 再来一个', background: true, metadata: { harness_id: 'mine:claude-code@studio' } } });
+  check('B 设成同时接 1 个时，第二个活回 429「满了」', slow1.status === 200 && slow2.status === 429, slow2.json?.error?.message);
+  const loadSeen = await until(async () => { const d = await devOnA(); return d && d.load?.max === 1 ? d.load : null; }, 15000);
+  check('A 看到 B 报的真实负载和上限', !!loadSeen, JSON.stringify(loadSeen));
+  await until(async () => (await req(gwA, 'GET', `/v1/agent/responses/${encodeURIComponent(slow1.json?.id || '')}`, { headers: auth })).json?.status === 'completed', 20000);
+  await req(gwB, 'PUT', '/v1/devices/self/settings', { headers: authB, body: { max_tasks: 2 } });
   const delWs = await req(gwB, 'DELETE', '/v1/devices/self/workspaces/site', { headers: authB });
   check('删除工作区', delWs.status === 200 && !(delWs.json?.workspaces || []).some((w) => w.name === 'site'));
 

@@ -108,6 +108,21 @@ services:
       - gateway
     restart: unless-stopped
 
+  # ── 设备网络中继（可选）──────────────────────────────────────────────────────
+  # 用法见 DEPLOY.md「设备网络中继」：先从 deploy/mesh-relay/iroh-relay.example.toml 复制出 iroh-relay.toml，
+  # 再 docker compose --profile mesh up -d mesh-relay。镜像版本和客户端 iroh 内核对齐。未实测。
+  mesh-relay:
+    image: ${IROH_RELAY_IMAGE:-n0computer/iroh-relay:v1.4.1}
+    profiles: [mesh]
+    expose:
+      - "3340"
+    volumes:
+      - ./deploy/mesh-relay/iroh-relay.toml:/etc/iroh-relay.toml:ro
+    command: ["--config-path", "/etc/iroh-relay.toml"]
+    depends_on:
+      - proxy
+    restart: unless-stopped
+
   # ── CLI Gateway (headless, no Electron) ──────────────────────────────────────
   gateway:
     build:

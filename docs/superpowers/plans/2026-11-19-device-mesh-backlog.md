@@ -51,7 +51,13 @@
 | E4-1 任务树：`metadata.parent_id`、`children`、`?tree=1`、`?parent_id=` | ✅ | 53e2af7 |
 | E4-3 MCP 后台派活：`background`、`previous_task_id`、`tb_task_status(wait any/all)`；无依赖子任务并行 | ✅ | 53e2af7 |
 | E3 界面「所在设备」：网关三张表、模型账户表、游乐场列表、盘点里的本机设置（接活、开放模型、工作区）；桌面端启动设备网络 | ✅ | c74911f |
-| 端到端演示 `scripts/mesh-demo.js`（50 项）、单测 | ✅ | 各提交 |
+| E1-1 / E1-2 云端证书、地址簿、吊销、中继放行接口；登录后自动入网、退出登录即停；盘点里一键开关设备网络 | ✅ | 本次 |
+| E1-6 真实负载、同时接几个可设，满了回 429；自动挑设备时避开满负载的 | ✅ | 本次 |
+| E1-3 中继部署配置（compose `mesh` profile、nginx 模板、iroh-relay 配置）——写好，未部署实测 | 🟡 | 本次 |
+| E1-5 桌面端：登录后经 IPC 交出登录上下文、退出登录即停——已接；打包 napi 模块、签名公证未做 | 🟡 | 本次 |
+| E1-7 `package-lock.json` 只剩 iroh 的新增；`docs/` 的忽略规则待定（见「待你决定」Q9） | 🟡 | 本次 |
+| 云端模式演示 `scripts/mesh-cloud-demo.js`（7 项，连本机服务端）、服务端单测 `test_mesh_cert.py` | ✅ | 本次 |
+| 端到端演示 `scripts/mesh-demo.js`（52 项）、单测 | ✅ | 各提交 |
 | 设计文档、实现方案、界面原型（基于最新版真实界面） | ✅ | 18d9128 等 |
 
 ---
@@ -64,13 +70,13 @@
 
 | ID | 任务 | 要改的地方 | 验收 | 优先级 | 估算 |
 |---|---|---|---|---|---|
-| E1-1 | 云端签发设备证书 `POST /mesh/cert`、吊销列表 `GET /mesh/revocations`；删除设备即吊销 | `server/mesh_cert.py`、`server/mesh_router.py`、`device_router.py` | 登录后自动拿到证书；删除设备后它的连接被拒 | P0 | 3 天 |
-| E1-2 | 地址簿：心跳带 `endpoint_id`、中继地址、直连地址；`GET /mesh/peers` | `useDeviceReporter.js`、`shared/device-reporter.js`、`device_router.py`、`mesh/glue.js` | 不手写 `peers`，两台跨网设备能找到彼此 | P0 | 2 天 |
-| E1-3 | 部署 `iroh-relay`（和现有服务一起，nginx 443），只放行持有效证书的设备 | `docker-compose.yml`、`nginx/` | 禁掉直连后仍能经中继完成演示全流程 | P0 | 2 天 |
+| E1-1 ✅ | 云端签发设备证书 `POST /mesh/cert`、吊销列表 `GET /mesh/revocations`；删除设备即吊销 | `server/mesh_cert.py`、`server/mesh_router.py`、`device_router.py` | 登录后自动拿到证书；删除设备后它的连接被拒 | P0 | 3 天 |
+| E1-2 ✅ | 地址簿：心跳带 `endpoint_id`、中继地址、直连地址；`GET /mesh/peers` | `useDeviceReporter.js`、`shared/device-reporter.js`、`device_router.py`、`mesh/glue.js` | 不手写 `peers`，两台跨网设备能找到彼此 | P0 | 2 天 |
+| E1-3 🟡 | 部署 `iroh-relay`（和现有服务一起，nginx 443），只放行持有效证书的设备 | `docker-compose.yml`、`nginx/` | 禁掉直连后仍能经中继完成演示全流程 | P0 | 2 天 |
 | E1-4 | 跨网打洞实测：家宽 + 热点、两地宽带、公司网络 | 测试记录 | 有成功率、耗时、走中继比例和延迟的数据；按 D20 的标准决定要不要加第二个区域的中继 | P0 | 2 天 |
-| E1-5 | Electron 主进程接入：登录后 `startFromConfig`，退出登录 / 退出应用时 `stop`；打包 napi 模块、签名公证 | `electron/main.js`、`package.json`（electron-builder `asarUnpack`） | 桌面版 macOS arm64、Windows x64 能入网 | P0 | 3 天 |
-| E1-6 | 设备上报真实负载（`runningTasks`），并发上限可配置 | `mesh/glue.js`、`agent-executor.js` | 自动选设备时把任务分散开 | P1 | 1 天 |
-| E1-7 | 清理 `package-lock.json` 里与 iroh 无关的改动；`docs/` 被 `.gitignore` 忽略的问题 | `client/package-lock.json`、`.gitignore` | 合并前 diff 干净 | P1 | 0.5 天 |
+| E1-5 🟡 | Electron 主进程接入：登录后 `startFromConfig`，退出登录 / 退出应用时 `stop`；打包 napi 模块、签名公证 | `electron/main.js`、`package.json`（electron-builder `asarUnpack`） | 桌面版 macOS arm64、Windows x64 能入网 | P0 | 3 天 |
+| E1-6 ✅ | 设备上报真实负载（`runningTasks`），并发上限可配置 | `mesh/glue.js`、`agent-executor.js` | 自动选设备时把任务分散开 | P1 | 1 天 |
+| E1-7 🟡 | 清理 `package-lock.json` 里与 iroh 无关的改动；`docs/` 被 `.gitignore` 忽略的问题 | `client/package-lock.json`、`.gitignore` | 合并前 diff 干净 | P1 | 0.5 天 |
 | E1-8 | 吞吐评估：napi 用 JS 数组传字节，本机约 15.7 MB/s | 基准测试 | 决定大文件 / bundle 是否需要优化或后备方案 | P2 | 1 天 |
 
 ### E2 · 统一入口完善
@@ -129,7 +135,8 @@ Q1–Q7 已于 2026-11-19 按建议定下，见上面 D14–D20。剩下：
 
 | # | 问题 | 说明 |
 |---|---|---|
-| Q8 | 分支推送 | 需要在会话设置里放开 `wink-run/tokenbank` 的写权限；或在本地用 bundle 导入后自己推 |
+| Q9 | `docs/` 被 `.gitignore` 忽略（注释写的是「头脑风暴产物，勿提交」），设备网络的设计和任务清单是用 `git add -f` 提交的 | 建议：设计和任务清单挪到 `client/electron/mesh/docs/`，或者 `.gitignore` 改成只忽略 `docs/superpowers/` 下的草稿 |
+| Q8 ✅ | 分支推送 | 已解决：会话里接上了 `wink-run/tokenbank` 的写权限，直接推到 `claude/personal-device-mesh-prototype` |
 
 ## 五、已知问题
 

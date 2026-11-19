@@ -112,5 +112,12 @@ async def list_device_assets(uid: int = Depends(get_current_user_id)):
 
 @router.delete("/device/{device_id}")
 async def remove_device(device_id: str, uid: int = Depends(get_current_user_id)):
+    # 删除设备即吊销它的设备网络证书：其他设备拉到吊销列表后拒绝它，中继也不再放行
+    try:
+        from mesh_router import revoke_device
+        await revoke_device(device_id, uid)
+    except Exception as e:  # 吊销失败不挡删除，记日志
+        import logging
+        logging.getLogger(__name__).warning("mesh revoke on delete failed: %s", e)
     await db.delete_device(device_id, uid)
     return {"ok": True}
