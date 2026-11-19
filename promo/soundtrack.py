@@ -10,7 +10,9 @@ import numpy as np
 from scipy.signal import butter, sosfilt, fftconvolve
 
 SR = 44100
-V7 = 26.0  # 0.7.0 chapter (统一接口 / 外部智能体 / 智能管家 / 应用工厂) inserted before the montage
+V7 = 26.0  # 0.7.0 chapter (统一接口 / 外部智能体 / 智能管家 / 应用工厂) inserted right after the logo (cue 9.5)
+V7_AT = 9.5
+SHIFT = False  # while True, place() moves cues at or after V7_AT later by V7 (the old timeline after the insert)
 DUR = 78.5 + V7
 OFF = 0.0  # set to INTRO after the intro block: every later cue is placed INTRO seconds later
 INTRO = 2.0  # intro grew from 5s to 7s
@@ -31,6 +33,8 @@ def hz(note):
 
 
 def place(sig, t, gain=1.0, pan=0.0, rev=0.0):
+    if SHIFT and t >= V7_AT:
+        t += V7
     i = int((t + OFF) * SR)
     if i >= N:
         return
@@ -255,6 +259,7 @@ R += music
 send += music * 0.25
 
 # transitions
+SHIFT = True
 for tc in (16.0, 22.5, 30.0, 36.0, 42.5, 42.5 + D2, 49.0 + D2):
     place(whoosh(0.8), tc - 0.55, 0.7, rev=0.3)
     place(impact(1.5) * 0.4, tc, 0.4, rev=0.3)
@@ -313,8 +318,9 @@ for t0 in (50.4 + D2, 52.7 + D2):
         place(bell(100 + (k % 3), 0.35, 1.5), t0 + 2.1 + k * 0.08, 0.15, pan=-0.5, rev=0.4)
 place(riser(1.6), 56.4 + D2, 0.6, rev=0.3)
 
-# V7 0.7.0 chapter (cue 64.5 - 90.5)
-v0 = 42.0 + SH
+# V7 0.7.0 chapter (cue 9.5 - 35.5), not shifted
+SHIFT = False
+v0 = V7_AT
 for k in range(4):
     tc = v0 + k * 6.5
     place(whoosh(0.8), tc - 0.55, 0.7, rev=0.3)
@@ -343,26 +349,27 @@ for k in range(6):
     place(blip([69, 72, 76, 81, 84, 88][k], 0.2), d0 + 0.8 + k * 0.35, 0.6, pan=-0.5 + k * 0.2, rev=0.4)
 place(impact(2.0) * 0.6, d0 + 3.2, 0.55, rev=0.5)
 place(riser(1.6), v0 + 24.4, 0.6, rev=0.3)
+SHIFT = True
 
 # ------------------------------------------------------------------ S8 montage (42 - 47)
 for k in range(5):
-    tb = 42.0 + SH + V7 + k
+    tb = 42.0 + SH + k
     if CINE:
         place(braam([33, 29, 36, 31, 33][k], 1.4), tb, 0.55, rev=0.5)
     place(impact(1.4), tb, 0.75, rev=0.5)
     place(pad(CHORDS[[0, 1, 2, 3, 0][k]], 0.95, 3200), tb, 0.35, rev=0.5)
     place(kick(), tb + 0.5, 0.8)
     place(clap(), tb + 0.5, 0.6, rev=0.3)
-place(riser(0.9, 600, 10000), 46.1 + SH + V7, 0.6)
+place(riser(0.9, 600, 10000), 46.1 + SH, 0.6)
 
 # ------------------------------------------------------------------ S9 finale (47 - 54)
-place(impact(4.0), 47.0 + SH + V7, 1.0, rev=0.7)
+place(impact(4.0), 47.0 + SH, 1.0, rev=0.7)
 if CINE:
-    place(braam(33, 6.0), 47.0 + SH + V7, 0.7, rev=0.7)
-place(pad([45, 57, 64, 69, 71, 76], 6.8, 2200), 47.0 + SH + V7, 0.34, rev=0.8)
+    place(braam(33, 6.0), 47.0 + SH, 0.7, rev=0.7)
+place(pad([45, 57, 64, 69, 71, 76], 6.8, 2200), 47.0 + SH, 0.34, rev=0.8)
 for k, n in enumerate([81, 88, 84, 93]):
-    place(bell(n, 3.0), 47.2 + SH + V7 + k * 0.3, 0.5, pan=(-0.3 + 0.2 * k), rev=0.7)
-place(bell(96, 3.5, 1.4), 48.6 + SH + V7, 0.35, rev=0.8)
+    place(bell(n, 3.0), 47.2 + SH + k * 0.3, 0.5, pan=(-0.3 + 0.2 * k), rev=0.7)
+place(bell(96, 3.5, 1.4), 48.6 + SH, 0.35, rev=0.8)
 
 # ------------------------------------------------------------------ reverb + master
 ir_t = tt(3.8 if CINE else 2.6)
