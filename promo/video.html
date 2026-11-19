@@ -82,7 +82,6 @@
   html.en .rsub { display: none; }
   html.en #gw span { white-space: nowrap; }
   html.en #router div[style*='font-size:30px'] { white-space: nowrap; font-size: 28px !important; }
-  html.en #phEnd > div { font-size: 124px !important; }
   html.en .word { font-size: 160px; }
   html.en .sub-en { display: none; }
   html.en .pain > div > div:first-child { font-size: 112px !important; }
@@ -98,14 +97,14 @@
   <!-- ============ S1 · 痛点开场 ============ -->
   <div class="scene" id="s1">
     <div id="s1logs"></div>
-    <div class="c pain"><div style="text-align:center;white-space:nowrap"><div style="font-size:120px;font-weight:900">AI 工具越装越多</div><div style="font-size:38px;color:#b9b9c6;font-weight:500;margin-top:18px;letter-spacing:.06em">配置各管各，切换全靠手改</div></div></div>
-    <div class="c pain"><div style="text-align:center;white-space:nowrap"><div style="font-size:120px;font-weight:900">账单越来越长</div><div style="font-size:38px;color:#b9b9c6;font-weight:500;margin-top:18px;letter-spacing:.06em">Token 花在哪，说不清</div></div></div>
-    <div class="c pain"><div style="text-align:center;white-space:nowrap"><div style="font-size:120px;font-weight:900">额度月底清零</div><div style="font-size:38px;color:#b9b9c6;font-weight:500;margin-top:18px;letter-spacing:.06em">免费额度闲着，付费却在涨</div></div></div>
+    <div class="c pain"><div style="text-align:center;white-space:nowrap"><div style="font-size:120px;font-weight:900">工具和设备越来越多</div><div style="font-size:38px;color:#b9b9c6;font-weight:500;margin-top:18px;letter-spacing:.06em">笔记本、服务器、Docker，各配各的</div></div></div>
+    <div class="c pain"><div style="text-align:center;white-space:nowrap"><div style="font-size:120px;font-weight:900">每家模型一套接口</div><div style="font-size:38px;color:#b9b9c6;font-weight:500;margin-top:18px;letter-spacing:.06em">OpenAI、Anthropic、Codex 协议各写一遍</div></div></div>
+    <div class="c pain"><div style="text-align:center;white-space:nowrap"><div style="font-size:120px;font-weight:900">智能体接不进产品</div><div style="font-size:38px;color:#b9b9c6;font-weight:500;margin-top:18px;letter-spacing:.06em">想调用 Claude Code、Codex，得自己写调度</div></div></div>
+    <div class="c pain"><div style="text-align:center;white-space:nowrap"><div style="font-size:120px;font-weight:900">账单越来越长</div><div style="font-size:38px;color:#b9b9c6;font-weight:500;margin-top:18px;letter-spacing:.06em">哪台设备、哪个应用花的，说不清</div></div></div>
     <div class="c pain"><div style="text-align:center;white-space:nowrap"><div style="font-size:120px;font-weight:900">Skill / MCP 越装越乱</div><div style="font-size:38px;color:#b9b9c6;font-weight:500;margin-top:18px;letter-spacing:.06em">复制粘贴，版本对不上</div></div></div>
-    <div class="c pain"><div style="text-align:center;white-space:nowrap"><div style="font-size:120px;font-weight:900">好模型用不起</div><div style="font-size:38px;color:#b9b9c6;font-weight:500;margin-top:18px;letter-spacing:.06em">稀缺模型、专家智能体，够不着</div></div></div>
-    <div class="c pain"><div style="text-align:center;white-space:nowrap"><div style="font-size:120px;font-weight:900">闲置能力白白浪费</div><div style="font-size:38px;color:#b9b9c6;font-weight:500;margin-top:18px;letter-spacing:.06em">订阅用不完，本地模型吃灰</div></div></div>
+    <div class="c pain"><div style="text-align:center;white-space:nowrap"><div style="font-size:120px;font-weight:900">出了问题全靠自己查</div><div style="font-size:38px;color:#b9b9c6;font-weight:500;margin-top:18px;letter-spacing:.06em">技能丢了、投射失效、任务跑不起来</div></div></div>
     <div class="c" id="painN"><div class="mono" style="font-size:24px;color:#ff6a6a;letter-spacing:.2em;white-space:nowrap"></div></div>
-    <div class="c" id="phEnd"><div style="font-size:150px;font-weight:900;white-space:nowrap">你的 AI，<span class="gold">该有个管家了</span></div></div>
+    <div class="c" id="phEnd"><div style="text-align:center;font-weight:900;white-space:nowrap;line-height:1.25"><div style="font-size:112px">所有设备，一处纳管</div><div class="gold" style="font-size:112px">模型和智能体，一个接口</div></div></div>
     <div class="c" id="bill"><div class="mono" style="font-size:34px;color:#ff6a6a;letter-spacing:.04em;white-space:nowrap">本月账单&nbsp;&nbsp;¥ <span id="billv">0.00</span></div></div>
     <div class="c" id="dot"><div style="width:40px;height:40px;border-radius:50%;background:radial-gradient(circle,#fff6d0,#ffc23d 50%,#e08a00);box-shadow:0 0 60px 20px rgba(255,194,61,.6)"></div></div>
   </div>
@@ -116,12 +115,12 @@
     <div class="c" id="glow2"><div style="width:900px;height:900px;border-radius:50%;background:radial-gradient(circle, rgba(255,190,60,.45), rgba(255,150,0,.12) 40%, rgba(0,0,0,0) 70%)"></div></div>
     <div class="c" id="coinWrap" style="perspective:1400px"><div id="coin" style="width:340px;height:340px"></div></div>
     <div class="c" id="title2"><div id="title2t" style="font-size:150px;font-weight:900;white-space:nowrap;letter-spacing:-.02em"><span>Token</span> <span class="gold">Bank</span></div></div>
-    <div class="c" id="sub2"><div style="font-size:46px;color:#c9c9d3;font-weight:500;letter-spacing:.35em;white-space:nowrap">你的个人 AI 中枢</div></div>
+    <div class="c" id="sub2"><div style="font-size:46px;color:#c9c9d3;font-weight:500;letter-spacing:.2em;white-space:nowrap">个人 AI 中枢 · 智能体应用工厂</div></div>
   </div>
 
   <!-- ============ S3 · 一键纳管 ============ -->
   <div class="scene" id="s3">
-    <div class="header" id="h3"><div class="eyebrow">01 — 一键纳管</div><div class="h1">你在用的 AI 工具，<span class="gold">一键全接入</span></div></div>
+    <div class="header" id="h3"><div class="eyebrow">05 — 一键纳管</div><div class="h1">你在用的 AI 工具，<span class="gold">一键全接入</span></div></div>
     <svg id="s3svg" class="abs" width="1920" height="1080" style="left:0;top:0"></svg>
     <div id="apps"></div>
     <div class="c" id="gw"><div class="card" style="width:540px;height:230px;padding:34px 38px;box-sizing:border-box;border-color:rgba(255,194,61,.35)">
@@ -142,7 +141,7 @@
 
   <!-- ============ S4 · 全链路 Trace ============ -->
   <div class="scene" id="s4">
-    <div class="header" id="h4"><div class="eyebrow">02 — 用的明白</div><div class="h1">你的每一个 Token，<span class="gold">都有据可查</span></div></div>
+    <div class="header" id="h4"><div class="eyebrow">06 — 用的明白</div><div class="h1">你的每一个 Token，<span class="gold">都有据可查</span></div></div>
     <div class="abs" id="dash" style="left:140px;top:330px;width:1640px;height:680px;perspective:1600px">
       <div id="dashInner" class="card" style="position:absolute;inset:0;transform-origin:50% 100%">
         <div class="abs" style="left:48px;top:40px;display:flex;gap:80px">
@@ -161,7 +160,7 @@
 
   <!-- ============ S5 · 智能路由 ============ -->
   <div class="scene" id="s5">
-    <div class="header" id="h5"><div class="eyebrow">03 — 用的节省</div><div class="h1">同样的活，<span class="gold">自动走最省钱的路</span></div></div>
+    <div class="header" id="h5"><div class="eyebrow">07 — 用的节省</div><div class="h1">同样的活，<span class="gold">自动走最省钱的路</span></div></div>
     <svg id="s5svg" class="abs" width="1920" height="1080" style="left:0;top:0"></svg>
     <div id="reqs"></div>
     <div class="c" id="router"><div style="position:relative;width:260px;height:260px">
@@ -180,15 +179,21 @@
 
   <!-- ============ S6 · 越用越懂你 ============ -->
   <div class="scene" id="s6">
-    <div class="header" id="h6"><div class="eyebrow">04 — 越用越懂你</div><div class="h1">从你的习惯里，<span class="gold">长出你的工具箱</span></div></div>
-    <svg id="radar" class="abs" width="900" height="780" style="left:110px;top:290px"></svg>
+    <div class="header" id="h6"><div class="eyebrow">08 — 越用越懂你</div><div class="h1">纠正一次，<span class="gold">它就记住</span></div></div>
+    <div id="radar" class="abs card" style="left:110px;top:320px;width:880px;height:520px;box-sizing:border-box;padding:28px 32px">
+      <div style="display:flex;align-items:center;gap:12px;font-size:24px;font-weight:700"><span style="width:12px;height:12px;border-radius:50%;background:#34d399"></span>智能管家</div>
+      <div class="b6" style="margin-top:30px;max-width:640px;padding:16px 22px;border-radius:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);font-size:25px">「写周报」这次派给 Codex？</div>
+      <div class="b6" style="margin:22px 0 0 auto;width:max-content;max-width:640px;padding:16px 22px;border-radius:16px;background:linear-gradient(180deg,#ffd466,#f0a000);color:#2b1a00;font-weight:700;font-size:25px">以后这类都给「周报助手」</div>
+      <div class="b6" style="margin-top:22px;max-width:640px;padding:16px 22px;border-radius:16px;background:rgba(52,211,153,.10);border:1px solid rgba(52,211,153,.4);color:#6ee7b7;font-size:25px;font-weight:600">好，记住了 ✓ 下次直接派过去</div>
+      <div class="b6 mono" style="position:absolute;left:32px;bottom:26px;font-size:19px;color:var(--muted)">规则 +1 · 不自己花 Token</div>
+    </div>
     <div id="tags6"></div>
     <div id="recs"></div>
   </div>
 
   <!-- ============ SA · AI 资产一处纳管 ============ -->
   <div class="scene" id="sa">
-    <div class="header" id="ha"><div class="eyebrow">05 — AI 资产 · 一处纳管</div><div class="h1">散落各处的 AI 资产，<span class="gold">一处纳管</span></div></div>
+    <div class="header" id="ha"><div class="eyebrow">09 — AI 资产 · 一处纳管</div><div class="h1">散落各处的 AI 资产，<span class="gold">一处纳管</span></div></div>
     <div class="abs card" id="lib" style="left:300px;top:310px;width:1320px;height:600px;box-sizing:border-box;padding:26px 30px">
       <div style="display:flex;align-items:center;gap:16px">
         <div style="flex:1;height:54px;border-radius:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);display:flex;align-items:center;padding:0 20px;font-size:22px;color:var(--muted)"><span id="libq"></span></div>
@@ -205,7 +210,7 @@
 
   <!-- ============ SP · 资源投射 ============ -->
   <div class="scene" id="sp">
-    <div class="header" id="hp"><div class="eyebrow">06 — 资源投射</div><div class="h1">一次沉淀，<span class="gold">投射到每个智能体</span></div></div>
+    <div class="header" id="hp"><div class="eyebrow">10 — 资源投射</div><div class="h1">一次沉淀，<span class="gold">投射到每个智能体</span></div></div>
     <svg id="spsvg" class="abs" width="1920" height="1080" style="left:0;top:0"></svg>
     <div id="passets"></div>
     <div class="c" id="gate"><div style="position:relative;width:200px;height:320px">
@@ -222,7 +227,7 @@
 
   <!-- ============ SG · 游乐场 · Agent 聚合编排 ============ -->
   <div class="scene" id="sg">
-    <div class="header" id="hg"><div class="eyebrow">07 — 游乐场 · 智能体编排</div><div class="h1">一句话，<span class="gold">调度一支智能体团队</span></div></div>
+    <div class="header" id="hg"><div class="eyebrow">11 — 游乐场 · 智能体编排</div><div class="h1">一句话，<span class="gold">调度一支智能体团队</span></div></div>
     <div class="abs card" id="chat" style="left:140px;top:320px;width:820px;height:680px;overflow:hidden">
       <div style="height:64px;display:flex;align-items:center;gap:14px;padding:0 28px;border-bottom:1px solid var(--line);font-size:22px">
         <span style="display:flex;gap:8px"><i style="width:12px;height:12px;border-radius:50%;background:#ff5f57;display:inline-block"></i><i style="width:12px;height:12px;border-radius:50%;background:#febc2e;display:inline-block"></i><i style="width:12px;height:12px;border-radius:50%;background:#28c840;display:inline-block"></i></span>
@@ -243,7 +248,7 @@
 
   <!-- ============ SM · 共享市场（出租 / 租用 模型与智能体） ============ -->
   <div class="scene" id="sm">
-    <div class="header" id="hm"><div class="eyebrow">08 — 共享市场 · 闲置赚钱</div><div class="h1">出租闲置模型与智能体，<span class="gold">人人用上稀缺能力</span></div></div>
+    <div class="header" id="hm"><div class="eyebrow">12 — 共享市场 · 闲置赚钱</div><div class="h1">出租闲置模型与智能体，<span class="gold">人人用上稀缺能力</span></div></div>
     <canvas id="mk" class="abs" width="1920" height="1080" style="left:0;top:0"></canvas>
     <div class="abs card" id="lend" style="left:120px;top:310px;width:600px;height:690px;box-sizing:border-box;padding:28px 30px">
       <div style="display:flex;justify-content:space-between;align-items:center"><div style="font-size:30px;font-weight:900">出租方 <span style="font-size:22px;color:var(--muted);font-weight:500">· 你的设备</span></div><div class="pill" style="font-size:18px;background:rgba(255,194,61,.12);color:#ffc23d;border:1px solid rgba(255,194,61,.4)">闲置中 → 赚钱中</div></div>
@@ -274,7 +279,7 @@
   <!-- ============ S7 · 闲置赚钱 ============ -->
   <div class="scene" id="s7">
     <canvas id="net" class="abs" width="1920" height="1080" style="left:0;top:0"></canvas>
-    <div class="header" id="h7"><div class="eyebrow">07 — 闲置赚钱</div><div class="h1">闲置算力，<span class="gold">变成积分</span></div></div>
+    <div class="header" id="h7"><div class="eyebrow">11 — 闲置赚钱</div><div class="h1">闲置算力，<span class="gold">变成积分</span></div></div>
     <div class="c" id="earn"><div class="card" style="width:500px;padding:34px 40px;box-sizing:border-box;border-color:rgba(255,194,61,.3)">
       <div class="kpi-label">本月贡献收益</div>
       <div style="display:flex;align-items:baseline;gap:14px;margin-top:8px">
@@ -295,12 +300,105 @@
     <div class="c" id="dots8"><div style="display:flex;gap:18px" id="dots8i"></div></div>
   </div>
 
+
+  <!-- ============ V7 · 0.7.0 新章节（插在共享市场之后、五条主线之前，共 26s） ============ -->
+  <canvas id="v7cv" class="abs" width="1920" height="1080" style="left:0;top:0;opacity:0"></canvas>
+
+  <!-- V7A · 统一接口：一把 Key 调模型也派智能体 -->
+  <div class="scene v7" id="v7a">
+    <div class="header" id="hv7a"><div class="eyebrow">01 — 统一接口 · 一把 Key</div><div class="h1">模型和智能体，<span class="gold">同一把 Key</span></div></div>
+    <div class="abs card" id="v7code" style="left:120px;top:330px;width:700px;height:470px;box-sizing:border-box;padding:30px 34px">
+      <div style="display:flex;align-items:center;gap:10px;font-size:20px;color:var(--muted)"><span style="display:flex;gap:8px"><i style="width:12px;height:12px;border-radius:50%;background:#ff5f57;display:inline-block"></i><i style="width:12px;height:12px;border-radius:50%;background:#febc2e;display:inline-block"></i><i style="width:12px;height:12px;border-radius:50%;background:#28c840;display:inline-block"></i></span><span style="margin-left:8px">你的产品后台</span></div>
+      <div id="v7lines" class="mono" style="margin-top:26px;font-size:23px;line-height:1.75;white-space:pre;color:#d8d8e0"></div>
+      <div id="v7res" class="mono" style="position:absolute;left:34px;bottom:30px;font-size:22px;font-weight:600;color:#34d399"></div>
+    </div>
+    <div class="c" id="v7gw"><div class="card" style="width:430px;box-sizing:border-box;padding:28px 30px;border-color:rgba(255,194,61,.4)">
+      <div style="display:flex;align-items:center;gap:16px"><div id="v7gwlogo" style="width:54px;height:54px"></div><div style="font-size:28px;font-weight:800;white-space:nowrap">Token Bank 网关</div></div>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-top:22px">
+        <div class="v7ep" style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:12px;border:1px solid rgba(52,211,153,.45);background:rgba(52,211,153,.08)"><span style="font-size:20px;font-weight:700;color:#7ee2b8">模型</span><span class="mono" style="font-size:20px;color:#d8f5e8">:11430/v1</span></div>
+        <div class="v7ep" style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:12px;border:1px solid rgba(52,211,153,.45);background:rgba(52,211,153,.08)"><span style="font-size:20px;font-weight:700;color:#7ee2b8">智能体</span><span class="mono" style="font-size:20px;color:#d8f5e8">:11430/v1/agent</span></div>
+      </div>
+      <div style="margin-top:18px;font-size:19px;color:var(--muted);white-space:nowrap">一把网关 Key · 每个智能体也能单独一把</div>
+    </div></div>
+    <div id="v7kinds"></div>
+    <div class="c" id="chipsv7a"><div style="display:flex;gap:22px">
+      <div class="chip"><i></i>一把 Key 调模型和智能体</div><div class="chip"><i></i>换 harness_id 就换智能体</div><div class="chip"><i></i>同步 · 后台 · 流式</div>
+    </div></div>
+  </div>
+
+  <!-- V7B · 外部智能体：配对接入、来取任务、送回结果、主动推送 -->
+  <div class="scene v7" id="v7b">
+    <div class="header" id="hv7b"><div class="eyebrow">02 — 外部智能体</div><div class="h1">在别处运行的智能体，<span class="gold">也能接进来</span></div></div>
+    <div class="abs card" id="v7pair" style="left:120px;top:330px;width:560px;height:520px;box-sizing:border-box;padding:30px 34px">
+      <div style="font-size:22px;color:var(--muted);letter-spacing:.12em">配对码</div>
+      <div class="mono gold" style="font-size:84px;font-weight:600;margin-top:6px;letter-spacing:.04em">TB-5315</div>
+      <div style="font-size:20px;color:var(--muted);margin-top:4px">对方照 tokenbank-connect 技能注册</div>
+      <div id="v7ext" style="position:absolute;left:30px;right:30px;bottom:30px;height:200px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);padding:22px 24px;box-sizing:border-box">
+        <div style="display:flex;align-items:center;gap:16px">
+          <div class="badge" style="background:#111;border:1px solid rgba(255,255,255,.25);width:56px;height:56px;font-size:24px">G</div>
+          <div style="flex:1;min-width:0"><div style="font-size:28px;font-weight:800">GrokBot</div><div style="font-size:18px;color:var(--muted);margin-top:2px;white-space:nowrap">自称：查实时新闻、写推文</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px;margin-top:22px">
+          <span id="v7st" style="display:flex;align-items:center;gap:8px;font-size:22px;font-weight:700"><i id="v7dot" style="width:12px;height:12px;border-radius:50%;display:inline-block"></i><span id="v7stt"></span></span>
+          <span id="v7allow" style="margin-left:auto;font-size:22px;font-weight:800;color:#fff;padding:10px 26px;border-radius:12px;background:#3b82f6">允许</span>
+        </div>
+      </div>
+    </div>
+    <div class="abs card" id="v7chat" style="left:1160px;top:330px;width:640px;height:620px;overflow:hidden">
+      <div style="height:62px;display:flex;align-items:center;gap:12px;padding:0 26px;border-bottom:1px solid var(--line);font-size:22px"><span style="font-weight:700">游乐场</span><span style="color:var(--muted)">· 和 GrokBot 说话</span></div>
+      <div id="v7u" class="abs" style="right:26px;top:88px;max-width:470px;padding:16px 20px;border-radius:18px 18px 4px 18px;background:linear-gradient(180deg,#ffd466,#f0a000);color:#2b1a00;font-size:24px;font-weight:600;line-height:1.45">帮我盯一下今天的 AI 新闻</div>
+      <div id="v7wait" class="abs" style="left:26px;top:196px;font-size:20px;font-weight:700;padding:8px 14px;border-radius:10px"></div>
+      <div id="v7r" class="abs" style="left:26px;top:252px;max-width:520px;padding:16px 20px;border-radius:18px 18px 18px 4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);font-size:22px;line-height:1.5;color:#e8e8ee">今天 5 条要点：<br>① 两家实验室发布新模型 ② 开源智能体框架更新 …</div>
+      <div id="v7push" class="abs" style="left:26px;top:430px;max-width:540px;padding:16px 20px;border-radius:18px 18px 18px 4px;background:rgba(90,200,250,.08);border:1px solid rgba(90,200,250,.4);font-size:22px;line-height:1.5;color:#d6f0ff"><span style="font-size:17px;font-weight:800;color:#9fd9ff;letter-spacing:.08em">主动推送</span><br>刚刚有一场发布会开始，要我跟进吗？</div>
+    </div>
+    <div class="c" id="chipsv7b"><div style="display:flex;gap:22px">
+      <div class="chip"><i></i>配对码接入 · 你点允许</div><div class="chip"><i></i>等它来取，做完送回</div><div class="chip"><i></i>主动推送进对话</div>
+    </div></div>
+  </div>
+
+  <!-- VS · 真实界面：0.7.0 的实际截图 -->
+  <div class="scene v7" id="v7s">
+    <div class="abs" id="vsEye" style="left:210px;top:52px;font-size:22px;letter-spacing:.32em;color:var(--gold, #ffc23d);font-weight:700">真实界面 · v0.7.0</div>
+    <div class="abs" id="vsWin" style="left:210px;top:100px;width:1500px;height:884px;border-radius:18px;overflow:hidden;border:1px solid rgba(255,255,255,.14);box-shadow:0 40px 120px rgba(0,0,0,.6),0 0 0 1px rgba(255,194,61,.08);background:#0b0b10">
+      <div style="height:40px;display:flex;align-items:center;gap:8px;padding:0 16px;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(255,255,255,.08)"><i style="width:12px;height:12px;border-radius:50%;background:#ff5f57;display:inline-block"></i><i style="width:12px;height:12px;border-radius:50%;background:#febc2e;display:inline-block"></i><i style="width:12px;height:12px;border-radius:50%;background:#28c840;display:inline-block"></i><span class="mono" style="margin-left:14px;font-size:16px;color:#8b8b98">localhost:11431</span></div>
+      <div id="vsImgs" style="position:relative;width:1500px;height:844px;overflow:hidden"></div>
+    </div>
+    <div class="c" id="vsCap"><div id="vsCapT" style="font-size:34px;font-weight:700;white-space:nowrap;padding:14px 30px;border-radius:999px;background:rgba(12,12,18,.85);border:1px solid rgba(255,194,61,.35)"></div></div>
+  </div>
+
+  <!-- V7C · 智能管家：有问题的资产交给它，当场修好 -->
+  <div class="scene v7" id="v7c">
+    <div class="header" id="hv7c"><div class="eyebrow">03 — 智能管家</div><div class="h1">出了问题，<span class="gold">交给管家</span></div></div>
+    <div class="abs card" id="v7assets" style="left:120px;top:330px;width:820px;height:500px;box-sizing:border-box;padding:26px 28px">
+      <div style="font-size:22px;color:var(--muted);letter-spacing:.1em">资产 · 有问题的排在前面</div>
+      <div id="v7rows" style="position:relative;margin-top:18px"></div>
+    </div>
+    <div class="abs card" id="v7butler" style="left:1010px;top:330px;width:790px;height:620px;overflow:hidden">
+      <div style="height:62px;display:flex;align-items:center;gap:12px;padding:0 26px;border-bottom:1px solid var(--line);font-size:22px"><i style="width:12px;height:12px;border-radius:50%;background:#34d399;display:inline-block;box-shadow:0 0 10px #34d399"></i><span style="font-weight:700">智能管家</span></div>
+      <div id="v7bu" class="abs" style="right:26px;top:86px;max-width:600px;padding:14px 18px;border-radius:18px 18px 4px 18px;background:linear-gradient(180deg,#ffd466,#f0a000);color:#2b1a00;font-size:22px;font-weight:600;line-height:1.45">「数据库巡检」有问题：要用的技能 sql-check 不在了</div>
+      <div id="v7steps" class="abs" style="left:26px;right:26px;top:200px"></div>
+    </div>
+    <div class="c" id="chipsv7c"><div style="display:flex;gap:22px">
+      <div class="chip"><i></i>能修的当场修好</div><div class="chip"><i></i>要你决定的才来问</div><div class="chip"><i></i>纠正一次就记住</div>
+    </div></div>
+  </div>
+
+  <!-- V7D · 智能体应用工厂：六层现成能力 -->
+  <div class="scene v7" id="v7d">
+    <div class="header" id="hv7d"><div class="eyebrow">04 — 智能体应用工厂</div><div class="h1">不只是管理智能体，<span class="gold">还能把应用架在上面</span></div></div>
+    <div class="c" id="v7top"><div style="display:flex;align-items:center;gap:16px;padding:18px 34px;border-radius:18px;background:linear-gradient(180deg,#ffd466,#f0a000);color:#2b1a00;box-shadow:0 0 60px rgba(255,170,30,.4)"><span style="font-size:30px;font-weight:900">你的应用</span><span style="font-size:22px;font-weight:600;opacity:.75;white-space:nowrap">产品后台 · 网页智能体 · 团队工具</span></div></div>
+    <div id="v7layers"></div>
+    <div class="c" id="v7deploy"><div style="display:flex;gap:18px">
+      <div class="chip"><i></i>macOS · Windows 桌面版</div><div class="chip"><i></i>Linux 命令行</div><div class="chip"><i></i>Docker 网页版 · 手机可用</div>
+    </div></div>
+  </div>
+
   <!-- ============ S9 · 结尾 ============ -->
   <div class="scene" id="s9">
     <div class="c" id="glow9"><div style="width:1100px;height:1100px;border-radius:50%;background:radial-gradient(circle, rgba(255,190,60,.30), rgba(255,150,0,.08) 40%, rgba(0,0,0,0) 70%)"></div></div>
     <div class="c" id="logo9"><div id="logo9i" style="width:220px;height:220px"></div></div>
     <div class="c" id="title9"><div style="font-size:128px;font-weight:900;letter-spacing:-.02em;white-space:nowrap">Token <span class="gold">Bank</span></div></div>
-    <div class="c" id="sub9"><div style="font-size:42px;color:#d0d0da;font-weight:500;letter-spacing:.18em;white-space:nowrap">个人 AI 中枢 · Token 管家</div></div>
+    <div class="c" id="sub9"><div style="font-size:42px;color:#d0d0da;font-weight:500;letter-spacing:.18em;white-space:nowrap">个人 AI 中枢 · 智能体应用工厂</div></div>
     <div class="c" id="plat9"><div style="text-align:center;white-space:nowrap"><div style="font-size:30px;color:#ffe2a0;font-weight:600;letter-spacing:.12em">开源 · 不改使用习惯 · 随时一键还原</div><div style="font-size:22px;color:var(--muted);letter-spacing:.3em;margin-top:14px">macOS &nbsp;·&nbsp; Windows &nbsp;·&nbsp; CLI &nbsp;·&nbsp; Docker</div></div></div>
     <div class="c" id="url9"><div style="display:flex;gap:26px;align-items:center">
       <div id="web9" style="display:flex;align-items:center;gap:14px;font-size:32px;font-weight:800;color:#2b1a00;white-space:nowrap;padding:18px 38px;border-radius:999px;background:linear-gradient(180deg,#ffd466,#f0a000);box-shadow:0 0 50px rgba(255,170,30,.35)">
@@ -325,7 +423,7 @@
 // ---------------------------------------------------------------------------
 const EN = new URLSearchParams(location.search).get('lang') === 'en';
 // English copy: exact / longest-substring replacement over every text node, plus L() for text set at render time.
-const I18N = {"AI 工具越装越多": "Too many AI tools", "配置各管各，切换全靠手改": "Each configured differently, switched by hand", "账单越来越长": "Bills keep growing", "Token 花在哪，说不清": "No idea where the tokens went", "额度月底清零": "Quota expires unused", "免费额度闲着，付费却在涨": "Free tiers sit idle while paid usage climbs", "Skill / MCP 越装越乱": "Skills & MCPs everywhere", "复制粘贴，版本对不上": "Copy-pasted, out of sync", "好模型用不起": "Top models out of reach", "稀缺模型、专家智能体，够不着": "Rare models and expert agents feel unreachable", "闲置能力白白浪费": "Idle capacity wasted", "订阅用不完，本地模型吃灰": "Unused subscriptions, local models gathering dust", "你的 AI，": "Your AI ", "该有个管家了": "needs a manager.", "本月账单": "This month", "你的个人 AI 中枢": "YOUR PERSONAL AI HUB", "01 — 一键纳管": "01 — ONE-CLICK ONBOARDING", "你在用的 AI 工具，": "All your AI tools, ", "一键全接入": "one click away", "本地网关运行中": "Gateway running", "已接入": "Connected", "不改客户端": "No client changes", "不改命令": "No command changes", "一键还原": "One-click revert", "CLI 注入": "CLI", "会话接入": "Sessions", "配置热补丁": "Config", "· 未纳管": "· off", "02 — 用的明白": "02 — SEE CLEARLY", "你的每一个 Token，": "Every token, ", "都有据可查": "fully traceable", "今日 Token": "Tokens today", "请求数": "Requests", "接入应用": "Apps connected", "实时 Trace": "Live Trace", "03 — 用的节省": "03 — SPEND LESS", "同样的活，": "Same work, ", "自动走最省钱的路": "on the cheapest route", "智能路由": "Smart Router", "模型名不变": "Model names unchanged", "协议自动转换": "Automatic protocol conversion", "本地优先 · 按任务分型": "Local-first · task-aware", "本地模型": "Local model", "订阅套餐": "Subscription", "未用完的月度额度": "Unused monthly quota", "已付": "Prepaid", "社区算力": "Community", "P2P 共享 · 积分结算": "P2P sharing · credits", "qwen3-coder · 本地": "qwen3-coder · local", "llama-3.3-70b · 免费": "llama-3.3-70b · free", "社区节点 · 积分结算": "community node · credits", "· 花费 ¥0.00": "· cost $0.00", "免费额度": "Free tier", "免费": "Free", "¥0": "$0", "04 — 越用越懂你": "04 — SMARTER WITH YOU", "从你的习惯里，": "From your habits, ", "长出你的工具箱": "your own toolkit", "编码": "Coding", "调试": "Debug", "架构": "Architecture", "文档": "Docs", "数据": "Data", "设计": "Design", "工作画像 · 自动提炼": "WORK PORTRAIT · AUTO-GENERATED", "Debug 高频": "Heavy debugging", "长上下文": "Long context", "PR 与 Issue 直接进入上下文": "PRs & issues straight into context", "按你的团队规范自动审查": "Reviews by your team's rules", "从你的高频改动中提炼": "Learned from your frequent edits", "社区智能体，一键雇佣": "Community agent, hire in one click", "匹配度": "Match", "+ 添加": "+ Add", "✓ 已添加": "✓ Added", "05 — AI 资产 · 一处纳管": "05 — ALL YOUR AI ASSETS", "散落各处的 AI 资产，": "AI assets everywhere? ", "一处纳管": "One home.", "共": "Total", "项资产": "assets", "MCP / Skill / Prompt / Agent 统一收纳": "MCP / Skill / Prompt / Agent, all in one", "按类型分类 · 一搜即得": "Sorted by type · instant search", "一处修改，处处生效": "Edit once, apply everywhere", "重复 ×3": "dup ×3", "重复 ×2": "dup ×2", "版本不一致": "version drift", "忘了放哪": "lost", "重复": "dup", "全部": "All", "SQL 调优": "SQL tuning", "团队规范": "Team rules", "搜索：代码评审、GitHub、测试…": "Search: code review, GitHub, tests…", "搜索全部 AI 资产": "Search all AI assets", "06 — 资源投射": "06 — PROJECTION", "一次沉淀，": "Build once, ", "投射到每个智能体": "project to every agent", "投射门控": "Gate", "已纳管 × 已安装": "managed × installed", "已纳管 · 已安装": "Managed · installed", "未安装 · 跳过": "Not installed · skipped", "+4 资源": "+4 assets", "只投射到已纳管且已安装的目标": "Only to managed & installed targets", "依赖自动级联": "Dependencies cascade", "随时一键取消": "Undo anytime", "已纳管": "Managed", "07 — 游乐场 · 智能体编排": "07 — PLAYGROUND · ORCHESTRATION", "一句话，": "One sentence, ", "调度一支智能体团队": "a whole agent team", "游乐场": "Playground", "· 主 Agent：Claude Code": "· Lead agent: Claude Code", "已拆解为": "Split into", "3 个子任务": "3 subtasks", "，并行派发：": ", dispatched in parallel:", "✓ 全部完成 · 3/3 · 已合并结果": "✓ All done · 3/3 · results merged", "修复登录页 Bug，补齐单元测试，再写一份更新日志": "Fix the login bug, add unit tests, then write a changelog", "修复登录 Bug": "Fix login bug", "补齐单元测试": "Add unit tests", "撰写更新日志": "Write changelog", "修复 Bug": "Fix bugs", "单元测试": "Unit tests", "更新日志 · 远端执行": "Changelog · runs remotely", "主 Agent · 编排": "Lead agent · orchestrates", "✓ 完成": "✓ Done", "运行中…": "Running…", "08 — 共享市场 · 闲置赚钱": "08 — SHARING MARKET · EARN FROM IDLE", "出租闲置模型与智能体，": "Rent out idle AI. ", "人人用上稀缺能力": "Rent rare AI.", "出租方": "Lender", "· 你的设备": "· your device", "闲置中 → 赚钱中": "Idle → Earning", "上架出租 · 对外只公开名片": "FOR RENT · PUBLIC CARD ONLY", "本机保险箱": "Local vault", "✓ 未外传": "✓ Never leaves", "智能体配置": "Config", "任务在本机执行，只回传结果": "Tasks run here; only results go back", "本月出租收益": "This month", "使用方": "Renter", "· 社区用户": "· community user", "按次 · 积分支付": "Pay per use · credits", "✓ 没有订阅，也能用上稀有模型": "✓ Rare models, no subscription needed", "✓ 雇佣专家智能体，直接解决问题": "✓ Hire expert agents to get it done", "Token Bank 共享网络": "Token Bank sharing network", "只传任务与结果": "Only tasks & results cross", "出站连接 · 无需开放端口": "Outbound only · no open ports", "闲置订阅额度": "idle subscription", "内网私有部署": "private deployment", "测试生成专家": "Test-gen expert", "已投射智能体": "projected agent", "租用稀有模型": "RENT A RARE MODEL", "雇佣智能体": "HIRE AN AGENT", "用 claude-opus-4 审查整个仓库的架构": "Use claude-opus-4 to review the whole repo", "「测试生成专家」为支付模块补齐测试": "\"Test-gen expert\" writes tests for payments", "✓ 已获得回答 · 消耗 86 积分": "✓ Answer received · 86 credits", "✓ 已生成 42 个用例 · 消耗 120 积分": "✓ 42 test cases generated · 120 credits", "处理中…": "Processing…", "任务": "TASK", "结果": "RESULT", "积分": "credits", "代码评审": "Code review", "重构助手": "Refactor helper", "测试生成": "Test generator", "社区智能体": "Community agent", "用的明白": "See clearly", "用的节省": "Spend less", "用的简单": "Stay simple", "越用越懂你": "Smarter with you", "闲置赚钱": "Earn from idle", "个人 AI 中枢 · Token 管家": "Personal AI hub · Your token manager", "开源 · 不改使用习惯 · 随时一键还原": "Open source · Keep your workflow · One-click revert", "免费下载": "Free download"};
+const I18N = {"工具和设备越来越多": "More tools, more machines", "笔记本、服务器、Docker，各配各的": "Laptop, server, Docker — each set up by hand", "每家模型一套接口": "A different API per model", "OpenAI、Anthropic、Codex 协议各写一遍": "OpenAI, Anthropic, Codex — wire each one up", "智能体接不进产品": "Agents can't plug into your product", "想调用 Claude Code、Codex，得自己写调度": "Calling Claude Code or Codex means writing your own dispatch", "哪台设备、哪个应用花的，说不清": "Which machine, which app? No idea", "所有设备，一处纳管": "Every device, one hub.", "模型和智能体，一个接口": "Models and agents, one API.", "真实界面 · v0.7.0": "THE REAL APP · v0.7.0", "网关 · 外部智能体：配对接入，你点允许": "Gateway · External agents: pair in, you approve", "网关 · 专业智能体：资产里的模板，投射到应用上跑": "Gateway · Specialist agents: templates from Assets, run on your apps", "资产：有问题的排在前面，点「看一下」交给管家": "Assets: problems first, hand them to the butler", "模型：各家模型按厂商排好，状态一眼看清": "Models: grouped by vendor, status at a glance", "游乐场：和模型、智能体路由、各类智能体说话": "Playground: talk to models, agent routes and every kind of agent", "智能体各跑各的": "Agents all on their own", "想接进产品，得自己写接口和调度": "Want them in your product? Write the API and dispatch yourself", "出了问题全靠自己查": "You debug everything yourself", "技能丢了、投射失效、任务跑不起来": "Missing skills, broken projections, tasks that won't run", "该有个中枢了": "needs a hub.", "个人 AI 中枢 · 智能体应用工厂": "Personal AI hub · An agent app factory", "纠正一次，": "Correct it once, ", "它就记住": "it remembers", "「写周报」这次派给 Codex？": "Send \"weekly report\" to Codex this time?", "以后这类都给「周报助手」": "From now on, give these to Weekly reporter", "好，记住了 ✓ 下次直接派过去": "Got it ✓ will route there next time", "规则 +1 · 不自己花 Token": "+1 rule · never spends tokens on its own", "先按规则办": "Rules first", "要你决定才来问": "Asks only when it's your call", "派活": "ROUTE", "误报": "FALSE +", "新版本": "UPDATE", "写周报": "Weekly report", "都交给「周报助手」": "→ Weekly reporter", "内部 CLI": "Internal CLI", "调用 shell 不算风险": "shell calls aren't a risk", "两份一样，留新的那份": "two copies, keep the newer", "有新版本，跟着更新": "new version, follow it", "纠正 1 次": "1 correction", "自动发现": "spotted", "记住": "Keep", "✓ 已记住": "✓ Kept", "AI 工具越装越多": "Too many AI tools", "配置各管各，切换全靠手改": "Each configured differently, switched by hand", "账单越来越长": "Bills keep growing", "Token 花在哪，说不清": "No idea where the tokens went", "额度月底清零": "Quota expires unused", "免费额度闲着，付费却在涨": "Free tiers sit idle while paid usage climbs", "Skill / MCP 越装越乱": "Skills & MCPs everywhere", "复制粘贴，版本对不上": "Copy-pasted, out of sync", "好模型用不起": "Top models out of reach", "稀缺模型、专家智能体，够不着": "Rare models and expert agents feel unreachable", "闲置能力白白浪费": "Idle capacity wasted", "订阅用不完，本地模型吃灰": "Unused subscriptions, local models gathering dust", "你的 AI，": "Your AI ", "该有个管家了": "needs a manager.", "本月账单": "This month", "你的个人 AI 中枢": "YOUR PERSONAL AI HUB", "05 — 一键纳管": "05 — ONE-CLICK ONBOARDING", "你在用的 AI 工具，": "All your AI tools, ", "一键全接入": "one click away", "本地网关运行中": "Gateway running", "已接入": "Connected", "不改客户端": "No client changes", "不改命令": "No command changes", "一键还原": "One-click revert", "CLI 注入": "CLI", "会话接入": "Sessions", "配置热补丁": "Config", "· 未纳管": "· off", "06 — 用的明白": "06 — SEE CLEARLY", "你的每一个 Token，": "Every token, ", "都有据可查": "fully traceable", "今日 Token": "Tokens today", "请求数": "Requests", "接入应用": "Apps connected", "实时 Trace": "Live Trace", "07 — 用的节省": "07 — SPEND LESS", "同样的活，": "Same work, ", "自动走最省钱的路": "on the cheapest route", "智能路由": "Smart Router", "模型名不变": "Model names unchanged", "协议自动转换": "Automatic protocol conversion", "本地优先 · 按任务分型": "Local-first · task-aware", "本地模型": "Local model", "订阅套餐": "Subscription", "未用完的月度额度": "Unused monthly quota", "已付": "Prepaid", "社区算力": "Community", "P2P 共享 · 积分结算": "P2P sharing · credits", "qwen3-coder · 本地": "qwen3-coder · local", "llama-3.3-70b · 免费": "llama-3.3-70b · free", "社区节点 · 积分结算": "community node · credits", "· 花费 ¥0.00": "· cost $0.00", "免费额度": "Free tier", "免费": "Free", "¥0": "$0", "08 — 越用越懂你": "08 — SMARTER WITH YOU", "从你的习惯里，": "From your habits, ", "长出你的工具箱": "your own toolkit", "编码": "Coding", "调试": "Debug", "架构": "Architecture", "文档": "Docs", "数据": "Data", "设计": "Design", "工作画像 · 自动提炼": "WORK PORTRAIT · AUTO-GENERATED", "Debug 高频": "Heavy debugging", "长上下文": "Long context", "PR 与 Issue 直接进入上下文": "PRs & issues straight into context", "按你的团队规范自动审查": "Reviews by your team's rules", "从你的高频改动中提炼": "Learned from your frequent edits", "社区智能体，一键雇佣": "Community agent, hire in one click", "匹配度": "Match", "+ 添加": "+ Add", "✓ 已添加": "✓ Added", "09 — AI 资产 · 一处纳管": "09 — ALL YOUR AI ASSETS", "散落各处的 AI 资产，": "AI assets everywhere? ", "一处纳管": "One home.", "共": "Total", "项资产": "assets", "MCP / Skill / Prompt / Agent 统一收纳": "MCP / Skill / Prompt / Agent, all in one", "按类型分类 · 一搜即得": "Sorted by type · instant search", "一处修改，处处生效": "Edit once, apply everywhere", "重复 ×3": "dup ×3", "重复 ×2": "dup ×2", "版本不一致": "version drift", "忘了放哪": "lost", "重复": "dup", "全部": "All", "SQL 调优": "SQL tuning", "团队规范": "Team rules", "搜索：代码评审、GitHub、测试…": "Search: code review, GitHub, tests…", "搜索全部 AI 资产": "Search all AI assets", "10 — 资源投射": "10 — PROJECTION", "一次沉淀，": "Build once, ", "投射到每个智能体": "project to every agent", "投射门控": "Gate", "已纳管 × 已安装": "managed × installed", "已纳管 · 已安装": "Managed · installed", "未安装 · 跳过": "Not installed · skipped", "+4 资源": "+4 assets", "只投射到已纳管且已安装的目标": "Only to managed & installed targets", "依赖自动级联": "Dependencies cascade", "随时一键取消": "Undo anytime", "已纳管": "Managed", "11 — 游乐场 · 智能体编排": "11 — PLAYGROUND · ORCHESTRATION", "一句话，": "One sentence, ", "调度一支智能体团队": "a whole agent team", "游乐场": "Playground", "· 主 Agent：Claude Code": "· Lead agent: Claude Code", "已拆解为": "Split into", "3 个子任务": "3 subtasks", "，并行派发：": ", dispatched in parallel:", "✓ 全部完成 · 3/3 · 已合并结果": "✓ All done · 3/3 · results merged", "修复登录页 Bug，补齐单元测试，再写一份更新日志": "Fix the login bug, add unit tests, then write a changelog", "修复登录 Bug": "Fix login bug", "补齐单元测试": "Add unit tests", "撰写更新日志": "Write changelog", "修复 Bug": "Fix bugs", "单元测试": "Unit tests", "更新日志 · 远端执行": "Changelog · runs remotely", "主 Agent · 编排": "Lead agent · orchestrates", "✓ 完成": "✓ Done", "运行中…": "Running…", "12 — 共享市场 · 闲置赚钱": "12 — SHARING MARKET · EARN FROM IDLE", "出租闲置模型与智能体，": "Rent out idle AI. ", "人人用上稀缺能力": "Rent rare AI.", "出租方": "Lender", "· 你的设备": "· your device", "闲置中 → 赚钱中": "Idle → Earning", "上架出租 · 对外只公开名片": "FOR RENT · PUBLIC CARD ONLY", "本机保险箱": "Local vault", "✓ 未外传": "✓ Never leaves", "智能体配置": "Config", "任务在本机执行，只回传结果": "Tasks run here; only results go back", "本月出租收益": "This month", "使用方": "Renter", "· 社区用户": "· community user", "按次 · 积分支付": "Pay per use · credits", "✓ 没有订阅，也能用上稀有模型": "✓ Rare models, no subscription needed", "✓ 雇佣专家智能体，直接解决问题": "✓ Hire expert agents to get it done", "Token Bank 共享网络": "Token Bank sharing network", "只传任务与结果": "Only tasks & results cross", "出站连接 · 无需开放端口": "Outbound only · no open ports", "闲置订阅额度": "idle subscription", "内网私有部署": "private deployment", "测试生成专家": "Test-gen expert", "已投射智能体": "projected agent", "租用稀有模型": "RENT A RARE MODEL", "雇佣智能体": "HIRE AN AGENT", "用 claude-opus-4 审查整个仓库的架构": "Use claude-opus-4 to review the whole repo", "「测试生成专家」为支付模块补齐测试": "\"Test-gen expert\" writes tests for payments", "✓ 已获得回答 · 消耗 86 积分": "✓ Answer received · 86 credits", "✓ 已生成 42 个用例 · 消耗 120 积分": "✓ 42 test cases generated · 120 credits", "处理中…": "Processing…", "任务": "TASK", "结果": "RESULT", "积分": "credits", "代码评审": "Code review", "重构助手": "Refactor helper", "测试生成": "Test generator", "社区智能体": "Community agent", "用的明白": "See clearly", "用的节省": "Spend less", "用的简单": "Stay simple", "越用越懂你": "Smarter with you", "闲置赚钱": "Earn from idle", "个人 AI 中枢 · Token 管家": "Personal AI hub · Your token manager", "开源 · 不改使用习惯 · 随时一键还原": "Open source · Keep your workflow · One-click revert", "免费下载": "Free download", "01 — 统一接口 · 一把 Key": "01 — ONE API · ONE KEY", "模型和智能体，": "Models and agents, ", "同一把 Key": "one key", "你的产品后台": "Your product backend", "Token Bank 网关": "Token Bank gateway", "智能体": "Agents", "模型": "Models", "一把网关 Key · 每个智能体也能单独一把": "One gateway key · or one per agent", "一把 Key 调模型和智能体": "One key for models and agents", "换 harness_id 就换智能体": "Change harness_id, change agent", "同步 · 后台 · 流式": "Sync · background · stream", "\"整理本周提交成周报\"": "\"Turn this week's commits into a report\"", "\"周报助手\"": "\"weekly-reporter\"", "→ 已派给 周报助手 · ✓ 完成 · 2.8s": "→ Sent to weekly-reporter · ✓ done · 2.8s", "→ 网关按 harness_id 派发中…": "→ Gateway dispatching by harness_id…", "通用智能体": "General agents", "专业智能体": "Professional agents", "外部智能体": "External agents", "雇来的智能体": "Hired agents", "资产里的模板 · 投射到应用上跑": "Templates from Assets · run on your apps", "Muse · GrokBot · 配对接入": "Muse · GrokBot · paired in", "社区 · 对方设备执行": "Community · runs on their device", "02 — 外部智能体": "02 — EXTERNAL AGENTS", "在别处运行的智能体，": "Agents running elsewhere, ", "也能接进来": "plugged right in", "配对码": "Pairing code", "对方照 tokenbank-connect 技能注册": "They register with the tokenbank-connect skill", "自称：查实时新闻、写推文": "Says: live news, writes posts", "允许": "Allow", "在线 · 每 15 秒来取一次": "Online · checks in every 15s", "等你允许": "Waiting for you", "和 GrokBot 说话": "Talking to GrokBot", "· 和 GrokBot 说话": "· Talking to GrokBot", "帮我盯一下今天的 AI 新闻": "Keep an eye on today's AI news for me", "✓ 已取走": "✓ Picked up", "等它来取…": "Waiting to be picked up…", "今天 5 条要点：": "5 things today:", "① 两家实验室发布新模型 ② 开源智能体框架更新 …": "① Two labs ship new models ② An open agent framework update …", "主动推送": "PUSHED", "刚刚有一场发布会开始，要我跟进吗？": "A launch event just started. Want me to follow it?", "配对码接入 · 你点允许": "Pairing code · you approve", "等它来取，做完送回": "It picks up, then sends back", "主动推送进对话": "Pushes land in your chat", "03 — 智能管家": "03 — THE BUTLER", "出了问题，": "Something broke? ", "交给管家": "Hand it to the butler", "资产 · 有问题的排在前面": "ASSETS · PROBLEMS FIRST", "智能体模板": "Agent template", "技能": "Skill", "看一下": "Look", "能用": "Ready", "有问题": "Problem", "要用的技能不在了：sql-check": "Missing skill: sql-check", "技能已补上 · 已投射到 Codex": "Skill restored · projected to Codex", "智能管家": "Butler", "「数据库巡检」有问题：要用的技能 sql-check 不在了": "\"DB check\" is broken: skill sql-check is missing", "找到缺的技能 sql-check": "Found the missing skill sql-check", "从资产库装好并启用": "Installed and enabled it from Assets", "重新投射到 Codex": "Projected to Codex again", "✓ 已修好 · 随时可撤销": "✓ Fixed · undo anytime", "能修的当场修好": "Fixes what it can, right away", "要你决定的才来问": "Asks only when it's your call", "纠正一次就记住": "Learns from one correction", "数据库巡检": "DB check", "周报助手": "Weekly reporter", "04 — 智能体应用工厂": "04 — AN AGENT APP FACTORY", "不只是管理智能体，": "Don't just manage agents — ", "还能把应用架在上面": "build apps on top", "你的应用": "Your app", "产品后台 · 网页智能体 · 团队工具": "Backends · web agents · team tools", "模型层": "Models", "运行时层": "Runtimes", "资产层": "Assets", "接口层": "Interface", "观测层": "Observability", "分发层": "Distribution", "各家模型 + 场景路由": "Every provider + scene routing", "已装好的运行时直接当执行引擎": "Installed runtimes as engines", "组合进智能体，投射到各运行时": "Composed into agents, projected to runtimes", "智能体任务 + 三种模型协议": "Agent tasks + three model protocols", "每次调用可追溯，多设备归集": "Every call traced, across devices", "上架即得网页应用": "List it, get a web app", "社区": "Community", "盘点": "Usage", "多设备": "Devices", "市场": "Market", "圈子": "Circles", "网页名片": "Web card", "按次计费": "Pay per use", "macOS · Windows 桌面版": "macOS · Windows desktop", "Linux 命令行": "Linux CLI", "Docker 网页版 · 手机可用": "Docker web UI · works on phones", "个人 AI 中枢 · 智能体应用工厂": "Personal AI hub · An agent app factory"};
 const I18N_KEYS = Object.keys(I18N).sort((a, b) => b.length - a.length);
 const L = z => (EN ? (I18N[z] ?? z) : z);
 const tr = L;  // alias for scopes that shadow L with a local (path length / legs())
@@ -558,34 +656,23 @@ const p5 = [...document.querySelectorAll('#s5svg .p5')], p5b = [...document.quer
 const PROTOS = ['Anthropic Messages ⇄ OpenAI Chat', 'OpenAI Chat ⇄ Codex Responses', 'Codex Responses ⇄ Anthropic Messages'];
 
 // ---------------------------------------------------------------- S6 build
-const AX = ['编码', '调试', '架构', '文档', '数据', '设计'];
-const AV = [.92, .86, .62, .42, .55, .34];
-const RC = { x: 450, y: 370, r: 250 };
-const axPt = (i, v) => { const a = -Math.PI / 2 + i * Math.PI / 3; return [RC.x + Math.cos(a) * RC.r * v, RC.y + Math.sin(a) * RC.r * v]; };
-$('radar').innerHTML = `<defs><radialGradient id="rg"><stop offset="0" stop-color="#ffc23d" stop-opacity=".55"/><stop offset="1" stop-color="#e08a00" stop-opacity=".15"/></radialGradient></defs>`
-  + [.25, .5, .75, 1].map(k => `<polygon class="grid" points="${AX.map((_, i) => axPt(i, k).join(',')).join(' ')}" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1.5"/>`).join('')
-  + AX.map((_, i) => `<line class="grid" x1="${RC.x}" y1="${RC.y}" x2="${axPt(i, 1)[0]}" y2="${axPt(i, 1)[1]}" stroke="rgba(255,255,255,.08)"/>`).join('')
-  + `<polygon id="rpoly" fill="url(#rg)" stroke="#ffc23d" stroke-width="3" stroke-linejoin="round"/>`
-  + AX.map((_, i) => `<circle class="rdot" r="7" fill="#fff4cc" stroke="#ffc23d" stroke-width="3"/>`).join('')
-  + AX.map((n, i) => { const [x, y] = axPt(i, 1.2); return `<text class="rlab" x="${x}" y="${y + 10}" text-anchor="middle" fill="#d8d8e0" font-size="28" font-weight="600" font-family="Noto Sans SC">${n}</text>`; }).join('')
-  + `<text x="${RC.x}" y="${RC.y + RC.r + 110}" text-anchor="middle" fill="#8b8b98" font-size="24" letter-spacing="6" font-family="Noto Sans SC">工作画像 · 自动提炼</text>`;
-const rdots = [...document.querySelectorAll('#radar .rdot')];
-const TAGS = [{ t: 'TypeScript / React', x: 680, y: 330 }, { t: 'Debug 高频', x: 90, y: 640 }, { t: '长上下文', x: 800, y: 880 }];
-$('tags6').innerHTML = TAGS.map(g => `<div class="abs chip tag" style="left:${g.x}px;top:${g.y}px;font-size:22px;padding:10px 20px">${g.t}</div>`).join('');
+const b6s = [...document.querySelectorAll('#radar .b6')];
+const TAGS = [{ t: '先按规则办', x: 130, y: 880 }, { t: '纠正一次就记住', x: 400, y: 880 }, { t: '要你决定才来问', x: 720, y: 880 }];
+$('tags6').innerHTML = `<div class="abs" style="left:110px;top:880px;width:880px;display:flex;gap:20px">` + TAGS.map(g => `<div class="chip tag" style="font-size:22px;padding:10px 20px;white-space:nowrap">${g.t}</div>`).join('') + `</div>`;
 const tagEls = [...document.querySelectorAll('#tags6 .tag')];
 const RECS = [
-  { ty: 'MCP', c: '#5ac8fa', n: 'GitHub', d: 'PR 与 Issue 直接进入上下文', m: 97 },
-  { ty: 'SKILL', c: '#34d399', n: '代码评审', d: '按你的团队规范自动审查', m: 94 },
-  { ty: 'PROMPT', c: '#b38cff', n: '重构助手', d: '从你的高频改动中提炼', m: 91 },
-  { ty: 'AGENT', c: '#ffc23d', n: '测试生成', d: '社区智能体，一键雇佣', m: 88 },
+  { ty: '派活', c: '#ffc23d', n: '写周报', d: '都交给「周报助手」', m: '纠正 1 次' },
+  { ty: '误报', c: '#5ac8fa', n: '内部 CLI', d: '调用 shell 不算风险', m: '纠正 1 次' },
+  { ty: '重复', c: '#b38cff', n: 'code-review', d: '两份一样，留新的那份', m: '自动发现' },
+  { ty: '新版本', c: '#34d399', n: 'GitHub MCP', d: '有新版本，跟着更新', m: '自动发现' },
 ];
 $('recs').innerHTML = RECS.map((q, i) => `<div class="card rec" style="left:1060px;top:${320 + i * 162}px">
   <div class="type" style="background:${q.c}1f;color:${q.c};border:1px solid ${q.c}66">${q.ty}</div>
   <div style="flex:1;min-width:0"><div style="font-size:30px;font-weight:800">${q.n}</div><div style="font-size:21px;color:var(--muted);margin-top:4px;white-space:nowrap">${q.d}</div></div>
-  <div style="text-align:right"><div class="mono" style="font-size:18px;color:var(--muted)">匹配度</div><div class="mono" style="font-size:30px;font-weight:600;color:#fff">${q.m}%</div></div>
+  <div style="text-align:right"><div style="font-size:21px;color:var(--muted);white-space:nowrap">${q.m}</div></div>
   <div class="add" style="position:relative;width:128px;height:52px;flex:none">
-    <div class="a0" style="position:absolute;inset:0;border-radius:12px;border:1px solid rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:600">+ 添加</div>
-    <div class="a1" style="position:absolute;inset:0;border-radius:12px;background:linear-gradient(180deg,#ffd466,#f0a000);color:#2b1a00;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;opacity:0">✓ 已添加</div>
+    <div class="a0" style="position:absolute;inset:0;border-radius:12px;border:1px solid rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:600">记住</div>
+    <div class="a1" style="position:absolute;inset:0;border-radius:12px;background:linear-gradient(180deg,#ffd466,#f0a000);color:#2b1a00;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;opacity:0">✓ 已记住</div>
   </div></div>`).join('');
 const recEls = [...document.querySelectorAll('#recs .rec')];
 
@@ -836,11 +923,7 @@ function renderBase(t, rt, t1 = rt) {
     header($('h6'), t, 30.05, 36.0);
     const gk = eo(p(t, 30.3, 31.0));
     S($('radar'), { op: gk * (1 - out), s: lerp(.85, 1, gk) });
-    const vk = eo5(p(t, 30.7, 32.2));
-    const wob = i => 1 + .03 * Math.sin(t * 2.2 + i);
-    const pts = AX.map((_, i) => axPt(i, AV[i] * vk * wob(i)));
-    $('rpoly').setAttribute('points', pts.map(q => q.join(',')).join(' '));
-    rdots.forEach((d, i) => { d.setAttribute('cx', pts[i][0]); d.setAttribute('cy', pts[i][1]); d.style.opacity = vk; });
+    b6s.forEach((el, i) => { const k = eo5(p(t, 30.8 + i * .55, 31.3 + i * .55)); el.style.opacity = k; el.style.transform = `translateY(${(1 - k) * 18}px)`; });
     tagEls.forEach((el, i) => { const k = back(p(t, 32.0 + i * .25, 32.5 + i * .25)); S(el, { op: clamp(k) * (1 - out), s: k, y: Math.sin(t * 1.5 + i) * 6 }); });
     recEls.forEach((el, i) => {
       const k = eo5(p(t, 31.4 + i * .35, 32.1 + i * .35));
@@ -1123,7 +1206,7 @@ function renderAssets(t) {
   S($('chipsa'), { op: ck * (1 - out), cx: CX, cy: 990, y: (1 - ck) * 30 });
 }
 
-function renderFrame(t) {
+function renderOld(t) {
   if (CINE) renderCine(t);
   const u = t - INTRO;
   $('wm').style.opacity = .85 * win(u, 9.8, 64.5, .6, .5);
@@ -1220,6 +1303,248 @@ function renderMarket(t) {
   mk.globalAlpha = 1;
 }
 
+
+// ---------------------------------------------------------------- V7 build (0.7.0 新章节)
+// 插在 11.5s（Logo 之后、一键纳管之前），共 V7_LEN 秒；之后的旧时间轴整体后移。
+const V7_AT = 11.5, V7_LEN = 26;
+const V7S = { a: [0, 6.5], b: [6.5, 13], c: [13, 19.5], d: [19.5, 26] };
+$('v7gwlogo').innerHTML = logoSVG('LV7');
+const v7cv = $('v7cv').getContext('2d');
+const V7LINES = [
+  ['POST ', '#9fd9ff'], ['/v1/agent/responses', '#fff'], ['\n'],
+  ['Authorization: ', '#8b8b98'], ['Bearer tbk_••••3f9a', '#ffc23d'], ['\n'],
+  ['{ "input": ', '#8b8b98'], ['"整理本周提交成周报"', '#e8e8ee'], [',\n'],
+  ['  "metadata": { "harness_id": ', '#8b8b98'], ['"周报助手"', '#ffe29a'], [' } }', '#8b8b98'],
+];
+const V7KINDS = [
+  { n: '通用智能体', d: 'Claude Code · Codex · Cursor', c: '#d97757' },
+  { n: '专业智能体', d: '资产里的模板 · 投射到应用上跑', c: '#34d399' },
+  { n: '外部智能体', d: 'Muse · GrokBot · 配对接入', c: '#5ac8fa' },
+  { n: '雇来的智能体', d: '社区 · 对方设备执行', c: '#ffc23d' },
+];
+const v7kPos = V7KINDS.map((_, i) => ({ x: 1380, y: 320 + i * 150 }));
+$('v7kinds').innerHTML = V7KINDS.map((k, i) => `<div class="card abs v7k" style="left:${v7kPos[i].x}px;top:${v7kPos[i].y}px;width:430px;height:124px;display:flex;align-items:center;gap:18px;padding:0 24px;box-sizing:border-box">
+  <div style="width:14px;height:14px;border-radius:50%;background:${k.c};box-shadow:0 0 14px ${k.c};flex:none"></div>
+  <div style="flex:1;min-width:0"><div style="font-size:28px;font-weight:800;white-space:nowrap">${k.n}</div><div style="font-size:18px;color:var(--muted);margin-top:4px;white-space:nowrap">${k.d}</div></div>
+  <div class="v7ok" style="font-size:20px;font-weight:800;color:#062;background:#34d399;border-radius:10px;padding:6px 12px;opacity:0;white-space:nowrap">✓ 完成</div></div>`).join('');
+const v7kEls = [...document.querySelectorAll('#v7kinds .v7k')];
+const V7GW = { x: 1060, y: 560 };
+const V7ROWS = [
+  { n: '数据库巡检', ty: '智能体模板', bad: true },
+  { n: '周报助手', ty: '智能体模板' },
+  { n: 'weekly-digest', ty: '技能' },
+  { n: 'GitHub', ty: 'MCP' },
+];
+$('v7rows').innerHTML = V7ROWS.map((r, i) => `<div class="v7row" style="position:absolute;left:0;right:0;top:${i * 98}px;height:84px;border-radius:14px;display:flex;align-items:center;gap:16px;padding:0 20px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07)">
+  <div style="flex:1;min-width:0"><div style="font-size:26px;font-weight:800;white-space:nowrap">${r.n} <span style="font-size:17px;font-weight:600;color:var(--muted);margin-left:8px">${r.ty}</span></div>
+    <div class="v7why" style="font-size:18px;margin-top:4px;white-space:nowrap;color:var(--muted)">${r.bad ? '要用的技能不在了：sql-check' : '能用'}</div></div>
+  ${r.bad ? `<div class="v7st" style="display:flex;align-items:center;gap:8px;font-size:20px;font-weight:800;white-space:nowrap"><i style="width:10px;height:10px;border-radius:50%;display:inline-block"></i><span></span></div>
+  <div class="v7look" style="font-size:20px;font-weight:800;color:#fff;padding:8px 18px;border-radius:10px;background:#3b82f6;white-space:nowrap">看一下</div>` : `<div style="display:flex;align-items:center;gap:8px;font-size:20px;font-weight:700;color:#34d399;white-space:nowrap"><i style="width:10px;height:10px;border-radius:50%;background:#34d399;display:inline-block"></i>能用</div>`}</div>`).join('');
+const v7rowEls = [...document.querySelectorAll('#v7rows .v7row')];
+const V7STEPS = ['找到缺的技能 sql-check', '从资产库装好并启用', '重新投射到 Codex', '✓ 已修好 · 随时可撤销'];
+$('v7steps').innerHTML = V7STEPS.map((x, i) => `<div class="v7step" style="display:flex;align-items:center;gap:14px;height:72px;margin-bottom:14px;padding:0 20px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);font-size:24px;font-weight:${i === 3 ? 800 : 600};color:${i === 3 ? '#34d399' : '#e8e8ee'}">
+  <span class="v7sd" style="width:30px;height:30px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:900"></span><span>${x}</span></div>`).join('');
+const v7stepEls = [...document.querySelectorAll('#v7steps .v7step')];
+const V7LAYERS = [
+  ['模型层', '各家模型 + 场景路由', ['Ollama', 'DeepSeek', 'Kimi', 'Qwen', 'OpenAI', 'Claude', '社区']],
+  ['运行时层', '已装好的运行时直接当执行引擎', ['Claude Code', 'Codex', 'Cursor', 'Kimi Code', 'Pi']],
+  ['资产层', '组合进智能体，投射到各运行时', ['Skill', 'MCP', 'Prompt', '智能体模板']],
+  ['接口层', '智能体任务 + 三种模型协议', ['/v1/agent', '/v1/chat/completions', '/v1/messages', '/v1/responses']],
+  ['观测层', '每次调用可追溯，多设备归集', ['Trace', '盘点', '多设备']],
+  ['分发层', '上架即得网页应用', ['市场', '圈子', '网页名片', '按次计费']],
+];
+const V7LC = ['#34d399', '#5ac8fa', '#b38cff', '#ffc23d', '#ff9f6a', '#ff6aa8'];
+$('v7layers').innerHTML = V7LAYERS.map((l, i) => `<div class="c v7l"><div style="width:1360px;height:84px;box-sizing:border-box;display:flex;align-items:center;gap:22px;padding:0 28px;border-radius:16px;background:linear-gradient(90deg, ${V7LC[i]}26, rgba(255,255,255,.03) 60%);border:1px solid ${V7LC[i]}66">
+  <div style="width:120px;font-size:28px;font-weight:900;color:${V7LC[i]};white-space:nowrap">${l[0]}</div>
+  <div style="width:400px;font-size:20px;color:#d8d8e0;white-space:nowrap">${l[1]}</div>
+  <div style="flex:1;display:flex;gap:10px;justify-content:flex-end;overflow:hidden">${l[2].map(c => `<span class="${c.startsWith('/') ? 'mono ' : ''}pill" style="font-size:17px;background:rgba(255,255,255,.06);color:#e8e8ee;border:1px solid rgba(255,255,255,.12)">${c}</span>`).join('')}</div></div></div>`).join('');
+const v7lEls = [...document.querySelectorAll('#v7layers .v7l')];
+
+function v7packet(ctx, P, f, col) {
+  const pt = bez(P, f);
+  ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 18;
+  ctx.beginPath(); ctx.arc(pt[0], pt[1], 7, 0, 6.283); ctx.fill(); ctx.shadowBlur = 0;
+}
+
+
+// ---------------------------------------------------------------- VS 真实界面（紧跟 V7 章节）
+const VS_LEN = 12.5, VS_EACH = 2.5;
+const VSHOTS = [
+  { f: 'gw-ext', cap: '网关 · 外部智能体：配对接入，你点允许', o: '78% 22%' },
+  { f: 'gw-pro', cap: '网关 · 专业智能体：资产里的模板，投射到应用上跑', o: '45% 22%' },
+  { f: 'resources', cap: '资产：有问题的排在前面，点「看一下」交给管家', o: '72% 38%' },
+  { f: 'providers', cap: '模型：各家模型按厂商排好，状态一眼看清', o: '28% 40%' },
+  { f: 'debug', cap: '游乐场：和模型、智能体路由、各类智能体说话', o: '18% 55%' },
+];
+$('vsImgs').innerHTML = VSHOTS.map(v => `<img class="vsi" src="shots/${EN ? 'en' : 'zh'}-${v.f}.jpg" style="position:absolute;inset:0;width:1500px;height:844px;opacity:0;transform-origin:${v.o}">`).join('');
+const vsImgs = [...document.querySelectorAll('#vsImgs .vsi')];
+function renderShots(t) {
+  $('v7s').style.opacity = 1;
+  const inK = eo5(p(t, 0, .6)), out = eio(p(t, VS_LEN - .5, VS_LEN));
+  S($('vsWin'), { op: inK * (1 - out), s: lerp(.94, 1, inK) * (1 - .03 * out), y: (1 - inK) * 30 });
+  S($('vsEye'), { op: inK * (1 - out) });
+  const i = Math.min(VSHOTS.length - 1, Math.floor(t / VS_EACH));
+  vsImgs.forEach((el, j) => {
+    const lt = t - j * VS_EACH;
+    const op = j === 0 ? (lt < VS_EACH ? 1 : 1 - eio(p(lt, VS_EACH, VS_EACH + .35))) : eio(p(lt, 0, .35)) * (j === VSHOTS.length - 1 || lt < VS_EACH ? 1 : 1 - eio(p(lt, VS_EACH, VS_EACH + .35)));
+    el.style.opacity = clamp(op);
+    el.style.transform = `scale(${1 + .06 * eio(p(lt, .3, VS_EACH + .35))})`;
+  });
+  const lt = t - i * VS_EACH, ck = eo5(p(lt, .25, .7)) * (1 - eio(p(lt, VS_EACH - .2, VS_EACH))) * (1 - out);
+  $('vsCapT').textContent = tr(VSHOTS[i].cap);
+  S($('vsCap'), { op: ck, cx: CX, cy: 1030, y: (1 - ck) * 16 });
+}
+
+function renderV7(t) {
+  const c = v7cv; c.clearRect(0, 0, W, H);
+  $('v7cv').style.opacity = 1;
+  const on = (k) => t >= V7S[k][0] - .02 && t < V7S[k][1] + .02;
+  ['a', 'b', 'c', 'd'].forEach(k => { $('v7' + k).style.opacity = on(k) ? 1 : 0; });
+  // ---------------- A 统一接口 (0 – 6.5)
+  if (on('a')) {
+    const [a0, a1] = V7S.a, out = eio(p(t, a1 - .5, a1));
+    header($('hv7a'), t, a0 + .05, a1);
+    const ck = eo5(p(t, a0 + .3, a0 + 1.0));
+    S($('v7code'), { op: ck * (1 - out), x: (1 - ck) * -80 });
+    // 逐字打出请求
+    const total = V7LINES.reduce((n, [x]) => n + L(x).length, 0), shown = Math.floor(total * p(t, a0 + .9, a0 + 2.6));
+    let left = shown, html = '';
+    for (const [x, col] of V7LINES) { const z = L(x); const part = z.slice(0, Math.max(0, left)); left -= z.length; html += col ? `<span style="color:${col}">${part}</span>` : part; if (left <= 0) break; }
+    $('v7lines').innerHTML = html + (shown < total && Math.floor(t * 6) % 2 ? '▍' : '');
+    $('v7res').textContent = t > a0 + 4.3 ? L('→ 已派给 周报助手 · ✓ 完成 · 2.8s') : (t > a0 + 2.9 ? L('→ 网关按 harness_id 派发中…') : '');
+    $('v7res').style.color = t > a0 + 4.3 ? '#34d399' : '#ffc23d';
+    const gk = back(p(t, a0 + .5, a0 + 1.2));
+    S($('v7gw'), { op: clamp(gk) * (1 - out), cx: V7GW.x, cy: V7GW.y, s: lerp(.6, 1, gk) });
+    v7kEls.forEach((el, i) => {
+      const k = eo5(p(t, a0 + .7 + i * .12, a0 + 1.4 + i * .12));
+      const lit = i === 1 ? eo(p(t, a0 + 3.6, a0 + 3.9)) : eo(p(t, a0 + 3.0 + i * .15, a0 + 3.3 + i * .15)) * .35;
+      S(el, { op: k * (1 - out), x: (1 - k) * 100 });
+      el.style.borderColor = `rgba(255,194,61,${.09 + .55 * lit})`;
+      el.style.boxShadow = `0 40px 100px rgba(0,0,0,.55), 0 0 ${40 * lit}px rgba(255,170,30,${.25 * lit})`;
+      el.querySelector('.v7ok').style.opacity = i === 1 ? eo(p(t, a0 + 4.3, a0 + 4.6)) : 0;
+    });
+    // 代码卡 → 网关 → 四类智能体
+    c.globalAlpha = (1 - out) * eo(p(t, a0 + 1.2, a0 + 1.8));
+    const IN = [[820, 560], [900, 560], [880, V7GW.y], [V7GW.x - 215, V7GW.y]];
+    c.strokeStyle = 'rgba(255,255,255,.12)'; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(...IN[0]); c.bezierCurveTo(...IN[1], ...IN[2], ...IN[3]); c.stroke();
+    const sendK = p(t, a0 + 2.7, a0 + 3.2);
+    if (sendK > 0 && sendK < 1) v7packet(c, IN, eio(sendK), 'rgba(255,240,190,.95)');
+    v7kPos.forEach((q, i) => {
+      const P = [[V7GW.x + 215, V7GW.y], [1290, V7GW.y], [1290, q.y + 62], [q.x, q.y + 62]];
+      const act = i === 1;
+      c.strokeStyle = act && t > a0 + 3.2 ? 'rgba(255,194,61,.75)' : 'rgba(255,255,255,.12)'; c.lineWidth = act && t > a0 + 3.2 ? 3 : 2;
+      c.beginPath(); c.moveTo(...P[0]); c.bezierCurveTo(...P[1], ...P[2], ...P[3]); c.stroke();
+      if (act) {
+        const f = p(t, a0 + 3.2, a0 + 3.7), back_ = p(t, a0 + 3.9, a0 + 4.4);
+        if (f > 0 && f < 1) v7packet(c, P, eio(f), 'rgba(255,240,190,.95)');
+        if (back_ > 0 && back_ < 1) v7packet(c, P, 1 - eio(back_), 'rgba(120,240,190,.95)');
+      }
+    });
+    c.globalAlpha = 1;
+    const chk = eo5(p(t, a0 + 4.6, a0 + 5.1));
+    S($('chipsv7a'), { op: chk * (1 - out), cx: CX, cy: 1000, y: (1 - chk) * 30 });
+  }
+  // ---------------- B 外部智能体 (6.5 – 13)
+  if (on('b')) {
+    const [b0, b1] = V7S.b, out = eio(p(t, b1 - .5, b1));
+    header($('hv7b'), t, b0 + .05, b1);
+    const pk = eo5(p(t, b0 + .3, b0 + 1.0));
+    S($('v7pair'), { op: pk * (1 - out), x: (1 - pk) * -80 });
+    const allowed = t > b0 + 2.0;
+    const press = Math.sin(Math.PI * p(t, b0 + 1.8, b0 + 2.1));
+    S($('v7allow'), { op: allowed ? 1 - eo(p(t, b0 + 2.1, b0 + 2.4)) : eo(p(t, b0 + 1.0, b0 + 1.3)), s: 1 - .12 * press });
+    $('v7stt').textContent = allowed ? L('在线 · 每 15 秒来取一次') : L('等你允许');
+    $('v7st').style.color = allowed ? '#34d399' : '#ffb340';
+    $('v7dot').style.background = allowed ? '#34d399' : '#ffb340';
+    $('v7dot').style.boxShadow = `0 0 10px ${allowed ? '#34d399' : '#ffb340'}`;
+    $('v7ext').style.borderColor = allowed ? `rgba(52,211,153,${.2 + .4 * (1 - p(t, b0 + 2.0, b0 + 3.0))})` : 'rgba(255,179,64,.35)';
+    const chk = eo5(p(t, b0 + .5, b0 + 1.2));
+    S($('v7chat'), { op: chk * (1 - out), x: (1 - chk) * 80 });
+    S($('v7u'), { op: eo(p(t, b0 + 2.3, b0 + 2.6)), y: (1 - eo(p(t, b0 + 2.3, b0 + 2.6))) * 14 });
+    const picked = t > b0 + 3.4, wk = eo(p(t, b0 + 2.6, b0 + 2.9));
+    $('v7wait').textContent = picked ? L('✓ 已取走') : L('等它来取…');
+    $('v7wait').style.color = picked ? '#34d399' : '#ffc23d';
+    $('v7wait').style.border = `1px solid ${picked ? 'rgba(52,211,153,.45)' : 'rgba(255,194,61,.45)'}`;
+    S($('v7wait'), { op: wk * (1 - eo(p(t, b0 + 4.4, b0 + 4.7)) * .4) });
+    S($('v7r'), { op: eo(p(t, b0 + 4.3, b0 + 4.6)), y: (1 - eo(p(t, b0 + 4.3, b0 + 4.6))) * 14 });
+    const ph = eo(p(t, b0 + 5.1, b0 + 5.4));
+    S($('v7push'), { op: ph, y: (1 - ph) * 14 });
+    $('v7push').style.boxShadow = `0 0 ${40 * Math.sin(Math.PI * p(t, b0 + 5.1, b0 + 6.0))}px rgba(90,200,250,.4)`;
+    // 任务：对话 → GrokBot（上）；结果：GrokBot → 对话（下）
+    c.globalAlpha = (1 - out) * eo(p(t, b0 + 1.0, b0 + 1.5));
+    const A = [[1160, 640], [930, 640], [930, 720], [690, 720]], B = [[690, 770], [930, 770], [930, 700], [1160, 700]];
+    c.setLineDash([6, 10]); c.lineDashOffset = -t * 30; c.strokeStyle = 'rgba(255,255,255,.14)'; c.lineWidth = 2;
+    [A, B].forEach(P => { c.beginPath(); c.moveTo(...P[0]); c.bezierCurveTo(...P[1], ...P[2], ...P[3]); c.stroke(); });
+    c.setLineDash([]);
+    const ta = p(t, b0 + 2.9, b0 + 3.4), tb = p(t, b0 + 3.8, b0 + 4.3), tc = p(t, b0 + 4.7, b0 + 5.1);
+    if (ta > 0 && ta < 1) v7packet(c, A, eio(ta), 'rgba(255,240,190,.95)');
+    if (tb > 0 && tb < 1) v7packet(c, B, eio(tb), 'rgba(120,240,190,.95)');
+    if (tc > 0 && tc < 1) v7packet(c, B, eio(tc), 'rgba(150,215,255,.95)');
+    c.globalAlpha = 1;
+    const ck = eo5(p(t, b0 + 5.3, b0 + 5.8));
+    S($('chipsv7b'), { op: ck * (1 - out), cx: CX, cy: 1010, y: (1 - ck) * 30 });
+  }
+  // ---------------- C 智能管家 (13 – 19.5)
+  if (on('c')) {
+    const [c0, c1] = V7S.c, out = eio(p(t, c1 - .5, c1));
+    header($('hv7c'), t, c0 + .05, c1);
+    const ak = eo5(p(t, c0 + .3, c0 + 1.0));
+    S($('v7assets'), { op: ak * (1 - out), x: (1 - ak) * -80 });
+    const fixed = t > c0 + 4.6;
+    v7rowEls.forEach((el, i) => {
+      const k = eo5(p(t, c0 + .6 + i * .1, c0 + 1.1 + i * .1));
+      S(el, { op: k, x: (1 - k) * -30 });
+      if (!V7ROWS[i].bad) return;
+      const fk = eo(p(t, c0 + 4.6, c0 + 5.0));
+      el.style.background = fixed ? `rgba(52,211,153,${.06 + .08 * (1 - fk)})` : 'rgba(255,90,90,.08)';
+      el.style.borderColor = fixed ? 'rgba(52,211,153,.4)' : 'rgba(255,106,106,.4)';
+      const st = el.querySelector('.v7st');
+      st.style.color = fixed ? '#34d399' : '#ff6a6a';
+      st.querySelector('i').style.background = fixed ? '#34d399' : '#ff6a6a';
+      st.querySelector('span').textContent = fixed ? L('能用') : L('有问题');
+      el.querySelector('.v7why').textContent = fixed ? L('技能已补上 · 已投射到 Codex') : L('要用的技能不在了：sql-check');
+      const press = Math.sin(Math.PI * p(t, c0 + 1.5, c0 + 1.8));
+      S(el.querySelector('.v7look'), { op: fixed ? 1 - fk : 1, s: 1 - .12 * press });
+    });
+    const bk = eo5(p(t, c0 + 1.7, c0 + 2.3));
+    S($('v7butler'), { op: bk * (1 - out), x: (1 - bk) * 80 });
+    S($('v7bu'), { op: eo(p(t, c0 + 2.1, c0 + 2.4)), y: (1 - eo(p(t, c0 + 2.1, c0 + 2.4))) * 14 });
+    v7stepEls.forEach((el, i) => {
+      const t0 = c0 + 2.6 + i * .6, k = eo5(p(t, t0, t0 + .3)), done = t > t0 + .45;
+      S(el, { op: k, y: (1 - k) * 14 });
+      const d = el.querySelector('.v7sd');
+      d.textContent = done ? '✓' : '';
+      d.style.background = done ? '#34d399' : 'transparent';
+      d.style.color = '#062';
+      d.style.border = done ? 'none' : '2px solid rgba(255,194,61,.7)';
+      el.style.borderColor = i === 3 && done ? 'rgba(52,211,153,.5)' : 'rgba(255,255,255,.08)';
+    });
+    // 「看一下」→ 管家：问题带过去
+    c.globalAlpha = (1 - out) * eo(p(t, c0 + 1.6, c0 + 1.9));
+    const P = [[940, 400], [975, 400], [975, 430], [1010, 430]];
+    const f = p(t, c0 + 1.7, c0 + 2.2);
+    if (f > 0 && f < 1) v7packet(c, P, eio(f), 'rgba(255,240,190,.95)');
+    c.globalAlpha = 1;
+    const ck = eo5(p(t, c0 + 5.2, c0 + 5.7));
+    S($('chipsv7c'), { op: ck * (1 - out), cx: CX, cy: 1010, y: (1 - ck) * 30 });
+  }
+  // ---------------- D 六层现成能力 (19.5 – 26)
+  if (on('d')) {
+    const [d0, d1] = V7S.d, out = eio(p(t, d1 - .5, d1));
+    header($('hv7d'), t, d0 + .05, d1);
+    v7lEls.forEach((el, i) => {
+      const k = back(p(t, d0 + .5 + i * .32, d0 + 1.0 + i * .32));
+      const y = 930 - i * 96;
+      S(el, { op: clamp(k) * (1 - out), cx: CX, cy: y + (1 - clamp(k)) * 60, s: lerp(.9, 1, clamp(k)) });
+    });
+    const tk = back(p(t, d0 + 2.6, d0 + 3.1));
+    S($('v7top'), { op: clamp(tk) * (1 - out), cx: CX, cy: 930 - 6 * 96 + 8, s: lerp(.7, 1, clamp(tk)) });
+    const dk = eo5(p(t, d0 + 3.4, d0 + 3.9));
+    S($('v7deploy'), { op: dk * (1 - out), cx: CX, cy: 1030, y: (1 - dk) * 20 });
+  }
+}
+
 if (EN) translateDOM($('stage'));  // after every scene has been built
 
 // ---------------------------------------------------------------- cinematic mode (?cine)
@@ -1298,13 +1623,33 @@ function renderCine(t) {
 }
 
 
-window.DURATION = DURATION;
+function renderFrame(t) {
+  const inV7 = t >= V7_AT && t < V7_AT + V7_LEN;
+  const inVS = t >= V7_AT + V7_LEN && t < V7_AT + V7_LEN + VS_LEN;
+  if (inV7 || inVS) {
+    // 旧时间轴停在 11.5s 之前（Logo 已结束、一键纳管未开始），只保留背景走动
+    renderOld(V7_AT - .01);
+    document.querySelectorAll('#stage .scene:not(.v7)').forEach(el => { el.style.opacity = 0; });
+    drawBg(t, 1, .8);
+    $('flash').style.opacity = 0;
+    $('wm').style.opacity = .85;
+    document.querySelectorAll('#stage .v7').forEach(el => { el.style.opacity = 0; });
+    $('v7cv').style.opacity = 0;
+    if (inV7) renderV7(t - V7_AT); else { renderShots(t - V7_AT - V7_LEN); }
+  } else {
+    document.querySelectorAll('#stage .v7').forEach(el => { el.style.opacity = 0; });
+    $('v7cv').style.opacity = 0;
+    renderOld(t < V7_AT ? t : t - V7_LEN - VS_LEN);
+  }
+}
+
+window.DURATION = DURATION + V7_LEN + VS_LEN;
 window.renderFrame = renderFrame;
 window.ready = document.fonts.ready.then(() => { renderFrame(0); return true; });
 // Preview mode: open video.html?play to watch in a browser at real time.
 if (location.search.includes('play')) {
   const t0 = performance.now();
-  const loop = () => { renderFrame(((performance.now() - t0) / 1000) % DURATION); requestAnimationFrame(loop); };
+  const loop = () => { renderFrame(((performance.now() - t0) / 1000) % (DURATION + V7_LEN + VS_LEN)); requestAnimationFrame(loop); };
   window.ready.then(loop);
 }
 </script>

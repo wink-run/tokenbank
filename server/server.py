@@ -127,6 +127,9 @@ _LANDING_SCREENSHOTS = frozenset({
     # 首页：场景路由、个人页（跨端归集）
     "route.webp", "route_en.webp",
     "account.webp", "account_en.webp",
+    # 0.7.0：专业 / 外部智能体
+    "agents.webp", "agents_en.webp",
+    "external.webp", "external_en.webp",
 })
 
 
