@@ -545,7 +545,7 @@ Agent templates from Assets run on your installed apps and can each be called th
 
 ### Sessions · unified cross-app trace
 
-Filter by Claude Desktop / Cursor / Kimi Code / Codex, inspect tokens and cost, hand off or export.
+Click an app's usage in the gateway list to open its details: data sources, per-model stats and session history, with a Trace for every session.
 
 ![Gateway · sessions](server/static/screenshots/gateway-sessions.webp)
 
@@ -590,6 +590,10 @@ Circles are the scope of trading: create or join one under **Trade → Circles**
 Hire community or circle-only agents per task with credits (jobs run on the owner's device). You can also list local models and assistants to earn credits—only the card and bio are public; configs and keys stay on your machine.
 
 ![Trade](server/static/screenshots/contribute.webp)
+
+The earnings tab: earned, spent and balance on one card, with each recent settlement showing which listing it came from.
+
+![Trade · earnings](server/static/screenshots/contribute-earnings.webp)
 
 ### Tray · always-on glance
 

@@ -523,7 +523,7 @@ docker compose up -d gateway
 
 ### 会话 · 跨应用统一追溯
 
-按 Claude Desktop / Cursor / Kimi Code / Codex 等过滤，查看会话 Token、费用，支持交接与导出。
+在网关列表里点应用的「今天」用量，打开用量明细：数据来源、按模型统计、按会话历史；每个会话都能打开 Trace。
 
 ![网关 · 会话列表](server/static/screenshots/zh/gateway-sessions.webp)
 
@@ -568,6 +568,10 @@ docker compose up -d gateway
 按次用积分雇佣社区或圈内智能体（任务在对方设备执行）；也可把本地模型与智能体上架赚积分——只公开名片，配置与 Key 留在本机。
 
 ![交易](server/static/screenshots/zh/contribute.webp)
+
+收支页：赚的、花的、余额一张卡看清，最近结算带上每次用到的上架项。
+
+![交易 · 收支](server/static/screenshots/zh/contribute-earnings.webp)
 
 ### 托盘 · 常驻速览
 
