@@ -47,9 +47,9 @@
 | 局域网广播发现（断网也能找到本账号设备） | ✅ | f9b9032 |
 | 路由里 `/xx` 点名执行者；路由明细显示「指定」和执行设备 | ✅ | 842e318 |
 | 设备名称统一：交易页、盘点「改名」、`@名称`、设备心跳上报 | ✅ | 7285a23 |
-| E2-1 执行器认识 `mine:`：MCP `tb_dispatch_agent`、游乐场 `/codex@studio` 派到其他设备；本机镜像远端任务 | ✅ | 7a7cc37 |
-| E4-1 任务树：`metadata.parent_id`、`children`、`?tree=1`、`?parent_id=` | ✅ | 7a7cc37 |
-| E4-3 MCP 后台派活：`background`、`previous_task_id`、`tb_task_status(wait any/all)`；无依赖子任务并行 | ✅ | 7a7cc37 |
+| E2-1 执行器认识 `mine:`：MCP `tb_dispatch_agent`、游乐场 `/codex@studio` 派到其他设备；本机镜像远端任务 | ✅ | 53e2af7 |
+| E4-1 任务树：`metadata.parent_id`、`children`、`?tree=1`、`?parent_id=` | ✅ | 53e2af7 |
+| E4-3 MCP 后台派活：`background`、`previous_task_id`、`tb_task_status(wait any/all)`；无依赖子任务并行 | ✅ | 53e2af7 |
 | 端到端演示 `scripts/mesh-demo.js`（44 项）、单测 | ✅ | 各提交 |
 | 设计文档、实现方案、界面原型（基于最新版真实界面） | ✅ | 18d9128 等 |
 
