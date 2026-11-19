@@ -513,6 +513,14 @@ docker compose up -d gateway
 
 ![网关 · 应用与路由](server/static/screenshots/zh/gateway-apps.webp)
 
+### 网关 · 专业智能体与外部智能体（0.7.0）
+
+资产里的智能体模板投射到应用上跑，每个都能用 `harness_id` 通过接口调用；在别处运行的智能体用配对码接进来，你点允许后它来取任务、送回结果。
+
+![网关 · 专业智能体](server/static/screenshots/zh/agents-pro.webp)
+
+![网关 · 外部智能体](server/static/screenshots/zh/agents-external.webp)
+
 ### 会话 · 跨应用统一追溯
 
 按 Claude Desktop / Cursor / Kimi Code / Codex 等过滤，查看会话 Token、费用，支持交接与导出。

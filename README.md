@@ -535,6 +535,14 @@ Every AI app in one list with today's requests, tokens and last use; bind each a
 
 ![Gateway · apps & routes](server/static/screenshots/gateway-apps.webp)
 
+### Gateway · specialist and external agents (0.7.0)
+
+Agent templates from Assets run on your installed apps and can each be called through the API by `harness_id`; agents running elsewhere join with a pairing code, and once you allow them they pull tasks and send results back.
+
+![Gateway · specialist agents](server/static/screenshots/agents-pro.webp)
+
+![Gateway · external agents](server/static/screenshots/agents-external.webp)
+
 ### Sessions · unified cross-app trace
 
 Filter by Claude Desktop / Cursor / Kimi Code / Codex, inspect tokens and cost, hand off or export.
