@@ -2,6 +2,7 @@
 
 本人名下的设备组成对等网络。任何一台设备的本地网关都是统一入口，用同一套接口调用任何一台设备上的模型和智能体。
 
+- 测试手册：`TESTING.md`
 - 设计：`docs/superpowers/specs/2026-11-18-personal-device-mesh-design.md`
 - 实现方案：`docs/superpowers/plans/2026-11-18-personal-device-mesh.md`
 
