@@ -1062,10 +1062,7 @@ class AgentExecutor extends EventEmitter {
    * @returns {Promise<{ taskId: string, agentId: string, device?: string }>}
    */
   async dispatch(agentId, prompt, options = {}) {
-    const { isCommunityAgentId } = require('./hired-community-agents');
-    if (!isMeshTarget(agentId) && isCommunityAgentId(await this.resolveAgentId(agentId))) {
-      throw new Error('社区智能体暂不支持后台派发，请不带 background 调用');
-    }
+    // 社区智能体也一样：execute 会建一行任务、在对方设备上跑（_runCommunityTaskForExecute），这里只是不等
     const started = await this._startDispatch(agentId, prompt, options);
     this._waitDispatch(started, options).catch((e) => {
       console.warn(`[AgentExecutor] 后台子任务 ${started.taskId}：${e.message}`);
@@ -1382,6 +1379,15 @@ class AgentExecutor extends EventEmitter {
   /** 把远端的响应写进本机镜像行。返回是否到了终态 */
   _applyMeshResponse(taskId, resp) {
     if (!resp || resp.status === 'unreachable') return false;
+    // 那台设备上的执行步骤：照本机步骤一样存下、推给游乐场（边做边看）
+    if (Array.isArray(resp.steps)) {
+      for (const st of resp.steps) {
+        this._emitSingleStep(taskId, Number(st.step_number) || 0, {
+          stepType: st.step_type || 'output', content: st.content || '', tool_name: st.tool_name || undefined,
+          tool_use_id: st.tool_use_id || undefined, is_error: !!st.is_error,
+        }, null);
+      }
+    }
     const status = MESH_STATUS[resp.status] || 'running';
     const text = meshOutputText(resp);
     const db = this._getDb();
@@ -1424,7 +1430,9 @@ class AgentExecutor extends EventEmitter {
       if (stopped) return;
       let terminal = false;
       try {
-        const resp = await glue.fetchAgentTask(taskId, 'get');
+        let have = 0;
+        try { have = this._getDb().prepare('SELECT COUNT(*) AS n FROM agent_task_steps WHERE task_id = ?').get(taskId)?.n || 0; } catch { have = 0; }
+        const resp = await glue.fetchAgentTask(taskId, 'get', { stepsAfter: have });
         if (resp.status === 'unreachable') {
           delay = Math.min(delay * 2, 15000);
         } else {

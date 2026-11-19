@@ -270,6 +270,17 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   const chat = await req(gwA, 'POST', '/v1/chat/completions', { body: { model: 'demo-model', stream: true, messages: [{ role: 'user', content: 'hi' }] } });
   const streamed = chat.text.split('\n').filter((l) => l.startsWith('data: {')).map((l) => { try { return JSON.parse(l.slice(6)).choices[0].delta.content || ''; } catch { return ''; } }).join('');
   check('流式对话由 B 的本地模型返回', chat.status === 200 && streamed.includes('设备 B'), `回复：${streamed}  执行设备：${chat.headers['x-tb-mesh-device'] || '-'}`);
+  // 统计（E2-3）：A 记下「在哪台做」，B 记下「从哪台来」
+  const logA = await until(async () => {
+    const r = await req(gwA + 1, 'GET', '/api/gateway/log');
+    return (r.json?.log || []).find((e) => e.route === 'mesh' && e.requested_model === 'demo-model' && e.status === 'ok') || null;
+  }, 8000);
+  const logB = await until(async () => {
+    const r = await req(gwB + 1, 'GET', '/api/gateway/log');
+    return (r.json?.log || []).find((e) => e.from_device === 'macbook' && e.requested_model === 'demo-model') || null;
+  }, 8000);
+  check('路由明细：A 记下交给了 mini（我的设备层），B 记下是 macbook 发来的', !!logA && logA.device === 'mini' && !!logB,
+    logA ? `A: via=${logA.via} device=${logA.device} | B: from=${logB?.from_device}` : '');
   const pinned = await req(gwA, 'POST', '/v1/chat/completions', { body: { model: 'mine:mini/demo-model', messages: [{ role: 'user', content: 'hi' }] } });
   check('mine:mini/demo-model 钉设备（非流式）', pinned.status === 200 && /设备 B/.test(pinned.json?.choices?.[0]?.message?.content || ''));
 

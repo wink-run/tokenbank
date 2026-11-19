@@ -659,7 +659,8 @@ function withUsageOption(body) {
 // 个人源：合并账户登记 + 刊例价覆盖的模型（与供给源页按模型视图一致）。
 function enabledProviders() {
   if (!_getConfig) return [];
-  const cfg = _getConfig();
+  // 配置还没写过（新装、只开了设备网络）时 getConfig 返回 null：当作没有供给源
+  const cfg = _getConfig() || {};
   let providers = cfg.providers || [];
   try {
     const localCfg = _getLocalConfig?.() || null;
@@ -2933,6 +2934,8 @@ async function callProvider(provider, isAnthropic, streaming, reqPath, body, att
 }
 
 async function callProviderOnce(provider, isAnthropic, streaming, reqPath, body, attemptModel, res, routeMeta = null) {
+  // 我的其他设备（E2-2）：经设备网络交给那台设备的网关，它再按自己的供给源做
+  if (provider && provider.type === 'mesh') return proxyViaMesh(provider, reqPath, body, attemptModel, res);
   // OAuth 供给源：确保 access_token 有效（必要时刷新并回写 config），附加 _oauth 模块
   provider = await oauth.prepare(provider, _getConfig, _saveConfig);
   // p2p 派发：把本次路由指令（auto 排序 / 钉分享者）挂到 provider 副本，供各 p2p 代理注入 X-TB-Route。
@@ -3585,10 +3588,68 @@ function routeLogContext(callerKey, reqPath, body, userAgent) {
   };
 }
 
-async function route(model, reqPath, body, res, callerKey, skipP2P = false, userAgent = '') {
+// ── 设备网络：模型降级链里的「我的设备」层（E2-2） ──────────────────────────────
+
+/**
+ * 候选源：本机的源标上 is_local（排在最前），再接上开放了模型的其他设备。
+ * 经设备网络转来的请求（设备网络 Key）不再转给设备网络，防回环。
+ */
+function withMeshProviders(list, callerKey) {
+  const out = (list || []).map((p) => (p && p.base_url && _LOCAL_URL.test(p.base_url) && p.type !== 'p2p' ? { ...p, is_local: true } : p));
+  try {
+    const glue = require('./mesh/glue');
+    if (glue.isMeshKey(callerKey)) return out;
+    out.push(...glue.meshProviders());
+  } catch { /* 设备网络没启动 */ }
+  return out;
+}
+
+function meshDeviceLabel(via) {
+  try { return require('./mesh/glue').meshProviderLabel(via); } catch { return String(via || '').slice(5); }
+}
+
+/** 把一次模型请求交给另一台设备。首包前出错就抛出，外层照常降级到下一个源 */
+async function proxyViaMesh(provider, reqPath, body, attemptModel, res) {
+  const glue = require('./mesh/glue');
+  const node = glue.getNode();
+  const path = reqPath === '/v1/messages' || reqPath === '/messages' ? '/v1/messages' : '/v1/chat/completions';
+  if (!node || (reqPath !== path && !/chat\/completions$/.test(reqPath))) {
+    throw Object.assign(new Error(`${provider.label || provider.id}：这类请求不走设备网络`), { status: 502, code: 'mesh_unsupported' });
+  }
+  const t0 = Date.now();
+  let resp;
+  try {
+    resp = await node.proxy(provider._meshDevice, {
+      method: 'POST', path, headers: { 'content-type': 'application/json' },
+      body: Buffer.from(JSON.stringify({ ...body, model: attemptModel })),
+    });
+  } catch (e) {
+    throw Object.assign(new Error(`${provider.label}：${e.message}`), { status: 502, code: 'mesh_unreachable' });
+  }
+  const tunnel = require('./mesh/tunnel');
+  if (resp.status >= 400) {
+    const text = (await tunnel.readAll(resp).catch(() => Buffer.alloc(0))).toString('utf8');
+    let msg = text.slice(0, 300);
+    try { msg = JSON.parse(text)?.error?.message || msg; } catch { /* 原文 */ }
+    throw Object.assign(new Error(`${provider.label}：${msg}`), { status: resp.status });
+  }
+  // 响应头只能放 ASCII：设备名可能是中文，按 URL 编码
+  resp.headers['x-tb-mesh-device'] = encodeURIComponent(meshDeviceLabel(provider.id));
+  let firstMs = null;
+  const mark = (c) => { if (firstMs == null) firstMs = Date.now() - t0; return c; };
+  await tunnel.pipeTo(resp, res, mark);
+  return { latency: Date.now() - t0, first_token_ms: firstMs, input_tokens: 0, output_tokens: 0, worker_id: provider.label };
+}
+
+async function route(model, reqPath, body, res, callerKey, skipP2P = false, userAgent = '', extra = {}) {
   // 每条明细都带上是谁、哪个应用、这句话开头。后面的 pushLog 实际走 logRoute。
   const logCtx = routeLogContext(callerKey, reqPath, body, userAgent);
-  const logRoute = (entry) => pushLog({ ...logCtx, ...entry });
+  // 设备网络（E2-3）：别的设备转来的记下「从哪台来」；交给别的设备做的记下「在哪台做」
+  if (extra.meshFrom) logCtx.from_device = extra.meshFrom;
+  const logRoute = (entry) => pushLog({
+    ...logCtx, ...entry,
+    ...(String(entry.via || '').startsWith('mesh:') ? { device: meshDeviceLabel(entry.via), route: 'mesh' } : {}),
+  });
   // 同一次请求里，不能看图的模型共用一份识图结果，避免降级时反复看同一张图
   const blindSeen = { ready: false, body: null, meta: null };
   async function bodyForBlindModel(provider, modelName, srcBody) {
@@ -4088,7 +4149,10 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
   }
 
   // ── Direct model request ──────────────────────────────────────────────────
-  const allEnabled = enabledProviders().filter(p => !skipP2P || p.type !== 'p2p');
+  // 还没配任何供给源时 enabledProviders 会抛错：这时也可能有我的其他设备能做
+  let ownProviders = [];
+  try { ownProviders = enabledProviders(); } catch { ownProviders = []; }
+  const allEnabled = withMeshProviders(ownProviders, callerKey).filter(p => !skipP2P || p.type !== 'p2p');
   const modelMatch = { strict: skipP2P }; // 贡献节点 P2P hop：禁止空 models 列表兜底匹配
 
   // ★ 三层特征提取 + 策略组调度：按 policy 决定 provider 优先顺序
@@ -4353,6 +4417,7 @@ function _providerTier(provider) {
   // 显式配置的层级类型（free/paid/p2p）优先于任何启发式：例如免费供给源虽带 API
   // key + 远程 URL，也应按配置记为 free，而非被下面的兜底误判为 paid。
   if (obj?.type === 'p2p' || id === 'tokenbank-p2p') return 'p2p';
+  if (obj?.type === 'mesh' || String(id).startsWith('mesh:')) return 'mesh';
   if (obj?.type === 'free') return 'free';
   if (obj?.type === 'paid') return 'paid';
   // Known paid IDs (fallback for old persisted stats that only store id)
@@ -4790,7 +4855,9 @@ function handleRequest(req, res) {
 
     const skipP2P = !!req.headers['x-p2p-hop'];
     try {
-      await route(model, cleanPath, body, res, callerKey, skipP2P, req.headers['user-agent'] || '');
+      let meshFrom = '';
+      try { meshFrom = require('./mesh/glue').meshFromLabel(req.headers); } catch { meshFrom = ''; }
+      await route(model, cleanPath, body, res, callerKey, skipP2P, req.headers['user-agent'] || '', { meshFrom });
     } catch (err) {
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -4806,7 +4873,7 @@ function localModelNames() {
   let list = [];
   try { list = enabledProviders(); } catch { list = []; }
   for (const p of list) {
-    if (p.type === 'p2p') continue;
+    if (p.type === 'p2p' || p.type === 'mesh') continue;
     for (const m of p.models || []) {
       if (m && typeof m === 'object' && (m.type === 'image' || m.type === 'embedding')) continue;
       const id = typeof m === 'string' ? m : (m && (m.name || m.id));
@@ -4822,7 +4889,7 @@ function localProviderSummary() {
   try { list = enabledProviders(); } catch { list = []; }
   const out = [];
   for (const p of list) {
-    if (!p || p.type === 'p2p') continue;
+    if (!p || p.type === 'p2p' || p.type === 'mesh') continue;
     const models = (p.models || []).filter((m) => !(m && typeof m === 'object' && (m.type === 'image' || m.type === 'embedding')));
     out.push({ id: String(p.id || p.name || ''), name: String(p.name || p.id || ''), type: String(p.type || ''), models: models.length });
   }

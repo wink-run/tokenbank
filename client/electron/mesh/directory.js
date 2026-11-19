@@ -36,9 +36,13 @@ function sanitizeDescriptor(d) {
     platform: String(d.platform || ''),
     version: String(d.version || ''),
     seq: Number(d.seq) || 0,
-    load: { running: Number(d.load?.running) || 0, max: Number(d.load?.max) || 0 },
-    apps: (d.apps || []).map((a) => ({ id: String(a.id), name: String(a.name || a.id) })),
+    load: {
+      running: Number(d.load?.running) || 0, max: Number(d.load?.max) || 0,
+      by_app: Object.fromEntries(Object.entries(d.load?.by_app || {}).slice(0, 20).map(([k, v]) => [String(k), Number(v) || 0])),
+    },
+    apps: (d.apps || []).map((a) => ({ id: String(a.id), name: String(a.name || a.id), ...(a.account ? { account: String(a.account).slice(0, 16) } : {}) })),
     assistants: (d.assistants || []).map((a) => ({ id: String(a.id), name: String(a.name || a.id) })),
+    externals: (d.externals || []).slice(0, 50).map((a) => ({ id: String(a.id), name: String(a.name || a.id) })),
     models: (d.models || []).map(String),
     providers: (d.providers || []).slice(0, 50).map((p) => ({
       id: String(p.id || ''), name: String(p.name || ''), type: String(p.type || ''), models: Number(p.models) || 0,

@@ -167,8 +167,8 @@ export function withMeshAgents(localAgents, devices) {
       const entry = {
         id: `mine:${x.id}@${label}`,
         name: x.name || x.id,
-        type: kind === 'apps' ? 'cli' : 'assistant',
-        custom: kind === 'apps' ? undefined : true,
+        type: kind === 'apps' ? 'cli' : kind === 'externals' ? 'external' : 'assistant',
+        custom: kind === 'assistants' ? true : undefined,
         installed: true,
         mesh: { base: x.id, device },
         description: '',
@@ -177,11 +177,12 @@ export function withMeshAgents(localAgents, devices) {
       // 紧跟在同一个东西（本机那项或别的设备那项）后面
       let at = -1;
       list.forEach((a, i) => { if (a.id === x.id || a.mesh?.base === x.id) at = i; });
-      if (at < 0) list.forEach((a, i) => { if ((kind === 'apps') === (a.type === 'cli')) at = i; });
+      if (at < 0) list.forEach((a, i) => { if (a.type === entry.type) at = i; });
       list.splice(at + 1, 0, entry);
     };
     for (const x of d.apps || []) add(x, 'apps');
     for (const x of d.assistants || []) add(x, 'assistants');
+    for (const x of d.externals || []) add(x, 'externals');
   }
   return list;
 }

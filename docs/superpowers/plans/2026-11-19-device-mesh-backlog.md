@@ -57,7 +57,15 @@
 | E1-5 桌面端：登录后经 IPC 交出登录上下文、退出登录即停——已接；打包 napi 模块、签名公证未做 | 🟡 | 3d24e74 |
 | E1-7 `package-lock.json` 只剩 iroh 的新增；`docs/` 的忽略规则待定（见「待你决定」Q9） | 🟡 | 3d24e74 |
 | 云端模式演示 `scripts/mesh-cloud-demo.js`（7 项，连本机服务端）、服务端单测 `test_mesh_cert.py` | ✅ | 3d24e74 |
-| 端到端演示 `scripts/mesh-demo.js`（52 项）、单测 | ✅ | 各提交 |
+| E4-2 / E4-5 / E4-9 提问（`tb_ask`、`requires_input`）、检查点、会话锁、子任务只交摘要和产出清单 | ✅ | ca69cc7 |
+| E4-4 / E4-6 / E4-10 / E5 独立工作树、改动取回（`tb_collect`）、产出快照、按清单拉文件、远程只读查看 | ✅ | ca69cc7 |
+| E4-7 游乐场任务板（回答、改派、叫停、取回改动）；路由明细显示父任务、发起设备；远端执行步骤同步到游乐场 | ✅ | 本次 |
+| E4-8 调度看同一订阅账号上的并发 | ✅ | 本次 |
+| E2-2 模型降级链：本机 → 我的设备 → 免费 → 社区 → 付费，首包前失败换下一个 | ✅ | 本次 |
+| E2-3 路由明细记 `route: mesh`、执行设备、发起设备 | ✅ | 本次 |
+| E1-8 吞吐基准 `scripts/mesh-bench.js`：约 9–16 MB/s，按设计上限够用，暂不优化 | ✅ | 本次 |
+| 已知问题清掉：流式派活也记镜像、社区智能体能后台派、外部智能体标所在设备、游乐场能选那台设备的工作区 | ✅ | 本次 |
+| 端到端演示 `scripts/mesh-demo.js`（65 项）、单测 | ✅ | 各提交 |
 | 设计文档、实现方案、界面原型（基于最新版真实界面） | ✅ | 18d9128 等 |
 
 ---
@@ -77,15 +85,15 @@
 | E1-5 🟡 | Electron 主进程接入：登录后 `startFromConfig`，退出登录 / 退出应用时 `stop`；打包 napi 模块、签名公证 | `electron/main.js`、`package.json`（electron-builder `asarUnpack`） | 桌面版 macOS arm64、Windows x64 能入网 | P0 | 3 天 |
 | E1-6 ✅ | 设备上报真实负载（`runningTasks`），并发上限可配置 | `mesh/glue.js`、`agent-executor.js` | 自动选设备时把任务分散开 | P1 | 1 天 |
 | E1-7 🟡 | 清理 `package-lock.json` 里与 iroh 无关的改动；`docs/` 被 `.gitignore` 忽略的问题 | `client/package-lock.json`、`.gitignore` | 合并前 diff 干净 | P1 | 0.5 天 |
-| E1-8 | 吞吐评估：napi 用 JS 数组传字节，本机约 15.7 MB/s | 基准测试 | 决定大文件 / bundle 是否需要优化或后备方案 | P2 | 1 天 |
+| E1-8 ✅ | 吞吐评估：napi 用 JS 数组传字节，本机约 15.7 MB/s | 基准测试 | 决定大文件 / bundle 是否需要优化或后备方案 | P2 | 1 天 |
 
 ### E2 · 统一入口完善
 
 | ID | 任务 | 要改的地方 | 验收 | 优先级 | 估算 |
 |---|---|---|---|---|---|
 | E2-1 ✅ | 执行器认识 `mine:` 目标：MCP `tb_dispatch_agent`、游乐场（IPC）都能派到其他设备 | `agent-executor.js`（新增 `_dispatchMeshAndWait`）、`ipc-handlers-agent.js` | 主智能体在本机经 MCP 把子任务派到 studio；游乐场 `/codex@studio` 生效 | P0 | 3 天 |
-| E2-2 | 模型「我的设备」层排进降级链：本机 → 我的设备 → 免费 → 社区 → 付费；首 token 前失败换设备 | `local-gateway.js`（`enabledProviders` 加 mesh 虚拟源）、`gateway-cooldown` | 设计 §14 M3 验收 | P1 | 3 天 |
-| E2-3 | 统计：`local-stats` 记 `route='mesh'`、发起设备、执行设备 | `local-stats.js`、`agent-http.js` | 盘点能按「发起 → 执行」看 | P2 | 1 天 |
+| E2-2 ✅ | 模型「我的设备」层排进降级链：本机 → 我的设备 → 免费 → 社区 → 付费；首 token 前失败换设备 | `local-gateway.js`（`enabledProviders` 加 mesh 虚拟源）、`gateway-cooldown` | 设计 §14 M3 验收 | P1 | 3 天 |
+| E2-3 ✅ | 统计：`local-stats` 记 `route='mesh'`、发起设备、执行设备 | `local-stats.js`、`agent-http.js` | 盘点能按「发起 → 执行」看 | P2 | 1 天 |
 
 ### E3 · 界面「所在设备」（原型里是截图注入，要写成真实代码）
 
@@ -101,22 +109,22 @@
 | ID | 任务 | 要改的地方 | 验收 | 优先级 | 估算 |
 |---|---|---|---|---|---|
 | E4-1 ✅ | 任务树：请求可带 `metadata.parent_id`（MCP 派活自动带）；`GET /v1/agent/responses/{id}` 返回 `children`，`?tree=1` 返回整棵树；`GET /v1/agent/responses?parent_id=` | `agent-http.js`、`agent-executor.js`（`agent_tasks.context.parentTaskId` 已有） | 主任务能看到所有子任务和状态，包括其他设备上的 | P1 | 2 天 |
-| E4-2 | 新状态 `requires_input`：子任务用 MCP `tb_ask(question)` 停下提问；主任务按 D16 在检查点停下等人（拆解后、合并前、按条件），`metadata.checkpoints: "none"` 可关；用 `previous_response_id` 回答后接着做 | `agent-http.js`（`taskToResponse`）、`agent-dispatch-mcp.js`、`agent-executor.js` | 子任务提问 → 主智能体回答 → 子任务续上原会话完成 | P1 | 2 天 |
+| E4-2 ✅ | 新状态 `requires_input`：子任务用 MCP `tb_ask(question)` 停下提问；主任务按 D16 在检查点停下等人（拆解后、合并前、按条件），`metadata.checkpoints: "none"` 可关；用 `previous_response_id` 回答后接着做 | `agent-http.js`（`taskToResponse`）、`agent-dispatch-mcp.js`、`agent-executor.js` | 子任务提问 → 主智能体回答 → 子任务续上原会话完成 | P1 | 2 天 |
 | E4-3 ✅ | MCP 异步派活：`tb_dispatch_agent` 加 `background`、`previous_task_id`；新增 `tb_task_status(ids, wait:"any")` | `agent-dispatch-mcp.js`、`agent-dispatch-server.js` | 主智能体一次派出 3 个无依赖子任务，并行执行，等任意一个完成再派依赖它的 | P1 | 2 天 |
-| E4-4 | 并行隔离（D15）：会改代码的子任务默认各用一个 git worktree 和分支 `tb/collab/<父任务>/<子任务>`；请求可带 `metadata.branch`、`metadata.readonly`；工作区配置 `worktree_init`（如 `npm ci`） | `mesh/workspaces.js`、`agent-http.js` | 3 个子任务同时改同一仓库互不覆盖 | P1 | 2 天 |
-| E4-5 | 同一会话加锁：同时续同一个子任务时第二个排队或返回「进行中」 | `agent-executor.js` | 并发续同一任务不会同时 `--resume` | P1 | 0.5 天 |
-| E4-6 | 产出回收：`GET /v1/agent/responses/{id}/bundle`、MCP `tb_collect`；取回到 `tb/mesh/<任务号>` 分支（设计 §8.4.3，命令已在 git 2.43 验证） | `mesh/git-bundle.js`、`agent-http.js`、`tunnel.js` 白名单 | 主智能体收齐子任务改动合并、跑测试；合并到你的分支前停下等确认 | P1 | 3 天 |
-| E4-7 | 游乐场：按 `children` 显示子任务状态卡（所在设备、状态），`requires_input` 高亮、可直接回复；路由明细详情显示父任务 | `Debug.jsx`、`Gateway.jsx` | 你能看着任务板插话、改派、叫停 | P1 | 2 天 |
-| E4-8 | 调度考虑订阅账号并发（同一 Claude / Codex 账号上的并行数） | `mesh/scheduler.js` | 多个子任务优先分散到不同设备 / 账号 | P2 | 1 天 |
-| E4-9 | 子任务报告只交摘要和产出清单（D14），主智能体按需再拉详情 | `agent-dispatch-mcp.js`（`tb_task_status` 返回摘要）、`agent-http.js` | 主智能体上下文里没有子任务的完整对话 | P1 | 1 天 |
-| E4-10 | 非代码产出快照到 `outbox`（D19）：子任务结束时复制本轮新增的非代码文件，保留 7 天，单任务 500 MB 上限 | `mesh/` 新增 outbox、`agent-worker` 同款 `collectWorkspaceArtifacts` | 子任务结束后工作区里的报告被改，仍能从快照拉回原样 | P2 | 1 天 |
+| E4-4 ✅ | 并行隔离（D15）：会改代码的子任务默认各用一个 git worktree 和分支 `tb/collab/<父任务>/<子任务>`；请求可带 `metadata.branch`、`metadata.readonly`；工作区配置 `worktree_init`（如 `npm ci`） | `mesh/workspaces.js`、`agent-http.js` | 3 个子任务同时改同一仓库互不覆盖 | P1 | 2 天 |
+| E4-5 ✅ | 同一会话加锁：同时续同一个子任务时第二个排队或返回「进行中」 | `agent-executor.js` | 并发续同一任务不会同时 `--resume` | P1 | 0.5 天 |
+| E4-6 ✅ | 产出回收：`GET /v1/agent/responses/{id}/bundle`、MCP `tb_collect`；取回到 `tb/mesh/<任务号>` 分支（设计 §8.4.3，命令已在 git 2.43 验证） | `mesh/git-bundle.js`、`agent-http.js`、`tunnel.js` 白名单 | 主智能体收齐子任务改动合并、跑测试；合并到你的分支前停下等确认 | P1 | 3 天 |
+| E4-7 ✅ | 游乐场：按 `children` 显示子任务状态卡（所在设备、状态），`requires_input` 高亮、可直接回复；路由明细详情显示父任务 | `Debug.jsx`、`Gateway.jsx` | 你能看着任务板插话、改派、叫停 | P1 | 2 天 |
+| E4-8 ✅ | 调度考虑订阅账号并发（同一 Claude / Codex 账号上的并行数） | `mesh/scheduler.js` | 多个子任务优先分散到不同设备 / 账号 | P2 | 1 天 |
+| E4-9 ✅ | 子任务报告只交摘要和产出清单（D14），主智能体按需再拉详情 | `agent-dispatch-mcp.js`（`tb_task_status` 返回摘要）、`agent-http.js` | 主智能体上下文里没有子任务的完整对话 | P1 | 1 天 |
+| E4-10 ✅ | 非代码产出快照到 `outbox`（D19）：子任务结束时复制本轮新增的非代码文件，保留 7 天，单任务 500 MB 上限 | `mesh/` 新增 outbox、`agent-worker` 同款 `collectWorkspaceArtifacts` | 子任务结束后工作区里的报告被改，仍能从快照拉回原样 | P2 | 1 天 |
 
 ### E5 · 产出查看
 
 | ID | 任务 | 要改的地方 | 验收 | 优先级 | 估算 |
 |---|---|---|---|---|---|
-| E5-1 | 远程只读查看：`/v1/workspace/{名字}/fs`、`/file`、`/diff`、`/log`（设计 §8.4.5），路径限定在工作区内 | `agent-http.js` 或新文件、`tunnel.js` 白名单 | 在 A 上看 B 工作区的 diff | P2 | 2 天 |
-| E5-2 | 大文件按需拉取 `blob.get`（设计 §8.4.4） | `tunnel.js`、`agent-http.js` | 拉一个 50 MB 产物不出错 | P2 | 1.5 天 |
+| E5-1 ✅ | 远程只读查看：`/v1/workspace/{名字}/fs`、`/file`、`/diff`、`/log`（设计 §8.4.5），路径限定在工作区内 | `agent-http.js` 或新文件、`tunnel.js` 白名单 | 在 A 上看 B 工作区的 diff | P2 | 2 天 |
+| E5-2 ✅ | 大文件按需拉取 `blob.get`（设计 §8.4.4） | `tunnel.js`、`agent-http.js` | 拉一个 50 MB 产物不出错 | P2 | 1.5 天 |
 
 ### E6 · 以后再做
 
@@ -143,10 +151,6 @@ Q1–Q7 已于 2026-11-19 按建议定下，见上面 D14–D20。剩下：
 - 改设备名称后，盘点按「名字 + 系统」合并同一台电脑的多条记录，可能暂时分成两条。
 - 出租接单上报的名称在 worker 重连后才更新。
 - 交易页以前保存过带空格的名称：能显示，但不能用来 `@`，要改一次。
-- 派到其他设备的任务：游乐场中途看不到逐条步骤，只在做完时收到结果（E4-7 做任务板时一起补：远端步骤经 SSE 转过来）。
-- 经 HTTP `stream: true` 派到其他设备的任务不记本机镜像，任务树里缺它。
-- 社区智能体还不支持 `background` 派发。
+- 设备之间吞吐约 9–16 MB/s（napi 绑定只收 JS 数组），大文件慢一些。
+- 游乐场里其他设备开放的模型源只出现在降级链里；要钉某台设备用 `mine:<设备>/<模型>`。
 - CLI 网关只在设备网络开着时起派发服务（桌面端一直由 `main.js` 起）。
-- 外部智能体表的「所在设备」只能标本机：设备描述里还没有外部智能体。
-- 其他设备开放的模型源只列名字、类型和模型数；路由下拉里还不能单独选它们（E2-2 排进降级链时一起做）。
-- 游乐场里其他设备上的智能体用那台设备的默认工作区，还不能在这里选工作区。

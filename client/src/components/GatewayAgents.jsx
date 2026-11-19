@@ -791,6 +791,7 @@ export function ExternalAgents() {
   const gateway = (() => { try { return `${window.location.protocol}//${window.location.hostname}:11430`; } catch { return 'http://127.0.0.1:11430'; } })();
   const skillUrl = `${gateway}/v1/agent/external/skill`;
   const { mesh, showDev, GRID } = useDeviceColumn();
+  const remoteExternals = showDev ? remoteOnly(mesh.devices, 'externals', list.map(a => a.id)) : [];
   return (
     <section className="px-2.5 py-3 min-w-0">
       <Toolbar main={<button type="button" className={BTN_MAIN} aria-expanded={open} onClick={() => (open ? setOpen(false) : newCode())}>{t('gw2.ext.connectPlus')}</button>}
@@ -845,7 +846,7 @@ export function ExternalAgents() {
         </div>
       )}
 
-      {rows.length === 0 ? (
+      {rows.length === 0 && remoteExternals.length === 0 ? (
         <div className="py-6 text-center text-xs text-zinc-400">{t('gw2.ext.empty')}</div>
       ) : (
         <div className={SHELL} style={{ overflowX: 'auto' }}>
@@ -877,7 +878,7 @@ export function ExternalAgents() {
                   )}
                   {a.skillOutdated && <span className="block text-amber-700 dark:text-amber-400" title={t('gw2.ext.skillOldHint')}>{t('gw2.ext.skillOld')}</span>}
                 </span>
-                {showDev && <span className="min-w-0"><DeviceChips devices={mesh.self ? devicesHaving([mesh.self], 'apps', '') : []} /></span>}
+                {showDev && <span className="min-w-0"><DeviceChips devices={devicesHaving(mesh.devices, 'externals', a.id)} /></span>}
                 <span className="min-w-0" onClick={e => e.stopPropagation()}>
                   <TodayCell st={st} onOpen={() => setTasksFor({ id: a.id, name: a.name })} t={t} />
                 </span>
@@ -903,6 +904,23 @@ export function ExternalAgents() {
               </div>
               {apiFor === a.id && <AgentApiInline harnessId={a.id} note={t('gw2.api.extNote', { name: a.name })} t={t} />}
               </React.Fragment>
+            );
+          })}
+          {/* 接在我其他设备上的外部智能体：在那台设备上管理，这里能直接派活 */}
+          {remoteExternals.map(ra => {
+            const anyOnline = ra.devices.some(d => d.online);
+            const target = ra.devices.length === 1 ? `mine:${ra.id}@${ra.devices[0].label}` : `mine:${ra.id}`;
+            return (
+              <div key={'mesh-' + ra.id} className={`${ROW} ${GRID}`}>
+                <NameCell name={ra.name} meta={t('mesh.otherDevices')} />
+                <span className="min-w-0">{anyOnline ? <Status tone="ok">{t('mesh.statusRemote')}</Status> : <Status tone="off">{t('mesh.statusOffline')}</Status>}</span>
+                <span className="min-w-0"><DeviceChips devices={ra.devices} /></span>
+                <span className={META}>—</span>
+                <span className={META}>{t('mesh.routeOnDevice')}</span>
+                <span className="flex gap-2 md:justify-end [&>*]:flex-1 md:[&>*]:flex-none">
+                  <button type="button" className={BTN} disabled={!anyOnline} onClick={() => navigate('/debug', { state: { agentId: target } })}>{t('gw2.pro.tryPlay')}</button>
+                </span>
+              </div>
             );
           })}
         </div>

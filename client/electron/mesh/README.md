@@ -21,7 +21,7 @@ node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.
 - 设备 A「macbook」：发起方；
 - 设备 B「mini」：有一个模拟的本地模型 `demo-model`、一个模拟的 Claude Code、一个 git 工作区 `demo`。
 
-两台之间是真实的 iroh QUIC 连接。两台都**不写对端地址**，靠局域网广播找到对方后直连。脚本依次检查 52 项：局域网发现、入网和设备目录、模型统一入口（流式、钉设备）、智能体统一入口（异步、流式、幂等、真实工作区、路由里 /xx 点名执行）、设备名称、主智能体经 MCP 派到其他设备（同步、后台并行、续上一轮）、任务树、本机设置（接活、开放模型、工作区、同时接几个）、防回环、伪造头、其他账号拒绝、断线。加 `--keep` 跑完不退出，可以继续手动 `curl` 设备 A。
+两台之间是真实的 iroh QUIC 连接。两台都**不写对端地址**，靠局域网广播找到对方后直连。脚本依次检查 65 项：局域网发现、入网和设备目录、模型统一入口（流式、钉设备）、智能体统一入口（异步、流式、幂等、真实工作区、路由里 /xx 点名执行）、设备名称、主智能体经 MCP 派到其他设备（同步、后台并行、续上一轮）、任务树、本机设置（接活、开放模型、工作区、同时接几个）、产出与协作（独立工作树、取回改动、产出文件、只读查看、提问和续上、会话锁）、模型降级链和路由明细、防回环、伪造头、其他账号拒绝、断线。加 `--keep` 跑完不退出，可以继续手动 `curl` 设备 A。
 
 ## 统一入口
 
@@ -34,6 +34,9 @@ node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.
 | 点名执行 | 调智能体路由时输入以 `/codex 修一下` 或 `/codex@mini 修一下` 开头：跳过主智能体，直接交给点名的智能体（见 `../agent-designation.js`） |
 | 远端任务 | 任务号是 `mesh:<device_id>:<远端任务号>`，`GET /v1/agent/responses/{id}`、`/cancel` 自动转到那台设备。本机另记一行镜像（`agent_tasks`），由轮询跟着远端更新，应用重启后接着跟 |
 | 子任务 / 任务树 | 请求带 `metadata.parent_id`。`GET /v1/agent/responses/{id}` 带 `children`，`?tree=1` 展开整棵树；`GET /v1/agent/responses?parent_id=` 列子任务。别的设备上的子任务也在里面，标着 `metadata.mesh_device` |
+| 产出 | 结果里带 `git`（改动统计、`refs/tokenbank/mesh/<任务号>`）和 `artifacts`（产出文件清单）。`GET /v1/agent/responses/{id}/bundle`、`/artifacts/file?path=&sha256=`、`POST /v1/agent/responses/{id}/collect`（改动进本机 `tb/mesh/<任务号>` 分支） |
+| 只读查看 | `GET /v1/workspaces/{名字}/fs|file|diff|log?device=<设备>` |
+| 提问 | 子任务 MCP `tb_ask` → 状态 `requires_input`、`required_input.question`；回答：`previous_response_id` 指向它 |
 | 主智能体派活（MCP） | `tb_dispatch_agent` 的 `agent_id` 可以是 `mine:codex@studio`；`background: true` 马上返回任务号，`previous_task_id` 接着之前的会话；`tb_task_status(ids, wait: "any" \| "all")` 收结果。互不依赖的子任务并行跑 |
 | 列表 | `/v1/models`、`/v1/agent/harnesses` 会带上其他设备的 |
 | 本机设置 | `GET/PUT /v1/devices/self/settings`（`accept_agent_tasks`、`accept_model_requests`、`default_workspace`），`POST /v1/devices/self/workspaces` `{path, name?}`、`DELETE /v1/devices/self/workspaces/{名字}`。只在本机改，不走设备网络 |
@@ -101,7 +104,7 @@ node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.
 | 局域网发现（mDNS） | 绑定里没有这个接口。**已用 Node `dgram` 补上**（`lan-discovery.js`）：组播 `239.255.77.77` + 广播兜底，每 5 秒一次，校验证书后才拨号。不需要 Rust |
 | 跨网打洞 | iroh 内核支持，需要中继协助（Rust 版也一样）。绑定有自定义中继接口，待部署 TokenBank 中继后实测成功率 |
 | 连接方式和延迟（`paths()`） | 通过：能区分 direct / relay，拿到 rtt |
-| 双向流吞吐 | 本机回环约 **15.7 MB/s**，低于方案定的 50 MB/s 目标。原因是绑定用 JS 数组传字节。模型和智能体流量够用；大文件或 git bundle 要评估 |
+| 双向流吞吐 | 本机回环约 **9–16 MB/s**（`node scripts/mesh-bench.js`；这台容器 9 MB/s，分帧后 8 MB/s），低于方案定的 50 MB/s 目标。原因是绑定只收 JS 数组（试过 Buffer 被拒，块大小 16 KB–1 MB 没差别）。按设计上限算：50 MB 的 bundle 约 6 秒、200 MB 的文件约 25 秒，**够用，暂不优化**；以后换支持 Buffer 的绑定或 iroh-blobs，接口不变 |
 | Electron 主进程加载、签名公证 | 未验证（本环境没有 macOS / Windows） |
 
 ## 原型和正式版的差距
@@ -110,11 +113,5 @@ node --test electron/__tests__/mesh-core.test.js electron/__tests__/mesh-tunnel.
 - 跨网靠云端地址簿；同一局域网另有广播发现，断网也能用。
 - 中继：服务端放行接口和部署配置已写好（`deploy/mesh-relay/`、`nginx/templates/relay.conf.template`），还没部署实测。
 - CLI 网关和桌面端 `main.js` 都接了：网关起来后 `startFromConfig`，退出时 `stop`。
-- 模型的「我的设备」层是简化版：只在本机除社区以外的供给源都没有这个模型时才用，还没排进 本机 → 我的设备 → 免费 → 社区 → 付费 的降级链。
 - 设备描述里还没有会话列表（`mine:session:` 未实现）。
-- 产出：小文件随结果返回（现有逻辑），git bundle 和远程只读查看（设计 §8.4.3–8.4.5）未实现。
 - 界面：不加新页面，各页「所在设备」见 `src/api/meshDevices.js`、`src/components/DeviceChips.jsx`。只有一台设备（或没开设备网络）时不显示这一列。
-- 派到其他设备的任务，游乐场里只在做完时收到结果，中途的步骤不逐条推过来（镜像里只有进展计数 `step_count`）。
-- 经 HTTP 流式（`stream: true`）派到其他设备的任务，本机不记镜像，任务树里看不到；后台和非流式的都记。
-- 社区智能体还不能后台派（`background`）。
-- 统计里还没有 `route='mesh'`、`from_device` / `to_device`。

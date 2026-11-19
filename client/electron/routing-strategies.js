@@ -18,6 +18,9 @@ function costRank(p) {
   const src = String(p.source || p.billing_type || '').toLowerCase();
   // 订阅（OAuth / API 订阅账户）优先于一切免费与按量
   if (src === 'subscription' || src === 'sub') return 0;
+  // 本机 → 我的设备 → 免费 → 社区 → 付费（E2-2）：本机跑的源（Ollama 等）、我的其他设备排在免费之前
+  if (p.is_local) return 0.5;
+  if (p.type === 'mesh') return 0.8;
   if (p.type === 'free') return 1;
   if (src === 'prepaid') return 2;
   if (src === 'payg' || src === 'api' || src === 'api-key' || src === 'api_key') return 4;

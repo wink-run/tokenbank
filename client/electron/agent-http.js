@@ -249,6 +249,8 @@ function buildAgentRouteLog(info = {}) {
     if (info.routeId) entry.route_id = String(info.routeId);
   }
   if (info.device) entry.device = String(info.device);
+  // 子任务：哪个任务派出来的（任务树）
+  if (info.parentId) entry.parent_id = String(info.parentId);
   if (!ok) entry.error = String(info.error || 'agent_error');
   return entry;
 }
@@ -417,7 +419,16 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
     }
     if (route.op === 'get') {
       const task = await executor.getTaskStatus(route.id);
-      sendJson(res, 200, attachChildren(executor, taskToResponse(task), { tree }));
+      const out = attachChildren(executor, taskToResponse(task), { tree });
+      // ?steps_after=N：带上第 N 步之后的执行步骤（另一台设备的镜像靠它把过程同步过去）
+      const after = query.get('steps_after');
+      if (after !== null && Array.isArray(task.steps)) {
+        out.steps = task.steps.slice(Math.max(0, Number(after) || 0), (Number(after) || 0) + 50).map((st) => ({
+          step_number: st.step_number, step_type: st.step_type, content: String(st.content || '').slice(0, 8000),
+          tool_name: st.tool_name || null, tool_use_id: st.tool_use_id || null, is_error: !!st.is_error,
+        }));
+      }
+      sendJson(res, 200, out);
       return true;
     }
     if (route.op === 'list_responses') {
@@ -441,6 +452,7 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
     const { raw, body } = await readBody(req);
     prompt = inputText(body.input);
     harnessId = harnessIdFromBody(body);
+    if (parentIdFromBody(body)) logExtra = { ...logExtra, parentId: parentIdFromBody(body) };
     callContext = callContextFromBody(body);
     // 经设备网络转来的都是本人的任务：完整权限，不审查、不脱敏、不计积分
     const fromMesh = meshGlue.isMeshRequest(req.headers);
@@ -472,7 +484,7 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
         devices: node ? node.directory.list() : [],
       });
       if (designation) {
-        logExtra = { designated: designation.raw, routeId: harnessId, device: designation.device || undefined };
+        logExtra = { ...logExtra, designated: designation.raw, routeId: harnessId, device: designation.device || undefined };
         harnessId = designation.harnessId;
         prompt = designation.text;
         body.input = prompt;

@@ -4808,6 +4808,14 @@ function RouteLogDetailModal({ entry, onClose }) {
               {entry.route_id && <span className="ml-2 text-zinc-400 font-mono">{entry.route_id}</span>}
             </DetailRow>
           )}
+          {entry.from_device && (
+            <DetailRow label={t('gateway.log.fromDevice')}>{entry.from_device}</DetailRow>
+          )}
+          {entry.parent_id && (
+            <DetailRow label={t('gateway.log.parent')}>
+              <span className="font-mono break-all" title={t('gateway.log.parentTitle')}>{entry.parent_id}</span>
+            </DetailRow>
+          )}
           <DetailRow label={t('gateway.log.prompt')}>
             {entry.prompt_preview || '—'}
           </DetailRow>

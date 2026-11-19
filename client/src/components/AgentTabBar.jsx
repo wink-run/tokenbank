@@ -339,7 +339,7 @@ export default function AgentTabBar({
           // 所在设备：本机的标「本机」，其他设备上的（mine:…@设备）标那台设备；离线的压暗、不能点
           const remote = agent.mesh?.device || null;
           const remoteOff = !!remote && !remote.online;
-          const deviceTag = meshDevices && groupOf(agent) !== 'hired' && groupOf(agent) !== 'external'
+          const deviceTag = meshDevices && groupOf(agent) !== 'hired'
             ? (remote || { label: '', self: true, online: true, device_id: 'self' })
             : null;
           const dimmed = (missing && !cursorNeedCli) || cursorNeedLogin || remoteOff;

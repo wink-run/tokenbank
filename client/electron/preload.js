@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     execute: (params) => ipcRenderer.invoke('agent:execute', params),
     cancel: (taskId) => ipcRenderer.invoke('agent:cancel', taskId),
     cancelAllActive: () => ipcRenderer.invoke('agent:cancelAllActive'),
+    children: (parentId) => ipcRenderer.invoke('agent:children', parentId),
+    collect: (taskId) => ipcRenderer.invoke('agent:collect', taskId),
     getTaskStatus: (taskId) => ipcRenderer.invoke('agent:getStatus', taskId),
     listActiveTasks: () => ipcRenderer.invoke('agent:listActiveTasks'),
     listRecentTasks: (opts) => ipcRenderer.invoke('agent:listRecentTasks', opts),

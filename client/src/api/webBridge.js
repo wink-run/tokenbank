@@ -127,6 +127,8 @@ const agent = {
   execute: (params) => invoke('agent:execute', params),
   cancel: (taskId) => invoke('agent:cancel', taskId),
   cancelAllActive: call0('agent:cancelAllActive'),
+  children: (parentId) => invoke('agent:children', parentId),
+  collect: (taskId) => invoke('agent:collect', taskId),
   getTaskStatus: (taskId) => invoke('agent:getStatus', taskId),
   listActiveTasks: call0('agent:listActiveTasks'),
   listRecentTasks: (opts) => invoke('agent:listRecentTasks', opts),

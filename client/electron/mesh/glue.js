@@ -33,24 +33,49 @@ function maxTasks() {
   return Number.isInteger(n) && n >= 1 && n <= 16 ? n : 2;
 }
 
-/** 本机负载：正在跑的智能体任务（不含派到别的设备的镜像） */
+/** 本机负载：正在跑的智能体任务（不含派到别的设备的镜像），按应用分开数（E4-8：同一个订阅账号上的并行数） */
 function selfLoad() {
   let running = 0;
+  const byApp = {};
   try {
-    for (const id of require('../agent-executor').runningTasks.keys()) if (!String(id).startsWith('mesh:')) running += 1;
+    for (const [id, t] of require('../agent-executor').runningTasks) {
+      if (String(id).startsWith('mesh:')) continue;
+      running += 1;
+      const app = String(t?.gateway_agent_id || t?.agent_id || '');
+      if (app) byApp[app] = (byApp[app] || 0) + 1;
+    }
   } catch { running = 0; }
-  return { running, max: maxTasks() };
+  return { running, max: maxTasks(), by_app: byApp };
+}
+
+/** 应用登录的订阅账号（只给一个短哈希，不带邮箱）：同一个账号在两台设备上时，调度把它们当一份并发 */
+function appAccount(appId) {
+  try {
+    if (appId === 'claude-code') {
+      const j = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8'));
+      const id = j?.oauthAccount?.accountUuid || j?.oauthAccount?.emailAddress;
+      if (id) return require('crypto').createHash('sha256').update(String(id)).digest('hex').slice(0, 12);
+    }
+    if (appId === 'codex') {
+      const j = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.codex', 'auth.json'), 'utf8'));
+      const id = j?.tokens?.account_id || j?.account_id;
+      if (id) return require('crypto').createHash('sha256').update(String(id)).digest('hex').slice(0, 12);
+    }
+  } catch { /* 没登录或读不到 */ }
+  return null;
 }
 
 async function describeSelf() {
-  const out = { platform: process.platform, apps: [], assistants: [], models: [], workspaces: [], sessions: [], load: selfLoad() };
+  const out = { platform: process.platform, apps: [], assistants: [], externals: [], models: [], workspaces: [], sessions: [], load: selfLoad() };
   try { out.version = require('../../package.json').version; } catch { out.version = ''; }
   try {
     const agents = await require('../agent-executor').listAvailableAgents();
     for (const a of agents || []) {
       if (!a || a.guardian) continue;
-      if (a.type === 'cli' && a.installed) out.apps.push({ id: a.id, name: a.name || a.id });
+      if (a.type === 'cli' && a.installed) out.apps.push({ id: a.id, name: a.name || a.id, account: appAccount(a.id) });
       else if (a.type === 'assistant') out.assistants.push({ id: a.id, name: a.name || a.id });
+      // 外部智能体接在这台设备的网关上：别的设备派给它也要经这台
+      else if (a.type === 'external' || String(a.id || '').startsWith('external:')) out.externals.push({ id: a.id, name: a.name || a.id });
     }
   } catch { /* 执行器不可用时只报模型 */ }
   const accepts = { agent_tasks: cfg?.accept_agent_tasks !== false, model_requests: !!cfg?.accept_model_requests };
@@ -60,7 +85,7 @@ async function describeSelf() {
     try { out.models = require('../local-gateway').localModelNames(); } catch { out.models = []; }
     try { out.providers = require('../local-gateway').localProviderSummary(); } catch { out.providers = []; }
   }
-  if (!accepts.agent_tasks) { out.apps = []; out.assistants = []; }
+  if (!accepts.agent_tasks) { out.apps = []; out.assistants = []; out.externals = []; }
   try { out.workspaces = workspaces.listPublic(meshDir()); } catch { out.workspaces = []; }
   // 设备名称：和交易页「设备名称」同一个字段（~/.llm-agent/config.json 的 name）。派活时 @名称 就认它
   out.aliases = [];
@@ -266,6 +291,7 @@ function devicesView() {
       version: d.descriptor?.version || '',
       apps: d.descriptor?.apps || [],
       assistants: d.descriptor?.assistants || [],
+      externals: d.descriptor?.externals || [],
       models: d.descriptor?.models || [],
       providers: d.descriptor?.providers || [],
       accepts: d.descriptor?.accepts || null,
@@ -298,7 +324,7 @@ function extraHarnesses() {
   const seen = new Set();
   for (const d of node.directory.list()) {
     if (d.self || !d.online) continue;
-    const items = [...(d.descriptor?.apps || []), ...(d.descriptor?.assistants || [])];
+    const items = [...(d.descriptor?.apps || []), ...(d.descriptor?.assistants || []), ...(d.descriptor?.externals || [])];
     for (const a of items) {
       if (!seen.has(a.id)) {
         seen.add(a.id);
@@ -325,7 +351,8 @@ function sendJson(res, status, obj) {
 async function routeChat({ model, cleanPath, body, req, res, localHasModel }) {
   if (!node || isHop(req.headers)) return false;
   const pin = scheduler.parseMineModel(model);
-  if (!pin && (!model || localHasModel(model))) return false;
+  // 没钉设备：交给网关的降级链（「我的设备」是其中一层，见 local-gateway withMeshProviders）
+  if (!pin) return false;
   const wanted = pin ? pin.model : model;
   const candidates = scheduler.pickModelDevice({ model: wanted, device: pin?.device, devices: node.directory.list() });
   if (!candidates.length) {
@@ -334,6 +361,7 @@ async function routeChat({ model, cleanPath, body, req, res, localHasModel }) {
     return true;
   }
   const payload = Buffer.from(JSON.stringify({ ...body, model: wanted }));
+  // 没钉设备的已经排进网关的降级链（本机 → 我的设备 → 免费 → 社区 → 付费），这里只处理钉了设备的
   let lastErr = '';
   for (const dev of candidates) {
     try {
@@ -347,7 +375,7 @@ async function routeChat({ model, cleanPath, body, req, res, localHasModel }) {
         await tunnel.readAll(resp).catch(() => {});
         continue;
       }
-      resp.headers['x-tb-mesh-device'] = deviceLabel(dev);
+      resp.headers['x-tb-mesh-device'] = encodeURIComponent(deviceLabel(dev));
       console.log(`[mesh] 模型 ${wanted} → ${deviceLabel(dev)}`);
       await tunnel.pipeTo(resp, res);
       return true;
@@ -382,7 +410,13 @@ function sseRewriter(deviceId, deviceName) {
   let carry = '';
   const fix = (line) => {
     if (!line.startsWith('data: ')) return line;
-    try { return `data: ${JSON.stringify(rewriteResponse(JSON.parse(line.slice(6)), deviceId, deviceName))}`; } catch { return line; }
+    try {
+      const obj = rewriteResponse(JSON.parse(line.slice(6)), deviceId, deviceName);
+      // 记下任务号：流式派的也要在本机记镜像（任务树）
+      const id = obj?.id || obj?.response?.id;
+      if (!fn.taskId && typeof id === 'string' && id.startsWith('mesh:')) fn.taskId = id;
+      return `data: ${JSON.stringify(obj)}`;
+    } catch { return line; }
   };
   const fn = (chunk) => {
     const text = carry + chunk.toString('utf8');
@@ -439,8 +473,9 @@ async function routeAgentCreate({ harnessId, body, req, res, extraMeta }) {
     });
     console.log(`[mesh] 智能体 ${target.id} → ${deviceLabel(dev)}`);
     if (body.stream && !body.background && String(resp.headers['content-type'] || '').includes('event-stream')) {
-      await tunnel.pipeTo(resp, res, sseRewriter(dev.device_id, deviceLabel(dev)));
-      return { handled: true, ok: true, device: deviceLabel(dev) };
+      const rw = sseRewriter(dev.device_id, deviceLabel(dev));
+      await tunnel.pipeTo(resp, res, rw);
+      return { handled: true, ok: true, device: deviceLabel(dev), taskId: rw.taskId, target: target.id };
     }
     const text = (await tunnel.readAll(resp)).toString('utf8');
     let obj;
@@ -509,13 +544,14 @@ async function submitAgentTask({ harnessId, input, metadata = {}, previousRespon
  * @param {string} id mesh:<device_id>:<任务号>
  * @param {'get'|'cancel'} op
  */
-async function fetchAgentTask(id, op = 'get') {
+async function fetchAgentTask(id, op = 'get', { stepsAfter } = {}) {
   const parsed = parseMeshTaskId(id);
   if (!parsed) throw Object.assign(new Error(`不是设备网络的任务号：${id}`), { status: 400 });
   if (!node) return { id, object: 'response', status: 'unreachable', error: { message: '设备网络没有启动', type: 'mesh_disabled' } };
   const dev = node.directory.get(parsed.deviceId);
   const label = dev ? deviceLabel(dev) : parsed.deviceId;
-  const p = `/v1/agent/responses/${encodeURIComponent(parsed.id)}${op === 'cancel' ? '/cancel' : ''}`;
+  const q = op !== 'cancel' && Number.isFinite(stepsAfter) ? `?steps_after=${stepsAfter}` : '';
+  const p = `/v1/agent/responses/${encodeURIComponent(parsed.id)}${op === 'cancel' ? '/cancel' : ''}${q}`;
   try {
     const resp = await node.proxy(parsed.deviceId, { method: op === 'cancel' ? 'POST' : 'GET', path: p, headers: {} });
     const text = (await tunnel.readAll(resp)).toString('utf8');
@@ -740,6 +776,37 @@ async function removeWorkspace(name) {
 
 function meshDirPath() { return meshDir(); }
 
+/** 降级链里的「我的设备」层：每台开放了模型的在线设备一个虚拟源 */
+function meshProviders() {
+  if (!node) return [];
+  const out = [];
+  for (const d of node.directory.list()) {
+    if (d.self || !d.online || !d.descriptor?.accepts?.model_requests) continue;
+    const models = d.descriptor?.models || [];
+    if (!models.length) continue;
+    const label = deviceLabel(d);
+    out.push({
+      id: `mesh:${d.device_id}`, name: `${label}（我的设备）`, label: `${label}（我的设备）`, type: 'mesh', enabled: true,
+      base_url: `mesh://${d.device_id}`, models: [...models], _meshDevice: d.device_id,
+    });
+  }
+  return out;
+}
+
+function meshProviderLabel(via) {
+  const id = String(via || '').replace(/^mesh:/, '');
+  const d = node?.directory.get(id);
+  return d ? deviceLabel(d) : id;
+}
+
+/** 经隧道转来的请求：是哪台设备发的（名称） */
+function meshFromLabel(headers = {}) {
+  if (!node || !node.isMeshRequest(headers)) return '';
+  const id = String(headers['x-tb-mesh-from'] || '');
+  const d = id ? node.directory.get(id) : null;
+  return d ? deviceLabel(d) : id;
+}
+
 /** 工作区的配置（worktree_init 等）。没写名字时用默认工作区 */
 function workspaceConfig(name) {
   try {
@@ -767,7 +834,7 @@ function resolveWorkspace(name) {
 module.exports = {
   setCloud, cloudStatus: () => ({ connected: !!cloud?.ready, ...cloudState }),
   getSelfSettings, updateSelfSettings, addWorkspace, removeWorkspace, selfLoad,
-  meshDirPath, workspaceConfig, isSelfDevice, findDevice,
+  meshDirPath, workspaceConfig, isSelfDevice, findDevice, meshProviders, meshProviderLabel, meshFromLabel,
   submitAgentTask,
   fetchAgentTask,
   parseMeshTaskId,

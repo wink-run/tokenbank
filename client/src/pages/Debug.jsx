@@ -78,6 +78,7 @@ import {
 import { presentRemoteAgentResult, presentRemoteAgentSteps } from '../../shared/remote-artifact-paths.js';
 import { useResolvedImageSrc } from '../components/ResolvedDebugImage';
 import { useMeshDevices, withMeshAgents } from '../api/meshDevices';
+import TaskBoard from '../components/TaskBoard';
 
 /** 下拉 value：同 id 跨层时用 tier:id，避免 HTML option 重复 value 选中错位 */
 function modelSelectValue(m) {
@@ -954,6 +955,8 @@ export default function Debug() {
   const mesh = useMeshDevices();
   const showDev = mesh.enabled && mesh.devices.length > 1;
   const allAgents = useMemo(() => (showDev ? withMeshAgents(agents, mesh.devices) : (agents || [])), [agents, showDev, mesh.devices]);
+  // 其他设备上的智能体：在那台设备的哪个工作区里做（空 = 它的默认工作区）
+  const [meshWorkspace, setMeshWorkspace] = useState('');
   const playAgents = useMemo(() => (allAgents || []).filter(a => a && !isGuardianEntry(a)), [allAgents]); // eslint-disable-line react-hooks/exhaustive-deps
   // 之前选中过智能管家：回到聚合入口
   useEffect(() => {
@@ -2710,6 +2713,7 @@ export default function Debug() {
             : undefined,
           // 游乐场要边执行边显示过程，等价于接口里的 stream: true
           stream: communityAgent ? true : undefined,
+          workspace: activeAgent?.mesh && meshWorkspace ? meshWorkspace : undefined,
         },
       });
 
@@ -3986,14 +3990,28 @@ export default function Debug() {
           </div>
         ) : (
           <div className="space-y-2">
+            {/* 任务板：这一轮派出的子任务（含其他设备上的），能回答提问、改派、叫停、取回改动 */}
+            <TaskBoard
+              parentTaskId={currentTask?.id || conversationTurns[conversationTurns.length - 1]?.taskId || ''}
+              agents={playAgents}
+            />
             {/* 工作目录 + 历史 / 新会话：始终可见 */}
             <div className="flex items-center gap-2 flex-wrap min-w-0">
               {/* 在我的其他设备上执行：用那台设备的工作区，本机目录用不上 */}
-              {selectedAgent?.mesh ? (
-                <span className="flex-1 min-w-0 truncate text-xs text-zinc-500 dark:text-zinc-400" title={t('mesh.runsOnDeviceHint')}>
-                  {t('mesh.runsOnDeviceDir', { name: selectedAgent.mesh.device.label })}
-                </span>
-              ) : (<>
+              {selectedAgent?.mesh ? (() => {
+                const dev = mesh.devices.find(d => d.device_id === selectedAgent.mesh.device.device_id);
+                const wss = dev?.workspaces || [];
+                return (
+                  <span className="flex-1 min-w-0 flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400" title={t('mesh.runsOnDeviceHint')}>
+                    <span className="shrink-0">{t('mesh.runsOnDeviceIn', { name: selectedAgent.mesh.device.label })}</span>
+                    <select value={meshWorkspace} onChange={(e) => setMeshWorkspace(e.target.value)} disabled={executing || taskCanStop}
+                      className="tb-soft-field text-xs px-2 py-1 rounded-lg min-w-0 max-w-[14rem]" aria-label={t('mesh.workspacePick')}>
+                      <option value="">{t('mesh.workspaceDefault')}{wss.find(w => w.default) ? `（${wss.find(w => w.default).name}）` : ''}</option>
+                      {wss.map(w => <option key={w.name} value={w.name}>{w.name}{w.repo ? ` · ${w.repo}` : ''}</option>)}
+                    </select>
+                  </span>
+                );
+              })() : (<>
               <button
                 type="button"
                 onClick={pickWorkingDir}
