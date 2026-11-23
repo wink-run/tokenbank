@@ -137,21 +137,29 @@ async function cloudSync() {
     await ensureCloudCert();
     if (!node) return;
     const a = node.addrInfo();
-    // 云端回拨验证：从外面真的连得到的地址，才能自动当中继
-    const pub = await cloud.publishAddress({ endpointId: a.endpoint_id, relayUrl: a.relay_url, directAddrs: a.direct_addrs });
-    node.setVerified(pub?.verified || [], pub?.observed_ip || '');
+    // 每一步各自出错各自记，不让报地址慢了拖住吊销列表、批准名单和地址簿
+    const errors = [];
+    try {
+      // 云端回拨验证：从外面真的连得到的地址，才能自动当中继
+      const pub = await cloud.publishAddress({ endpointId: a.endpoint_id, relayUrl: a.relay_url, directAddrs: a.direct_addrs });
+      node.setVerified(pub?.verified || [], pub?.observed_ip || '');
+    } catch (e) { errors.push(`报地址：${e.message}`); }
     // 按密钥吊销：同一台设备重装后换了密钥，旧密钥作废，新的照常
-    const revoked = await cloud.revocations();
-    node.setRevoked(revoked.map((r) => r.endpoint_id));
+    try {
+      const revoked = await cloud.revocations();
+      node.setRevoked(revoked.map((r) => r.endpoint_id));
+    } catch (e) { errors.push(`吊销列表：${e.message}`); }
     try { cloudState.pending = await cloud.pending(); } catch { /* 老服务端没有这个接口 */ }
-    const peers = await cloud.peers();
+    let peers = [];
+    try { peers = await cloud.peers(); } catch (e) { errors.push(`地址簿：${e.message}`); }
     let n = 0;
     for (const p of peers) {
       if (!p.endpoint_id || p.endpoint_id === a.endpoint_id) continue;
       node.ensurePeer({ endpoint_id: p.endpoint_id, relay_url: p.relay_url, direct_addrs: p.direct_addrs || [], name: p.name }, 'cloud');
       n += 1;
     }
-    Object.assign(cloudState, { lastSync: Date.now(), error: '', peers: n });
+    Object.assign(cloudState, { lastSync: Date.now(), error: errors.join('；'), peers: n });
+    if (errors.length) logLine(`[mesh] 和云端同步有一步失败：${errors.join('；')}`);
     try { require('../agent-worker').refreshMeshHireCap(); } catch { /* 没开出租 */ }
   } catch (e) {
     cloudState.error = e.message;

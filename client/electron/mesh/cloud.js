@@ -17,9 +17,9 @@ class MeshCloud {
 
   get ready() { return !!(this.serverUrl && this.token && this.deviceId); }
 
-  async call(method, path, body) {
+  async call(method, path, body, timeoutMs) {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), this.timeoutMs);
+    const t = setTimeout(() => ctrl.abort(), timeoutMs || this.timeoutMs);
     t.unref?.();
     let res;
     try {
@@ -50,9 +50,10 @@ class MeshCloud {
   }
 
   publishAddress({ endpointId, relayUrl, directAddrs }) {
+    // 云端要回拨验证地址，比别的请求慢一点
     return this.call('POST', '/mesh/address', {
       device_id: this.deviceId, endpoint_id: endpointId, relay_url: relayUrl || '', direct_addrs: directAddrs || [],
-    });
+    }, 20000);
   }
 
   async peers() { return (await this.call('GET', '/mesh/peers')).peers || []; }

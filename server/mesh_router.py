@@ -306,22 +306,30 @@ def _public(ip) -> bool:
 
 
 async def _dial_back(addrs: list[str], endpoint_id: str) -> list[str]:
-    """逐个公网地址连一次 http://<地址>/mesh/ping，回的 endpoint_id 对得上才算「从外面连得到」"""
+    """同时回拨每个公网地址的 http://<地址>/mesh/ping，回的 endpoint_id 对得上才算「从外面连得到」。
+    一台电脑常有好几个公网 IPv6 地址：并发、最多 8 个、每个 2 秒，整体 3 秒内一定返回，不拖慢设备的同步"""
+    import asyncio
     import httpx
-    ok = []
-    async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
-        for a in addrs:
-            hp = _split_addr(a)
-            if not hp or not _public(hp[0]):
-                continue
-            host = f"[{hp[0]}]" if hp[0].version == 6 else str(hp[0])
+    targets = []
+    for a in addrs:
+        hp = _split_addr(a)
+        if hp and _public(hp[0]):
+            targets.append((a, f"[{hp[0]}]" if hp[0].version == 6 else str(hp[0]), hp[1]))
+    targets = targets[:8]
+    if not targets:
+        return []
+    async with httpx.AsyncClient(timeout=2.0, trust_env=False) as client:
+        async def one(a, host, port):
             try:
-                r = await client.get(f"http://{host}:{hp[1]}/mesh/ping")
-                if r.status_code == 200 and str(r.json().get("endpoint_id", "")).lower() == endpoint_id:
-                    ok.append(a)
+                r = await client.get(f"http://{host}:{port}/mesh/ping")
+                return a if r.status_code == 200 and str(r.json().get("endpoint_id", "")).lower() == endpoint_id else None
             except Exception:
-                continue
-    return ok
+                return None
+        try:
+            got = await asyncio.wait_for(asyncio.gather(*(one(*t) for t in targets)), timeout=3.0)
+        except asyncio.TimeoutError:
+            return []
+    return [a for a in got if a]
 
 
 @router.post("/mesh/address")
