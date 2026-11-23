@@ -2,12 +2,33 @@
 
 > ## Your AI needs a manager.
 >
-> **Personal AI hub · Your token manager.** One local gateway for Claude Code, Codex, Cursor, WorkBuddy, Kimi Code and more — see every token, spend less, keep every AI asset in one place, orchestrate agents, and rent out what sits idle.
+> **Personal AI hub · An agent app factory.** One local gateway and one key for models *and* agents: the Claude Code, Codex, Cursor and Kimi Code apps on your machine, the professional agents you set up in Assets, external agents you connect, and agents you hire from the community. See every token, spend less, keep every AI asset in one place, hand problems to the butler, and rent out what sits idle.
 >
-> Open source · Keep your workflow · One-click revert
+> Open source · Keep your workflow · One-click revert · Desktop / CLI / Docker web UI
 
 [Website](https://tokenbank.wink.run) · [Free download](https://github.com/wink-run/tokenbank/releases/latest) · [▶ Watch on YouTube](https://www.youtube.com/watch?v=AYLIdneVEgc) · [中文文档](./README.zh-CN.md) · [Architecture](./DESIGN.md) · [Privacy Policy](./docs/PRIVACY_POLICY.md)
 
+
+---
+
+## 0.7.0: from model gateway to agent app factory
+
+Up to 0.6, Token Bank focused on the **model layer**: onboard your AI apps into a local gateway, swap models, route requests, and see every token.
+
+0.7.0 makes **agents** first-class. The same gateway and the same key now call models *and* dispatch tasks to agents. Above the gateway, the runtime, asset, interface, observability and distribution layers are built too, so with the model layer you get six ready layers and can build your own apps on top without writing a harness, billing or web pages from scratch.
+
+| 0.7.0 | What you get |
+|---|---|
+| **New interface** | Gateway, Models, Assets, Usage and Trade open on the current state; click in to change things |
+| **One API** | One gateway key and one base URL for models and agents; each agent can also get its own key |
+| **External agents** | Agents that run elsewhere, such as Muse or GrokBot, connect with a pairing code; you assign work, they send results back |
+| **The butler** | Hand asset, projection and task problems to the butler: it fixes what it can and only asks you when a decision is yours |
+| **Full desktop in Docker** | Open a browser on your server and get the same gateway, assets, playground and sessions as the desktop app |
+| **Web app & hiring market** | Shared agents get their own web card that anyone can open and hire from; when listing, choose public or specific circles per item |
+
+Also in this release: set the keys a skill needs right in Assets; the Usage page switches by device chips, with the same devices as your profile; the Tools page registers MCP servers, HTTP APIs and local CLIs; Trade is three tabs (buy / sell / earnings) and every listing picks its own scope. **Removed**: the work portrait and model-driven recommendations (the community catalog is now searched and enabled directly), the Trade page's “sharing network” entry, and the butler's scheduled self-review reports — the butler no longer spends tokens on its own.
+
+See the [v0.7.0 release notes](./client/releases/v0.7.0.md).
 
 ---
 
@@ -41,16 +62,18 @@ Community agents run directly on users' existing agent applications (Codex, Clau
 Constructs personal knowledge and tool ecosystems with controlled resource deployment.
 
 **AI-Native Architecture**  
-Abandons traditional hard-coded rules; lets agents dynamically construct core capabilities (asset discovery, personalized recommendations, routing optimization) based on actual scenarios and continuously evolve—building an agent management platform with agents—achieving high flexibility and robustness.
+Abandons traditional hard-coded rules; a built-in **butler** handles projection repair, asset checks (duplicates, risky skills, new versions), install retries and route fallback by rules, using a model only when rules are not enough—managing agents with an agent. It never spends tokens on its own.
 
-**Usage-Based Evolution**  
-The system automatically extracts work portraits from real call records and session patterns, driving personalized recommendations for MCP/Skill/Prompt/Agent and continuous optimization of routing strategies. Multi-device usage aggregation, agent orchestration, and more make Token Bank truly **smarter with you**.
+**Learns from you**  
+Every correction you make becomes a rule the butler follows next time, and agent routing remembers who you send which work to. Multi-device usage aggregation, agent orchestration, and more make Token Bank truly **smarter with you**.
+
+**New in 0.7.0:** the gateway no longer only forwards model calls. The **unified agent API** `/v1/agent` uses the same key to dispatch tasks to four kinds of agents (local apps, professional, external and hired agents), returning synchronously, in the background or as a stream; **agent routes** let a main agent read your rules and pick who to dispatch to; **external agents** register with a pairing code, long-poll for tasks, return results and push messages; the **butler** handles asset, projection and task problems by the rules you taught it, and hired tasks pass a safety check first.
 
 ---
 
 ## Why Token Bank
 
-**Six AI headaches. One hub.**
+**Eight AI headaches. One hub.**
 
 | Sound familiar? | What Token Bank does |
 |---|---|
@@ -60,8 +83,10 @@ The system automatically extracts work portraits from real call records and sess
 | **Skills & MCPs everywhere** — copy-pasted, out of sync | **AI assets in one place**: MCP / Skill / Prompt / Agent in one library, projected to the agents that need them |
 | **Top models out of reach** — rare models and expert agents feel unreachable | **Sharing market**: pay per call in credits to use rare models or hire expert agents |
 | **Idle capacity wasted** — unused subscriptions, local models gathering dust | **Earn from idle**: rent out models and agents for credits — API keys, Skills and configs never leave your machine |
+| **Agents live in silos** — putting one into your product means writing a harness, API and billing | **Unified agent API**: one key for models and agents, change `harness_id` to change agent; list it and get a web card |
+| **You debug everything yourself** — missing skills, broken projections, tasks that won't run | **The butler**: fixes what it can, asks only when the call is yours, and remembers every correction |
 
-**Token Bank is your personal AI hub — your AI's manager.** Plug Claude Code, Codex, Cursor, WorkBuddy, Kimi Code and more into one local gateway without changing how you work: **see clearly, spend less, stay simple**, keep your AI assets in order and let them **get smarter with you**, orchestrate a team of agents from one sentence, and **earn from idle** by renting out what you don't use.
+**Token Bank is your personal AI hub — and an agent app factory.** Plug Claude Code, Codex, Cursor, WorkBuddy, Kimi Code and more into one local gateway without changing how you work: **see clearly, spend less, stay simple**, keep your AI assets in order and let them **get smarter with you**, call models and agents with one key, orchestrate a team of agents from one sentence, and **earn from idle** by renting out what you don't use.
 
 **Five pillars:**
 
@@ -69,9 +94,9 @@ The system automatically extracts work portraits from real call records and sess
 |---|---|
 | **See clearly** | One-click onboard; full trace; multi-device analytics; subscriptions vs PAYG side by side |
 | **Spend less** | Seamless model swap; smart local-first + task-type routing; scene strategies; optional lossless compression |
-| **Stay simple** | One-click onboard/restore; all AI assets in one library, projected to every agent; multi-account CLI by directory; tray status; one local address |
-| **Get smarter with you** | Work portrait; personalized MCP / Skill / Prompt / Agent discover · accumulate · iterate |
-| **Earn from idle** | Rent out idle models and agents for credits (keys and Skills stay local); rent rare models or hire expert agents per call; circles & network map |
+| **Stay simple** | One-click onboard/restore; all AI assets in one library, projected to every agent; one key for models and agents; problems handed to the butler; multi-account CLI by directory; tray status; one local address |
+| **Get smarter with you** | The butler remembers the rules you teach it — correct it once and it won't repeat the mistake; dispatch preferences sharpen with use; duplicate, risky or outdated assets are flagged automatically |
+| **Earn from idle** | Rent out idle models and agents for credits (keys and Skills stay local); rent rare models or hire expert agents per call; each listing public or for chosen circles |
 
 ---
 
@@ -89,6 +114,9 @@ The system automatically extracts work portraits from real call records and sess
 │  · Anthropic Messages / OpenAI Chat / Codex Responses adapters  │
 │  · keyScene rewrite · scene/task-type routing · compression     │
 │  · Built-in MCP relay (prompts / models / resources / bridge)   │
+│  Agent API  :11430/v1/agent  (0.7.0)                            │
+│  · local apps / professional / external / hired · agent routes  │
+│  · shared gateway key · per-agent keys · sync / background / SSE │
 └───────────────┬─────────────────────────────┬───────────────────┘
                 │ local keys stay on device     │ login + relay key
                 ▼                             ▼
@@ -108,6 +136,72 @@ The system automatically extracts work portraits from real call records and sess
 | **Routing** | Unified “route = selector chain”: personal/community/free/paid filters + task-type presets (`design` / `repo-qa` / `chore` / `debug`) |
 | **Resource projection** | Skill / Prompt / MCP only onto **hosted and installed** targets; apps without stdio use the built-in MCP relay |
 | **Telemetry** | Live gateway logs + local session import (Claude / Codex / Cursor / WorkBuddy Trace, …) with auto-dedupe |
+| **Agent API** | `/v1/agent/responses` dispatches tasks; `harness_id` picks an agent or an agent route; external agents use `/v1/agent/external/*` to register, pull and return |
+| **Butler** | Watches asset, projection, gateway and task events, acts by rules (undoable), and turns corrections into rules |
+
+### Six ready layers
+
+A model gateway only covers the bottom layer. Token Bank builds every layer from execution to distribution, so you only work on the top:
+
+| Layer | Includes | What you get |
+|---|---|---|
+| **Distribution** | Listing, market, circles | List it and get a web app; serve with or without a public IP |
+| **Observability** | Trace, usage, devices | Every call traceable, rolled up across devices |
+| **Interface** | Agent tasks + three model protocols | Change `harness_id` to change agent; the three model protocols interoperate |
+| **Assets** | Skills, MCP, prompts, agent templates | Composed into agents, projected to runtimes |
+| **Runtimes** | Every agent runtime | Installed Claude Code, Codex, Cursor, Kimi Code and others become execution engines |
+| **Models** | Every provider + scene routing | Local, free, subscription, PAYG, community, with fallback |
+
+---
+
+## Agent gateway: one key for models and agents (0.7.0)
+
+The Gateway page is split into **general, professional and external agents** plus **routes**. Every agent can be tried in the Playground and called from the API.
+
+| Agent | What it is | Where it runs |
+|---|---|---|
+| **General** | Local apps such as Claude Code, Codex, Cursor, Kimi Code, Pi | Your machine |
+| **Professional** | Agent templates from Assets (prompt + skills + model) projected onto an app | The app it is projected to; pick a default when projected to several |
+| **External** | Agents that run elsewhere, such as Muse or GrokBot, connected with a pairing code | Their own side; results come back to you |
+| **Hired** | Agents hired from the community | The owner's device; you only receive results |
+
+- **Agent routes**: a main agent reads your rules and picks one agent from the list; external, professional and local agents can all be on it. The Playground's “Agent routing” uses this
+- **Keys**: models and agents share the gateway key, and app keys work too; each agent can also get its own key that only calls that agent, regenerated anytime
+- **Three ways to get results**: wait for completion; add `background` to get a task id now and poll later; add `stream` for server-sent events
+
+```bash
+# List agents you can dispatch to (returns harness_id)
+curl http://localhost:11430/v1/agent/harnesses -H "Authorization: Bearer $TB_KEY"
+
+# Dispatch a task to an agent (or an agent route) and wait
+curl http://localhost:11430/v1/agent/responses \
+  -H "Authorization: Bearer $TB_KEY" -H "Content-Type: application/json" \
+  -d '{"input":"Turn this week'"'"'s commits into a weekly report","metadata":{"harness_id":"<harness_id>"}}'
+
+# Background: get an id now, poll later, cancel if needed
+curl http://localhost:11430/v1/agent/responses -H "Authorization: Bearer $TB_KEY" \
+  -H "Content-Type: application/json" -d '{"input":"…","metadata":{"harness_id":"<harness_id>"},"background":true}'
+curl http://localhost:11430/v1/agent/responses/<id> -H "Authorization: Bearer $TB_KEY"
+curl -X POST http://localhost:11430/v1/agent/responses/<id>/cancel -H "Authorization: Bearer $TB_KEY"
+```
+
+### Connecting an external agent
+
+1. On Gateway → External agents, click **Connect external agent** to create a pairing code
+2. The agent registers with the code (following the self-updating `tokenbank-connect` skill) and you click **Allow**
+3. It pulls tasks (`/v1/agent/external/tasks`), returns results, and can push messages that appear in your current conversation
+4. Disabling or removing it takes effect immediately; it only counts as offline after two missed heartbeats
+
+### The butler
+
+Hand problems with assets, projections or tasks to the butler:
+
+- Click **Look** on a problem in Assets and the issue goes straight into the butler chat, where it uses the same actions as the Assets page
+- It follows the rules you taught it first; correct it once and the rule sticks
+- It keeps watch on its own: repairs broken projections, flags duplicate / risky / outdated assets, retries failed installs by cause, and tells you when a key is invalid, a quota is used up or an app is logged out
+- It only interrupts you when a decision is yours; it never spends tokens or community credits on its own
+- Hired tasks pass a safety check first; loosening the review needs your own confirmation
+- Replies can include tables, lists and charts
 
 ---
 
@@ -211,7 +305,7 @@ Desktop, CLI, and server gateways each register as a device — **usage is repor
 |---|---|
 | **Device registration** | Each machine gets a persistent device_id; 60s heartbeat tracks online status |
 | **Inventory snapshots** | Reports calls, tokens, cost, local / community sharing mix, top models/apps for 1 / 7 / 30 day windows |
-| **Cloud merge** | **Profile** and **Dashboard** show per-device share, online status, detail vs aggregate views |
+| **Cloud merge** | **Profile** and **Dashboard** show per-device share, online status, detail vs aggregate views; the Dashboard switches devices with chips and marks this machine on its own chip |
 | **Cross-device sync** | Subscriptions, PAYG config, and tool lists sync on login — no re-setup when switching machines |
 
 ### Unified subscription management
@@ -262,26 +356,29 @@ Run multiple logins of the same CLI (Claude Code / Codex). The gateway picks the
 
 ### Agent orchestration (Playground)
 
-**Debug / Playground** is more than a single-model chat:
+**Debug / Playground** is more than a single-model chat. “Talk to” on the left follows the Gateway grouping: model chat, agent routing, general / professional / external agents and hired agents:
 
-- Set a **main agent** as the aggregation entry for natural-language tasks (**image input** supported)
+- Pick **Agent routing** and a main agent takes natural-language tasks (**image input** supported) and dispatches them by your rules
 - The main agent can plan steps and dispatch to other onboarded agents (including Kimi / Cursor runtimes)
 - **Community agents**: hire on demand from the Trade page; tasks run on **their device**, without downloading their source — lower risk than running unknown agents locally
 - Built-in `tokenbank-agent-bridge` MCP: `tb_list_agents` / `tb_dispatch_agent` for orchestration
 - Chunked conversation stream, visible tool calls, stop then continue
 - Agent visibility is gated by **runtime projection + hosted install** — only projected, available agents appear
+- External agents show “waiting to be picked up / picked up”, and messages they push land in the current conversation in time order
 
 ### AI assets in one place: MCP · Skill · Prompt · Agent
 
-Skills in one folder, MCP configs in three, prompts in a text file you can't find — the **Assets** tab gathers community picks and your own assets into one ordered library, and **projects** them to every agent instead of copying them around. Edit once, and every managed agent gets the same version.
+Skills in one folder, MCP configs in three, prompts in a text file you can't find — the **Assets** tab gathers the community catalog and your own assets into one ordered library, and **projects** them to every agent instead of copying them around. Edit once, and every managed agent gets the same version.
 
 | Type | Capability |
 |---|---|
-| **Community catalog** | Sync recommended MCP / Skill / Prompt / Agent lists on login (cache-first, built-in offline fallback) |
+| **Community catalog** | Search and filter community MCP / Skill / Prompt / Agent under **Add**, enable in one click (cache-first, built-in offline fallback) |
+| **Tools** | Register MCP servers, HTTP APIs and local CLI tools; agents can call the tools projected to them |
 | **Projection** | Project only onto **hosted and installed** targets; revoke anytime; cascade deps on onboard |
 | **Built-in MCP relay** | For apps without stdio: pick app → bind prompts/models/resources → copy relay config |
 | **Prompt MCP** | Prompts served via `tokenbank-prompts` (`tb_get_prompt` / `tb_list_prompts`) filtered by projection set |
-| **Work-portrait posters** | Dashboard can export four poster styles (pro / cute / humor / minimal) |
+| **Keys a skill needs** | Finds the variables a skill needs (declared in SKILL.md, or mentioned in its docs and scripts) and lets you fill them in; values stay on this machine and never ship with the skill; injected into tasks, written to a `.env` in the skill folder readable only by you, and optionally loaded from your shell profile |
+| **Problems first** | Problem assets sort to the top; agent templates show where they are projected and which skills are missing; click **Look** to hand a problem to the butler |
 
 ---
 
@@ -319,9 +416,10 @@ Community sharing (spend credits on shared compute)
 
 ### 4 — Get smarter with you
 
-- **Work portrait** mined from real calls and habits; reusable across skills, prompts, agents
-- **For You**: personalized MCP / Skill / Prompt / Agent discovery
-- **Accumulate & iterate**: keep assets in your library; reuse portrait to rediscover, or remine; compose when the catalog falls short
+- **Teach once**: the butler follows the rules you taught it; correct it once and it uses the new rule next time
+- **Better dispatch over time**: agent routing remembers your dispatch preferences and sends work to the right agent
+- **Assets stay clean**: duplicate skills, risky skills and assets with new versions are pointed out; broken projections are repaired
+- **Fill the gaps**: when an agent task lacks a skill, the butler finds one you can install from the community catalog
 
 ### 5 — Earn from idle
 
@@ -344,7 +442,9 @@ spend   = ((prompt + completion tokens) / 1000) × consume_rate
 
 Contribute rate > consume rate; plus check-in, wheel, and referrals. Circles share models and credits.
 
-**Hire agents:** On the Trade page, list projected assistants (card/bio only) or hire community agents per use; jobs run on their device without downloading their source; shareable landing pages for tryouts. Launch from Playground or a hosted app.
+**Hire agents:** On the Trade page, list projected assistants (card/bio only) or hire community agents per use; jobs run on their device without downloading their source. Shared agents get their own web card that anyone can open, read and hire from. Hired agents appear under “Talk to” in the Playground.
+
+**Choose the audience per item:** every model and agent you list can be public or limited to specific circles, so some can go to a circle while others stay public. The Sell tab shows how often each item was used and what it earned in the last 7 days, plus the tasks currently running for others.
 
 ---
 
@@ -396,30 +496,32 @@ pm2 start cli/gateway.js -- start
 git clone https://github.com/wink-run/tokenbank.git
 cd tokenbank
 
-# 首次部署
+# First deployment
 ./deploy.sh gateway
 
-# 或使用传统命令
+# Or with plain Compose
 docker compose up -d gateway
 ```
+
+**Since 0.7.0 the Docker build is the full desktop app in a browser**: open `:11431` and you get the same Gateway, Models, Assets, Trade, Usage, Playground and Sessions, usable on a phone too. Install CLI agents (Claude Code, Codex, Kimi Code…) into the container from the Gateway's app toolbox, log in once with something like `docker exec -it -u node <container> claude` (the login is kept in `/data`), and mount your project at `/workspace`, where agents work by default. Skills, MCP, HTTP APIs and local commands are all configurable in the container, and external agents can register to take tasks.
 
 The `gateway-data/` volume is mounted automatically; **`local-config.json` is created on first start**. Configure routes and apps in the Web UI on `:11431`. See [`gateway-data/README.md`](./gateway-data/README.md).
 
 | Port | Purpose |
 |---|---|
-| `11430` | LLM requests (`OPENAI_BASE_URL=http://host:11430/v1`) |
+| `11430` | Model requests (`OPENAI_BASE_URL=http://host:11430/v1`); agent API at `http://host:11430/v1/agent` |
 | `11431` | Web management UI |
 
-**独立部署：** 支持分别部署和更新服务端/Gateway，详见 [DEPLOY.md](./DEPLOY.md)。
+**Separate deployment:** the server and the gateway can be deployed and updated independently; see [DEPLOY.md](./DEPLOY.md).
 
 ```bash
-# 首次部署服务端
+# First server deployment
 ./deploy.sh server --https --with-deps
 
-# 更新服务端（不重启数据库）
+# Update the server (database keeps running)
 ./deploy.sh server
 
-# 更新Gateway（不影响服务端）
+# Update the gateway (server unaffected)
 ./deploy.sh gateway
 ```
 
@@ -433,9 +535,17 @@ Every AI app in one list with today's requests, tokens and last use; bind each a
 
 ![Gateway · apps & routes](server/static/screenshots/gateway-apps.webp)
 
+### Gateway · specialist and external agents (0.7.0)
+
+Agent templates from Assets run on your installed apps and can each be called through the API by `harness_id`; agents running elsewhere join with a pairing code, and once you allow them they pull tasks and send results back.
+
+![Gateway · specialist agents](server/static/screenshots/agents-pro.webp)
+
+![Gateway · external agents](server/static/screenshots/agents-external.webp)
+
 ### Sessions · unified cross-app trace
 
-Filter by Claude Desktop / Cursor / Kimi Code / Codex, inspect tokens and cost, hand off or export.
+Click an app's usage in the gateway list to open its details: data sources, per-model stats and session history, with a Trace for every session.
 
 ![Gateway · sessions](server/static/screenshots/gateway-sessions.webp)
 
@@ -453,11 +563,9 @@ Speed-test personal models with status lights; spend credits on community-shared
 
 ### Assets · Agents / Skills / Prompts
 
-Prompts, skills, agents and MCP tools managed in one place and projected onto runtime CLIs in one click; **Discover** mines a work portrait from your sessions for “For you” picks and community favorites.
+Prompts, skills, agents and MCP tools managed in one place and projected onto runtime CLIs in one click; problems sort to the top and **Look** hands them to the butler; the community catalog lives under **Add**.
 
 ![Assets · all](server/static/screenshots/assets-agents.webp)
-
-![Assets · For You & portrait](server/static/screenshots/assets-for-you.webp)
 
 ### Playground · agent orchestration
 
@@ -483,11 +591,9 @@ Hire community or circle-only agents per task with credits (jobs run on the owne
 
 ![Trade](server/static/screenshots/contribute.webp)
 
-### Community network · node map
+The earnings tab: earned, spent and balance on one card, with each recent settlement showing which listing it came from.
 
-Under **Trade → Network**: online nodes, available models and agents, geographic distribution, and a supply leaderboard.
-
-![Community network](server/static/screenshots/network.webp)
+![Trade · earnings](server/static/screenshots/contribute-earnings.webp)
 
 ### Tray · always-on glance
 
@@ -497,12 +603,13 @@ Gateway status, token up/down, per-app route / TTFT / today’s usage; open the 
 
 | Page | What you can do |
 |---|---|
-| **Usage** | Multi-dimensional stats: app share, **local / community sharing** mix, cost estimates; **work-portrait posters** |
-| **Gateway** | **One-click onboarding** (WorkBuddy / Trae / …) + **multi-account CLI**; session Trace; scene / task-type routes |
-| **Playground** | **Agent orchestration** (community agents, image input); tool streams, stop/resume |
-| **Assets** | Community **MCP / Skill / Prompt / Agent** catalog; projection gating; **built-in MCP relay**; portrait recommendations |
+| **Usage** | Multi-dimensional stats: app share, **local / community sharing** mix, cost estimates; **device chips**, all devices in one view |
+| **Gateway** | General / professional / external agents + routes (model routes, agent routes); **one-click onboarding** (WorkBuddy / Trae / …) + **multi-account CLI**; per-agent API samples and keys; session Trace |
+| **Playground** | “Talk to”: model chat, agent routing, every kind of agent; **agent orchestration** (external / community agents, image input); tool streams, stop/resume |
+| **Butler** | Hands-off fixes for asset, projection and task problems; rule-driven and learns from corrections; replies with tables and charts |
+| **Assets** | Community **MCP / Skill / Prompt / Agent** catalog; projection gating; **built-in MCP relay**; keys a skill needs; problems first |
 | **Models** | **Local sources** and **community sharing**; modalities (text/vision/image/embedding); speed tests & dynamic catalog |
-| **Trade (incl. Circles) / Network** | **Hire agents** · list supply · circles as trade scope / community network map (also usable on the web) |
+| **Trade (incl. Circles)** | Buy / sell / earnings: **hire agents** · rent models · each listing public or for chosen circles · 7-day earnings (also usable on the web) |
 | **Config** | Gateway port, timeout, concurrency · lossless compression · cloud account & relay key |
 
 ---
@@ -525,6 +632,13 @@ curl http://localhost:11430/v1/chat/completions \
   -H "Authorization: Bearer your-local-key" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}],"stream":true}'
+```
+
+```bash
+# Agent API (0.7.0): same key, dispatch to an agent or an agent route
+curl http://localhost:11430/v1/agent/responses \
+  -H "Authorization: Bearer your-local-key" -H "Content-Type: application/json" \
+  -d '{"input":"Find out why this repo'"'"'s tests fail","metadata":{"harness_id":"<harness_id>"}}'
 ```
 
 > Prefer **Gateway → Track** for one-click onboarding — no manual env vars. Pick a route and the agent keeps its native model names while the gateway transparently forwards to your chosen provider. The app settings panel also lists bound resources and MCP for tryout.

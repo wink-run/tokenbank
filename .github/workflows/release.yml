@@ -269,8 +269,14 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          # changelog 在前，下载/Docker 说明在后
-          cp client/release-notes.md release-body.md
+          # 有手写摘要就用摘要（面向用户）；否则退回按提交生成的 changelog
+          HIGHLIGHT="client/releases/${TAG}.md"
+          if [ -f "$HIGHLIGHT" ]; then
+            cp "$HIGHLIGHT" release-body.md
+            printf '\n' >> release-body.md
+          else
+            cp client/release-notes.md release-body.md
+          fi
           cat >> release-body.md <<EOF
 
           ## 下载

@@ -127,7 +127,10 @@ function recordPush(agentId, taskId, res, now = Date.now()) {
 function read() {
   try {
     const d = JSON.parse(fs.readFileSync(file(), 'utf8'));
-    return { pairing: d.pairing || null, agents: Array.isArray(d.agents) ? d.agents : [], removed: Array.isArray(d.removed) ? d.removed : [] };
+    const out = { pairing: d.pairing || null, agents: Array.isArray(d.agents) ? d.agents : [], removed: Array.isArray(d.removed) ? d.removed : [] };
+    // 拉取频率写在文件顶层，读的时候要带上，否则设完再读仍是默认 3 分钟
+    if (d.pullIntervalSec != null) out.pullIntervalSec = d.pullIntervalSec;
+    return out;
   } catch { return { pairing: null, agents: [], removed: [] }; }
 }
 

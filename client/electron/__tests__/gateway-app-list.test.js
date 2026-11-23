@@ -89,8 +89,9 @@ test("agents projected onto an app that can't run are listed with the reason", (
     assert.equal(byId['a-lost'].reason, 'skills');
     assert.deepEqual(byId['a-lost'].missing, ['sql-check']);
     assert.equal(byId['a-lost'].runtimeAgentId, 'codex');
-    // 投射的应用没装，但还有别的能跑的命令行：会换到那个上面跑，不算跑不起来
-    assert.equal(byId['a-noapp'], undefined);
+    // 只投射到现在跑不了的应用：不换到没投射过的命令行，算跑不起来
+    assert.equal(byId['a-noapp'].reason, 'runtime');
+    assert.equal(byId['a-noapp'].runtimeAgentId, 'claude-code');
     executor._launchableCliIds = new Set();
     const none = Object.fromEntries(executor.listBlockedAssistants().map(x => [x.resourceId, x]));
     assert.equal(none['a-noapp'].reason, 'runtime');
