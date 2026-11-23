@@ -62,7 +62,9 @@ async def _ensure() -> None:
             )
         """)
         # 结算、取消、到期抢同一单：谁写进 claim 谁算数
-        await d.execute("ALTER TABLE mesh_hires ADD COLUMN IF NOT EXISTS claim TEXT")
+        from mesh_router import _has_column
+        if not await _has_column(d, "mesh_hires", "claim"):
+            await d.execute("ALTER TABLE mesh_hires ADD COLUMN IF NOT EXISTS claim TEXT")
         await d.commit()
     _tables_ready = True
 

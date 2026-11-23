@@ -68,3 +68,6 @@ docs/
 
 # Docker 网关：智能体工作目录（docker-compose 挂到 /workspace）
 workspace/
+
+# 设备网络：服务端自动生成的签发私钥（Docker 里在 app_data 卷）
+server/data/

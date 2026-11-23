@@ -167,10 +167,17 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   const del = await req(`${SERVER}/device/${encodeURIComponent(bId)}`, 'DELETE', { headers: { authorization: `Bearer ${jwt}` } });
   const gone = await until(async () => !(await devicesOf(A)).data?.find((d) => d.device_id === bId && d.online), 30000);
   check('删除设备后，A 拉到吊销列表就断开 B', del.status === 200 && !!gone && /已被吊销/.test(logOf(A)), (logOf(A).match(/\[mesh\][^\n]*吊销[^\n]*/) || [''])[0]);
-  const rv = await req(`${SERVER}/mesh/revoked-endpoints`, 'GET', { headers: { authorization: 'Bearer relay-secret' } });
-  const rvNo = await req(`${SERVER}/mesh/revoked-endpoints`);
-  check('官方中继拉得到吊销列表（要中继的访问令牌）', rv.status === 200 && (rv.json?.endpoints || []).length > 0 && (rv.json?.issuer_keys || []).length > 0 && rvNo.status === 401,
-    `吊销 ${(rv.json?.endpoints || []).length} 个，不带令牌 HTTP ${rvNo.status}`);
+  if (process.env.MESH_RELAY_ACCESS_TOKEN) {
+    // 独立的 mesh-relay：凭令牌拉吊销列表
+    const rv = await req(`${SERVER}/mesh/revoked-endpoints`, 'GET', { headers: { authorization: `Bearer ${process.env.MESH_RELAY_ACCESS_TOKEN}` } });
+    const rvNo = await req(`${SERVER}/mesh/revoked-endpoints`);
+    check('独立中继拉得到吊销列表（要中继的访问令牌）', rv.status === 200 && (rv.json?.endpoints || []).length > 0 && (rv.json?.issuer_keys || []).length > 0 && rvNo.status === 401,
+      `吊销 ${(rv.json?.endpoints || []).length} 个，不带令牌 HTTP ${rvNo.status}`);
+  } else {
+    // 内置中继：吊销列表在进程里直接拿，不用令牌
+    const h = await req(`${SERVER}/mesh/relay/healthz`);
+    check('后端内置中继开着，有签发公钥', h.json?.enabled === true && h.json?.issuer_keys > 0, JSON.stringify(h.json));
+  }
   const rejected = await until(() => /revoked/.test(logOf(A)) || /被 [0-9a-f]+ 拒绝：revoked/.test(logOf(B)), 30000);
   check('B 再连 A 时被拒（revoked）', !!rejected);
 

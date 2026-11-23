@@ -115,32 +115,41 @@ docker compose up -d
 
 ## 设备网络（证书、地址簿、中继）
 
-用户名下的设备互相直连（`client/electron/mesh/`，WebSocket），云端只负责签设备证书、地址簿和吊销列表（`server/mesh_router.py`）。连不上时先经用户自己的某台设备中继，没有再走 TokenBank 官方中继。设备之间端到端加密，云端和中继都看不到内容。
+用户名下的设备互相直连（`client/electron/mesh/`，WebSocket），云端只负责签设备证书、地址簿、吊销列表和雇佣记账（`server/mesh_router.py`、`server/mesh_hire.py`）。连不上时先经用户自己的某台设备中继，没有再走 TokenBank 官方中继。设备之间端到端加密，云端和中继都看不到内容。
 
-**服务端环境变量**（`.env`）：
+**开箱即用：什么都不用配。** 后端照常部署就带着官方中继（`server/mesh_relay.py`，同一个端口上的 `/mesh/ws`）：
 
-| 变量 | 说明 |
+- 中继地址按请求的域名自动算出（经 nginx 是 `wss://<DOMAIN>/mesh/ws`），随设备证书下发；
+- 签发私钥第一次用时自动生成，存在 `data/mesh_issuer.key`（Docker 里在 `app_data` 卷）；
+- 签发公钥和吊销列表在进程里直接拿，不用令牌；
+- nginx 模板已经把 `/mesh/ws` 转给后端。
+
+**可选的环境变量**（`.env`）：
+
+| 变量 | 什么时候配 |
 |---|---|
-| `MESH_ISSUER_KEY` | 签证书的密钥：32 字节随机数的 hex（`python3 -c "import os;print(os.urandom(32).hex())"`）。多台服务端要配同一把。不配时用 `data/mesh_issuer.key`，第一次用时生成，只适合单实例 |
-| `MESH_ISSUER_OLD_KEYS` | 换钥匙时把旧公钥（`kid:x`，逗号分隔）放这里，旧证书到期前仍能互相校验 |
-| `MESH_RELAY_URLS` | 官方中继地址，逗号分隔：`wss://<DOMAIN>/mesh/ws`。设备领证书时一起拿到；不填就没有官方中继，只能直连或经自己的设备中继 |
-| `MESH_RELAY_ACCESS_TOKEN` | 官方中继拉吊销列表（`/mesh/revoked-endpoints`）时带的令牌，服务端和 `mesh-relay` 用同一个值 |
-| `MESH_DIAL_BACK` | 设备上报地址时，云端回拨它的公网地址验证能不能从外面连到（验证过的设备才会被自动选成中继）。默认开，`0` 关掉 |
+| `MESH_ISSUER_KEY` | 多台后端时配同一把（32 字节随机数的 hex：`python3 -c "import os;print(os.urandom(32).hex())"`）。单实例用自动生成的文件就行。**这是私钥，不要外传**；换掉后设备会在下一次同步时自动重领证书 |
+| `MESH_ISSUER_OLD_KEYS` | 平滑换钥匙：旧公钥（`kid:x`，逗号分隔），旧证书到期前仍认 |
+| `MESH_DIAL_BACK` | 设备上报地址时云端回拨验证公网地址（验证过才会被自动选成中继）。默认开，`0` 关掉 |
+| `MESH_BUILTIN_RELAY` | `0` 关掉内置中继（改用独立的 `mesh-relay`，或者不要官方中继） |
+| `MESH_RELAY_URLS` | 用独立的 `mesh-relay` 时填它的地址（`wss://…/mesh/ws`，逗号分隔）；不填就用内置的 |
+| `MESH_RELAY_ACCESS_TOKEN` | 只有独立的 `mesh-relay` 要：它拉吊销列表（`/mesh/revoked-endpoints`）用的令牌，后端和中继配同一个 |
 
-**官方中继**（可选）：
+**独立的 `mesh-relay`（可选，扩容时用）**：内置中继只适合单个后端进程（`uvicorn` 一个 worker，默认就是）。要多实例或把中继流量和 API 分开时：
 
 ```bash
 docker compose --profile mesh up -d mesh-relay
-docker compose --profile https up -d nginx      # nginx 已把 wss://<DOMAIN>/mesh/ws 转给 mesh-relay
 ```
 
-中继和每个 app 里的中继是同一份代码（`client/electron/mesh/relay-server.js`），每分钟从服务端拉签发公钥和吊销列表；只接持有效设备证书的设备，只在同一账号的设备之间转发。`MESH_RELAY_MAX_PER_USER` 限制每个账号同时连几台（默认 20）。不用 Docker 也能直接跑：
+再配 `MESH_RELAY_URLS`、`MESH_RELAY_ACCESS_TOKEN`，并把 nginx 模板里 `location = /mesh/ws` 的 `proxy_pass` 换成 `http://mesh-relay:8790`。它和每个 app 里的中继是同一份代码（`client/electron/mesh/relay-server.js`），也能不用 Docker 直接跑：
 
 ```bash
 PORT=8790 MESH_REVOCATIONS_URL=https://<DOMAIN>/mesh/revoked-endpoints MESH_RELAY_ACCESS_TOKEN=<令牌> node client/electron/mesh/relay-server.js
 ```
 
-雇佣社区智能体也经官方中继走设备通道（凭云端签的雇佣票跨账号转发，端到端加密）；没部署官方中继时，雇佣照旧走云端转发。
+检查中继：`curl https://<DOMAIN>/mesh/relay/healthz`（内置），应该看到 `"enabled": true` 和 `"issuer_keys": 1`。
+
+雇佣社区智能体也经官方中继走设备通道（凭云端签的雇佣票跨账号转发，端到端加密）；出租方没开设备网络时照旧走云端转发。
 
 设备自己当中继：设备入口默认监听 41750 端口（TCP）。有公网 IP 或做了端口映射的设备，云端回拨验证通过后会被自动选成中继；也可以在 app 的「本机设置」里手动指定。
 

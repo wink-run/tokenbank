@@ -5,9 +5,10 @@
 // 检查：A 雇 R 时走设备通道（端到端加密，官方中继只看到密文），云端只签票、记账；
 //       出租方关掉设备网络后，照旧走云端转发。
 //
-// 服务端要配上这个演示的官方中继地址（端口固定 18790）：
-//   MESH_RELAY_URLS=ws://127.0.0.1:18790/mesh/ws MESH_RELAY_ACCESS_TOKEN=relay-secret uvicorn server:app --port 18000
-//   MESH_CLOUD_SERVER=http://127.0.0.1:18000 node scripts/mesh-hire-demo.js
+// 默认用服务端内置的官方中继（/mesh/ws），服务端什么都不用配。要检查中继只看到密文，服务端和演示用同一个转发记录文件：
+//   MESH_RELAY_DUMP=/tmp/relay.dump uvicorn server:app --port 18000
+//   MESH_RELAY_DUMP=/tmp/relay.dump MESH_CLOUD_SERVER=http://127.0.0.1:18000 node scripts/mesh-hire-demo.js
+// 测独立的 mesh-relay：MESH_HIRE_RELAY=standalone，服务端另配 MESH_RELAY_URLS=ws://127.0.0.1:18790/mesh/ws MESH_RELAY_ACCESS_TOKEN=relay-secret
 'use strict';
 
 const { spawn } = require('child_process');
@@ -133,12 +134,15 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   console.log(`服务端：${SERVER}\n临时目录：${ROOT}\n`);
   if ((await req(`${SERVER}/docs`)).status !== 200) { console.error('连不上服务端'); process.exit(2); }
 
-  const dump = path.join(ROOT, 'official-relay.dump');
-  const relay = await startRelayServer({
+  const standalone = process.env.MESH_HIRE_RELAY === 'standalone';
+  const dump = standalone ? path.join(ROOT, 'official-relay.dump') : (process.env.MESH_RELAY_DUMP || '');
+  if (dump && !standalone) { try { fs.writeFileSync(dump, ''); } catch { /* 服务端会建 */ } }
+  const relay = standalone ? await startRelayServer({
     port: RELAY_PORT, host: '127.0.0.1', dumpFile: dump, log: () => {},
     revocationsUrl: `${SERVER}/mesh/revoked-endpoints`, accessToken: process.env.MESH_RELAY_ACCESS_TOKEN || 'relay-secret',
-  });
-  await until(() => relay.hub.opts.issuerKeys().length, 10000, 200);
+  }) : null;
+  if (relay) await until(() => relay.hub.opts.issuerKeys().length, 10000, 200);
+  const RELAY_URL = standalone ? `ws://127.0.0.1:${RELAY_PORT}/mesh/ws` : `${SERVER.replace(/^http/, 'ws')}/mesh/ws`;
 
   console.log('[1] 两个账号各一台设备入网，出租方开着出租');
   const H = await account('hirer');
@@ -153,7 +157,7 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   const A = device({ label: 'A', home: path.join(ROOT, 'homeA'), port: pa, jwt: H.jwt, name: 'laptop' });
   const certs = await until(() => A.meshConfig().cert && R.meshConfig().cert, 60000);
   check('两台都领到设备证书（各自账号的第一台）', !!certs);
-  check('官方中继地址随证书下发', (A.meshConfig().relay_urls || []).includes(`ws://127.0.0.1:${RELAY_PORT}/mesh/ws`), JSON.stringify(A.meshConfig().relay_urls));
+  check(standalone ? '独立中继地址随证书下发' : '没配任何中继，证书里带着服务端内置中继的地址', (A.meshConfig().relay_urls || []).includes(RELAY_URL), JSON.stringify(A.meshConfig().relay_urls));
   const capOn = await until(() => /register caps=agents,mesh_hire/.test(logOf(R)), 60000);
   check('出租方上报「能接设备通道的雇佣」', !!capOn, (logOf(R).match(/\[agent\] register caps=[^\n]*/g) || []).pop());
   const bal0 = [await balance(H), await balance(W)];
@@ -166,8 +170,10 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   check('A 雇 R 的 Claude Code，拿到结果', !hired.isError && hired.text.includes(`出租方收到：${secret}`), hired.text.slice(0, 160));
   const tid = (logOf(R).match(/接到雇佣 (at-[0-9a-f]+)（app:claude-code，经设备通道）/) || [])[1];
   check('出租方是经设备通道接到的（不是 /ws/worker）', !!tid, tid);
-  const seen = fs.existsSync(dump) ? fs.readFileSync(dump, 'utf8') : '';
-  check('官方中继只看到密文：转发记录里没有提示词和结果', seen.length > 0 && !seen.includes(secret) && !seen.includes('出租方收到'), `转发记录 ${seen.length} 字节`);
+  if (dump) {
+    const seen = fs.existsSync(dump) ? fs.readFileSync(dump, 'utf8') : '';
+    check('官方中继只看到密文：转发记录里没有提示词和结果', seen.length > 0 && !seen.includes(secret) && !seen.includes('出租方收到'), `转发记录 ${seen.length} 字节`);
+  } else console.log('  · 没设 MESH_RELAY_DUMP，跳过「中继只看到密文」');
   const st = await req(`${SERVER}/mesh/hire/${tid}`, 'GET', { headers: { authorization: `Bearer ${H.jwt}` } });
   check('云端记账：这一单已结算', st.json?.status === 'completed', JSON.stringify(st.json));
   const bal1 = [await balance(H), await balance(W)];
@@ -207,6 +213,6 @@ process.on('SIGINT', () => { cleanup(); process.exit(130); });
   const passed = results.filter((r) => r.ok).length;
   console.log(`\n结果：${passed}/${results.length} 通过。日志：${ROOT}/A.log、${ROOT}/R.log`);
   cleanup();
-  await relay.close();
+  await relay?.close();
   process.exit(passed === results.length ? 0 : 1);
 })().catch((e) => { console.error(e); cleanup(); process.exit(1); });

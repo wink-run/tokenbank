@@ -34,6 +34,13 @@ def issuer() -> mesh_cert.Issuer:
     return _issuer
 
 
+async def _has_column(db, table: str, column: str) -> bool:
+    async with db.execute(
+        "SELECT 1 FROM information_schema.columns WHERE table_name=? AND column_name=?", (table, column)
+    ) as cur:
+        return bool(await cur.fetchone())
+
+
 async def ensure_tables() -> None:
     global _tables_ready
     if _tables_ready:
@@ -51,7 +58,9 @@ async def ensure_tables() -> None:
             )
         """)
         # 云端回拨验证过、从外面真的连得到的地址（能当中继的前提）
-        await db.execute("ALTER TABLE mesh_endpoints ADD COLUMN IF NOT EXISTS verified_addrs TEXT")
+        # 列已经有了就不再 ALTER：ALTER 要拿排他锁，表正被别的会话用着时会一直等，把整个设备网络卡住
+        if not await _has_column(db, "mesh_endpoints", "verified_addrs"):
+            await db.execute("ALTER TABLE mesh_endpoints ADD COLUMN IF NOT EXISTS verified_addrs TEXT")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_mesh_endpoints_user ON mesh_endpoints(user_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_mesh_endpoints_endpoint ON mesh_endpoints(endpoint_id)")
         await db.execute("""
@@ -129,7 +138,7 @@ class CertRequest(BaseModel):
 
 
 @router.post("/mesh/cert")
-async def request_cert(req: CertRequest, uid: int = Depends(get_current_user_id)):
+async def request_cert(req: CertRequest, request: Request, uid: int = Depends(get_current_user_id)):
     """登录后的设备来领证书。设备要先注册（/device/register）。换了密钥（重装）时旧的那把自动吊销"""
     await ensure_tables()
     device_id = req.device_id.strip()
@@ -174,7 +183,7 @@ async def request_cert(req: CertRequest, uid: int = Depends(get_current_user_id)
         "expires_at": exp,
         "user_id": str(uid),
         "issuer_keys": mesh_cert.issuer_keys(iss),
-        "relay_urls": mesh_cert.relay_urls(),
+        "relay_urls": _relay_urls_for(request),
     }
 
 
@@ -271,6 +280,18 @@ async def decide(req: DecisionRequest, uid: int = Depends(get_current_user_id)):
             await db.execute("DELETE FROM mesh_approvals WHERE device_id=? AND user_id=?", (req.device_id, uid))
         await db.commit()
     return {"ok": True, "device_id": req.device_id, "approved": req.approve}
+
+
+def _relay_urls_for(request: Request) -> list[str]:
+    """配了 MESH_RELAY_URLS 用配的；没配就用后端内置的中继（按这次请求的域名算地址），开箱即用"""
+    configured = mesh_cert.relay_urls()
+    if configured:
+        return configured
+    import mesh_relay
+    if not mesh_relay.enabled():
+        return []
+    url = mesh_relay.own_relay_url(request)
+    return [url] if url else []
 
 
 # ── 地址簿 ────────────────────────────────────────────────────────────────────

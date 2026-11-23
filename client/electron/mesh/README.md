@@ -15,7 +15,7 @@ cd client
 npm install
 node scripts/mesh-demo.js            # 一台电脑上模拟三台设备 + 官方中继，跑完整流程，约 2 分钟（手写证书，不连云端）
 MESH_CLOUD_SERVER=http://127.0.0.1:18000 node scripts/mesh-cloud-demo.js   # 云端模式：要本机跑着的服务端
-MESH_CLOUD_SERVER=http://127.0.0.1:18000 node scripts/mesh-hire-demo.js    # 雇佣走设备通道：服务端要配 MESH_RELAY_URLS=ws://127.0.0.1:18790/mesh/ws
+MESH_CLOUD_SERVER=http://127.0.0.1:18000 node scripts/mesh-hire-demo.js    # 雇佣走设备通道（用后端内置的中继，服务端不用配）
 node --test electron/__tests__/mesh-*.test.js
 ```
 
@@ -95,7 +95,7 @@ A 和 B 不写对端地址，靠局域网广播找到对方后直连；C 经 B �
 | `keys.js` | 设备密钥（Ed25519）、端到端会话（X25519 + HKDF + AES-GCM） |
 | `identity.js` | 设备证书签发、校验和准入 |
 | `relay.js` | 中继：接入校验、按 to 转发、在线设备列表、转发统计 |
-| `relay-server.js` | 官方中继：`relay.js` 加一个 HTTP 服务，定时拉吊销列表 |
+| `relay-server.js` | 独立的官方中继：`relay.js` 加一个 HTTP 服务，定时拉吊销列表（扩容时用；默认用后端内置的 `server/mesh_relay.py`，协议一样） |
 | `hire.js` | 雇佣：凭雇佣票和别的账号的设备握手、收发 `agent_task` 系列消息 |
 | `node.js` | 节点：入口、直连、选中继、握手、presence、`proxy()` |
 | `tunnel.js` | 接收端：校验路径白名单、换鉴权头，转给本机网关 |

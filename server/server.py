@@ -35,6 +35,7 @@ from catalog import TIERS, catalog_public_payload
 from device_router import router as device_router
 from mesh_router import router as mesh_router
 from mesh_hire import router as mesh_hire_router
+from mesh_relay import router as mesh_relay_router
 from auth import get_current_user_id
 from api_errors import DispatchError, openai_error_response
 from dispatch import handle_chat
@@ -219,6 +220,7 @@ app.include_router(studio_admin_router, prefix="/admin")   # 社区圈 预定义
                                                     # PUT/DELETE /api/config/tools|routes (admin)
 app.include_router(tools_router, tags=["tools"])           # 工具合集站（消费端）
 app.include_router(device_router, tags=["device"])
+app.include_router(mesh_relay_router, tags=["mesh"])    # 内置官方中继：/mesh/ws
 app.include_router(mesh_hire_router, tags=["mesh"])     # 雇佣走设备通道：签雇佣票、结算
 app.include_router(mesh_router, tags=["mesh"])            # 设备网络：证书、地址簿、吊销、中继放行
 

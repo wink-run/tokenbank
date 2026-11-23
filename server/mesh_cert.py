@@ -173,6 +173,34 @@ def verify_cert(token: str, keys: list[dict], now: int | None = None) -> dict | 
     return claims
 
 
+def verify_hire_ticket(token: str, keys: list[dict], now: int | None = None) -> dict | None:
+    """校验雇佣票：签名、类型、没过期、字段齐。规则和 identity.js 的 verifyHireTicket 一致"""
+    parts = str(token or "").split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        header = json.loads(from_b64url(parts[0]))
+        claims = json.loads(from_b64url(parts[1]))
+    except (ValueError, json.JSONDecodeError):
+        return None
+    if header.get("alg") != "EdDSA" or header.get("typ") != HIRE_TYP or claims.get("typ") != HIRE_TYP:
+        return None
+    key = next((k for k in keys or [] if k.get("kid") == header.get("kid")), None)
+    if not key:
+        return None
+    try:
+        Ed25519PublicKey.from_public_bytes(from_b64url(key["x"])).verify(
+            from_b64url(parts[2]), f"{parts[0]}.{parts[1]}".encode("ascii"))
+    except Exception:
+        return None
+    now = int(time.time()) if now is None else int(now)
+    if not isinstance(claims.get("exp"), int) or claims["exp"] < now - 300:
+        return None
+    if not all(claims.get(k) for k in ("tid", "aid", "sub", "hd", "he", "wu", "wd", "we")):
+        return None
+    return claims
+
+
 def relay_urls(env: dict | None = None) -> list[str]:
     """TokenBank 官方中继地址（MESH_RELAY_URLS，逗号分隔，如 wss://relay.example.com/mesh/ws）"""
     env = os.environ if env is None else env

@@ -36,7 +36,7 @@ cd ../server && python -m pytest -q test_mesh_cert.py test_mesh_dialback.py
 MESH_CLOUD_SERVER=http://127.0.0.1:8000 node scripts/mesh-cloud-demo.js
 ```
 
-雇佣走设备通道（同一个测试服务端，启动时加 `MESH_RELAY_URLS=ws://127.0.0.1:18790/mesh/ws MESH_RELAY_ACCESS_TOKEN=relay-secret`）：
+雇佣走设备通道（同一个测试服务端，不用另配；想检查中继只看到密文，服务端和演示都加同一个 `MESH_RELAY_DUMP=<文件>`）：
 
 ```bash
 MESH_CLOUD_SERVER=http://127.0.0.1:8000 node scripts/mesh-hire-demo.js
@@ -50,13 +50,13 @@ MESH_CLOUD_SERVER=http://127.0.0.1:8000 node scripts/mesh-hire-demo.js
 
 ## 二、准备两台真机
 
-**服务端**（测试环境，`.env` 加上）：
+**服务端**：照常部署就行，设备网络和官方中继开箱即用（后端内置 `/mesh/ws`，中继地址按域名自动下发）。部署后检查：
 
-| 变量 | 值 |
-|---|---|
-| `MESH_ISSUER_KEY` | `python3 -c "import os;print(os.urandom(32).hex())"` 生成，多实例用同一个 |
-| `MESH_RELAY_URLS` | `wss://<域名>/mesh/ws`（部署了官方中继时，见第八节）；先不填也行，只测直连和经自己的设备中继 |
-| `MESH_RELAY_ACCESS_TOKEN` | 随便一串，官方中继拉吊销列表用 |
+```bash
+curl https://<域名>/mesh/relay/healthz
+```
+
+应该看到 `"enabled": true`、`"issuer_keys": 1`。可选变量见仓库根目录 `DEPLOY.md`「设备网络」。
 
 **设备**：A（比如笔记本）、B（比如台式机 / Mac mini），同一个 TokenBank 账号登录，客户端都指向上面的测试服务端。B 上装好至少一个命令行智能体（Claude Code 或 Codex），最好也配一个本地模型（Ollama）。B 上准备一个 git 仓库。测中继时再加第三台 C（另一台电脑，放在别的网络里，比如连手机热点）。
 
@@ -164,7 +164,7 @@ MCP 工具（主智能体自己会用，也可以在 Claude Code 里手动调）
 | 8.6 | 改回「自动」，然后把 B 关机 | A、C 半分钟内回落到官方中继，功能照常 |
 | 8.7 | 「中继」下拉里手动选 B，再把 B 的「给其他设备当中继」关掉 | 设置条提示「指定的设备不可用，暂用官方中继」 |
 
-**官方中继**（部署见仓库根目录 `DEPLOY.md`「设备网络」）：`docker compose --profile mesh up -d mesh-relay`，服务端配 `MESH_RELAY_URLS=wss://<域名>/mesh/ws`。设备重新登录后生效。`curl -i https://<域名>/mesh/ws` 回 404 说明 nginx 已转到中继；回 502 说明 mesh-relay 没起来。
+**官方中继**：后端内置，部署后就有（`curl https://<域名>/mesh/relay/healthz` 看 `"enabled": true`）。服务端没改过设置的话这里不用做什么。
 
 记下每种场景：
 
@@ -179,7 +179,7 @@ MCP 工具（主智能体自己会用，也可以在 Claude Code 里手动调）
 
 ## 九、雇佣走设备通道
 
-前提：服务端配了官方中继（第八节）。两个账号：你的 A，另一个账号的出租机 R（开着出租、出租一个命令行智能体、开着设备网络）。
+前提：后端已部署（内置官方中继）。两个账号：你的 A，另一个账号的出租机 R（开着出租、出租一个命令行智能体、开着设备网络）。
 
 | # | 怎么做 | 应该看到 |
 |---|---|---|
