@@ -60,6 +60,12 @@ class MeshCloud {
 
   async revocations() { return (await this.call('GET', '/mesh/revocations')).revoked || []; }
 
+  /** 吊销列表和现在的签发公钥 */
+  async revocationsAndKeys() {
+    const j = await this.call('GET', '/mesh/revocations');
+    return { revoked: j.revoked || [], issuerKeys: Array.isArray(j.issuer_keys) ? j.issuer_keys : null };
+  }
+
   // ── 雇佣走设备通道：云端只签票、记账 ──
   /** 领雇佣票：云端选好出租方设备、扣好积分 */
   hireTicket({ assistantId, owner, workerId, timeoutMs, sessionKey }) {

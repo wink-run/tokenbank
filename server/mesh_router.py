@@ -404,4 +404,8 @@ async def list_revocations(uid: int = Depends(get_current_user_id)):
             (uid,),
         ) as cur:
             rows = await cur.fetchall()
-    return {"revoked": [{"endpoint_id": r[0], "device_id": r[1], "revoked_at": r[2]} for r in rows]}
+    # 带上现在的签发公钥：服务端换了钥匙，设备看到自己的证书不是这几把签的就马上重领
+    return {
+        "revoked": [{"endpoint_id": r[0], "device_id": r[1], "revoked_at": r[2]} for r in rows],
+        "issuer_keys": mesh_cert.issuer_keys(issuer()),
+    }

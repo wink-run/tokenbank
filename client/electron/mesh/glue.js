@@ -101,14 +101,19 @@ function selfName() {
  * 没有证书、快到期、换了账号或设备时，向云端领一张。领到返回 true。
  * 写进 ~/.tokenbank/mesh/config.json（cloud: true 表示证书来自云端，退出登录时一起停）
  */
-async function ensureCloudCert() {
+/** 证书是哪把签发钥匙签的（JWS 头里的 kid） */
+function certKid(cert) {
+  try { return JSON.parse(Buffer.from(String(cert).split('.')[0], 'base64url').toString('utf8')).kid || ''; } catch { return ''; }
+}
+
+async function ensureCloudCert({ force = false } = {}) {
   if (!cloud?.ready) return false;
   const identity = require('./identity');
   const { endpointIdFromSecret } = require('./keys');
   const endpointId = endpointIdFromSecret(identity.loadOrCreateDeviceSecret(meshDir()));
   const cur = readConfig() || {};
   const claims = certClaims(cur.cert);
-  if (!needsCert(claims, { deviceId: cloud.deviceId, endpointId })) return false;
+  if (!force && !needsCert(claims, { deviceId: cloud.deviceId, endpointId })) return false;
   const r = await cloud.requestCert({ endpointId, name: selfName() });
   const switchedUser = !!claims && String(claims.sub) !== String(r.user_id);
   const next = {
@@ -146,8 +151,16 @@ async function cloudSync() {
     } catch (e) { errors.push(`报地址：${e.message}`); }
     // 按密钥吊销：同一台设备重装后换了密钥，旧密钥作废，新的照常
     try {
-      const revoked = await cloud.revocations();
+      const { revoked, issuerKeys } = await cloud.revocationsAndKeys();
       node.setRevoked(revoked.map((r) => r.endpoint_id));
+      // 服务端换了签发钥匙：本机证书不是现在这几把签的，马上重领、重连（不然中继和别的设备都不认）
+      if (issuerKeys && issuerKeys.length && !issuerKeys.some((k) => k.kid === certKid(node.opts.cert))) {
+        logLine('[mesh] 云端换了签发钥匙，重新领设备证书');
+        await ensureCloudCert({ force: true });
+        await stop();
+        await startFromConfig({});
+        return;
+      }
     } catch (e) { errors.push(`吊销列表：${e.message}`); }
     try { cloudState.pending = await cloud.pending(); } catch { /* 老服务端没有这个接口 */ }
     let peers = [];
