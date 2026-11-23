@@ -34,24 +34,34 @@ function startRelayServer({ port = Number(process.env.PORT) || 8790, host = '0.0
   const url = revocationsUrl || process.env.MESH_REVOCATIONS_URL;
   const token = accessToken || process.env.MESH_RELAY_ACCESS_TOKEN;
   let poll = null;
+  if (!url && !keys.length) log('[relay] 没配 MESH_REVOCATIONS_URL，也没配 MESH_ISSUER_PUBLIC_KEYS：没有签发公钥，所有设备都会被拒绝');
   if (url) {
+    let ok = false;
     const pull = async () => {
       try {
-        const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-        if (!r.ok) return;
+        const r = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(10000) });
+        if (!r.ok) {
+          log(`[relay] 拉签发公钥和吊销列表失败：${url} 回 HTTP ${r.status}${r.status === 401 ? '（MESH_RELAY_ACCESS_TOKEN 和服务端的不一样，或服务端没配）' : ''}`);
+          return;
+        }
         const j = await r.json();
         revoked = new Set((j.endpoints || []).map(String));
         if (Array.isArray(j.issuer_keys) && j.issuer_keys.length) keys = j.issuer_keys;
-      } catch (e) { log(`[relay] 拉吊销列表失败：${e.message}`); }
+        if (!ok) log(`[relay] 已从 ${url} 拉到 ${keys.length} 把签发公钥、${revoked.size} 个吊销`);
+        ok = true;
+      } catch (e) {
+        const why = e.cause ? `${e.cause.code || ''} ${e.cause.message || ''}`.trim() : e.message;
+        log(`[relay] 拉签发公钥和吊销列表失败：${url}：${why}${keys.length ? '（先用手上的公钥）' : '（手上没有签发公钥，设备都会被拒绝）'}`);
+      }
     };
-    pull();
-    poll = setInterval(pull, 60000);
-    poll.unref?.();
+    // 拉到之前每 10 秒重试一次，之后每分钟一次
+    const loop = async () => { await pull(); poll = setTimeout(loop, ok ? 60000 : 10000); poll.unref?.(); };
+    loop();
   }
   const server = http.createServer((req, res) => {
     if (req.url === '/healthz') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, edition: 'official', proto: 1, devices: hub.conns.size }));
+      res.end(JSON.stringify({ ok: true, edition: 'official', proto: 1, devices: hub.conns.size, issuer_keys: keys.length, revoked: revoked.size }));
       return;
     }
     res.writeHead(404); res.end();
@@ -65,7 +75,7 @@ function startRelayServer({ port = Number(process.env.PORT) || 8790, host = '0.0
     log(`[relay] 官方中继在 :${server.address().port}/mesh/ws`);
     resolve({
       server, hub, port: server.address().port,
-      close: () => new Promise((r) => { clearInterval(poll); hub.close(); wss.close(); server.close(() => r()); }),
+      close: () => new Promise((r) => { clearTimeout(poll); hub.close(); wss.close(); server.close(() => r()); }),
     });
   }));
 }

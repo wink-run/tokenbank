@@ -120,8 +120,11 @@ services:
       - "8790"
     environment:
       # 每分钟从服务端拉一次签发公钥和被吊销的设备
-      MESH_REVOCATIONS_URL: http://proxy:8000/mesh/revoked-endpoints
+      # 服务端不在同一个 compose 里时改成公网地址，如 https://<域名>/mesh/revoked-endpoints
+      MESH_REVOCATIONS_URL: ${MESH_REVOCATIONS_URL:-http://proxy:8000/mesh/revoked-endpoints}
       MESH_RELAY_ACCESS_TOKEN: ${MESH_RELAY_ACCESS_TOKEN:-}
+      # 可选：签发公钥（kid:x，逗号分隔），拉不到服务端时也能先放行有效证书
+      MESH_ISSUER_PUBLIC_KEYS: ${MESH_ISSUER_PUBLIC_KEYS:-}
       MESH_RELAY_MAX_PER_USER: ${MESH_RELAY_MAX_PER_USER:-20}
     depends_on:
       - proxy
