@@ -157,8 +157,9 @@ async def refund_orphaned_agent_charges() -> int:
     count = 0
     try:
         from mesh_hire import live_mesh_hire_ids, refund_expired_mesh_hires
-        live = await live_mesh_hire_ids()
-        count += await refund_expired_mesh_hires()
+        # 最多等 10 秒：设备网络的表被锁住时不能拖住整个后端的启动
+        live = await asyncio.wait_for(live_mesh_hire_ids(), timeout=10)
+        count += await asyncio.wait_for(refund_expired_mesh_hires(), timeout=10)
     except Exception:
         logger.exception("[agent_task] mesh hire restart check failed")
         live = set()

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import ipaddress
 import json
@@ -42,9 +43,18 @@ async def _has_column(db, table: str, column: str) -> bool:
 
 
 async def ensure_tables() -> None:
-    global _tables_ready
+    """建设备网络的表。最多等 8 秒：表被别的会话锁着时宁可这次请求失败，也不能一直挂着、把后端启动或别的请求拖住"""
     if _tables_ready:
         return
+    try:
+        await asyncio.wait_for(_ensure_tables(), timeout=8)
+    except asyncio.TimeoutError:
+        logger.error("[mesh] 建表超时：数据库里有会话锁着设备网络的表（查 pg_stat_activity / pg_blocking_pids）")
+        raise HTTPException(503, "设备网络的数据表正被占用，稍后再试")
+
+
+async def _ensure_tables() -> None:
+    global _tables_ready
     async with connect() as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS mesh_endpoints (
