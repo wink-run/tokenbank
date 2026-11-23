@@ -9,7 +9,7 @@ import { fetchDashboardStats } from './TokenDashboard';
 import { getTransactions } from '../api/client';
 import { useNavigate } from 'react-router-dom';
 import { formatDeviceTitle, deviceIdentityKey, mergeSameDevices } from '../lib/device-display';
-import { getUserDevices } from '../api/client';
+import { getUserDevices, deleteDevice } from '../api/client';
 import { getReportedDeviceId, requestAccountsHeartbeat } from '../hooks/useDeviceReporter';
 import { renameDevice, deviceNameError } from '../api/deviceName';
 import SelfDeviceSettings from '../components/SelfDeviceSettings';
@@ -468,6 +468,7 @@ export default function Dashboard() {
   const [nameOverride, setNameOverride] = useState({});
   const [devicesTick, setDevicesTick] = useState(0);
   const [showIdle, setShowIdle] = useState(false);
+  const [removing, setRemoving] = useState(null);   // 删除离线设备：{ id, label, ids, saving, error }
   const mesh = useMeshDevices();
   // 设备胶囊上标「中继」：账号现在用的中继是哪台（我的设备网络里看到的）
   const relayOf = (id) => {
@@ -748,7 +749,41 @@ export default function Dashboard() {
               {t('dashboard.rename')}
             </button>
           )}
+          {/* 离线的其他设备可以删：重装、容器重建留下的旧记录 */}
+          {pickedDevice && !isThis(pickedDevice) && !pickedDevice.online && !renaming && !removing && (
+            <button type="button"
+              onClick={() => setRemoving({ id: pickedDevice.device_id, label: nameOverride[pickedDevice.device_id] || labels[pickedDevice.device_id] || formatDeviceTitle(pickedDevice), ids: pickedDevice.device_ids || [pickedDevice.device_id], saving: false, error: '' })}
+              className="shrink-0 min-h-[32px] md:min-h-[28px] px-2 text-xs text-red-500 hover:underline">
+              {t('dashboard.removeDevice')}
+            </button>
+          )}
         </div>
+        {removing && (
+          <div className="flex flex-wrap items-center gap-2 text-xs" role="alertdialog" aria-label={t('dashboard.removeDevice')}>
+            <span className="text-zinc-700 dark:text-zinc-200">{t('dashboard.removeConfirm', { name: removing.label })}</span>
+            <button type="button" disabled={removing.saving}
+              onClick={async () => {
+                setRemoving({ ...removing, saving: true, error: '' });
+                try {
+                  for (const id of removing.ids.filter(Boolean)) await deleteDevice(id);
+                  setRemoving(null);
+                  setScopePick('all');
+                  setDevicesTick((n) => n + 1);
+                } catch (e) {
+                  setRemoving({ ...removing, saving: false, error: e?.response?.data?.detail || e?.message || String(e) });
+                }
+              }}
+              className="min-h-[28px] px-3 rounded-lg font-medium bg-red-500 text-white hover:bg-red-600 disabled:opacity-60">
+              {removing.saving ? t('dashboard.removing') : t('dashboard.removeDevice')}
+            </button>
+            <button type="button" onClick={() => setRemoving(null)} className="min-h-[28px] px-2 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200">
+              {t('gateway.common.cancel')}
+            </button>
+            <span className={`basis-full text-[11px] ${removing.error ? 'text-red-500' : 'text-zinc-400 dark:text-zinc-500'}`}>
+              {removing.error || t('dashboard.removeHint')}
+            </span>
+          </div>
+        )}
         {renaming && (
           <form className="flex flex-wrap items-center gap-2" onSubmit={async (ev) => {
             ev.preventDefault();
