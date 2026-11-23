@@ -1404,6 +1404,8 @@ export default {
   "dashboard.creditsLine": "社区积分 {net}（收入 {inc} · 支出 {out}）",
   "dashboard.localDetails": "这台电脑的明细",
   "dashboard.localDetailsHint": "趋势、Skill、工具、MCP 调用目前只有这台电脑的",
+  "dashboard.showIdle": "+{n} 台不活跃",
+  "dashboard.hideIdle": "收起不活跃的",
   "dashboard.mineTag": "本机",
   "dashboard.rename": "改名",
   "dashboard.renameLabel": "设备名称",

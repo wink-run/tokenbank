@@ -130,13 +130,19 @@ function looksLikeRawHostname(name, computerName, hostname) {
   return false;
 }
 
-/** 无电脑名时：有意义 hostname → IP → 默认文案 */
+/** 无电脑名时：TB_DEVICE_NAME → 有意义 hostname →（容器里）「Docker 网关」→ IP → 默认文案 */
 function resolveDisplayBase({ computerName, hostname, type } = {}) {
+  const fromEnv = String(process.env.TB_DEVICE_NAME || '').trim();
+  if (fromEnv) return fromEnv.slice(0, 64);
+
   const comp = String(computerName ?? readComputerName()).trim();
   if (comp) return comp;
 
   const host = stripLocalSuffix(hostname || os.hostname());
   if (host && !isGenericHostname(host)) return host;
+
+  // 容器每次重建 IP 都会变，拿它当名字会在盘点里堆出一串没用的设备：用固定的名字
+  if (isLikelyContainer()) return 'Docker 网关';
 
   const ip = readPrimaryIp();
   if (ip) return ip;

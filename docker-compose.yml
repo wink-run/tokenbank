@@ -132,6 +132,8 @@ services:
 
   # ── CLI Gateway (headless, no Electron) ──────────────────────────────────────
   gateway:
+    # 固定主机名：盘点里的设备名不随容器重建变（也可以用环境变量 TB_DEVICE_NAME 指定）
+    hostname: tokenbank-gateway
     build:
       context: ./client
       dockerfile: Dockerfile.cli

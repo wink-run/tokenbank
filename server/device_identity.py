@@ -19,6 +19,8 @@ def device_identity_key(name: str, platform: str) -> tuple[str, str] | None:
     raw = re.sub(r"\s·\sCLI\s:\d+$", "", (name or "").strip())
     raw = re.sub(r"\.local$", "", raw, flags=re.I).strip().casefold()
     plat = (platform or "").strip().casefold()
+    # 「Linux 6.8.0-45-generic · x64」：宿主机升级内核后版本号会变，不能当成另一台
+    plat = re.sub(r"^linux\s+\S+\s*·", "linux ·", plat)
     if not raw:
         return None
     return (raw, plat)

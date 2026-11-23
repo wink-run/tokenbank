@@ -57,6 +57,17 @@ function buildUsageDevices(usageRows, myDevices) {
   return out;
 }
 
+const IDLE_AFTER_MS = 3 * 86400 * 1000;
+
+/** 不活跃：不是本机、离线、这段时间 0 次、超过 3 天没出现（没有最后在线时间的也算） */
+function isIdleDevice(d, mine) {
+  if (mine || d?.online || Number(d?.calls) > 0) return false;
+  const raw = String(d?.last_seen || '').trim();
+  if (!raw) return true;
+  const ts = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(raw) ? raw.replace(' ', 'T') : `${raw.replace(' ', 'T')}Z`);
+  return !Number.isFinite(ts) || Date.now() - ts > IDLE_AFTER_MS;
+}
+
 /** 胶囊上的设备名：和个人页一样用电脑名；重名时后面加设备 id 末四位（个人页每行也写着设备 id） */
 function deviceLabels(list) {
   const count = {};
@@ -456,6 +467,7 @@ export default function Dashboard() {
   const [renaming, setRenaming] = useState(null);   // { id, draft, error, saving }
   const [nameOverride, setNameOverride] = useState({});
   const [devicesTick, setDevicesTick] = useState(0);
+  const [showIdle, setShowIdle] = useState(false);
   const mesh = useMeshDevices();
   // 设备胶囊上标「中继」：账号现在用的中继是哪台（我的设备网络里看到的）
   const relayOf = (id) => {
@@ -698,9 +710,12 @@ export default function Dashboard() {
             ...(cloud ? [{ id: 'all', label: t('dashboard.allDevices', { n: devices.length }), calls: callSum }] : []),
             // 这台电脑就在设备里，胶囊上标「本机」并排在最前；云端还没有它（没同步上来 / 没登录）时才单独给一个「这台电脑」
             ...(thisRow ? [] : [{ id: 'local', label: t('dashboard.scopeThisDevice'), online: true }]),
-            ...[...devices].sort((x, y) => isThis(y) - isThis(x)).map(d => ({
-              id: isThis(d) ? 'local' : d.device_id, label: labels[d.device_id] || formatDeviceTitle(d), online: !!d.online, calls: d.calls, mine: isThis(d),
-            })),
+            ...[...devices].sort((x, y) => isThis(y) - isThis(x))
+              // 离线、这段时间 0 次、几天没出现的（多半是重装 / 重建留下的旧记录）收起来，点「+N 台不活跃」才显示
+              .filter(d => showIdle || !isIdleDevice(d, isThis(d)) || scope === d.device_id)
+              .map(d => ({
+                id: isThis(d) ? 'local' : d.device_id, label: labels[d.device_id] || formatDeviceTitle(d), online: !!d.online, calls: d.calls, mine: isThis(d),
+              })),
           ].map(o => {
             const on = scope === o.id;
             return (
@@ -719,6 +734,12 @@ export default function Dashboard() {
               </button>
             );
           })}
+          {cloud && devices.some(d => isIdleDevice(d, isThis(d))) && (
+            <button type="button" onClick={() => setShowIdle(v => !v)} aria-expanded={showIdle}
+              className="shrink-0 min-h-[32px] md:min-h-[28px] px-2 text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200">
+              {showIdle ? t('dashboard.hideIdle') : t('dashboard.showIdle', { n: devices.filter(d => isIdleDevice(d, isThis(d))).length })}
+            </button>
+          )}
           {!cloud && <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">{user ? t('dashboard.scopeNoCloud') : t('dashboard.scopeNote')}</span>}
           {/* 选中一台设备时可以改名：和交易页「设备名称」是同一个，派活时写 @名称 */}
           {scope !== 'all' && !renaming && (
