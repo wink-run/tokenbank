@@ -125,6 +125,7 @@ class WorkerConnection:
     owner_nickname: str = ""
     # 客户端设备 id。同一账号的两台电脑靠它分开，重连只替换自己
     device_id: str = ""
+    mesh_device_id: str = ""
     caps: list = field(default_factory=list)
     client_ip: Optional[str] = None
     latitude: Optional[float] = None

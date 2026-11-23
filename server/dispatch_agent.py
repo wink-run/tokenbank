@@ -155,7 +155,16 @@ async def refund_orphaned_agent_charges() -> int:
         logger.exception("[agent_task] list running charges failed")
         return 0
     count = 0
+    try:
+        from mesh_hire import live_mesh_hire_ids, refund_expired_mesh_hires
+        live = await live_mesh_hire_ids()
+        count += await refund_expired_mesh_hires()
+    except Exception:
+        logger.exception("[agent_task] mesh hire restart check failed")
+        live = set()
     for row in rows:
+        if str(row.get("task_id") or "") in live:
+            continue
         try:
             amount = await _refund_task_charge(
                 str(row.get("task_id") or ""),

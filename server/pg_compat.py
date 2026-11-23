@@ -33,6 +33,9 @@ _TABLES_WITHOUT_ID = frozenset({
     "mesh_endpoints",
     "mesh_revocations",
     "mesh_approvals",
+    "mesh_hires",
+    # 雇佣扣分记录：主键是 task_id。以前误加 RETURNING id，扣分记录写不进去，防重复退款失效
+    "agent_task_charges",
 })
 
 

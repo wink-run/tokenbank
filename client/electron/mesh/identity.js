@@ -120,6 +120,51 @@ function checkPeer(token, { issuerKeys, remoteEndpointId, selfUserId, revoked, n
   return { ok: true, claims: c };
 }
 
+// ── 雇佣票 ──────────────────────────────────────────────────────────────────
+// 云端在扣好积分后签发：允许雇佣方的这台设备，在到期前把这一单（tid）交给出租方的那台设备做。
+// 中继凭它放行跨账号转发；出租方凭它知道「这是雇来的活」，权限、会话隔离都从票里取，不看消息字段。
+const HIRE_TYP = 'tokenbank-hire-ticket';
+
+/** 签一张雇佣票（服务端用 Python 签；这里给测试和开发用） */
+function issueHireTicket(issuer, c, now = Math.floor(Date.now() / 1000)) {
+  const header = { alg: 'EdDSA', typ: HIRE_TYP, kid: issuer.kid };
+  const payload = {
+    typ: HIRE_TYP, ver: 1, iss: c.iss || 'tokenbank-dev',
+    tid: String(c.tid), aid: String(c.aid),
+    sub: String(c.sub), hd: String(c.hd), he: String(c.he),          // 雇佣方：账号、设备、设备公钥
+    wu: String(c.wu), wd: String(c.wd), we: String(c.we),            // 出租方
+    ctx: c.ctx || 'hired', ck: String(c.ck || ''), sk: String(c.sk || ''),   // 调用关系、调用方隔离键、会话键
+    iat: now, exp: now + (Number(c.ttlSec) || 720),
+  };
+  const signingInput = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
+  const sig = crypto.sign(null, Buffer.from(signingInput), crypto.createPrivateKey(issuer.privateKeyPem));
+  return `${signingInput}.${b64url(sig)}`;
+}
+
+/** 校验雇佣票：签名、类型、没过期 */
+function verifyHireTicket(token, issuerKeys, now = Math.floor(Date.now() / 1000)) {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 3) return { ok: false, reason: 'malformed' };
+  let header;
+  let claims;
+  try {
+    header = JSON.parse(fromB64url(parts[0]).toString('utf8'));
+    claims = JSON.parse(fromB64url(parts[1]).toString('utf8'));
+  } catch { return { ok: false, reason: 'malformed' }; }
+  if (header.alg !== 'EdDSA' || header.typ !== HIRE_TYP || claims.typ !== HIRE_TYP) return { ok: false, reason: 'wrong_type' };
+  const key = (issuerKeys || []).find((k) => k && k.kid === header.kid);
+  if (!key) return { ok: false, reason: 'unknown_issuer' };
+  let valid = false;
+  try {
+    const pub = crypto.createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x: key.x }, format: 'jwk' });
+    valid = crypto.verify(null, Buffer.from(`${parts[0]}.${parts[1]}`), pub, fromB64url(parts[2]));
+  } catch { valid = false; }
+  if (!valid) return { ok: false, reason: 'bad_signature' };
+  if (typeof claims.exp !== 'number' || claims.exp < now - CLOCK_SKEW_SEC) return { ok: false, reason: 'expired' };
+  for (const k of ['tid', 'aid', 'sub', 'hd', 'he', 'wu', 'wd', 'we']) if (!claims[k]) return { ok: false, reason: 'malformed' };
+  return { ok: true, claims };
+}
+
 /** 证书还剩多少秒；解析不了返回 0 */
 function certRemainingSec(token, now = Math.floor(Date.now() / 1000)) {
   try {
@@ -130,6 +175,9 @@ function certRemainingSec(token, now = Math.floor(Date.now() / 1000)) {
 
 module.exports = {
   CERT_TYP,
+  HIRE_TYP,
+  issueHireTicket,
+  verifyHireTicket,
   loadOrCreateDeviceSecret,
   generateIssuer,
   issueCert,

@@ -59,6 +59,22 @@ class MeshCloud {
 
   async revocations() { return (await this.call('GET', '/mesh/revocations')).revoked || []; }
 
+  // ── 雇佣走设备通道：云端只签票、记账 ──
+  /** 领雇佣票：云端选好出租方设备、扣好积分 */
+  hireTicket({ assistantId, owner, workerId, timeoutMs, sessionKey }) {
+    return this.call('POST', '/mesh/hire/ticket', {
+      assistant_id: assistantId, caller_device_id: this.deviceId, owner: owner || undefined, worker_id: workerId || undefined,
+      timeout_ms: timeoutMs || undefined, session_key: sessionKey || undefined,
+    });
+  }
+
+  /** 出租方结算：sig 是本机设备密钥签的 `tb-hire-settle|<task_id>|<status>`（不靠登录也能结） */
+  settleHire(taskId, { status, sig, durationMs }) {
+    return this.call('POST', `/mesh/hire/${encodeURIComponent(taskId)}/settle`, { status, sig, duration_ms: durationMs || undefined });
+  }
+
+  cancelHire(taskId) { return this.call('POST', `/mesh/hire/${encodeURIComponent(taskId)}/cancel`, {}); }
+
   /** 等批准的新设备 */
   async pending() { return (await this.call('GET', '/mesh/pending')).pending || []; }
 

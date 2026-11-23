@@ -8,6 +8,8 @@
 // 之后：
 //   设备 → {type:'relay', to, data}       中继按 to 转给同账号的那台：{type:'relay', from, data}
 //                                         to 是中继所在的设备本身时，交给本机（这就是「直连」）
+//   雇佣：{type:'relay', to, to_user, ticket, data}   跨账号只在官方中继上、只凭云端签的雇佣票：
+//         票上写明雇佣方设备 → 出租方设备，到期前这两台之间双向放行；转过去的带 from_user
 //   中继 → {type:'peers', devices}         同账号里连着这个中继的设备，有变化就推
 //   中继 → {type:'peer_offline', to}       to 不在这个中继上
 //   中继 → {type:'relay_status', ...}      正在转发哪些设备之间的连接（界面标「中继 · N」）
@@ -50,6 +52,7 @@ class RelayHub {
     this.log = opts.log || (() => {});
     this.conns = new Map();   // `${user}:${device}` → conn
     this.pairs = new Map();   // `${user}:${a}|${b}` → { user, a, b, at, bytes }
+    this.grants = new Map();  // `${userA}:${devA}>${userB}:${devB}` → 到期时间（秒）：雇佣票放行的跨账号设备对
     this.timer = setInterval(() => this._status(), STATUS_MS);
     this.timer.unref?.();
   }
@@ -128,6 +131,15 @@ class RelayHub {
       this.opts.self.deliver(conn.deviceId, msg.data, conn);
       return;
     }
+    const toUser = msg.to_user ? String(msg.to_user) : conn.user;
+    if (toUser !== conn.user) {
+      // 跨账号：只有官方中继、只凭雇佣票
+      const target = this.opts.kind === 'official' ? this.conns.get(`${toUser}:${to}`) : null;
+      if (!target || !this._hireAllowed(conn, target, msg.ticket)) { sendJson(conn.ws, { type: 'peer_offline', to, to_user: toUser }); return; }
+      if (this.opts.dumpFile) { try { fs.appendFileSync(this.opts.dumpFile, `${JSON.stringify(msg.data)}\n`); } catch { /* 测试用 */ } }
+      sendJson(target.ws, { type: 'relay', from: conn.deviceId, from_user: conn.user, data: msg.data });
+      return;
+    }
     const canRelay = this.opts.kind === 'official' || this.opts.relayEnabled?.();
     const target = canRelay ? this.conns.get(`${conn.user}:${to}`) : null;
     if (!target) { sendJson(conn.ws, { type: 'peer_offline', to }); return; }
@@ -139,6 +151,26 @@ class RelayHub {
     p.at = Date.now();
     p.bytes += size;
     this.pairs.set(pk, p);
+  }
+
+  /** 跨账号这一对放不放行：已有没过期的放行，或者这条带的雇佣票正好写着这两台 */
+  _hireAllowed(from, to, ticket) {
+    const now = Math.floor(Date.now() / 1000);
+    const key = (a, b) => `${a.user}:${a.deviceId}>${b.user}:${b.deviceId}`;
+    const exp = this.grants.get(key(from, to));
+    if (exp && exp > now) return true;
+    if (!ticket) return false;
+    const v = identity.verifyHireTicket(ticket, this.opts.issuerKeys(), now);
+    if (!v.ok) return false;
+    const c = v.claims;
+    const ok = String(c.sub) === from.user && String(c.hd) === from.deviceId && String(c.he) === from.endpointId
+      && String(c.wu) === to.user && String(c.wd) === to.deviceId && String(c.we) === to.endpointId
+      && !this.opts.isRevoked?.(c.he) && !this.opts.isRevoked?.(c.we);
+    if (!ok) return false;
+    this.grants.set(key(from, to), c.exp);
+    this.grants.set(key(to, from), c.exp);
+    if (this.grants.size > 10000) for (const [k, e] of this.grants) if (e <= now) this.grants.delete(k);
+    return true;
   }
 
   /** 本机（设备上的中继）发给连着它的某台设备 */

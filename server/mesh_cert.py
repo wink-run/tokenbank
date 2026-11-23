@@ -123,6 +123,30 @@ def issue_cert(issuer: Issuer, *, user_id, device_id: str, endpoint_id: str, nam
     return f"{signing_input}.{b64url(sig)}", exp
 
 
+HIRE_TYP = "tokenbank-hire-ticket"
+
+
+def issue_hire_ticket(issuer: Issuer, *, task_id: str, assistant_id: str,
+                      hirer_user, hirer_device: str, hirer_endpoint: str,
+                      worker_user, worker_device: str, worker_endpoint: str,
+                      call_context: str = "hired", consumer_key: str = "", session_key: str = "",
+                      ttl_sec: int = 720, now: int | None = None) -> tuple[str, int]:
+    """雇佣票：扣好积分后签。中继凭它放行跨账号转发，出租方凭它认「雇来的活」。格式和 identity.js 一致"""
+    now = int(time.time()) if now is None else int(now)
+    exp = now + int(ttl_sec)
+    header = {"alg": "EdDSA", "typ": HIRE_TYP, "kid": issuer.kid}
+    payload = {
+        "typ": HIRE_TYP, "ver": 1, "iss": ISSUER,
+        "tid": str(task_id), "aid": str(assistant_id),
+        "sub": str(hirer_user), "hd": str(hirer_device), "he": str(hirer_endpoint),
+        "wu": str(worker_user), "wd": str(worker_device), "we": str(worker_endpoint),
+        "ctx": call_context, "ck": str(consumer_key or ""), "sk": str(session_key or ""),
+        "iat": now, "exp": exp,
+    }
+    signing_input = f"{b64url(_json(header))}.{b64url(_json(payload))}"
+    return f"{signing_input}.{b64url(issuer.sign(signing_input.encode('ascii')))}", exp
+
+
 def verify_cert(token: str, keys: list[dict], now: int | None = None) -> dict | None:
     """校验签名和有效期，通过返回 claims。服务端自己用（比如中继放行），规则和客户端一致"""
     parts = str(token or "").split(".")

@@ -140,6 +140,8 @@ docker compose --profile https up -d nginx      # nginx 已把 wss://<DOMAIN>/me
 PORT=8790 MESH_REVOCATIONS_URL=https://<DOMAIN>/mesh/revoked-endpoints MESH_RELAY_ACCESS_TOKEN=<令牌> node client/electron/mesh/relay-server.js
 ```
 
+雇佣社区智能体也经官方中继走设备通道（凭云端签的雇佣票跨账号转发，端到端加密）；没部署官方中继时，雇佣照旧走云端转发。
+
 设备自己当中继：设备入口默认监听 41750 端口（TCP）。有公网 IP 或做了端口映射的设备，云端回拨验证通过后会被自动选成中继；也可以在 app 的「本机设置」里手动指定。
 
 ## 监控和维护

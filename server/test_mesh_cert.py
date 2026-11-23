@@ -75,3 +75,24 @@ def test_client_accepts_cloud_cert():
     )
     out = json.loads(subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True).stdout)
     assert out["ok"] is True and out["claims"]["name"] == "中文名"
+
+
+@pytest.mark.skipif(not shutil.which("node") or not CLIENT_IDENTITY.exists(), reason="需要 node 和客户端代码")
+def test_client_accepts_cloud_hire_ticket():
+    """云端签的雇佣票，客户端（中继和出租方）认得"""
+    iss = issuer()
+    ticket, exp = m.issue_hire_ticket(
+        iss, task_id="at-1", assistant_id="app:claude-code", hirer_user=7, hirer_device="dev-h", hirer_endpoint="aa" * 32,
+        worker_user=8, worker_device="dev-w", worker_endpoint="bb" * 32, consumer_key="u7",
+    )
+    js = (
+        f"const id=require({json.dumps(str(CLIENT_IDENTITY))});"
+        f"const r=id.verifyHireTicket({json.dumps(ticket)},[{json.dumps(iss.public_key)}]);"
+        f"const bad=id.verifyHireTicket({json.dumps(ticket[:-4] + 'AAAA')},[{json.dumps(iss.public_key)}]);"
+        "process.stdout.write(JSON.stringify({r, bad}));"
+    )
+    out = json.loads(subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True).stdout)
+    assert out["r"]["ok"] is True
+    c = out["r"]["claims"]
+    assert (c["tid"], c["sub"], c["wd"], c["ck"], c["exp"]) == ("at-1", "7", "dev-w", "u7", exp)
+    assert out["bad"]["ok"] is False

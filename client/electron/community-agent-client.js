@@ -51,6 +51,8 @@ function candidateLocalConfigPaths() {
       path.join(home, '.config/llm-proxy-client/local-config.json'),
     );
   }
+  // 命令行网关的本机配置（没有桌面版时只有这一份）
+  paths.push(path.join(home, '.llm-agent', 'local-config.json'));
   return [...new Set(paths.filter(Boolean))];
 }
 
@@ -299,8 +301,6 @@ async function resolveCommunityOwner(assistantId, owner) {
  */
 async function runCommunityAgentTask({ assistantId, prompt, owner, timeoutMs, images, files, stream, onProgress, sessionKey } = {}) {
   const { base, token } = resolveCloudAuth();
-  if (!base) throw new Error('未配置 Token Bank 服务地址');
-  if (!token) throw new Error('请先登录并启用转发 Key（与模型社区源同一套 cloud_config.token）');
   const aid = String(assistantId || '').trim();
   const text = String(prompt || '').trim();
   if (!aid || !text) throw new Error('assistant_id and prompt required');
@@ -323,6 +323,24 @@ async function runCommunityAgentTask({ assistantId, prompt, owner, timeoutMs, im
     ...(wantStream ? { stream: true } : {}),
   };
   const waitMs = timeoutMs || 620_000;
+  // 先走设备通道：端到端加密，云端只签票、记账。出租方没开设备网络时照旧走云端转发
+  if (process.env.TB_MESH_HIRE !== '0') {
+    try {
+      const viaMesh = await require('./mesh/glue').hireViaMesh({
+        assistantId: aid, prompt: text, owner: who || undefined, timeoutMs, sessionKey: taskBody.session_key,
+        images: taskBody.images, files: taskBody.files,
+        onProgress: wantStream ? (m) => onProgress?.(meshProgressEvent(m)) : undefined,
+      });
+      if (who) {
+        try { require('./hired-community-agents').rememberOwner(aid, who); } catch { /* 名单只是缓存 */ }
+      }
+      return viaMesh;
+    } catch (e) {
+      if (e.code !== 'mesh_unavailable') throw e;
+    }
+  }
+  if (!base) throw new Error('未配置 Token Bank 服务地址');
+  if (!token) throw new Error('请先登录并启用转发 Key（与模型社区源同一套 cloud_config.token）');
   const data = wantStream
     ? await postAgentTask(base, { token, timeoutMs: waitMs, onProgress, body: taskBody })
     : (await httpJson('POST', `${base}/api/agent-tasks`, { token, timeoutMs: waitMs, body: taskBody })).data;
@@ -330,6 +348,17 @@ async function runCommunityAgentTask({ assistantId, prompt, owner, timeoutMs, im
     try { require('./hired-community-agents').rememberOwner(aid, who); } catch { /* 名单只是缓存 */ }
   }
   return data;
+}
+
+/** 设备通道来的进度换成和云端 SSE 一样的形状：雇佣的正文留到终态，只推工具状态 */
+function meshProgressEvent(m) {
+  const parts = Array.isArray(m?.parts) ? m.parts.filter((p) => p && p.type === 'tool').slice(0, 80).map((p) => ({
+    type: 'tool', name: String(p.name || 'tool').slice(0, 80), detail: String(p.detail || '').slice(0, 4000),
+    ...(p.result ? { result: String(p.result).slice(0, 4000) } : {}),
+    ...(p.done || ['completed', 'complete', 'done', 'error', 'failed'].includes(String(p.status || '').toLowerCase()) ? { done: true } : {}),
+    ...(p.error || ['error', 'failed'].includes(String(p.status || '').toLowerCase()) ? { error: true } : {}),
+  })) : [];
+  return { event: 'progress', task_id: m?.task_id, text: '', tool: m?.tool, progress_event: m?.event, parts, via: 'mesh' };
 }
 
 /** 雇佣上报：服务端真实被雇次数 +1（失败不影响本机雇佣） */

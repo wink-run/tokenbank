@@ -22,6 +22,7 @@ const keys = require('./keys');
 const tunnel = require('./tunnel');
 const { Directory, sanitizeDescriptor, deviceLabel } = require('./directory');
 const { RelayHub } = require('./relay');
+const { HireChannel } = require('./hire');
 
 const DEFAULT_PORT = 41750;
 const WS_PATH = '/mesh/ws';
@@ -107,9 +108,9 @@ class Link {
     });
   }
 
-  send(to, data) {
+  send(to, data, extra) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
-    this.ws.send(JSON.stringify({ type: 'relay', to, data }));
+    this.ws.send(JSON.stringify({ type: 'relay', to, data, ...(extra || {}) }));
     return true;
   }
 
@@ -156,6 +157,7 @@ class MeshNode extends EventEmitter {
     this.lastSelf = '';
     this.timers = [];
     this.stopped = false;
+    this.hire = new HireChannel(this);   // 雇佣：同一条通道，凭云端签的雇佣票跨账号
   }
 
   get selfClaims() {
@@ -443,7 +445,15 @@ class MeshNode extends EventEmitter {
   }
 
   _onLinkMessage(link, msg) {
-    if (msg.type === 'relay') { this._onEnvelope(String(msg.from), msg.data, link); return; }
+    if (msg.type === 'relay') {
+      // 跨账号（雇佣）的只会从官方中继来
+      if (msg.from_user && String(msg.from_user) !== String(this.opts.userId)) {
+        if (link === this.official) this.hire.onEnvelope(String(msg.from_user), String(msg.from), msg.data);
+        return;
+      }
+      this._onEnvelope(String(msg.from), msg.data, link);
+      return;
+    }
     if (msg.type === 'peers') {
       link.peers = new Set((msg.devices || []).map((d) => String(d.device_id)));
       if (link.direct && link.info?.device_id) link.peers.add(link.info.device_id);
@@ -451,7 +461,11 @@ class MeshNode extends EventEmitter {
       for (const d of this.directory.list()) if (!d.self) this._refreshOnline(d.device_id);
       return;
     }
-    if (msg.type === 'peer_offline') { this._refreshOnline(String(msg.to)); return; }
+    if (msg.type === 'peer_offline') {
+      if (msg.to_user && String(msg.to_user) !== String(this.opts.userId)) { this.hire.onPeerOffline(String(msg.to_user), String(msg.to)); return; }
+      this._refreshOnline(String(msg.to));
+      return;
+    }
     if (msg.type === 'relay_status') { if (link === this.uplink || (link === this.official && this.uplinkTarget === 'official')) this.relayStatus = msg; return; }
     if (msg.type === 'pong') { link.rttMs = Date.now() - Number(msg.t); }
   }

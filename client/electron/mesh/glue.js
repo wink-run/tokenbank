@@ -152,6 +152,7 @@ async function cloudSync() {
       n += 1;
     }
     Object.assign(cloudState, { lastSync: Date.now(), error: '', peers: n });
+    try { require('../agent-worker').refreshMeshHireCap(); } catch { /* 没开出租 */ }
   } catch (e) {
     cloudState.error = e.message;
     logLine(`[mesh] 和云端同步失败：${e.message}`);
@@ -169,6 +170,101 @@ function scheduleApprovalRetry() {
     }
   }, Number.isFinite(ms) && ms >= 1000 ? ms : 15000);
   approvalTimer.unref?.();
+}
+
+// ── 雇佣走设备通道 ─────────────────────────────────────────────────────────
+
+/** 本机能不能接设备通道来的雇佣：设备网络开着、连着官方中继、登录了 */
+function canServeHires() {
+  return !!(node && node.official && !node.official.closed && cloud?.ready);
+}
+
+/** 出租方：雇佣票核对过的一单交给原来的出租逻辑；做完先结算再交结果 */
+function attachHireHandlers(n) {
+  n.hire.on('task', ({ claims, task, send }) => {
+    const worker = require('../agent-worker');
+    const { sign } = require('./keys');
+    const settle = async (status, durationMs) => {
+      if (!cloud?.ready) return null;
+      const sig = sign(n.key.privateKey, `tb-hire-settle|${claims.tid}|${status}`);
+      return cloud.settleHire(claims.tid, { status, sig, durationMs });
+    };
+    logLine(`[mesh] 接到雇佣 ${claims.tid}（${claims.aid}，经设备通道）`);
+    worker.runHiredTask({ task, send, settle }).catch((e) => {
+      logLine(`[mesh] 雇佣 ${claims.tid} 出错：${e.message}`);
+      send({ type: 'agent_task_result', status: 'failed', error: e.message });
+    });
+  });
+  n.hire.on('cancel', (tid) => { require('../agent-worker').cancelAgentTask(tid).catch(() => {}); });
+}
+
+/**
+ * 雇佣方：领票 → 凭票经官方中继把任务交给出租方设备（端到端加密）→ 收结果。
+ * 出租方没开设备网络、连不上时抛 code=mesh_unavailable（已退款），调用方照旧走云端转发。
+ */
+async function hireViaMesh({ assistantId, prompt, owner, workerId, timeoutMs, images, files, sessionKey, onProgress } = {}) {
+  const unavailable = (msg) => Object.assign(new Error(msg), { code: 'mesh_unavailable' });
+  if (!node || !cloud?.ready) throw unavailable('设备网络没开');
+  if (!node.official) await node._ensureOfficial();
+  if (!node.official) throw unavailable('连不上官方中继');
+  let t;
+  try {
+    t = await cloud.hireTicket({ assistantId, owner, workerId, timeoutMs, sessionKey });
+  } catch (e) {
+    if (e.code === 'mesh_unavailable') throw unavailable(e.message);
+    throw e;
+  }
+  let gotAny = false;
+  const artifacts = [];
+  let manifest = null;
+  try {
+    const r = await node.hire.run({
+      ticket: t.ticket,
+      task: { prompt, images, files, timeout_ms: timeoutMs },
+      onEvent: (m) => {
+        gotAny = true;
+        if (m.type === 'agent_task_progress') { try { onProgress?.(m); } catch { /* 回调出错不影响任务 */ } }
+        if (m.type === 'agent_task_output_manifest') manifest = m;
+        if (m.type === 'agent_task_artifacts') artifacts.push(...(m.artifacts || []));
+      },
+    });
+    const saved = checkHiredArtifacts(artifacts);
+    return {
+      ok: r.status === 'completed',
+      task_id: t.task_id,
+      status: r.status,
+      output: String(r.output || ''),
+      error: r.error || undefined,
+      usage: r.usage || {},
+      credits_charged: r.status === 'completed' ? t.credits_charged : 0,
+      call_context: t.call_context,
+      ...(saved.length ? { artifacts: saved } : {}),
+      ...(manifest?.missing?.length ? { missing_artifacts: manifest.missing } : {}),
+      via: 'mesh',
+    };
+  } catch (e) {
+    // 没收到对方任何消息就失败：退款，交给调用方走老路
+    if (!gotAny || e.code === 'timeout') {
+      try { await cloud.cancelHire(t.task_id); } catch { /* 到期也会退 */ }
+    }
+    if (!gotAny && e.code === 'unreachable') throw unavailable(e.message);
+    throw e;
+  }
+}
+
+/** 出租方交来的产出文件：核对 sha256，按和云端转发一样的形状（dataUrl）交给调用方 */
+function checkHiredArtifacts(list) {
+  const out = [];
+  for (const a of list || []) {
+    const raw = String(a?.dataUrl || '');
+    const comma = raw.indexOf(',');
+    if (!raw.startsWith('data:') || comma < 0) continue;
+    const buf = Buffer.from(raw.slice(comma + 1), 'base64');
+    const sha = require('crypto').createHash('sha256').update(buf).digest('hex');
+    if (a.sha256 && a.sha256 !== sha) continue;
+    out.push({ name: path.basename(String(a.name || 'file')), mime: a.mime || undefined, size: buf.length, sha256: sha, dataUrl: raw });
+  }
+  return out;
 }
 
 /** 等批准的新设备（本机已入网时才有） */
@@ -286,14 +382,19 @@ async function startFromConfig({ gatewayPort, log } = {}) {
     node = null;
     return null;
   }
+  attachHireHandlers(node);
   // 接着跟上次没做完的远端任务
   try { require('../agent-executor').resumeMeshTasks(); } catch { /* 执行器没就绪 */ }
   if (cloud?.ready) startCloudSync();
+  // 连上官方中继后，出租时告诉云端「本机能接设备通道的雇佣」
+  const t = setTimeout(() => { try { require('../agent-worker').refreshMeshHireCap(); } catch { /* 没开出租 */ } }, 3000);
+  t.unref?.();
   return node;
 }
 
 async function stop() {
   stopCloudSync();
+  setTimeout(() => { try { require('../agent-worker').refreshMeshHireCap(); } catch { /* 没开出租 */ } }, 0).unref?.();
   const n = node;
   node = null;
   if (n) await n.stop();
@@ -915,6 +1016,7 @@ function resolveWorkspace(name) {
 module.exports = {
   setCloud, cloudStatus: () => ({ connected: !!cloud?.ready, ...cloudState }),
   getSelfSettings, updateSelfSettings, addWorkspace, removeWorkspace, selfLoad, pendingDevices, decidePending,
+  canServeHires, hireViaMesh,
   meshDirPath, workspaceConfig, isSelfDevice, findDevice, meshProviders, meshProviderLabel, meshFromLabel, meshPathOf,
   submitAgentTask,
   fetchAgentTask,

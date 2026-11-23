@@ -63,7 +63,7 @@ let _authCloseHandled = false;
 
 /** 云端任务里能认出雇佣者的名字。编号不够，通知里要写这个人是谁。 */
 function hirerName(msg) {
-  const keys = ['consumer_nickname', 'consumer_name', 'user_nickname', 'nickname', 'user_name', 'author', 'from_name', 'sender_name'];
+  const keys = ['hirer_name', 'consumer_nickname', 'consumer_name', 'user_nickname', 'nickname', 'user_name', 'author', 'from_name', 'sender_name'];
   for (const key of keys) {
     const value = String(msg?.[key] || '').trim();
     if (value) return value;
@@ -817,6 +817,13 @@ async function fetchPublicIp() {
 function send(obj) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }
+const sendWs = (obj) => send(obj);
+
+/** 设备网络开着、连着官方中继、登录了：雇佣方可以凭票直接把任务端到端加密交给本机 */
+function meshHireReady() {
+  try { return !!require('./mesh/glue').canServeHires(); } catch { return false; }
+}
+let registeredMeshHire = false;
 
 /** 只认已安装的 CLI。社区智能体 id 混进来会让「探测成功」变成误判，勾选被全部滤成 runtime_unavailable。 */
 function installedCliIdsFromAgentList(agents) {
@@ -975,8 +982,12 @@ function recordWsAgentCall(info) {
   }
 }
 
-/** 处理社区派发的武将任务（支持过程中推送 agent_task_progress） */
-async function handleAgentTask(msg, cfg) {
+/**
+ * 处理社区派发的武将任务（支持过程中推送 agent_task_progress）。
+ * sink：结果送到哪。默认经 /ws/worker 送回云端；雇佣走设备通道时，送回雇佣方设备（端到端加密）。
+ */
+async function handleAgentTask(msg, cfg, sink) {
+  const send = sink || sendWs;
   const started = Date.now();
   const taskId = String(msg.task_id || msg.req_id || '').trim();
   const assistantId = String(msg.assistant_id || '').trim();
@@ -1367,8 +1378,13 @@ function connect(cfg) {
       worker_key: liveCfg.worker_key,
       models,
       name: liveCfg.name || os.hostname(),
-      caps: ['agents'],
+      caps: meshHireReady() ? ['agents', 'mesh_hire'] : ['agents'],
     };
+    registeredMeshHire = regMsg.caps.includes('mesh_hire');
+    log(`[agent] register caps=${regMsg.caps.join(',')}`);
+    if (registeredMeshHire) {
+      try { regMsg.mesh_device_id = require('./mesh/glue').getNode()?.deviceId || undefined; } catch { /* 没开设备网络 */ }
+    }
     // 同一账号的另一台电脑靠设备 id 留下来，重连只替换本机
     try {
       const deviceId = ensureDeviceId('desktop');
@@ -1499,18 +1515,7 @@ function connect(cfg) {
       }
     }
 
-    if (msg.type === 'agent_task_cancel') {
-      const executor = require('./agent-executor');
-      const cloudId = String(msg.task_id || '').trim();
-      const localId = liveAgentTasks.get(cloudId);
-      cancelledCloudTasks.add(cloudId);
-      log(`[agent] cancel ${cloudId} local=${localId || '-'}`);
-      if (localId) {
-        try { await executor.cancel(localId); } catch (e) {
-          log(`[agent] cancel failed: ${e.message}`);
-        }
-      }
-    }
+    if (msg.type === 'agent_task_cancel') await cancelAgentTask(msg.task_id);
 
     if (msg.type === 'agent_task') {
       const cloudId = String(msg.task_id || '').trim();
@@ -1552,6 +1557,53 @@ function connect(cfg) {
     if (running) scheduleReconnect(liveCfg);
     else _onStatus?.({ running: false });
   });
+}
+
+async function cancelAgentTask(taskId) {
+  const executor = require('./agent-executor');
+  const cloudId = String(taskId || '').trim();
+  const localId = liveAgentTasks.get(cloudId);
+  cancelledCloudTasks.add(cloudId);
+  log(`[agent] cancel ${cloudId} local=${localId || '-'}`);
+  if (localId) {
+    try { await executor.cancel(localId); } catch (e) {
+      log(`[agent] cancel failed: ${e.message}`);
+    }
+  }
+}
+
+/**
+ * 雇佣走设备通道来的一单（mesh/hire.js 已核对过雇佣票，task 的任务号、智能体、隔离键都来自票）。
+ * 和 /ws/worker 来的走同一段出租逻辑；结果交出去之前先找云端结算，雇佣方已经取消的就不交。
+ * @param {{ task: object, send: (obj) => void, settle: (status, durationMs) => Promise<{ok, status}> }} p
+ */
+async function runHiredTask({ task, send: deliver, settle }) {
+  const cfg = loadConfig();
+  if (!cfg) { deliver({ type: 'agent_task_result', status: 'rejected', error: '这台设备没有开出租' }); return; }
+  if (liveAgentTasks.has(task.task_id)) return;
+  const started = Date.now();
+  const sink = async (obj) => {
+    if (obj.type !== 'agent_task_result') { deliver(obj); return; }
+    let verdict = null;
+    try { verdict = await settle(String(obj.status || 'failed'), Date.now() - started); } catch (e) { log(`[agent] mesh settle failed: ${e.message}`); }
+    if (verdict && verdict.ok === false && ['cancelled', 'expired'].includes(verdict.status)) {
+      deliver({ type: 'agent_task_result', status: 'cancelled', error: verdict.status === 'expired' ? 'timeout' : 'cancelled' });
+      return;
+    }
+    deliver(obj);
+  };
+  activeRequests++;
+  try {
+    await handleAgentTask(task, cfg, sink);
+  } finally {
+    activeRequests = Math.max(0, activeRequests - 1);
+  }
+}
+
+/** 设备网络状态变了：要是能不能接设备通道的雇佣变了，重新上报一次 */
+function refreshMeshHireCap() {
+  if (!running || !ws) return;
+  if (meshHireReady() !== registeredMeshHire) reconnectWithLatestConfig();
 }
 
 /** 已在运行时用最新配置重连（保存勾选武将后必须调用） */
@@ -1631,6 +1683,7 @@ function isRunning() { return running; }
 
 module.exports = {
   start, stop, isRunning, getStats, resetSuffixFromHeaders, reconnectWithLatestConfig,
+  runHiredTask, cancelAgentTask, refreshMeshHireCap,
   listContributeTasks,
   resolveContributeTrace,
 };

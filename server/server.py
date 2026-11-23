@@ -34,6 +34,7 @@ from community_catalog_router import router as community_catalog_router
 from catalog import TIERS, catalog_public_payload
 from device_router import router as device_router
 from mesh_router import router as mesh_router
+from mesh_hire import router as mesh_hire_router
 from auth import get_current_user_id
 from api_errors import DispatchError, openai_error_response
 from dispatch import handle_chat
@@ -215,6 +216,7 @@ app.include_router(studio_admin_router, prefix="/admin")   # 社区圈 预定义
                                                     # PUT/DELETE /api/config/tools|routes (admin)
 app.include_router(tools_router, tags=["tools"])           # 工具合集站（消费端）
 app.include_router(device_router, tags=["device"])
+app.include_router(mesh_hire_router, tags=["mesh"])     # 雇佣走设备通道：签雇佣票、结算
 app.include_router(mesh_router, tags=["mesh"])            # 设备网络：证书、地址簿、吊销、中继放行
 
 
@@ -1872,6 +1874,8 @@ async def worker_ws(ws: WebSocket):
             agents=normalize_agent_cards(msg.get("agents"), owner_nickname=owner_nickname),
             owner_nickname=owner_nickname,
             caps=[str(c) for c in (msg.get("caps") or []) if c][:16],
+            # 设备网络里的设备号（设备证书上的）：雇佣走设备通道时找它
+            mesh_device_id=str(msg.get("mesh_device_id") or "").strip()[:64],
             circle_id=worker_circle_ids_list[0] if len(worker_circle_ids_list) == 1 else None,
             circle_ids=worker_circle_ids_list,
             # 设了圈子时仍对所有人公开的模型（只认本次注册里真有的）

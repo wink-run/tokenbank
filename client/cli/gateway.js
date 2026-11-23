@@ -141,7 +141,10 @@ async function cmdStart(port, adminPort) {
     .then((node) => {
       // 设备网络开着时也起派发服务：CLI 网关上的主智能体同样能用 MCP 派活（含 mine: 目标、后台派、tb_task_status）。
       // 桌面端由 main.js 起，这里只在设备网络原型里起，免得两边抢 dispatch-server.json
-      if (!node || process.env.TB_CLI_DISPATCH === '0') return;
+      // 登录后才领到证书的（云端模式）此时 node 还是空的：看配置里开没开
+      let enabled = !!node;
+      try { enabled = enabled || !!JSON.parse(require('fs').readFileSync(require('path').join(require('os').homedir(), '.tokenbank', 'mesh', 'config.json'), 'utf8')).enabled; } catch { /* 没配置 */ }
+      if (!enabled || process.env.TB_CLI_DISPATCH === '0') return;
       const { startDispatchServer } = require('../electron/agent-dispatch-server');
       startDispatchServer(require('../electron/agent-executor'), require('../electron/resource-manager'));
     })
