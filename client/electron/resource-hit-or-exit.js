@@ -5,7 +5,6 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const http = require('http');
 
 const MS_HOUR = 60 * 60 * 1000;
 const MS_DAY = 24 * MS_HOUR;
@@ -216,10 +215,15 @@ function readLatestHit() {
   }
 }
 
+/** 主进程注册：资产被用到时弹息票 */
+let onResourceHit = null;
+function setResourceHitHandler(fn) {
+  onResourceHit = typeof fn === 'function' ? fn : null;
+}
+
 /**
- * 通知主窗口弹出息票。
- * Electron 主进程：直达 onResourceHit（避免 /dispatch 栈内 HTTP 自回环）。
- * MCP 子进程：走 dispatch HTTP /resource-hit。
+ * 通知主窗口弹出息票。工具都在网关进程里执行，这里直接交给主进程注册的处理函数；
+ * 命令行版没有窗口，只记事件。
  */
 function notifyResourceHit(payload) {
   const evt = {
@@ -233,51 +237,10 @@ function notifyResourceHit(payload) {
   };
   if (!evt.id) return;
   appendHitEvent(evt);
-
-  // Electron 主进程 process.type === 'browser'
-  if (process.type === 'browser') {
-    setImmediate(() => {
-      try {
-        const { deliverResourceHitLocal } = require('./agent-dispatch-server');
-        deliverResourceHitLocal(evt);
-      } catch { /* ignore */ }
-    });
-    return;
-  }
-
-  // MCP / 其它 Node 子进程：HTTP 通知主进程
-  let info = null;
-  try {
-    const { getDispatchEndpoint } = require('./agent-dispatch-server');
-    info = getDispatchEndpoint();
-  } catch { /* 子进程通常读文件 */ }
-  if (!info?.url || !info?.token) {
-    try {
-      const p = path.join(os.homedir(), '.tokenbank', 'dispatch-server.json');
-      if (fs.existsSync(p)) info = JSON.parse(fs.readFileSync(p, 'utf8'));
-    } catch { /* ignore */ }
-  }
-  if (!info?.url || !info?.token) return;
-
-  try {
-    const u = new URL('/resource-hit', info.url);
-    const body = Buffer.from(JSON.stringify(evt), 'utf8');
-    const req = http.request({
-      hostname: u.hostname,
-      port: u.port,
-      path: u.pathname,
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${info.token}`,
-        'Content-Type': 'application/json',
-        'Content-Length': body.length,
-      },
-      timeout: 1500,
-    }, (res) => { res.resume(); });
-    req.on('error', () => {});
-    req.write(body);
-    req.end();
-  } catch { /* ignore */ }
+  if (typeof onResourceHit !== 'function') return;
+  setImmediate(() => {
+    try { onResourceHit(evt); } catch (e) { console.warn('[resource-hit]', e.message); }
+  });
 }
 
 module.exports = {
@@ -292,4 +255,5 @@ module.exports = {
   appendHitEvent,
   readLatestHit,
   notifyResourceHit,
+  setResourceHitHandler,
 };

@@ -165,9 +165,9 @@ function startGateway(dev, envExtra = {}) {
   return p;
 }
 
-/** 起一个派发 MCP（和主智能体用的同一个 stdio 进程），按 JSON-RPC 调工具 */
+/** 起一个 tokenbank MCP（和应用配置里写的同一个 stdio 进程，转给网关），按 JSON-RPC 调工具 */
 function startMcp(dev, env = {}) {
-  const p = spawn(process.execPath, [path.join(CLIENT, 'electron', 'agent-dispatch-mcp.js')], {
+  const p = spawn(process.execPath, [path.join(CLIENT, 'electron', 'tokenbank-mcp-stdio.js')], {
     cwd: CLIENT, env: { ...process.env, HOME: dev.home, ...env }, stdio: ['pipe', 'pipe', 'ignore'],
   });
   procs.push(p);

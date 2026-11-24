@@ -186,6 +186,8 @@ const mcp = {
   setServerGatewayRouted: call('mcp:setServerGatewayRouted', {}),
   setServersGatewayRouted: call('mcp:setServersGatewayRouted', {}),
   getGatewayInfo: call0('mcp:getGatewayInfo'),
+  appLevels: call0('mcp:appLevels'),
+  setAppLevel: call('mcp:setAppLevel', {}),
 };
 
 // 与 electron/preload.js 的 sessions 段一一对应

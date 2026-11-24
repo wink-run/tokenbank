@@ -81,7 +81,7 @@
 │  本地网关  :11430/v1                                            │
 │  · Anthropic Messages / OpenAI Chat / Codex Responses 协议适配  │
 │  · keyScene 换模 · 场景/任务分型路由 · 无损压缩 · 会话 Trace    │
-│  · MCP 内置中转（prompts / models / resources / agent-bridge）  │
+│  · MCP：内置 tokenbank 工具 + 中转投射的第三方 MCP              │
 │  智能体接口  :11430/v1/agent（0.7.0）                           │
 │  · 本机应用 / 专业 / 外部 / 雇来的智能体 · 智能体路由           │
 │  · 网关 Key 通用 · 每个智能体单独一把 Key · 同步 / 后台 / 流式  │
@@ -329,7 +329,7 @@ fallback · round-robin · weighted · latency · direct
 - 选**智能体路由**，由主 Agent 接收自然语言任务（支持**图片输入**），按规则派给合适的智能体
 - 主 Agent 可编排步骤，派发至已纳管的其他智能体（含 Kimi / Cursor 等运行时）
 - **社区智能体**：在「交易」页按需雇佣；任务在**对方设备**执行，不下载对方正文，降低陌生 Agent 风险
-- 内置 `tokenbank-agent-bridge` MCP：`tb_list_agents` / `tb_dispatch_agent` 供编排派发
+- 内置 `tokenbank` MCP：`tb_list_agents` / `tb_dispatch_agent` / `tb_task_status` 供编排派发
 - 对话流按块输出，工具调用可见；支持停止后续接
 - 智能体可见性由**运行时投射 + 已纳管**门控：投射了且本机可用才会出现在列表
 - 外部智能体「等它来取 / 已取走」状态可见，它推来的消息按时间插进当前对话
@@ -343,8 +343,7 @@ Skill 在这个目录，MCP 配置散在三个地方，Prompt 存在找不到的
 | **社区目录** | 在「添加」里直接搜索、筛选社区的 MCP / Skill / Prompt / Agent，一键启用（缓存优先，离线走内置兜底） |
 | **工具** | MCP、HTTP API、本地命令行工具都能登记，智能体可直接调用投射过去的工具 |
 | **投射** | 只投射到**已纳管且本机已装**的目标；可取消；纳管时级联依赖 |
-| **内置 MCP 中转** | 无 stdio 通道的应用：选应用 → 绑定 prompts/models/resources → 复制中转配置即可 |
-| **Prompt MCP** | Prompt 经 `tokenbank-prompts`（`tb_get_prompt` / `tb_list_prompts`），按投射集过滤 |
+| **内置 `tokenbank` MCP** | 每个应用一个：派活、用模型、取投射给它的资产（`tb_list_resources` / `tb_get_resource`）、调第三方 MCP（`tb_call_mcp`）。每个应用单独设权限：关闭 / 只读 / 派活 / 完全控制。没有 stdio 通道的应用复制一次中转配置 |
 | **技能要用的 Key** | 自动找出技能要配的变量（SKILL.md 声明 + 文档、脚本里提到的），在详情里填；值只存本机，不写进技能、分享时不带出去；任务运行时注入，技能目录里有一份只本人可读的 `.env`，也可一键在 shell 配置里加载 |
 | **问题排在前面** | 有问题的资产排在最前；智能体模板写清投射到了哪些应用、缺了哪些技能；有问题的点「看一下」交给智能管家 |
 

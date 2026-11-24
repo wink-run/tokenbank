@@ -18,11 +18,11 @@ group_order:
 - collaboration
 - reasoning
 items:
-- catalog_id: tokenbank-agent-bridge
-  id: tokenbank-agent-bridge
-  name: tokenbank-agent-bridge
-  display_name: Token Bank Agent Bridge
-  description: 内置 Agent 派发桥：tb_list_agents / tb_dispatch_agent / tb_get_prompt
+- catalog_id: tokenbank
+  id: tokenbank
+  name: tokenbank
+  display_name: Token Bank
+  description: 派活给智能体、用模型、取资产（智能体 / 技能 / 提示词）、调第三方 MCP
   type: stdio
   command: __DYNAMIC_ELECTRON__
   args: []
@@ -31,86 +31,21 @@ items:
   metadata:
     category: agent
     categoryGroup: tokenbank
-    icon: 🔗
-    tools:
-    - tb_list_agents
-    - tb_dispatch_agent
-    - tb_get_prompt
-    tags:
-    - 内置
-    - 编排
-  config_fields: []
-  always_installed: true
-- catalog_id: tokenbank-prompts
-  id: tokenbank-prompts
-  name: tokenbank-prompts
-  display_name: Token Bank Prompts
-  description: 内置提示词服务：tb_get_prompt / tb_list_prompts（仅对已投射的 Agent 可见）
-  type: stdio
-  command: __DYNAMIC_ELECTRON__
-  args: []
-  env:
-    ELECTRON_RUN_AS_NODE: '1'
-  metadata:
-    category: agent
-    categoryGroup: tokenbank
-    icon: 📝
-    tools:
-    - tb_get_prompt
-    - tb_list_prompts
-    tags:
-    - 内置
-    - 提示词
-  config_fields: []
-  always_installed: true
-- catalog_id: tokenbank-models
-  id: tokenbank-models
-  name: tokenbank-models
-  display_name: Token Bank Models
-  description: 内置模型资源：tb_list_models / tb_resolve_model（查询网关可用模型，skill 模型不存在时可动态切换）
-  type: stdio
-  command: __DYNAMIC_ELECTRON__
-  args: []
-  env:
-    ELECTRON_RUN_AS_NODE: '1'
-  metadata:
-    category: agent
-    categoryGroup: tokenbank
-    icon: 🧩
-    tools:
-    - tb_list_models
-    - tb_resolve_model
-    tags:
-    - 内置
-    - 模型
-  config_fields: []
-  always_installed: true
-- catalog_id: tokenbank-resources
-  id: tokenbank-resources
-  name: tokenbank-resources
-  display_name: Token Bank Resources
-  description: 内置资源发现：能力总览、skill/assistant/prompt、tb_get_prompt、社区目录、网关 API
-  type: stdio
-  command: __DYNAMIC_ELECTRON__
-  args: []
-  env:
-    ELECTRON_RUN_AS_NODE: '1'
-  metadata:
-    category: agent
-    categoryGroup: tokenbank
-    icon: 📚
+    icon: 🏦
     tools:
     - tb_capabilities
     - tb_list_resources
     - tb_get_resource
-    - tb_get_prompt
-    - tb_list_prompts
-    - tb_list_catalog
-    - tb_list_gateway
+    - tb_list_agents
+    - tb_dispatch_agent
+    - tb_task_status
+    - tb_hire_community_agent
+    - tb_list_models
+    - tb_chat
+    - tb_list_devices
     - tb_call_mcp
     tags:
     - 内置
-    - 资源
   config_fields: []
   always_installed: true
 - catalog_id: filesystem

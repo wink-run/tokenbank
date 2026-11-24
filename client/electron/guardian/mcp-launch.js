@@ -1,17 +1,12 @@
-// 智能管家启动时带上的 Token Bank 接口。改资产走这些工具，不直接改数据库。
+// 智能管家启动时带上的 Token Bank 接口（tokenbank MCP，应用 id 是 guardian-chat，多给改资产的工具）。
+// 改资产走这些工具，不直接改数据库。
 'use strict';
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { writeElectronAsNodeLauncher, mcpStdioFromLauncher } = require('../mcp-manager');
-
-const SERVERS = [
-  ['tokenbank-resources', 'resources-mcp.js', { TB_CLIENT_ID: 'guardian-chat', TB_GUARDIAN: '1' }],
-  ['tokenbank-prompts', 'prompt-mcp.js', { TB_CLIENT_ID: 'guardian-chat' }],
-  ['tokenbank-models', 'models-mcp.js', {}],
-  ['tokenbank-agent-bridge', 'agent-dispatch-mcp.js', {}],
-];
+const { writeTokenbankLauncher, mcpStdioFromLauncher } = require('../mcp-manager');
+const { GUARDIAN_CLIENT_ID } = require('../tokenbank-tools');
 
 function configDir(dir) {
   return dir || path.join(os.homedir(), '.tokenbank', 'guardian');
@@ -22,17 +17,8 @@ function writeConfig(dir) {
   const folder = configDir(dir);
   fs.mkdirSync(folder, { recursive: true });
   const mcpDir = path.join(folder, 'mcp-launchers');
-  const mcpServers = {};
-  for (const [name, script, env] of SERVERS) {
-    const launcher = writeElectronAsNodeLauncher({
-      name: `guardian-${name}`,
-      scriptPath: path.join(__dirname, '..', script),
-      env,
-      mcpDir,
-    });
-    const entry = mcpStdioFromLauncher(launcher);
-    mcpServers[name] = { command: entry.command, args: entry.args };
-  }
+  const entry = mcpStdioFromLauncher(writeTokenbankLauncher({ clientId: GUARDIAN_CLIENT_ID, mcpDir }));
+  const mcpServers = { tokenbank: { command: entry.command, args: entry.args } };
   const file = path.join(folder, 'mcp.json');
   fs.writeFileSync(file, `${JSON.stringify({ mcpServers }, null, 2)}\n`);
   return { folder, file, mcpServers };
@@ -164,4 +150,4 @@ function attach(runtimeId, args, { workingDir, dir } = {}) {
   return { args: list, cwd: null };
 }
 
-module.exports = { claudeArgs, piArgs, placeBeforeDoubleDash, attach, SERVERS };
+module.exports = { claudeArgs, piArgs, placeBeforeDoubleDash, attach, writeConfig };

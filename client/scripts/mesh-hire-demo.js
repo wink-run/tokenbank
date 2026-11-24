@@ -107,7 +107,7 @@ const agentKey = (d) => readJson(path.join(d.home, '.llm-agent', 'local-config.j
 const logOf = (d) => { try { return fs.readFileSync(path.join(ROOT, `${d.label}.log`), 'utf8'); } catch { return ''; } };
 
 function startMcp(dev) {
-  const p = spawn(process.execPath, [path.join(CLIENT, 'electron', 'agent-dispatch-mcp.js')], { cwd: CLIENT, env: { ...process.env, HOME: dev.home }, stdio: ['pipe', 'pipe', 'ignore'] });
+  const p = spawn(process.execPath, [path.join(CLIENT, 'electron', 'tokenbank-mcp-stdio.js')], { cwd: CLIENT, env: { ...process.env, HOME: dev.home }, stdio: ['pipe', 'pipe', 'ignore'] });
   procs.push(p);
   let buf = '';
   let nextId = 1;

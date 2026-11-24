@@ -7,23 +7,15 @@ const os = require('os');
 const path = require('path');
 const { claudeArgs, piArgs, placeBeforeDoubleDash, attach } = require('../guardian/mcp-launch');
 
-test('guardian claude launch carries the tokenbank mcp servers, and only its resources process can write', () => {
+test('guardian claude launch carries the one tokenbank mcp, as the guardian-chat app', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-guardian-mcp-'));
   const args = claudeArgs({ dir });
   assert.deepEqual(args.slice(0, 1), ['--mcp-config']);
   const doc = JSON.parse(fs.readFileSync(args[1], 'utf8'));
-  assert.deepEqual(Object.keys(doc.mcpServers).sort(), [
-    'tokenbank-agent-bridge',
-    'tokenbank-models',
-    'tokenbank-prompts',
-    'tokenbank-resources',
-  ]);
-  const launcher = doc.mcpServers['tokenbank-resources'].args[0];
-  const script = fs.readFileSync(launcher, 'utf8');
-  assert.match(script, /TB_GUARDIAN='1'/);
+  assert.deepEqual(Object.keys(doc.mcpServers), ['tokenbank']);
+  const script = fs.readFileSync(doc.mcpServers.tokenbank.args[0], 'utf8');
   assert.match(script, /TB_CLIENT_ID='guardian-chat'/);
-  const prompts = fs.readFileSync(doc.mcpServers['tokenbank-prompts'].args[0], 'utf8');
-  assert.doesNotMatch(prompts, /TB_GUARDIAN/);
+  assert.match(script, /tokenbank-mcp-stdio\.js/);
 });
 
 test('guardian pi launch registers the same servers for this process only', () => {
@@ -34,10 +26,9 @@ test('guardian pi launch registers the same servers for this process only', () =
   assert.match(ext, /registerMcpServer/);
   assert.match(ext, /exposure: "direct"/);
   assert.match(ext, /guardian-/);
-  assert.match(ext, /tokenbank-resources/);
+  assert.match(ext, /"tokenbank"/);
   const doc = JSON.parse(fs.readFileSync(path.join(dir, 'mcp.json'), 'utf8'));
-  const launcher = doc.mcpServers['tokenbank-resources'].args[0];
-  assert.match(fs.readFileSync(launcher, 'utf8'), /TB_GUARDIAN='1'/);
+  assert.match(fs.readFileSync(doc.mcpServers.tokenbank.args[0], 'utf8'), /TB_CLIENT_ID='guardian-chat'/);
   const placed = placeBeforeDoubleDash(['--mode', 'json', '--', '修复视频'], args);
   assert.ok(placed.indexOf('--extension') < placed.lastIndexOf('--'));
   assert.equal(placed[placed.length - 1], '修复视频');
@@ -52,7 +43,7 @@ test('guardian attach covers every managed runtime without moving the prompt', (
   const codex = attach('codex', ['exec', '--json', '修复视频'], { dir });
   assert.equal(codex.args[0], 'exec');
   assert.equal(codex.args[1], '-c');
-  assert.match(codex.args[2], /mcp_servers\.guardian_tokenbank_resources\.command=/);
+  assert.match(codex.args[2], /mcp_servers\.guardian_tokenbank\.command=/);
   assert.equal(codex.args[codex.args.length - 1], '修复视频');
 
   const cursor = attach('cursor', ['-p', '--workspace', '/proj', '修复视频'], { dir, workingDir: '/proj' });

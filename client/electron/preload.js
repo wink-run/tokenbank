@@ -155,6 +155,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setServerGatewayRouted: (params) => ipcRenderer.invoke('mcp:setServerGatewayRouted', params),
     setServersGatewayRouted: (params) => ipcRenderer.invoke('mcp:setServersGatewayRouted', params),
     getGatewayInfo: () => ipcRenderer.invoke('mcp:getGatewayInfo'),
+    appLevels: () => ipcRenderer.invoke('mcp:appLevels'),
+    setAppLevel: (params) => ipcRenderer.invoke('mcp:setAppLevel', params || {}),
   },
   resource: {
     listCatalog: (filters) => ipcRenderer.invoke('resource:listCatalog', filters || {}),

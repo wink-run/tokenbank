@@ -15,8 +15,8 @@ class TestDefaultDoc(unittest.TestCase):
     def test_mcp_reuses_client_catalog_with_builtin(self):
         doc = cc.load_default_doc()
         ids = {m.get("catalog_id") or m.get("id") for m in doc["mcp"]}
-        self.assertIn("tokenbank-agent-bridge", ids)
-        self.assertIn("tokenbank-prompts", ids)
+        self.assertIn("tokenbank", ids)
+        self.assertNotIn("tokenbank-agent-bridge", ids)
         self.assertIn("pipeworx", ids)
 
     def test_resources_seeded_from_yaml(self):

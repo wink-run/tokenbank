@@ -113,7 +113,7 @@ Every correction you make becomes a rule the butler follows next time, and agent
 │  Local gateway  :11430/v1                                       │
 │  · Anthropic Messages / OpenAI Chat / Codex Responses adapters  │
 │  · keyScene rewrite · scene/task-type routing · compression     │
-│  · Built-in MCP relay (prompts / models / resources / bridge)   │
+│  · MCP: built-in tokenbank tools + relayed third-party MCP      │
 │  Agent API  :11430/v1/agent  (0.7.0)                            │
 │  · local apps / professional / external / hired · agent routes  │
 │  · shared gateway key · per-agent keys · sync / background / SSE │
@@ -361,7 +361,7 @@ Run multiple logins of the same CLI (Claude Code / Codex). The gateway picks the
 - Pick **Agent routing** and a main agent takes natural-language tasks (**image input** supported) and dispatches them by your rules
 - The main agent can plan steps and dispatch to other onboarded agents (including Kimi / Cursor runtimes)
 - **Community agents**: hire on demand from the Trade page; tasks run on **their device**, without downloading their source — lower risk than running unknown agents locally
-- Built-in `tokenbank-agent-bridge` MCP: `tb_list_agents` / `tb_dispatch_agent` for orchestration
+- Built-in `tokenbank` MCP: `tb_list_agents` / `tb_dispatch_agent` / `tb_task_status` for orchestration
 - Chunked conversation stream, visible tool calls, stop then continue
 - Agent visibility is gated by **runtime projection + hosted install** — only projected, available agents appear
 - External agents show “waiting to be picked up / picked up”, and messages they push land in the current conversation in time order
@@ -375,8 +375,7 @@ Skills in one folder, MCP configs in three, prompts in a text file you can't fin
 | **Community catalog** | Search and filter community MCP / Skill / Prompt / Agent under **Add**, enable in one click (cache-first, built-in offline fallback) |
 | **Tools** | Register MCP servers, HTTP APIs and local CLI tools; agents can call the tools projected to them |
 | **Projection** | Project only onto **hosted and installed** targets; revoke anytime; cascade deps on onboard |
-| **Built-in MCP relay** | For apps without stdio: pick app → bind prompts/models/resources → copy relay config |
-| **Prompt MCP** | Prompts served via `tokenbank-prompts` (`tb_get_prompt` / `tb_list_prompts`) filtered by projection set |
+| **Built-in `tokenbank` MCP** | One MCP in every app: dispatch to agents, use models, fetch projected assets (`tb_list_resources` / `tb_get_resource`), call third-party MCP (`tb_call_mcp`). Per-app access: off / read / operate / full. Apps without stdio copy the relay config once |
 | **Keys a skill needs** | Finds the variables a skill needs (declared in SKILL.md, or mentioned in its docs and scripts) and lets you fill them in; values stay on this machine and never ship with the skill; injected into tasks, written to a `.env` in the skill folder readable only by you, and optionally loaded from your shell profile |
 | **Problems first** | Problem assets sort to the top; agent templates show where they are projected and which skills are missing; click **Look** to hand a problem to the butler |
 

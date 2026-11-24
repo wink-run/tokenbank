@@ -25,16 +25,18 @@ test('mcp-catalog: 缓存项覆盖同 id 且保留内置 MCP', () => {
       catalog_id: 'community-demo', id: 'community-demo', name: 'community-demo',
       display_name: 'Community Demo', type: 'stdio', command: 'npx', args: ['-y', 'demo'],
       metadata: { categoryGroup: 'official' }, config_fields: [],
+    }, {
+      // 云端还没更新时下发的旧内置条目
+      catalog_id: 'tokenbank-prompts', id: 'tokenbank-prompts', name: 'tokenbank-prompts',
+      type: 'stdio', command: '__DYNAMIC_ELECTRON__', metadata: { categoryGroup: 'tokenbank' }, always_installed: true,
     }],
     prompts: [], skills: [], assistants: [],
   });
   mcpCatalog.resetCatalogCache();
   const ids = new Set(mcpCatalog.listCatalogItems().map(i => i.catalogId));
   assert.ok(ids.has('community-demo'), '缓存项应出现');
-  assert.ok(ids.has('tokenbank-agent-bridge'), '内置 bridge 永不丢');
-  assert.ok(ids.has('tokenbank-prompts'), '内置 prompts 永不丢');
-  assert.ok(ids.has('tokenbank-models'), '内置 models 永不丢');
-  assert.ok(ids.has('tokenbank-resources'), '内置 resources 永不丢');
+  assert.ok(ids.has('tokenbank'), '内置 tokenbank 永不丢');
+  assert.ok(!ids.has('tokenbank-prompts'), '下发的旧内置条目不要');
   clearCache();
   mcpCatalog.resetCatalogCache();
 });
@@ -44,7 +46,7 @@ test('mcp-catalog: 无缓存时回退本地内置 yaml', () => {
   clearCache();
   mcpCatalog.resetCatalogCache();
   const ids = new Set(mcpCatalog.listCatalogItems().map(i => i.catalogId));
-  assert.ok(ids.has('tokenbank-agent-bridge'));
+  assert.ok(ids.has('tokenbank'));
 });
 
 test('resource-catalog: 缓存优先返回下发项', () => {

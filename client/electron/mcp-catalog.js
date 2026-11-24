@@ -32,6 +32,9 @@ const CATALOG_CANDIDATES = [
   path.join(__dirname, '..', '..', 'server', 'static', 'defaults', 'mcp-catalog.yaml'),
 ];
 
+/** 以前拆成四条的 Token Bank 内置 MCP，现在合成一条 tokenbank */
+const LEGACY_BUILTIN_IDS = ['tokenbank-agent-bridge', 'tokenbank-prompts', 'tokenbank-models', 'tokenbank-resources'];
+
 /** @type {import('./mcp-catalog').CatalogItem[]|null} */
 let _cachedCatalog = null;
 /** @type {Record<string,string>|null} */
@@ -94,14 +97,14 @@ function readCatalogDoc() {
   return null;
 }
 
-/** 内置 Bridge（yaml 缺失时的最小兜底） */
+/** Token Bank 自己那条（yaml 缺失时的最小兜底） */
 function fallbackCatalog() {
   return [{
-    catalogId: 'tokenbank-agent-bridge',
-    id: 'tokenbank-agent-bridge',
-    name: 'tokenbank-agent-bridge',
-    display_name: 'Token Bank Agent Bridge',
-    description: '内置 Agent 派发桥：tb_list_agents / tb_dispatch_agent / tb_get_prompt',
+    catalogId: 'tokenbank',
+    id: 'tokenbank',
+    name: 'tokenbank',
+    display_name: 'Token Bank',
+    description: '派活给智能体、用模型、取资产（智能体 / 技能 / 提示词）、调第三方 MCP',
     type: 'stdio',
     command: '__DYNAMIC_ELECTRON__',
     args: [],
@@ -109,69 +112,9 @@ function fallbackCatalog() {
     metadata: {
       category: 'agent',
       categoryGroup: 'tokenbank',
-      icon: '🔗',
-      tools: ['tb_list_agents', 'tb_dispatch_agent', 'tb_task_status', 'tb_get_prompt'],
-      tags: ['内置', '编排'],
-    },
-    configFields: [],
-    alwaysInstalled: true,
-  },
-  {
-    catalogId: 'tokenbank-prompts',
-    id: 'tokenbank-prompts',
-    name: 'tokenbank-prompts',
-    display_name: 'Token Bank Prompts',
-    description: '内置提示词服务：tb_get_prompt / tb_list_prompts（仅对已投射的 Agent 可见）',
-    type: 'stdio',
-    command: '__DYNAMIC_ELECTRON__',
-    args: [],
-    env: { ELECTRON_RUN_AS_NODE: '1' },
-    metadata: {
-      category: 'agent',
-      categoryGroup: 'tokenbank',
-      icon: '📝',
-      tools: ['tb_get_prompt', 'tb_list_prompts'],
-      tags: ['内置', '提示词'],
-    },
-    configFields: [],
-    alwaysInstalled: true,
-  },
-  {
-    catalogId: 'tokenbank-models',
-    id: 'tokenbank-models',
-    name: 'tokenbank-models',
-    display_name: 'Token Bank Models',
-    description: '内置模型资源：tb_list_models / tb_resolve_model（查询网关可用模型，skill 模型不存在时可动态切换）',
-    type: 'stdio',
-    command: '__DYNAMIC_ELECTRON__',
-    args: [],
-    env: { ELECTRON_RUN_AS_NODE: '1' },
-    metadata: {
-      category: 'agent',
-      categoryGroup: 'tokenbank',
-      icon: '🧩',
-      tools: ['tb_list_models', 'tb_resolve_model'],
-      tags: ['内置', '模型'],
-    },
-    configFields: [],
-    alwaysInstalled: true,
-  },
-  {
-    catalogId: 'tokenbank-resources',
-    id: 'tokenbank-resources',
-    name: 'tokenbank-resources',
-    display_name: 'Token Bank Resources',
-    description: '内置资源发现：tb_capabilities 能力总览、已纳管 skill/assistant、社区目录、中转 MCP、网关 API',
-    type: 'stdio',
-    command: '__DYNAMIC_ELECTRON__',
-    args: [],
-    env: { ELECTRON_RUN_AS_NODE: '1' },
-    metadata: {
-      category: 'agent',
-      categoryGroup: 'tokenbank',
-      icon: '📚',
-      tools: ['tb_capabilities', 'tb_list_resources', 'tb_get_resource', 'tb_get_prompt', 'tb_list_prompts', 'tb_list_catalog', 'tb_list_gateway', 'tb_call_mcp'],
-      tags: ['内置', '资源'],
+      icon: '🏦',
+      tools: require('./tokenbank-tools').TOOLS.map((t) => t.name),
+      tags: ['内置'],
     },
     configFields: [],
     alwaysInstalled: true,
@@ -224,7 +167,8 @@ function mergeCommunityMcp(baseItems) {
   }
   for (const it of cachedItems) byId.set(it.catalogId, it);
 
-  // 内置 always_installed 项永不被下发列表冲掉
+  // 内置 always_installed 项永不被下发列表冲掉；云端还没更新时下发的旧四条内置不要
+  for (const id of LEGACY_BUILTIN_IDS) byId.delete(id);
   for (const it of fallbackCatalog()) {
     if (it.alwaysInstalled) byId.set(it.catalogId, it);
   }

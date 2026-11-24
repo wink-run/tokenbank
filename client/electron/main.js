@@ -2746,10 +2746,7 @@ function registerIPC() {
   const { registerAgentHandlers } = require('./ipc-handlers-agent');
   registerAgentHandlers();
   try {
-    const agentExecutor = require('./agent-executor');
-    const resourceManager = require('./resource-manager');
-    const { startDispatchServer, setResourceHitHandler } = require('./agent-dispatch-server');
-    startDispatchServer(agentExecutor, resourceManager);
+    const { setResourceHitHandler } = require('./resource-hit-or-exit');
     try {
       const mcpManager = require('./mcp-manager');
       const { startMcpGateway } = require('./mcp-gateway-server');
@@ -2823,7 +2820,7 @@ function registerIPC() {
       }
     });
   } catch (e) {
-    console.warn('[dispatch-server] start skipped:', e.message);
+    console.warn('[resource-hit] handler skipped:', e.message);
   }
   const { registerMcpHandlers } = require('./ipc-handlers-mcp');
   registerMcpHandlers();
@@ -5901,7 +5898,7 @@ function probeModelViaGateway(model) {
       let isEmbed = false;
       try {
         const { parseRoute } = require('../shared/route-binding');
-        const { inferModelTypeFromName } = require('./models-mcp');
+        const { inferModelTypeFromName } = require('./tokenbank-tools');
         const pr = parseRoute(model);
         const type = inferModelTypeFromName(pr.model || model);
         // 生图测一次就要真出图，耗时长且计费，测速直接跳过

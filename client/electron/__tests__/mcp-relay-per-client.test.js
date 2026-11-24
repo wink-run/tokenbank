@@ -1,6 +1,5 @@
 'use strict';
-// 内置中转（stdio MCP）按应用 cid 交付：resolveGatewaySpawnConfig 为内置 prompts/resources
-// 注入 TB_CLIENT_ID=cid，从而每个应用只看到「投射到它」的 prompt/resource 集。
+// Token Bank 自己的 MCP 只有一条 tokenbank：旧的四条升级时合进来；中转按应用的权限在进程内给工具。
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -10,16 +9,6 @@ const path = require('path');
 const localStats = require('../local-stats');
 const mcpManager = require('../mcp-manager');
 const gw = require('../mcp-gateway-targets');
-
-/** Unix 经 /bin/sh 包装后，真正的 .sh 在 args[0]；Windows .cmd 在 args 里 */
-function launcherFile(cfg) {
-  const args = Array.isArray(cfg.args) ? cfg.args : [];
-  const fromArgs = args
-    .map((a) => String(a).replace(/^"|"$/g, ''))
-    .find((a) => /\.(sh|cmd)$/i.test(a));
-  if (fromArgs) return fromArgs;
-  return String(cfg.command || '');
-}
 
 function withDb(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-relay-'));
@@ -33,36 +22,62 @@ function withDb(fn) {
   }
 }
 
-test('resolveGatewaySpawnConfig：内置 prompts 按 cid 注入 TB_CLIENT_ID', () => {
+test('升级：旧的四条内置 MCP 合成一条 tokenbank，投射和中转取并集，旧行删掉', () => {
   withDb(() => {
-    const row = { id: 'tokenbank-prompts', name: 'tokenbank-prompts', command: '__DYNAMIC_ELECTRON__' };
-    const cfg = mcpManager.resolveGatewaySpawnConfig(row, 'trae-work');
-    const file = launcherFile(cfg);
-    assert.ok(/\.(sh|cmd)$/i.test(file), file);
-    const sh = fs.readFileSync(file, 'utf8');
-    assert.ok(sh.includes('prompt-mcp.js'));
-    assert.ok(sh.includes("TB_CLIENT_ID='trae-work'") || sh.includes('TB_CLIENT_ID=trae-work'), sh);
+    const origSync = mcpManager.syncToClients;
+    let synced = 0;
+    mcpManager.syncToClients = () => { synced += 1; return { success: true, results: [] }; };
+    try {
+      const db = localStats.getDb();
+      const now = Date.now();
+      const legacy = {
+        'tokenbank-agent-bridge': { sync_clients: ['cursor'] },
+        'tokenbank-models': { sync_clients: ['cursor', 'codex'], gateway_clients: ['api'] },
+        'tokenbank-resources': { sync_clients: ['codex'], gateway_clients: ['api', 'trae-work'] },
+      };
+      for (const [id, meta] of Object.entries(legacy)) {
+        db.prepare(`INSERT INTO mcp_servers (id, name, display_name, type, command, args, env, builtin, status, metadata, created_at, updated_at)
+          VALUES (?, ?, ?, 'stdio', '__DYNAMIC_ELECTRON__', '[]', '{}', 1, 'active', ?, ?, ?)`).run(id, id, id, JSON.stringify(meta), now, now);
+      }
+      mcpManager.init();
+      for (const id of Object.keys(legacy)) assert.equal(mcpManager.getServer(id), null, id);
+      const row = db.prepare('SELECT metadata FROM mcp_servers WHERE id = ?').get('tokenbank');
+      const meta = JSON.parse(row.metadata);
+      // 旧的都在（本机装了的应用也会被默认补上）
+      assert.ok(meta.sync_clients.includes('codex') && meta.sync_clients.includes('cursor'), meta.sync_clients.join(','));
+      assert.deepEqual([...meta.gateway_clients].sort(), ['api', 'trae-work']);
+      assert.equal(meta.tools.length, 11);
+      assert.ok(synced >= 1, '升级后重写应用配置，清掉旧的四条');
+    } finally {
+      mcpManager.syncToClients = origSync;
+    }
   });
 });
 
-test('resolveGatewaySpawnConfig：不同 cid 得到不同 launcher（可见集隔离）', () => {
-  withDb(() => {
-    const row = { id: 'tokenbank-resources', name: 'tokenbank-resources', command: '__DYNAMIC_ELECTRON__' };
-    const a = launcherFile(mcpManager.resolveGatewaySpawnConfig(row, 'app-x1'));
-    const b = launcherFile(mcpManager.resolveGatewaySpawnConfig(row, 'app-x2'));
-    assert.notEqual(a, b);
-    assert.ok(fs.readFileSync(a, 'utf8').includes("TB_CLIENT_ID='app-x1'") || fs.readFileSync(a, 'utf8').includes('TB_CLIENT_ID=app-x1'));
-    assert.ok(fs.readFileSync(b, 'utf8').includes("TB_CLIENT_ID='app-x2'") || fs.readFileSync(b, 'utf8').includes('TB_CLIENT_ID=app-x2'));
-  });
-});
-
-test('resolveGatewaySpawnConfig：空 cid → 通用（TB_CLIENT_ID 为空）', () => {
-  withDb(() => {
-    const row = { id: 'tokenbank-prompts', name: 'tokenbank-prompts', command: '__DYNAMIC_ELECTRON__' };
-    const cfg = mcpManager.resolveGatewaySpawnConfig(row);
-    const sh = fs.readFileSync(launcherFile(cfg), 'utf8');
-    assert.ok(sh.includes("TB_CLIENT_ID=''") || /TB_CLIENT_ID=\s*$/m.test(sh) || sh.includes('prompts-default'));
-  });
+test('中转：Token Bank 的工具在进程内按应用的权限给；只要 tokenbank 时不带第三方 MCP', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-access-'));
+  const prevHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const relay = require('../mcp-gateway-server');
+    const access = require('../mcp-access');
+    const list = async (cid) => (await relay.handleMcpMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, cid, { scope: 'tokenbank' })).result.tools.map((t) => t.name);
+    assert.equal(access.appLevel('cursor'), 'full');
+    assert.equal((await list('cursor')).length, 11);
+    access.setAppLevel('cursor', 'read');
+    const names = await list('cursor');
+    assert.ok(names.includes('tb_list_agents') && !names.includes('tb_dispatch_agent'));
+    const denied = await relay.handleMcpMessage({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'tb_chat', arguments: { model: 'x', prompt: 'y' } } }, 'cursor', { scope: 'tokenbank' });
+    assert.equal(denied.result.isError, true);
+    access.setAppLevel('cursor', 'off');
+    assert.deepEqual(await list('cursor'), []);
+    assert.ok((await list('guardian-chat')).includes('tb_save_resource'), '智能管家多一组改资产的工具');
+    const init = await relay.handleMcpMessage({ jsonrpc: '2.0', id: 3, method: 'initialize', params: {} }, 'cursor', { scope: 'tokenbank' });
+    assert.equal(init.result.serverInfo.name, 'tokenbank');
+    assert.match(init.result.instructions, /tb_dispatch_agent/);
+  } finally {
+    process.env.HOME = prevHome;
+  }
 });
 
 test('isAllowedGatewayClientId：非法 id 拒绝；已删除的 app-* 不再放行', () => {
@@ -82,7 +97,7 @@ test('unbindClient 清掉已删应用的中转与投射', () => {
       mcpManager.init();
       const db = localStats.getDb();
       const now = Date.now();
-      for (const id of ['tokenbank-models', 'tokenbank-prompts', 'tokenbank-resources']) {
+      for (const id of ['tokenbank']) {
         const row = db.prepare('SELECT metadata FROM mcp_servers WHERE id = ?').get(id);
         const meta = JSON.parse(row.metadata || '{}');
         meta.gateway_clients = ['api', 'app-deadbeef'];
@@ -93,7 +108,7 @@ test('unbindClient 清掉已删应用的中转与投射', () => {
       }
       const r = mcpManager.unbindClient('app-deadbeef');
       assert.ok(r.updated >= 1);
-      for (const id of ['tokenbank-models', 'tokenbank-prompts', 'tokenbank-resources']) {
+      for (const id of ['tokenbank']) {
         const s = mcpManager.getServer(id);
         assert.ok(!(s.gateway_clients || []).includes('app-deadbeef'), id);
         assert.ok(!(s.sync_clients || []).includes('app-deadbeef'), id);
@@ -114,15 +129,15 @@ test('pruneStaleDeletedAppBindings 清掉列表里已不存在的 app-*', () => 
       mcpManager.init();
       const db = localStats.getDb();
       const now = Date.now();
-      const row = db.prepare('SELECT metadata FROM mcp_servers WHERE id = ?').get('tokenbank-models');
+      const row = db.prepare('SELECT metadata FROM mcp_servers WHERE id = ?').get('tokenbank');
       const meta = JSON.parse(row.metadata || '{}');
       meta.gateway_clients = ['api', 'app-gone'];
       meta.gateway_routed = true;
       db.prepare('UPDATE mcp_servers SET metadata = ?, updated_at = ? WHERE id = ?')
-        .run(JSON.stringify(meta), now, 'tokenbank-models');
+        .run(JSON.stringify(meta), now, 'tokenbank');
       const r = mcpManager.pruneStaleDeletedAppBindings();
       assert.ok(r.stale.includes('app-gone'));
-      const s = mcpManager.getServer('tokenbank-models');
+      const s = mcpManager.getServer('tokenbank');
       assert.ok(!(s.gateway_clients || []).includes('app-gone'));
       assert.ok((s.gateway_clients || []).includes('api'));
     } finally {

@@ -14,9 +14,10 @@ describe('mcp-catalog', () => {
   it('loads items from config/mcp-catalog.yaml', () => {
     const items = catalog.listCatalogItems();
     assert.ok(items.length > 1, 'catalog should have multiple items');
-    const bridge = items.find(i => i.catalogId === 'tokenbank-agent-bridge');
-    assert.ok(bridge);
-    assert.equal(bridge.alwaysInstalled, true);
+    const builtin = items.find(i => i.catalogId === 'tokenbank');
+    assert.ok(builtin);
+    assert.equal(builtin.alwaysInstalled, true);
+    assert.ok(!items.some(i => i.catalogId === 'tokenbank-agent-bridge'), '旧的四条内置已合并');
   });
 
   it('groups catalog by categoryGroup', () => {

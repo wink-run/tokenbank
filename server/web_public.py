@@ -26,7 +26,7 @@ WEB_AGENT_ATTACH_ONLY_PROMPT = "请根据附件完成任务"
 GUEST_TRIAL_MAX_PER_HOUR = 3
 _guest_hits: dict[str, list[float]] = {}
 
-# 名称启发式（与客户端 models-mcp.inferModelTypeFromName 对齐）
+# 名称启发式（与客户端 tokenbank-tools.inferModelTypeFromName 对齐）
 _IMAGE_NAME_RE = re.compile(
     r"(?:^|[\-_/])image(?:[\-_/]|$|\d)|gpt-image|dall-e|dalle|stable-diffusion|flux-|midjourney|sdxl",
     re.I,

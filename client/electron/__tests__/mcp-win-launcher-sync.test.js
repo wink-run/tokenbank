@@ -8,7 +8,7 @@ const path = require('path');
 
 const {
   writeElectronAsNodeLauncher,
-  writeBridgeMcpLauncher,
+  writeTokenbankLauncher,
   mcpStdioFromLauncher,
 } = require('../mcp-manager');
 const { syncJsonClient, syncCodexClient } = require('../mcp-client-sync');
@@ -18,7 +18,7 @@ test('writeElectronAsNodeLauncher(platform=win32) 生成 .cmd 并内嵌 ELECTRON
   try {
     const launcher = writeElectronAsNodeLauncher({
       name: 'prompts-test',
-      scriptPath: path.join(__dirname, '..', 'prompt-mcp.js'),
+      scriptPath: path.join(__dirname, '..', 'tokenbank-mcp-stdio.js'),
       env: { TB_CLIENT_ID: 'workbuddy' },
       platform: 'win32',
       mcpDir: dir,
@@ -28,7 +28,7 @@ test('writeElectronAsNodeLauncher(platform=win32) 生成 .cmd 并内嵌 ELECTRON
     assert.ok(body.includes('@echo off'));
     assert.ok(body.includes('ELECTRON_RUN_AS_NODE'));
     assert.ok(body.includes('TB_CLIENT_ID'));
-    assert.ok(body.includes('prompt-mcp.js'));
+    assert.ok(body.includes('tokenbank-mcp-stdio.js'));
     assert.ok(!body.includes('#!/bin/bash'));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -40,7 +40,7 @@ test('writeElectronAsNodeLauncher unix 用 #!/bin/sh（Alpine/Docker 无 bash）
   try {
     const launcher = writeElectronAsNodeLauncher({
       name: 'models-test',
-      scriptPath: path.join(__dirname, '..', 'models-mcp.js'),
+      scriptPath: path.join(__dirname, '..', 'tokenbank-mcp-stdio.js'),
       platform: 'linux',
       mcpDir: dir,
     });
@@ -53,22 +53,14 @@ test('writeElectronAsNodeLauncher unix 用 #!/bin/sh（Alpine/Docker 无 bash）
   }
 });
 
-test('writeBridgeMcpLauncher(platform=win32) 生成 bridge-*.cmd', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-mcp-bridge-'));
+test('writeTokenbankLauncher(platform=win32) 生成 tokenbank-<应用>.cmd，带应用 id', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-mcp-tokenbank-'));
   try {
-    const launcher = writeBridgeMcpLauncher({
-      taskId: 't1',
-      workingDir: 'C:\\proj',
-      mainAgentId: 'codex',
-      sessionKey: 's',
-      sessionInstanceId: 'i',
-      mcpDir: dir,
-      platform: 'win32',
-    });
-    assert.ok(launcher.endsWith('bridge-t1.cmd'), launcher);
+    const launcher = writeTokenbankLauncher({ clientId: 'codex', mcpDir: dir, platform: 'win32' });
+    assert.ok(launcher.endsWith('tokenbank-codex.cmd'), launcher);
     const body = fs.readFileSync(launcher, 'utf8');
-    assert.ok(body.includes('TB_PARENT_TASK_ID'));
-    assert.ok(body.includes('agent-dispatch-mcp.js'));
+    assert.ok(body.includes('TB_CLIENT_ID=codex'));
+    assert.ok(body.includes('tokenbank-mcp-stdio.js'));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -96,27 +88,27 @@ test('syncJsonClient: 清掉 leftover tokenbank 条目并原地更新，不叠 t
   try {
     fs.writeFileSync(filePath, `${JSON.stringify({
       mcpServers: {
-        'tokenbank-models': {
-          command: '/Users/x/.tokenbank/mcp/models-workbuddy.sh',
+        'tokenbank': {
+          command: '/Users/x/.tokenbank/mcp/tokenbank-workbuddy.sh',
           args: [],
         },
-        'tb-tokenbank-models': {
+        'tb-tokenbank': {
           command: '/bin/bash',
-          args: ['/Users/x/.tokenbank/mcp/models-workbuddy.sh'],
+          args: ['/Users/x/.tokenbank/mcp/tokenbank-workbuddy.sh'],
         },
         'keep-me': { command: 'npx', args: ['foo'] },
       },
     }, null, 2)}\n`);
     const ok = syncJsonClient('test-reclaim-client', filePath, [{
-      id: 'tokenbank-models', name: 'tokenbank-models', status: 'active',
-      command: 'npx', args: ['-y', 'demo'],
+      id: 'tokenbank', name: 'tokenbank', status: 'active',
+      command: '__DYNAMIC_ELECTRON__', builtin: 1,
     }], { allowCreate: false });
     const doc = JSON.parse(fs.readFileSync(filePath, 'utf8'));
     assert.ok(doc.mcpServers['keep-me']);
-    assert.ok(doc.mcpServers['tokenbank-models'], Object.keys(doc.mcpServers));
-    assert.equal(doc.mcpServers['tb-tokenbank-models'], undefined);
+    assert.ok(doc.mcpServers['tokenbank'], Object.keys(doc.mcpServers));
+    assert.equal(doc.mcpServers['tb-tokenbank'], undefined);
     assert.equal(ok.synced.length, 1);
-    assert.deepEqual(ok.keys, ['tokenbank-models']);
+    assert.deepEqual(ok.keys, ['tokenbank']);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

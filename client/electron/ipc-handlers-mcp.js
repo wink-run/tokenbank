@@ -223,6 +223,24 @@ function registerMcpHandlers() {
       return { success: false, error: error.message };
     }
   });
+
+  // 本机各应用用 Token Bank 工具的权限（off / read / operate / full，没设过是 full）
+  ipcMain.handle('mcp:appLevels', async () => {
+    try {
+      const access = require('./mcp-access');
+      return { success: true, levels: access.appLevels(), defaultLevel: access.DEFAULT_APP_LEVEL };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('mcp:setAppLevel', async (_event, { clientId, level } = {}) => {
+    try {
+      return { success: true, level: require('./mcp-access').setAppLevel(clientId, level) };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
 }
 
 module.exports = { registerMcpHandlers };

@@ -1453,11 +1453,11 @@ class ResourceManager {
     if (resource.type === 'assistant') {
       this._syncAssistantRuntimeFromProjections(resourceId);
       this._syncAssistantMcpToProjections(resourceId);
-      // 无 stdio 通道的应用(Trae/API)：内置 resources+prompts 经中转交付(tb_list_resources / tb_get_resource)
-      this._ensureRelayDelivery(ids, ['tokenbank-resources', 'tokenbank-prompts']);
+      // 无 stdio 通道的应用(Trae/API)：经中转用 tb_list_resources / tb_get_resource
+      this._ensureRelayDelivery(ids);
     }
 
-    // 提示词：投射后刷新受影响 client 的 MCP 配置(下发/保持 tokenbank-prompts)
+    // 提示词：没有 stdio 通道的应用经中转取
     if (resource.type === 'prompt') {
       this._resyncPromptClients(ids);
     }
@@ -1466,7 +1466,7 @@ class ResourceManager {
     const copyCount = results.filter(r => r.projectionType === 'copy').length;
     const scanCount = results.filter(r => r.projectionType === 'scan' || r.projectionType === 'origin').length;
     const conflicts = results.filter(r => r.projectionType === 'conflict');
-    let hint = '提示词已投射:目标 Agent 会话可通过 MCP 工具 tb_get_prompt 按名取回(tb_list_prompts 可列出)。';
+    let hint = '提示词已投射：目标应用可以用 tb_get_resource(type=prompt) 按名取回（tb_list_resources 可列出）。';
     if (resource.type === 'skill') {
       if (symlinkCount) {
         hint = 'Skill 已通过目录软链投射；权威目录保留在用户安装位置，修改该目录即可同步。';
@@ -1750,24 +1750,16 @@ class ResourceManager {
     return this.listAgentTargets();
   }
 
-  /** prompt 投射变更后刷新对应 client 的 MCP 配置(失败仅告警,不阻断) */
+  /** prompt 投射变更后：tokenbank 工具已常驻各应用，只需给没有 stdio 通道的应用挂上中转 */
   _resyncPromptClients(clientIds) {
-    const ids = [...new Set(clientIds || [])].filter(Boolean);
-    if (!ids.length) return;
-    try {
-      require('./mcp-manager').syncToClients({ clientIds: ids });
-    } catch (e) {
-      console.warn('[resource-manager] prompt MCP re-sync failed:', e.message);
-    }
-    // 无 stdio 写盘通道的应用(Trae / API)：把内置 prompts 绑到内置中转，按 cid 交付
-    this._ensureRelayDelivery(ids, ['tokenbank-prompts']);
+    this._ensureRelayDelivery(clientIds);
   }
 
   /**
-   * 为没有 stdio 写盘通道的已纳管应用（Trae / API 应用）绑定内置 MCP 到内置中转，
-   * 使其经 HTTP 中转（/mcp/{cid}）按投射集取到 prompt / resources。stdio 应用不受影响。
+   * 为没有 stdio 写盘通道的已纳管应用（Trae / API 应用）把 Token Bank 的工具挂到中转，
+   * 使其经 HTTP 中转（/mcp/{cid}）按投射集取到资产。stdio 应用不受影响。
    */
-  _ensureRelayDelivery(clientIds, serverIds) {
+  _ensureRelayDelivery(clientIds) {
     try {
       const { listSyncEnabledClientIds, resolveMcpSyncClientId } = require('./mcp-agent-targets');
       const stdio = new Set(listSyncEnabledClientIds());
@@ -1776,12 +1768,10 @@ class ResourceManager {
         .filter((id) => id && !stdio.has(id));
       if (!relayCids.length) return;
       const mcp = require('./mcp-manager');
-      for (const serverId of serverIds) {
-        try {
-          mcp.setServerGatewayRouted(serverId, true, relayCids);
-        } catch (e) {
-          console.warn('[resource-manager] relay bind failed:', serverId, e.message);
-        }
+      try {
+        mcp.setServerGatewayRouted(mcp.BUILTIN_ID, true, relayCids);
+      } catch (e) {
+        console.warn('[resource-manager] relay bind failed:', e.message);
       }
     } catch (e) {
       console.warn('[resource-manager] ensure relay delivery failed:', e.message);

@@ -193,6 +193,14 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
     }).catch(() => {});
   }, []);
   useEffect(() => { loadExternals(); }, [loadExternals]);
+  // 本机各应用用 Token Bank 工具的权限：没设过是 full（完全控制）
+  const [appLevels, setAppLevels] = useState({});
+  const loadAppLevels = useCallback(() => {
+    Promise.resolve(window.electronAPI?.mcp?.appLevels?.()).then((r) => {
+      if (r?.success) setAppLevels(r.levels || {});
+    }).catch(() => {});
+  }, []);
+  useEffect(() => { loadAppLevels(); }, [loadAppLevels]);
   /** 网关按应用隔离：当前编辑/复制的目标应用 id */
   /** Gateway API 应用（与 apps:list 同源，避免下拉漏项） */
   const [gatewayApiApps, setGatewayApiApps] = useState([]);
@@ -396,13 +404,9 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
     return (s.clientTargets || []).some((c) => c.installed);
   }
 
-  /** Token Bank 内置 MCP（可进「通用」中转档，含派发桥） */
+  /** Token Bank 自己的 MCP（可进「通用」中转档） */
   function isTbBuiltinRelayMcp(s) {
-    if (!s) return false;
-    return s.id === 'tokenbank-agent-bridge'
-      || s.id === 'tokenbank-prompts'
-      || s.id === 'tokenbank-models'
-      || s.id === 'tokenbank-resources';
+    return s?.id === 'tokenbank';
   }
 
   function serverGatewayClients(server) {
@@ -1872,8 +1876,8 @@ function renderToolKindToggle(kind, onChange) {
     return String(s?.name || '') === 'tokenbank-relay';
   }
 
-  /** 内置工具：模型 / 资源为每个应用的必备项；提示词按需下发（有提示词投射时） */
-  const BUILTIN_REQUIRED_IDS = ['tokenbank-models', 'tokenbank-resources'];
+  /** Token Bank 自己的 MCP：每个应用的必备项 */
+  const BUILTIN_REQUIRED_IDS = ['tokenbank'];
   function builtinRequiredServers() {
     return servers.filter((s) => BUILTIN_REQUIRED_IDS.includes(s.id) && s.status === 'active');
   }
@@ -1898,14 +1902,13 @@ function renderToolKindToggle(kind, onChange) {
     if (tg.kind === 'api-app') return { api: true, builtinOk: null, relayVia: null, ready: null };
     const builtins = builtinRequiredServers();
     const builtinOk = builtins.length > 0 && builtins.every((b) => getInstalledAgentIds(b).includes(tg.id));
-    const resourcesOk = servers.some((b) => b.id === 'tokenbank-resources' && getInstalledAgentIds(b).includes(tg.id));
-    const relayVia = relaySet.has(tg.id) ? 'native' : (resourcesOk ? 'builtin' : null);
+    const relayVia = relaySet.has(tg.id) ? 'native' : (builtinOk ? 'builtin' : null);
     return { api: false, builtinOk, relayVia, ready: builtinOk };
   }
 
   /** 桌面 / CLI 是否已可经内置工具使用中转 MCP */
   function relayUsableViaBuiltin(appId) {
-    return servers.some((b) => b.id === 'tokenbank-resources' && getInstalledAgentIds(b).includes(appId));
+    return servers.some((b) => b.id === 'tokenbank' && getInstalledAgentIds(b).includes(appId));
   }
 
   /** 一键为某应用写入内置工具（模型 / 资源） */
@@ -1949,6 +1952,31 @@ function renderToolKindToggle(kind, onChange) {
       return;
     }
     await copyRelayConfigFor(tg.id);
+  }
+
+  /** 本机应用用 Token Bank 工具的权限（中转用应用 id，写进配置的用同步 id，两个都设） */
+  function renderAppLevel(tg) {
+    const ids = [...new Set([tg.id, tg.agent?.syncClientId].filter(Boolean))];
+    const level = appLevels[tg.id] || appLevels[tg.agent?.syncClientId] || 'full';
+    const setLevel = async (lv) => {
+      setBusy(`level-${tg.id}`);
+      try {
+        for (const clientId of ids) await window.electronAPI?.mcp?.setAppLevel?.({ clientId, level: lv });
+      } finally {
+        setBusy('');
+        loadAppLevels();
+      }
+    };
+    return (
+      <>
+        <label className="sr-only" htmlFor={`app-mcp-${tg.id}`}>{t('gw2.ext.mcpLevel')}</label>
+        <select id={`app-mcp-${tg.id}`} value={level} disabled={busy === `level-${tg.id}`} onChange={(e) => setLevel(e.target.value)}
+          title={t(`gw2.ext.mcpLvHint.${level}`)}
+          className="tb-soft-field text-[11px] px-2 py-1 rounded-md">
+          {['off', 'read', 'operate', 'full'].map((lv) => <option key={lv} value={lv}>{t('resources.mcp.extLevel', { level: t(`gw2.ext.mcpLv.${lv}`) })}</option>)}
+        </select>
+      </>
+    );
   }
 
   /** 置顶：TokenBank 内置（默认基础设施）+ 各应用接入引导 */
@@ -2001,7 +2029,7 @@ function renderToolKindToggle(kind, onChange) {
                       ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300'
                       : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800'
                   }`}>
-                  {(b.display_name || b.name).replace(/^Token Bank\s*/i, '')}
+                  {(b.display_name || b.name).replace(/^Token Bank\s*/i, '') || b.display_name || b.name}
                 </button>
               ))}
             </div>
@@ -2034,6 +2062,7 @@ function renderToolKindToggle(kind, onChange) {
                       </>
                     )}
                     <div className="ml-auto flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      {renderAppLevel(tg)}
                       {st.builtinOk === false && (
                         <button type="button" disabled={!!busy} onClick={() => setupBuiltinsFor(tg)}
                           className="tb-press text-[11px] px-2.5 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-45">

@@ -7,15 +7,11 @@ const os = require('os');
 const path = require('path');
 let shim = null;
 try { shim = require('./shim-installer'); } catch { /* optional in CLI */ }
-const { BUILTIN_BRIDGE_ID, BUILTIN_PROMPTS_ID, BUILTIN_MODELS_ID, BUILTIN_RESOURCES_ID, writeElectronAsNodeLauncher, mcpStdioFromLauncher } = require('./mcp-manager');
+const { BUILTIN_ID, LEGACY_BUILTIN_IDS, writeTokenbankLauncher, mcpStdioFromLauncher } = require('./mcp-manager');
 const { CLIENT_TARGETS } = require('./mcp-agent-targets');
 
 const STATE_PATH = path.join(os.homedir(), '.tokenbank', 'mcp', 'client-sync-state.json');
 const TB_MCP_MARKER = 'tokenbank-mcp';
-const PROMPTS_SCRIPT = path.join(__dirname, 'prompt-mcp.js');
-const MODELS_SCRIPT = path.join(__dirname, 'models-mcp.js');
-const RESOURCES_SCRIPT = path.join(__dirname, 'resources-mcp.js');
-const DISPATCH_SCRIPT = path.join(__dirname, 'agent-dispatch-mcp.js');
 
 /** 并发 IPC（listServers + getSyncStatus）共用短缓存，避免重复读盘 */
 const SCAN_CACHE_TTL_MS = 2500;
@@ -46,61 +42,12 @@ function writeState(state) {
   fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2), 'utf8');
 }
 
-/** 将 DB 中的 server 转为 MCP JSON 条目。派发桥与其它内置 MCP 一样写成常驻 launcher。 */
+/** 将 DB 中的 server 转为 MCP JSON 条目。Token Bank 自己那条写成启动脚本（带应用 id）。 */
 function serverToEntry(serverRow, clientId) {
   if (!serverRow || serverRow.status !== 'active') return null;
 
-  if (serverRow.id === BUILTIN_BRIDGE_ID || serverRow.name === BUILTIN_BRIDGE_ID) {
-    const env = {
-      TB_CLIENT_ID: clientId || '',
-      TB_MAIN_AGENT_ID: clientId || '',
-    };
-    try {
-      const { getDispatchEndpoint } = require('./agent-dispatch-server');
-      const ep = getDispatchEndpoint();
-      if (ep?.url && ep?.token) {
-        env.TB_DISPATCH_URL = ep.url;
-        env.TB_DISPATCH_TOKEN = ep.token;
-      }
-    } catch { /* 未起派发服务时，桥在调用时再读 bridge-context */ }
-    const launcher = writeElectronAsNodeLauncher({
-      name: `bridge-${clientId || 'default'}`,
-      scriptPath: DISPATCH_SCRIPT,
-      env,
-    });
-    return mcpStdioFromLauncher(launcher);
-  }
-
-  // 内置提示词 MCP：用 shell launcher（内嵌 ELECTRON_RUN_AS_NODE），
-  // 避免 Codex 等不透传 mcp_servers.*.env 时 Electron GUI 崩溃
-  if (serverRow.id === BUILTIN_PROMPTS_ID || serverRow.name === BUILTIN_PROMPTS_ID) {
-    const launcher = writeElectronAsNodeLauncher({
-      name: `prompts-${clientId || 'default'}`,
-      scriptPath: PROMPTS_SCRIPT,
-      env: { TB_CLIENT_ID: clientId || '' },
-    });
-    return mcpStdioFromLauncher(launcher);
-  }
-
-  // 内置模型资源 MCP：始终可查网关可用模型
-  if (serverRow.id === BUILTIN_MODELS_ID || serverRow.name === BUILTIN_MODELS_ID) {
-    const launcher = writeElectronAsNodeLauncher({
-      name: `models-${clientId || 'default'}`,
-      scriptPath: MODELS_SCRIPT,
-      env: {},
-    });
-    return mcpStdioFromLauncher(launcher);
-  }
-
-  // 内置资源发现 MCP：能力总览 + skill/assistant/社区目录
-  // 必须带 TB_CLIENT_ID，否则 listAssistantsForClient 空 client 会回退列出全部武将
-  if (serverRow.id === BUILTIN_RESOURCES_ID || serverRow.name === BUILTIN_RESOURCES_ID) {
-    const launcher = writeElectronAsNodeLauncher({
-      name: `resources-${clientId || 'default'}`,
-      scriptPath: RESOURCES_SCRIPT,
-      env: { TB_CLIENT_ID: clientId || '' },
-    });
-    return mcpStdioFromLauncher(launcher);
+  if (serverRow.id === BUILTIN_ID || serverRow.name === BUILTIN_ID) {
+    return mcpStdioFromLauncher(writeTokenbankLauncher({ clientId: clientId || '' }));
   }
 
   // URL / HTTP / SSE MCP（如 WorkBuddy connector-proxy）
@@ -201,6 +148,17 @@ function syncJsonClient(clientId, filePath, servers, { allowCreate = false } = {
     existingKeys.delete(key);
   }
 
+  // 以前拆成四条的 Token Bank MCP：状态丢了也清掉（只清指向 ~/.tokenbank/mcp 的）
+  let removedLegacy = false;
+  for (const id of LEGACY_BUILTIN_IDS) {
+    for (const key of ownedKeyCandidates({ id, name: id })) {
+      if (!isTokenbankMcpEntry(doc.mcpServers[key])) continue;
+      delete doc.mcpServers[key];
+      existingKeys.delete(key);
+      removedLegacy = true;
+    }
+  }
+
   // 状态丢失时仍清掉指向 ~/.tokenbank/mcp 的旧键，避免直接 spawn 被隔离脚本，也不叠 tb- 重复
   for (const srv of list) {
     for (const key of ownedKeyCandidates(srv)) {
@@ -225,7 +183,7 @@ function syncJsonClient(clientId, filePath, servers, { allowCreate = false } = {
   }
 
   // 无变更且无待清：不落盘
-  if (!newKeys.length && !prev.length) {
+  if (!newKeys.length && !prev.length && !removedLegacy) {
     return { synced: [], keys: [], path: filePath, skipped: true };
   }
 
@@ -617,14 +575,6 @@ function filterServersForClient(servers, clientId) {
     // 普通 API / 本地 CLI 只在工具页配置，不写进应用的 MCP 配置
     const kind = s.tool_kind || s.metadata?.tool_kind;
     if (kind === 'api' || kind === 'cli') return false;
-
-    // prompts：显式 sync_clients 按下发名单；未配置则懒下发（仅已有 prompt 投射的 Agent）
-    if (s.id === BUILTIN_PROMPTS_ID) {
-      const explicit = Array.isArray(s.sync_clients) || Array.isArray(s.metadata?.sync_clients);
-      if (explicit) return getServerSyncClients(s).includes(clientId);
-      try { return require('./resource-manager').hasPromptProjections(clientId); }
-      catch { return false; }
-    }
 
     // 其它 MCP：须在该 Agent 的同步分配列表中（取消勾选 = 不再下发）
     if (!getServerSyncClients(s).includes(clientId)) return false;

@@ -16,7 +16,7 @@ export function buildInvokeText(resource, lang = 'zh') {
       return `Summon the "${name}" agent from Token Bank to complete this task.`;
     }
     if (type === 'prompt') {
-      return `Use the "${name}" prompt from Token Bank (tb_get_prompt) for this task.`;
+      return `Use the "${name}" prompt from Token Bank (tb_get_resource) for this task.`;
     }
     return `Use the "${name}" skill from Token Bank for this task.`;
   }
@@ -24,7 +24,7 @@ export function buildInvokeText(resource, lang = 'zh') {
     return `召唤 Token Bank 中的「${name}」智能体来完成当前任务。`;
   }
   if (type === 'prompt') {
-    return `使用 Token Bank 提示词「${name}」完成当前任务（tb_get_prompt）。`;
+    return `使用 Token Bank 提示词「${name}」完成当前任务（tb_get_resource）。`;
   }
   return `按 Token Bank 技能「${name}」完成本任务。`;
 }
@@ -38,25 +38,10 @@ export function buildMcpInvokeText(server, lang = 'zh') {
   const name = server?.display_name || server?.name || server?.id || 'MCP';
   const en = lang === 'en';
 
-  if (id.includes('tokenbank-models') || id === 'tokenbank-models') {
-    return en
-      ? 'List available models with tb_list_models, then pick one suitable for this task.'
-      : '请用 tb_list_models 列出当前可用模型，并选一个适合本任务的模型。';
-  }
-  if (id.includes('tokenbank-prompts') || id === 'tokenbank-prompts') {
-    return en
-      ? 'Call tb_list_prompts, then tb_get_prompt on one prompt and apply it to this task.'
-      : '请先 tb_list_prompts 列出已投射提示词，再 tb_get_prompt 取一条并用于当前任务。';
-  }
-  if (id.includes('tokenbank-resources') || id === 'tokenbank-resources') {
+  if (id === 'tokenbank') {
     return en
       ? 'Call tb_capabilities, then tb_list_resources to show what I can use in this session.'
-      : '请先 tb_capabilities，再 tb_list_resources 列出本会话可用的资源。';
-  }
-  if (id.includes('tokenbank-agent-bridge') || id.includes('agent-bridge')) {
-    return en
-      ? 'Call tb_list_agents, then tb_dispatch_agent to hand the matching task to a hired agent.'
-      : '请先 tb_list_agents 列出可派发智能体，再用 tb_dispatch_agent 把匹配的任务派出去。';
+      : '请先 tb_capabilities，再 tb_list_resources 列出本会话可用的资产。';
   }
   if (id.includes('sequential') || /sequential.?thinking/i.test(name)) {
     return en

@@ -4748,9 +4748,9 @@ function handleRequest(req, res) {
     return;
   }
 
-  // Token Bank 的 MCP：一个端口、一个入口，按凭据分流。
-  //   本机应用：带中转 Key → 内置工具 + 投射给它的第三方 MCP（/mcp/<应用>）
-  //   外部智能体：带它注册时的 token（tbx_…）→ 按用户给的权限开放工具（/mcp 或 /v1/mcp）
+  // Token Bank 的 MCP：一个端口、一个入口，按凭据分流，工具是同一份（tokenbank-tools.js）。
+  //   本机应用：带中转 Key → Token Bank 的工具 + 投射给它的第三方 MCP（/mcp/<应用>），权限默认完全控制
+  //   外部智能体：带它注册时的 token（tbx_…）→ 按用户给的权限（/mcp 或 /v1/mcp），默认关闭
   if (cleanPath === '/mcp' || cleanPath.startsWith('/mcp/') || cleanPath === '/v1/mcp') {
     const auth = String(req.headers.authorization || '');
     const isExternal = auth.startsWith('Bearer tbx_');
@@ -4763,7 +4763,7 @@ function handleRequest(req, res) {
     } else {
       const relay = require('./mcp-gateway-server');
       relay.attachToGateway({ port: _port });
-      relay.handleRelayRequest(req, res).catch(done);
+      relay.handleRelayRequest(req, res, { port: _port, agentKey: _agentApiKey }).catch(done);
     }
     return;
   }

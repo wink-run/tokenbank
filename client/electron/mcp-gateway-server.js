@@ -1,9 +1,10 @@
 // mcp-gateway-server.js
-// 内置中转 MCP：按应用聚合已绑定的纳管 MCP（stdio + 远程 HTTP），对外暴露 HTTP 入口，
-// 供无法直接写盘投射、或希望简化配置的应用一条配置接入。
+// 本机应用的 MCP 入口：网关 11430 的 /mcp/<应用>（凭中转 Key）。
+//   Token Bank 自己的工具（tokenbank-tools.js）在这个进程里直接执行，按这个应用的权限给；
+//   投射给这个应用的第三方 MCP（stdio / 远程 HTTP）由这里拉起、加前缀聚合进来。
+// 写进应用配置的 tokenbank 条目（tokenbank-mcp-stdio.js）也转到这里，只取 Token Bank 自己的工具。
 'use strict';
 
-const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -14,33 +15,16 @@ const { plainToolCallName, plainToolSchema, callPlainTool } = require('./plain-t
 
 const TB_DIR = path.join(os.homedir(), '.tokenbank');
 const INFO_PATH = path.join(TB_DIR, 'mcp-gateway.json');
-/** 固定端口，便于用户复制配置；冲突时回退 0 */
-const PREFERRED_PORT = 11431;
+/** Token Bank 自己那一条（工具在进程内执行，不拉进程） */
+const BUILTIN_ID = 'tokenbank';
 
-let server = null;
 let endpoint = null;
-/** 非内置 stdio MCP：全应用共享一份后端，按 id 复用 @type {Map<string, StdioBackend>} */
+/** 第三方 MCP：全应用共享一份后端，按 id 复用 @type {Map<string, StdioBackend|HttpBackend>} */
 const backends = new Map();
-/** 内置 prompts/resources/models：按应用 cid 各起一份（TB_CLIENT_ID=cid 门控可见集）@type {Map<string, StdioBackend>} */
-const builtinBackends = new Map();
-/** 当前可代理的路由行（stdio + 内置），id → row */
+/** 当前可代理的第三方 MCP，id → row */
 let routedRows = new Map();
 let getRoutedServers = () => [];
 let routedFnSet = false;   // 桌面版启动时会传进来；命令行版没有，挂到网关时自己取
-
-/** 需按 cid 分别起后端的内置中转 MCP（其可见集随 TB_CLIENT_ID 变化） */
-const BUILTIN_RELAY_IDS = new Set([
-  'tokenbank-prompts',
-  'tokenbank-models',
-  'tokenbank-resources',
-]);
-function isBuiltinRelayId(id) {
-  return BUILTIN_RELAY_IDS.has(String(id || ''));
-}
-/** 内置后端按 (id, cid) 唯一 */
-function builtinKey(id, cid) {
-  return `${id}::${cid || ''}`;
-}
 
 function generateToken() {
   return crypto.randomBytes(24).toString('hex');
@@ -112,20 +96,13 @@ function parseClientIdFromPath(pathname) {
   return { ok: false, clientId: '' };
 }
 
-/** 某应用可见的后端（gateway_clients 含该 app）；内置按 cid 各起一份 */
+/** 某应用可见的第三方 MCP 后端（gateway_clients 含该应用；不指定应用时全部） */
 function backendsForClient(clientId) {
   syncBackends();
   const cid = safeClientId(clientId);
-  const visibleRows = [...routedRows.values()].filter((row) => {
-    if (!cid) return true; // 未指定应用：返回全部（兼容旧 /mcp）
-    const clients = Array.isArray(row?.gateway_clients) ? row.gateway_clients : [];
-    if (clients.length) return clients.includes(cid);
-    // 旧数据仅 gateway_routed：仅内置 MCP 对「通用」档可见
-    if (!row?.gateway_routed) return false;
-    return cid === 'api' && isBuiltinRelayId(row.id);
-  });
-  return visibleRows
-    .map((row) => (isBuiltinRelayId(row.id) ? getBuiltinBackend(row, cid) : backends.get(row.id)))
+  return [...routedRows.values()]
+    .filter((row) => !cid || (Array.isArray(row?.gateway_clients) && row.gateway_clients.includes(cid)))
+    .map((row) => backends.get(row.id))
     .filter(Boolean);
 }
 
@@ -163,9 +140,8 @@ function safePrefix(name) {
 
 /** stdio MCP 后端：按需拉起并复用连接 */
 class StdioBackend {
-  constructor(serverRow, clientId = '') {
+  constructor(serverRow) {
     this.id = serverRow.id;
-    this.clientId = String(clientId || ''); // 内置后端按此注入 TB_CLIENT_ID
     this.name = serverRow.name || serverRow.id;
     this.prefix = safePrefix(this.name);
     this.row = serverRow;
@@ -197,7 +173,7 @@ class StdioBackend {
     try {
       const mcpManager = require('./mcp-manager');
       if (typeof mcpManager.resolveGatewaySpawnConfig === 'function') {
-        const cfg = mcpManager.resolveGatewaySpawnConfig(this.row, this.clientId) || {};
+        const cfg = mcpManager.resolveGatewaySpawnConfig(this.row) || {};
         command = String(cfg.command || '').trim();
         args = Array.isArray(cfg.args) ? cfg.args : [];
         envExtra = cfg.env && typeof cfg.env === 'object' ? cfg.env : {};
@@ -502,7 +478,7 @@ function syncBackends() {
   const rows = (typeof getRoutedServers === 'function' ? getRoutedServers() : []) || [];
   const want = new Map();
   for (const row of rows) {
-    if (!row?.id || row.status !== 'active') continue;
+    if (!row?.id || row.status !== 'active' || row.id === BUILTIN_ID) continue;
     // stdio 需 command；远程 HTTP/SSE 需 url
     if (isUrlMcpRow(row)) {
       if (!String(row.url || '').trim()) continue;
@@ -515,13 +491,12 @@ function syncBackends() {
 
   // 非内置：全应用共享一份，按 id 复用/重建/清理
   for (const [id, backend] of backends) {
-    if (!want.has(id) || isBuiltinRelayId(id)) {
+    if (!want.has(id)) {
       backend.stop();
       backends.delete(id);
     }
   }
   for (const [id, row] of want) {
-    if (isBuiltinRelayId(id)) continue; // 内置走 per-cid 惰性创建
     const existing = backends.get(id);
     if (!existing) {
       backends.set(id, makeBackend(row));
@@ -541,30 +516,6 @@ function syncBackends() {
       }
     }
   }
-
-  // 内置 per-cid：行已不再路由则回收对应的所有 cid 实例
-  for (const [key, backend] of builtinBackends) {
-    const rid = key.slice(0, key.indexOf('::'));
-    if (!want.has(rid)) {
-      backend.stop();
-      builtinBackends.delete(key);
-    } else {
-      backend.row = want.get(rid);
-    }
-  }
-}
-
-/** 取/建某应用 cid 的内置后端（TB_CLIENT_ID=cid） */
-function getBuiltinBackend(row, cid) {
-  const key = builtinKey(row.id, cid);
-  let b = builtinBackends.get(key);
-  if (!b) {
-    b = new StdioBackend(row, cid || '');
-    builtinBackends.set(key, b);
-  } else {
-    b.row = row;
-  }
-  return b;
 }
 
 /** 已投射到该应用的 HTTP API / 本地 CLI。不拉起 MCP 进程，只挂到同一份工具列表。 */
@@ -636,60 +587,41 @@ async function routeToolCall(prefixedName, args, clientId = '') {
   throw new Error(`Unknown tool: ${prefixedName}`);
 }
 
-async function handleMcpMessage(msg, clientId = '') {
-  if (!msg || typeof msg !== 'object') {
-    return { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } };
-  }
+/** 这个应用能用的 Token Bank 工具的调用上下文 */
+function tokenbankContext(cid, { port, agentKey, dispatch } = {}) {
+  const tools = require('./tokenbank-tools');
+  const gwPort = port || attachedPort || 11430;
+  return {
+    clientId: cid,
+    level: require('./mcp-access').appLevel(cid),
+    guardian: cid === tools.GUARDIAN_CLIENT_ID,
+    gatewayUrl: `http://127.0.0.1:${gwPort}`,
+    gatewayKey: agentKey || '',
+    dispatch: tools.dispatchContext(cid, dispatch || {}),
+    callRelayed: (name, args) => routeToolCall(name, args, cid),
+  };
+}
 
-  // 通知无响应
-  if (msg.id === undefined && msg.method) {
-    return null;
-  }
-
-  const id = msg.id ?? null;
-  const method = msg.method;
+/**
+ * @param {object} msg JSON-RPC
+ * @param {string} clientId 应用 id（路径 /mcp/<应用>）
+ * @param {{ scope?: string, port?: number, agentKey?: string, dispatch?: object }} opts
+ *   scope='tokenbank'：只要 Token Bank 自己的工具（写进应用配置的 tokenbank 条目转过来的）
+ */
+async function handleMcpMessage(msg, clientId = '', opts = {}) {
+  const tools = require('./tokenbank-tools');
   const cid = safeClientId(clientId);
-
-  try {
-    if (method === 'initialize') {
-      return {
-        jsonrpc: '2.0',
-        id,
-        result: {
-          protocolVersion: '2024-11-05',
-          capabilities: { tools: { listChanged: false } },
-          serverInfo: {
-            name: cid ? `tokenbank-mcp-gateway-${cid}` : 'tokenbank-mcp-gateway',
-            version: '0.5.4',
-          },
-        },
-      };
-    }
-    if (method === 'ping') {
-      return { jsonrpc: '2.0', id, result: {} };
-    }
-    if (method === 'tools/list') {
-      const tools = await aggregateTools(cid);
-      return { jsonrpc: '2.0', id, result: { tools } };
-    }
-    if (method === 'tools/call') {
-      const name = msg.params?.name;
-      const args = msg.params?.arguments || {};
-      const result = await routeToolCall(name, args, cid);
-      return { jsonrpc: '2.0', id, result };
-    }
-    return {
-      jsonrpc: '2.0',
-      id,
-      error: { code: -32601, message: `Method not found: ${method}` },
-    };
-  } catch (e) {
-    return {
-      jsonrpc: '2.0',
-      id,
-      error: { code: -32000, message: e.message || String(e) },
-    };
-  }
+  const ctx = tokenbankContext(cid, opts);
+  const onlyTokenbank = opts.scope === 'tokenbank';
+  return require('./tokenbank-mcp').rpc(msg, {
+    list: async () => [
+      ...tools.listTools(ctx),
+      ...(onlyTokenbank ? [] : await aggregateTools(cid)),
+    ],
+    call: (name, args) => (tools.isToolName(name) || onlyTokenbank
+      ? tools.callTool(name, args, ctx)
+      : routeToolCall(name, args, cid)),
+  });
 }
 
 function checkAuth(req, token) {
@@ -702,7 +634,7 @@ function checkAuth(req, token) {
 /**
  * 中转 MCP 的 HTTP 处理：网关 11430 的 /mcp、/mcp/:appId（现在的入口），和旧的 11431 独立端口共用这一份。
  */
-async function handleRelayRequest(req, res) {
+async function handleRelayRequest(req, res, { port, agentKey } = {}) {
   // CORS：部分远程客户端探测
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept, x-api-key');
@@ -720,7 +652,6 @@ async function handleRelayRequest(req, res) {
     sendJson(res, 200, {
       ok: true,
       backends: [...backends.keys()],
-      builtinBackends: [...builtinBackends.keys()],
       routed: (getRoutedServers() || []).length,
     });
     return;
@@ -743,19 +674,22 @@ async function handleRelayRequest(req, res) {
       sendJson(res, 404, { error: 'invalid app id' });
       return;
     }
+    let dispatch = {};
+    try { dispatch = JSON.parse(decodeURIComponent(String(req.headers['x-tb-dispatch'] || '')) || '{}') || {}; } catch { /* 没带 */ }
+    const opts = { scope: String(req.headers['x-tb-scope'] || ''), port: port || attachedPort, agentKey, dispatch };
     try {
       const body = await readJsonBody(req);
       // 支持 batch
       if (Array.isArray(body)) {
         const out = [];
         for (const item of body) {
-          const r = await handleMcpMessage(item, clientId);
+          const r = await handleMcpMessage(item, clientId, opts);
           if (r) out.push(r);
         }
         sendJson(res, 200, out);
         return;
       }
-      const result = await handleMcpMessage(body, clientId);
+      const result = await handleMcpMessage(body, clientId, opts);
       if (result == null) {
         res.writeHead(202);
         res.end();
@@ -799,86 +733,39 @@ function relayToken() {
 }
 
 let attachedPort = 0;
-/** 对外的中转地址：挂到网关上以后是网关的端口（11430），否则是独立端口 */
 function advertisedUrl(port) {
-  return `http://127.0.0.1:${attachedPort || port}/mcp`;
+  return `http://127.0.0.1:${port}/mcp`;
 }
 
 /**
- * 挂到网关（11430）上：之后应用配置里写的中转地址都是网关的端口，只剩一个端口。
- * 命令行版没有独立的中转服务，靠这个才有内置 MCP。
+ * 挂到网关上：应用配置里写的地址都是网关的端口（默认 11430）。
+ * @param {{ port: number, listRoutedFn?: () => object[] }} opts
  */
 function attachToGateway({ port, listRoutedFn } = {}) {
-  if (!port) return getGatewayEndpoint();
-  if (attachedPort === Number(port) && routedFnSet && typeof listRoutedFn !== 'function') return getGatewayEndpoint();
-  attachedPort = Number(port);
   if (typeof listRoutedFn === 'function') { getRoutedServers = listRoutedFn; routedFnSet = true; }
-  else if (!routedFnSet) {
+  if (!port) return getGatewayEndpoint();
+  if (attachedPort === Number(port) && routedFnSet) return getGatewayEndpoint();
+  attachedPort = Number(port);
+  if (!routedFnSet) {
     routedFnSet = true;
     getRoutedServers = () => {
       try { const m = require('./mcp-manager'); m.init(); return m.listGatewayRoutedServers(); } catch { return []; }
     };
   }
-  writeInfo({ url: advertisedUrl(attachedPort), token: relayToken(), port: attachedPort, via: 'gateway', startedAt: Date.now() });
+  writeInfo({ url: advertisedUrl(attachedPort), token: relayToken(), port: attachedPort, startedAt: Date.now() });
   try { syncBackends(); } catch { /* 后端起不来不影响网关 */ }
   return getGatewayEndpoint();
 }
 
-/**
- * @param {() => object[]} listRoutedFn 返回 gateway_routed && active 的 server 行
- */
+/** 桌面版：告诉中转怎么取已纳管的第三方 MCP（网关起来后会自己挂上） */
 function startMcpGateway(listRoutedFn) {
-  if (typeof listRoutedFn === 'function') { getRoutedServers = listRoutedFn; routedFnSet = true; }
-  if (server) {
-    syncBackends();
-    return getGatewayEndpoint();
-  }
-
-  const token = relayToken();
-
-  server = http.createServer((req, res) => { handleRelayRequest(req, res).catch(() => { if (!res.headersSent) sendJson(res, 500, { error: 'relay error' }); }); });
-
-  const onListening = () => {
-    const addr = server.address();
-    const port = typeof addr === 'object' && addr ? addr.port : PREFERRED_PORT;
-    // 挂到网关上以后，对外地址一直是网关的端口；独立端口只给还没换地址的旧配置用
-    writeInfo({
-      url: advertisedUrl(port),
-      token,
-      port: attachedPort || port,
-      legacyPort: attachedPort ? port : undefined,
-      startedAt: Date.now(),
-    });
-    syncBackends();
-    console.log('[mcp-gateway] listening', endpoint.url);
-  };
-
-  server.once('error', (err) => {
-    if (err?.code === 'EADDRINUSE') {
-      console.warn('[mcp-gateway] port busy, fallback to random');
-      server.listen(0, '127.0.0.1', onListening);
-      return;
-    }
-    console.error('[mcp-gateway] start failed:', err.message);
-    server = null;
-  });
-  server.listen(PREFERRED_PORT, '127.0.0.1', onListening);
-
-  // 若上次已写过 info，先返回缓存；listening 后会刷新
-  if (!endpoint) {
-    writeInfo({
-      url: advertisedUrl(PREFERRED_PORT),
-      token,
-      port: attachedPort || PREFERRED_PORT,
-      startedAt: Date.now(),
-      pending: true,
-    });
-  }
+  attachToGateway({ listRoutedFn });
+  try { syncBackends(); } catch { /* 后端起不来不影响网关 */ }
   return getGatewayEndpoint();
 }
 
+/** 纳管的 MCP 变了：重建后端 */
 function reloadMcpGateway() {
-  if (!server) return getGatewayEndpoint();
   syncBackends();
   return getGatewayEndpoint();
 }
@@ -886,12 +773,11 @@ function reloadMcpGateway() {
 function stopMcpGateway() {
   for (const b of backends.values()) b.stop();
   backends.clear();
-  for (const b of builtinBackends.values()) b.stop();
-  builtinBackends.clear();
-  if (server) {
-    try { server.close(); } catch { /* ignore */ }
-    server = null;
-  }
+}
+
+/** tb_call_mcp 用：调用投射给这个应用的第三方 MCP 工具（带前缀的名字） */
+function callRelayedTool(prefixedName, args, clientId = '') {
+  return routeToolCall(prefixedName, args, clientId);
 }
 
 function getGatewayStatus() {
@@ -901,9 +787,7 @@ function getGatewayStatus() {
   const byClient = {};
   for (const s of routed) {
     const id = s.id || '';
-    const isBuiltin = id === 'tokenbank-prompts'
-      || id === 'tokenbank-models'
-      || id === 'tokenbank-resources';
+    const isBuiltin = id === BUILTIN_ID;
     const clients = Array.isArray(s.gateway_clients) && s.gateway_clients.length
       ? s.gateway_clients
       : (s.gateway_routed && isBuiltin ? ['api'] : []);
@@ -923,8 +807,7 @@ function getGatewayStatus() {
     configJson: buildClientConfigJson(ep, cid),
   }));
   return {
-    // 挂在网关端口上也算在跑（命令行版只有这一种）
-    running: !!server || !!attachedPort,
+    running: !!attachedPort,
     endpoint: ep,
     /** 默认复制「通用 API」配置；UI 可按 profiles 切换应用 */
     configJson: buildClientConfigJson(ep, 'api'),
@@ -942,6 +825,9 @@ function getGatewayStatus() {
 }
 
 module.exports = {
+  BUILTIN_ID,
+  callRelayedTool,
+  handleMcpMessage,
   startMcpGateway,
   attachToGateway,
   handleRelayRequest,
