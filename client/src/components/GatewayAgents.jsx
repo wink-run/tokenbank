@@ -726,6 +726,65 @@ export function AgentsSubTabs({ tab, onTab, renderApps, renderRoutes }) {
   );
 }
 
+/** 外部智能体的 Webhook 唤醒：有新任务时网关主动通知它来取，不用等下一次轮询 */
+function WebhookInline({ agent, t, onSaved }) {
+  const wh = agent.webhook || null;
+  const [url, setUrl] = useState(wh?.url || '');
+  const [secret, setSecret] = useState('');
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState(null);   // { ok, text }
+  const call = async (action, extra) => {
+    setBusy(action); setMsg(null);
+    try {
+      const r = await agentApi().externalSet?.(agent.id, action, extra);
+      if (!r?.success) throw new Error(r?.error || 'failed');
+      return r;
+    } catch (e) { setMsg({ ok: false, text: e.message || String(e) }); return null; } finally { setBusy(''); }
+  };
+  const save = async () => {
+    const r = await call('webhook', { url: url.trim(), secret });
+    if (r) { setSecret(''); setMsg({ ok: true, text: t('gw2.ext.whSaved') }); onSaved?.(); }
+  };
+  const clear = async () => {
+    const r = await call('webhook', { clear: true });
+    if (r) { setUrl(''); setSecret(''); setMsg({ ok: true, text: t('gw2.ext.whCleared') }); onSaved?.(); }
+  };
+  const test = async () => {
+    const r = await call('webhookTest');
+    if (r) { setMsg(r.result?.ok ? { ok: true, text: t('gw2.ext.whTestOk', { status: r.result.status || 200 }) } : { ok: false, text: r.result?.message || 'failed' }); onSaved?.(); }
+  };
+  const id = `wh-${agent.id.replace(/[^a-z0-9-]/gi, '')}`;
+  return (
+    <div className="px-3 py-2.5 border-t border-zinc-100 dark:border-white/[0.06] text-xs space-y-2" onClick={e => e.stopPropagation()}>
+      <p className="m-0 font-semibold text-zinc-700 dark:text-zinc-200">{t('gw2.ext.whTitle')}</p>
+      <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.ext.whHint')}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor={`${id}-url`} className="shrink-0 w-14 text-zinc-500 dark:text-zinc-400">{t('gw2.ext.whUrl')}</label>
+        <input id={`${id}-url`} value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…"
+          className="tb-soft-field flex-1 min-w-[14rem] text-xs px-3 py-1.5 rounded-lg font-mono" />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor={`${id}-secret`} className="shrink-0 w-14 text-zinc-500 dark:text-zinc-400">{t('gw2.ext.whSecret')}</label>
+        <input id={`${id}-secret`} type="password" autoComplete="off" value={secret} onChange={e => setSecret(e.target.value)}
+          placeholder={wh?.hasSecret ? t('gw2.ext.whSecretKeep', { tail: wh.secretTail }) : t('gw2.ext.whSecretPh')}
+          className="tb-soft-field flex-1 min-w-[14rem] text-xs px-3 py-1.5 rounded-lg font-mono" />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" className={BTN_PRIMARY} disabled={!!busy || !url.trim()} onClick={save}>{t('common.save')}</button>
+        {wh && <button type="button" className={BTN} disabled={!!busy} onClick={test}>{busy === 'webhookTest' ? t('gw2.ext.whTesting') : t('gw2.ext.whTest')}</button>}
+        {wh && <button type="button" className={BTN} disabled={!!busy} onClick={clear}>{t('gw2.ext.whClear')}</button>}
+        {msg && <span className={msg.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}>{msg.text}</span>}
+      </div>
+      {wh && (
+        <p className="m-0 text-zinc-500 dark:text-zinc-400">
+          {wh.lastError ? <span className="text-red-600 dark:text-red-400">{t('gw2.ext.whLastError', { msg: wh.lastError.message, when: agoText(t, wh.lastError.at) })}</span>
+            : wh.lastOkAt ? t('gw2.ext.whLastOk', { n: wh.sent, when: agoText(t, wh.lastOkAt) }) : t('gw2.ext.whNever')}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function agoText(t, ts) {
   if (!ts) return t('gw2.ext.never');
   const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -891,6 +950,11 @@ export function ExternalAgents() {
                     <span className="block text-red-600 dark:text-red-400" title={a.lastPushError.taskId}>{t('gw2.ext.pushRejected', { msg: a.lastPushError.message, when: agoText(t, a.lastPushError.at) })}</span>
                   )}
                   {a.skillOutdated && <span className="block text-amber-700 dark:text-amber-400" title={t('gw2.ext.skillOldHint')}>{t('gw2.ext.skillOld')}</span>}
+                  {a.webhook && (
+                    <span className={`block pl-3.5 ${a.webhook.lastError ? 'text-red-600 dark:text-red-400' : META}`} title={a.webhook.url}>
+                      {a.webhook.lastError ? t('gw2.ext.whBadge.err') : t('gw2.ext.whBadge.on')}
+                    </span>
+                  )}
                 </span>
                 {showDev && <span className="min-w-0"><DeviceChips devices={devicesHaving(mesh.devices, 'externals', a.id)} /></span>}
                 <span className="min-w-0" onClick={e => e.stopPropagation()}>
@@ -917,6 +981,7 @@ export function ExternalAgents() {
                 </span>
               </div>
               {apiFor === a.id && <AgentApiInline harnessId={a.id} note={t('gw2.api.extNote', { name: a.name })} t={t} />}
+              {apiFor === a.id && <WebhookInline agent={a} t={t} onSaved={load} />}
               </React.Fragment>
             );
           })}

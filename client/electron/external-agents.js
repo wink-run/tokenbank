@@ -21,10 +21,14 @@ const DEFAULT_TASK_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_PULL_SEC = 180;         // 默认每 3 分钟来取一次
 const MIN_PULL_SEC = 60;
 const MAX_PULL_SEC = 6 * 3600;
+const WEBHOOK_DEBOUNCE_MS = 1500;                    // 一下子派好几个：合成一次唤醒
+const WEBHOOK_RETRY_MS = [15000, 60000, 300000];     // 发不出去时再试三次；任务被取走就不再发
+const WEBHOOK_TIMEOUT_MS = 10000;
 
 const queue = new Map();      // agentId → [{ id, prompt, createdAt }]
 const waiting = new Map();    // taskId → { resolve, timer, agentId }
 const pollers = new Map();    // agentId → [resolve] 正在长轮询的取任务请求
+const wakeTimers = new Map(); // agentId → 等着发的 Webhook 唤醒
 
 function file() { return path.join(os.homedir(), '.tokenbank', 'external-agents.json'); }
 function tasksFile() { return path.join(os.homedir(), '.tokenbank', 'external-tasks.json'); }
@@ -83,6 +87,8 @@ function restore() {
     }
     if (!deadlineTimers.has(t.id)) armDeadline(t);
   }
+  // 重启前还排着队的：配了 Webhook 的叫醒它来取
+  for (const [agentId, q] of queue) if (q.length) wake(agentId);
 }
 
 function setResultHandler(fn) { resultHandler = typeof fn === 'function' ? fn : null; restore(); }
@@ -215,6 +221,7 @@ function publicView(a, now = Date.now()) {
     lastPushAt: a.lastPushAt || 0,
     // 最近一次推送被拒、且之后没有成功过：网关页标红
     lastPushError: a.lastPushError && (!a.lastPushAt || a.lastPushError.at > a.lastPushAt) ? a.lastPushError : null,
+    webhook: webhookView(a),
     // 它报的技能版本和当前不一样：说明它还在用旧说明（没报过的不算）
     skillOutdated: !!a.skillVersion && (() => { try { return a.skillVersion !== skillInfo().version; } catch { return false; } })(),
   };
@@ -301,6 +308,8 @@ function remove(id, now = Date.now()) {
   write(d);
   failQueued(id, '外部智能体已移除');
   notifyPollers(id, 'removed');
+  const wt = wakeTimers.get(id);
+  if (wt) { clearTimeout(wt); wakeTimers.delete(id); }
   return true;
 }
 
@@ -381,6 +390,7 @@ function dispatch(agentId, prompt, { timeoutMs = DEFAULT_TASK_TIMEOUT_MS, taskId
       const q = queue.get(agentId) || [];
       q.push(task);
       queue.set(agentId, q);
+      wake(agentId);   // 它没在等：配了 Webhook 就马上叫醒它，不用等下一次轮询
     }
   });
 }
@@ -413,7 +423,143 @@ function complete(agentId, taskId, { output, error } = {}) {
   const rec = readTasks().find(x => x.id === taskId);
   // 任务已经结束：再送来的结果当作一条推送
   if (w ? w.agentId !== agentId : (!rec || rec.agentId !== agentId)) return push(agentId, taskId, { output: output || error });
-  return finish(taskId, error ? { ok: false, error: String(error).slice(0, 2000), output: String(output || '') } : { ok: true, output: String(output || '') });
+  const done = finish(taskId, error ? { ok: false, error: String(error).slice(0, 2000), output: String(output || '') } : { ok: true, output: String(output || '') });
+  // 它一次只取一个：做完这个后还有排队的，再叫醒一次
+  if ((queue.get(agentId) || []).length) wake(agentId);
+  return done;
+}
+
+// ── Webhook 唤醒 ────────────────────────────────────────────────────────────
+// 有新任务时网关主动 POST 一条通知，外部智能体被叫醒后照常来取任务（GET /tasks）。
+// 通知里只有「有新任务」，不带任务内容、token 和网关地址；定时轮询照旧兜底。
+
+function err(status, message) { return Object.assign(new Error(message), { status }); }
+
+/** 本机、局域网、Tailscale：可以用 http */
+function isLocalHost(host) {
+  const h = String(host || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (h === 'localhost' || h === '::1' || h.endsWith('.local')) return true;
+  return /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(h);
+}
+
+function checkWebhookUrl(raw, { allowLocalHttp = true } = {}) {
+  let u;
+  try { u = new URL(String(raw || '').trim()); } catch { throw err(400, 'Webhook 地址不对：要以 https:// 开头'); }
+  if (u.username || u.password) throw err(400, 'Webhook 地址里不要带账号密码，密钥填在「密钥」里');
+  if (u.protocol === 'http:') {
+    if (!allowLocalHttp) throw err(400, 'Webhook 地址要用 https（本机和局域网的 http 地址只能由用户在网关页里设）');
+    if (!isLocalHost(u.hostname)) throw err(400, 'Webhook 地址要用 https（本机和局域网的地址可以用 http）');
+  } else if (u.protocol !== 'https:') {
+    throw err(400, 'Webhook 地址要以 https:// 开头');
+  }
+  if (u.href.length > 1000) throw err(400, 'Webhook 地址太长');
+  return u.href;
+}
+
+function webhookView(a) {
+  const w = a && a.webhook;
+  if (!w || !w.url) return null;
+  return {
+    url: w.url,
+    hasSecret: !!w.secret,
+    secretTail: w.secret ? String(w.secret).slice(-4) : '',
+    sent: w.sent || 0,
+    lastOkAt: w.lastOkAt || 0,
+    lastError: w.lastError && (!w.lastOkAt || w.lastError.at > w.lastOkAt) ? w.lastError : null,
+  };
+}
+
+/**
+ * 设置 / 清除某个外部智能体的 Webhook。secret 留空表示沿用原来的；clear 清掉。
+ * fromAgent：外部智能体自己用 token 设的，只认 https（不让它把网关指向本机和局域网里的服务）
+ */
+function setWebhook(id, { url, secret, clear = false, fromAgent = false } = {}) {
+  const d = read();
+  const a = d.agents.find(x => x.id === id);
+  if (!a) throw err(404, `没有这个外部智能体：${id}`);
+  if (clear) {
+    delete a.webhook;
+    write(d);
+    const t = wakeTimers.get(id);
+    if (t) { clearTimeout(t); wakeTimers.delete(id); }
+    return webhookView(a);
+  }
+  const href = checkWebhookUrl(url, { allowLocalHttp: !fromAgent });
+  const prev = a.webhook || {};
+  let sec = secret == null || String(secret).trim() === '' ? (prev.secret || '') : String(secret).trim();
+  if (/[\r\n]/.test(sec) || sec.length > 1000) throw err(400, '密钥格式不对');
+  // 有人把整行「Bearer xxx」贴进来了：只留后面的
+  sec = sec.replace(/^bearer\s+/i, '');
+  a.webhook = { url: href, secret: sec, setAt: Date.now(), sent: prev.url === href ? (prev.sent || 0) : 0 };
+  write(d);
+  return webhookView(a);
+}
+
+function recordWebhook(agentId, res, now = Date.now()) {
+  try {
+    const d = read();
+    const a = d.agents.find(x => x.id === agentId);
+    if (!a || !a.webhook) return;
+    if (res.ok) { a.webhook.sent = (a.webhook.sent || 0) + 1; a.webhook.lastOkAt = now; }
+    else a.webhook.lastError = { at: now, message: String(res.message || '发送失败').slice(0, 200) };
+    write(d);
+  } catch { /* 只是记录 */ }
+}
+
+/** 发一次通知：{ ok, status?, message? } */
+async function sendWebhook(agentId, { test = false } = {}) {
+  const a = read().agents.find(x => x.id === agentId);
+  const w = a && a.webhook;
+  if (!w || !w.url) return { ok: false, message: '没有设置 Webhook' };
+  const body = {
+    event: test ? 'tokenbank.test' : 'tokenbank.task_queued',
+    agent_id: agentId,
+    queued: (queue.get(agentId) || []).length,
+    sent_at: new Date().toISOString(),
+  };
+  let res;
+  try {
+    const r = await fetch(w.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': 'TokenBank-Gateway', ...(w.secret ? { Authorization: `Bearer ${w.secret}` } : {}) },
+      body: JSON.stringify(body),
+      redirect: 'manual',   // 不跟跳转：通知只发到用户设的那个地址
+      signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
+    });
+    try { await r.arrayBuffer(); } catch { /* 不关心回了什么 */ }
+    res = r.status >= 200 && r.status < 300 ? { ok: true, status: r.status }
+      : { ok: false, status: r.status, message: r.status === 401 || r.status === 403 ? `对方拒绝了（HTTP ${r.status}）：检查密钥` : `对方回 HTTP ${r.status}` };
+  } catch (e) {
+    const why = e?.name === 'TimeoutError' ? '超时' : (e?.cause?.code || e?.message || '连不上');
+    res = { ok: false, message: `发不出去：${why}` };
+  }
+  recordWebhook(agentId, res);
+  return res;
+}
+
+function scheduleWake(agentId, attempt, delay) {
+  const t = setTimeout(async () => {
+    wakeTimers.delete(agentId);
+    if (!(queue.get(agentId) || []).length) return;   // 已经被取走了
+    const r = await sendWebhook(agentId);
+    if (!r.ok && attempt < WEBHOOK_RETRY_MS.length && !wakeTimers.has(agentId)) scheduleWake(agentId, attempt + 1, WEBHOOK_RETRY_MS[attempt]);
+  }, delay);
+  if (t.unref) t.unref();
+  wakeTimers.set(agentId, t);
+}
+
+/** 有任务在排队、它又没在长轮询：配了 Webhook 就叫醒它 */
+function wake(agentId) {
+  if (wakeTimers.has(agentId)) return;
+  const a = read().agents.find(x => x.id === agentId);
+  if (!a || a.status !== 'active' || !a.webhook || !a.webhook.url) return;
+  scheduleWake(agentId, 0, WEBHOOK_DEBOUNCE_MS);
+}
+
+/** 网关页「发一条测试」 */
+function testWebhook(id) {
+  if (!read().agents.some(x => x.id === id)) return Promise.resolve({ ok: false, message: `没有这个外部智能体：${id}` });
+  return sendWebhook(id, { test: true });
 }
 
 /** 执行器的智能体列表里用：只列允许接任务的 */
@@ -434,5 +580,6 @@ module.exports = {
   approve, disable, enable, remove,
   authenticate, dispatch, pull, complete,
   setResultHandler, setPushHandler, setTakenHandler, push, pushDetailed, restore, isOnline, skillInfo, wasRemoved,
-  _internal: { file, tasksFile, queue, waiting, pollers, ONLINE_MS, reset() { restored = false; resultHandler = null; pushHandler = null; takenHandler = null; for (const t of deadlineTimers.values()) clearTimeout(t); deadlineTimers.clear(); } },
+  setWebhook, testWebhook, checkWebhookUrl,
+  _internal: { file, tasksFile, queue, waiting, pollers, wakeTimers, ONLINE_MS, WEBHOOK_RETRY_MS, reset() { restored = false; resultHandler = null; pushHandler = null; takenHandler = null; for (const t of deadlineTimers.values()) clearTimeout(t); deadlineTimers.clear(); for (const t of wakeTimers.values()) clearTimeout(t); wakeTimers.clear(); } },
 };

@@ -257,6 +257,7 @@ function buildAgentRouteLog(info = {}) {
  *   GET  /v1/agent/external/tasks?wait=25   取派给它的任务 → { task: { id, input } | null }
  *   POST /v1/agent/external/tasks/:id/result { output, error }
  *   GET  /v1/agent/external/skill           tokenbank-connect 技能说明（Markdown）
+ *   PUT  /v1/agent/external/webhook         { url, secret } 有新任务时叫醒它；DELETE 取消；POST …/webhook/test 发一条测试
  */
 async function handleExternal(req, res, method, cleanPath) {
   if (!String(cleanPath || '').startsWith('/v1/agent/external/')) return false;
@@ -307,8 +308,27 @@ async function handleExternal(req, res, method, cleanPath) {
       } else if (task && task.status === 'removed') {
         sendJson(res, 410, { error: { message: '用户已在 Token Bank 里移除了你：删掉保存的 token，停掉你这边和 Token Bank 有关的定时任务', type: 'removed' }, status: 'removed', ...skillMeta() });
       } else {
-        sendJson(res, 200, { task: task ? { id: task.id, input: task.prompt } : null, status: 'active', interval: ext.pullIntervalSec(), ...skillMeta() });
+        sendJson(res, 200, { task: task ? { id: task.id, input: task.prompt } : null, status: 'active', interval: ext.pullIntervalSec(), webhook: !!(agent.webhook && agent.webhook.url), ...skillMeta() });
       }
+      return true;
+    }
+    // Webhook 唤醒：外部智能体自己设（只认 https）、取消、发一条测试
+    if (cleanPath === '/v1/agent/external/webhook' && (method === 'PUT' || method === 'POST')) {
+      const { body } = await readBody(req);
+      const webhook = ext.setWebhook(agent.id, { url: body.url, secret: body.secret, fromAgent: true });
+      sendJson(res, 200, { ok: true, webhook, status: 'active', ...skillMeta() });
+      return true;
+    }
+    if (cleanPath === '/v1/agent/external/webhook' && method === 'DELETE') {
+      req.resume();
+      ext.setWebhook(agent.id, { clear: true });
+      sendJson(res, 200, { ok: true, webhook: null, status: 'active' });
+      return true;
+    }
+    if (cleanPath === '/v1/agent/external/webhook/test' && method === 'POST') {
+      req.resume();
+      const r = await ext.testWebhook(agent.id);
+      sendJson(res, 200, { ok: r.ok, http_status: r.status || null, message: r.message || '', status: 'active' });
       return true;
     }
     const m = String(cleanPath).match(/^\/v1\/agent\/external\/tasks\/([^/]+)\/result$/);
