@@ -483,6 +483,7 @@ function webhookView(a) {
   if (!w || !w.url) return null;
   return {
     url: w.url,
+    by: w.by === 'user' ? 'user' : 'agent',
     healthy: webhookHealthy(a),
     fallbackPullSec: pullIntervalFor(a),
     hasSecret: !!w.secret,
@@ -515,9 +516,10 @@ function setWebhook(id, { url, secret, clear = false, fromAgent = false } = {}) 
   if (/[\r\n]/.test(sec) || sec.length > 1000) throw err(400, '密钥格式不对');
   // 有人把整行「Bearer xxx」贴进来了：只留后面的
   sec = sec.replace(/^bearer\s+/i, '');
+  const by = fromAgent ? 'agent' : 'user';   // 谁写入的：它自己（默认），还是用户在网关页手动设的
   a.webhook = changed
-    ? { url: href, secret: sec, setAt: Date.now(), sent: 0 }
-    : { ...prev, url: href, secret: sec };
+    ? { url: href, secret: sec, setAt: Date.now(), sent: 0, by }
+    : { ...prev, url: href, secret: sec, by };
   write(d);
   // 外部智能体自己写入的、地址或密钥变了：马上发一条测试，通了才放长轮询间隔，不通就照常轮询
   if (fromAgent && changed) sendWebhook(id, { test: true }).catch(() => {});

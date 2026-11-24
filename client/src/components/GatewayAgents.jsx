@@ -733,6 +733,7 @@ function WebhookInline({ agent, t, onSaved }) {
   const [secret, setSecret] = useState('');
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState(null);   // { ok, text }
+  const [manual, setManual] = useState(false);   // 手动设置：只给拿不到自己 Webhook 地址的智能体兜底
   const call = async (action, extra) => {
     setBusy(action); setMsg(null);
     try {
@@ -754,10 +755,30 @@ function WebhookInline({ agent, t, onSaved }) {
     if (r) { setMsg(r.result?.ok ? { ok: true, text: t('gw2.ext.whTestOk', { status: r.result.status || 200 }) } : { ok: false, text: r.result?.message || 'failed' }); onSaved?.(); }
   };
   const id = `wh-${agent.id.replace(/[^a-z0-9-]/gi, '')}`;
+  const mode = !wh ? t('gw2.ext.modePoll')
+    : wh.healthy ? t(wh.by === 'user' ? 'gw2.ext.modeWebhookUser' : 'gw2.ext.modeWebhookAgent', { min: Math.round((wh.fallbackPullSec || 900) / 60) })
+      : t('gw2.ext.modeWebhookDown');
   return (
     <div className="px-3 py-2.5 border-t border-zinc-100 dark:border-white/[0.06] text-xs space-y-2" onClick={e => e.stopPropagation()}>
       <p className="m-0 font-semibold text-zinc-700 dark:text-zinc-200">{t('gw2.ext.whTitle')}</p>
+      <p className={`m-0 ${wh && !wh.healthy ? 'text-red-600 dark:text-red-400' : 'text-zinc-700 dark:text-zinc-200'}`}>{mode}</p>
+      {wh && (
+        <p className="m-0 text-zinc-500 dark:text-zinc-400 flex flex-wrap items-center gap-2 min-w-0">
+          <span className="font-mono truncate min-w-0" title={wh.url}>{wh.url}</span>
+          <span>
+            {wh.lastError ? <span className="text-red-600 dark:text-red-400">{t('gw2.ext.whLastError', { msg: wh.lastError.message, when: agoText(t, wh.lastError.at) })}</span>
+              : wh.lastOkAt ? t('gw2.ext.whLastOk', { n: wh.sent, when: agoText(t, wh.lastOkAt) }) : t('gw2.ext.whNever')}
+          </span>
+          <button type="button" className={BTN} disabled={!!busy} onClick={test}>{busy === 'webhookTest' ? t('gw2.ext.whTesting') : t('gw2.ext.whTest')}</button>
+        </p>
+      )}
       <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.ext.whHint')}</p>
+      {msg && !manual && <p className={`m-0 ${msg.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{msg.text}</p>}
+      <button type="button" className="text-blue-600 dark:text-blue-400 hover:underline" aria-expanded={manual} onClick={() => setManual(v => !v)}>
+        {manual ? t('gw2.ext.whManualHide') : t('gw2.ext.whManual')}
+      </button>
+      {manual && (
+      <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <label htmlFor={`${id}-url`} className="shrink-0 w-14 text-zinc-500 dark:text-zinc-400">{t('gw2.ext.whUrl')}</label>
         <input id={`${id}-url`} value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…"
@@ -771,15 +792,10 @@ function WebhookInline({ agent, t, onSaved }) {
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className={BTN_PRIMARY} disabled={!!busy || !url.trim()} onClick={save}>{t('common.save')}</button>
-        {wh && <button type="button" className={BTN} disabled={!!busy} onClick={test}>{busy === 'webhookTest' ? t('gw2.ext.whTesting') : t('gw2.ext.whTest')}</button>}
         {wh && <button type="button" className={BTN} disabled={!!busy} onClick={clear}>{t('gw2.ext.whClear')}</button>}
         {msg && <span className={msg.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}>{msg.text}</span>}
       </div>
-      {wh && (
-        <p className="m-0 text-zinc-500 dark:text-zinc-400">
-          {wh.lastError ? <span className="text-red-600 dark:text-red-400">{t('gw2.ext.whLastError', { msg: wh.lastError.message, when: agoText(t, wh.lastError.at) })}</span>
-            : wh.lastOkAt ? t('gw2.ext.whLastOk', { n: wh.sent, when: agoText(t, wh.lastOkAt) }) : t('gw2.ext.whNever')}
-        </p>
+      </div>
       )}
     </div>
   );
@@ -904,6 +920,7 @@ export function ExternalAgents() {
               <span className="text-zinc-400">{t('gw2.ext.intervalHint')}</span>
             </label>
             {[
+              ['gw2.ext.apiWebhook', `PUT ${gateway}/v1/agent/external/webhook  {"url": "https://…", "secret": "…"}`],
               ['gw2.ext.apiPull', `GET ${gateway}/v1/agent/external/tasks?wait=25&interval=${Math.max(1, Math.round(Number(intervalMin) || 3)) * 60}`],
               ['gw2.ext.apiResult', `POST ${gateway}/v1/agent/external/tasks/{task_id}/result  {"output": "…"}`],
               ['gw2.ext.apiPush', `POST ${gateway}/v1/agent/external/tasks/{task_id}/messages  {"output": "…"}`],
@@ -950,9 +967,9 @@ export function ExternalAgents() {
                     <span className="block text-red-600 dark:text-red-400" title={a.lastPushError.taskId}>{t('gw2.ext.pushRejected', { msg: a.lastPushError.message, when: agoText(t, a.lastPushError.at) })}</span>
                   )}
                   {a.skillOutdated && <span className="block text-amber-700 dark:text-amber-400" title={t('gw2.ext.skillOldHint')}>{t('gw2.ext.skillOld')}</span>}
-                  {a.webhook && (
-                    <span className={`block pl-3.5 ${a.webhook.lastError ? 'text-red-600 dark:text-red-400' : META}`} title={a.webhook.url}>
-                      {a.webhook.healthy ? t('gw2.ext.whBadge.on', { min: Math.round((a.webhook.fallbackPullSec || 900) / 60) }) : t('gw2.ext.whBadge.err')}
+                  {!pending && (
+                    <span className={`block pl-3.5 ${a.webhook && !a.webhook.healthy ? 'text-red-600 dark:text-red-400' : META}`} title={a.webhook?.url || ''}>
+                      {!a.webhook ? t('gw2.ext.whBadge.poll') : a.webhook.healthy ? t('gw2.ext.whBadge.on', { min: Math.round((a.webhook.fallbackPullSec || 900) / 60) }) : t('gw2.ext.whBadge.err')}
                     </span>
                   )}
                 </span>
