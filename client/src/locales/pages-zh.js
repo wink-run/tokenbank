@@ -2127,6 +2127,7 @@ export default {
   'debug.log.thinkingHint': '正在思考…',
   'debug.log.live': '实时',
   'debug.log.extQueued': '已发出，等 {name} 来取',
+  'debug.log.extWoken': "已发出，已通知 {name} 来取",
   'debug.log.extTaken': '{name} 已取走，正在处理',
   'debug.log.extEveryMin': '它大约每 {n} 分钟来一次',
   'debug.log.extEverySec': '它大约每 {n} 秒来一次',

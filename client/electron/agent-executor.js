@@ -1794,7 +1794,7 @@ class AgentExecutor extends EventEmitter {
     this.emit('task:step', {
       taskId, stepType: 'system_event', system_subtype: 'external_queued',
       content: info.name || agentId, message: info.name || agentId,
-      external: { name: info.name || agentId, online: !!info.online, intervalMs: info.intervalMs || 0, lastSeenAt: info.lastSeenAt || 0 },
+      external: { name: info.name || agentId, online: !!info.online, intervalMs: info.intervalMs || 0, lastSeenAt: info.lastSeenAt || 0, receive: info.webhook && info.webhook.healthy ? 'webhook' : 'poll' },
       timestamp: Date.now(), ...this._taskEventMeta(taskId),
     });
     const result = await require('./external-agents').dispatch(agentId, prompt, { timeoutMs: options.timeoutMs, taskId });

@@ -2122,6 +2122,7 @@ export default {
   'debug.log.thinkingHint': 'Thinking…',
   'debug.log.live': 'Live',
   'debug.log.extQueued': 'Sent; waiting for {name} to pick it up',
+  'debug.log.extWoken': "Sent; {name} has been notified to pick it up",
   'debug.log.extTaken': '{name} picked it up and is working on it',
   'debug.log.extEveryMin': 'it checks about every {n} min',
   'debug.log.extEverySec': 'it checks about every {n}s',

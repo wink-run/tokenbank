@@ -613,6 +613,8 @@ function listForAgents() {
   return list().filter(a => a.status === 'active').map(a => ({
     id: a.id, name: a.name, type: 'external', description: a.description, online: a.online, installed: true, status: 'active',
     intervalMs: a.intervalMs || 0, lastSeenAt: a.lastSeenAt || 0,
+    // 接收方式：webhook（有任务网关马上叫醒它）或 poll（它定时来取）
+    receive: a.webhook && a.webhook.healthy ? 'webhook' : 'poll',
   }));
 }
 

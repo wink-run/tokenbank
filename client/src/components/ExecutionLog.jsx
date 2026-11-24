@@ -1599,7 +1599,7 @@ export default function ExecutionLog({
   footer = null,   // 本轮结束后显示在最后（游乐场的「重做 / 改派」）
   pushedByTask = {},
   strayPushes = [],   // 它给别的任务推来的（按时间插进这段对话，标上来源）
-  externalAgent = null,   // 和外部智能体说话时：{ name, intervalMs, lastSeenAt }，等它来取时不显示「执行中」   // 外部智能体后来就这个任务推的消息：{ taskId: [{ content, timestamp }] }
+  externalAgent = null,   // 和外部智能体说话时：{ name, intervalMs, lastSeenAt, receive }，等它来取时不显示「执行中」   // 外部智能体后来就这个任务推的消息：{ taskId: [{ content, timestamp }] }
 }) {
   const { t } = useLang();
   const endRef = useRef(null);
@@ -1695,6 +1695,8 @@ export default function ExecutionLog({
     const x = { ...(externalAgent || {}), ...(last.external || {}) };
     const name = x.name || last.content || '';
     if (last.system_subtype === 'external_taken') return t('debug.log.extTaken', { name });
+    // Webhook：网关已经叫醒它了，不提轮询频率
+    if (x.receive === 'webhook') return t('debug.log.extWoken', { name });
     const parts = [t('debug.log.extQueued', { name })];
     if (x.intervalMs) {
       const m = Math.round(x.intervalMs / 60000);

@@ -3832,7 +3832,7 @@ export default function Debug() {
                 pushedByTask={pushedByTask}
                 strayPushes={strayPushes}
                 externalAgent={isRemotePlaygroundAgent(selectedAgent) && !isCommunityPlaygroundAgent(selectedAgent)
-                  ? { name: selectedAgent.name, intervalMs: selectedAgent.intervalMs || 0, lastSeenAt: selectedAgent.lastSeenAt || 0 }
+                  ? { name: selectedAgent.name, intervalMs: selectedAgent.intervalMs || 0, lastSeenAt: selectedAgent.lastSeenAt || 0, receive: selectedAgent.receive || 'poll' }
                   : null}
               />
             )}
