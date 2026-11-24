@@ -771,12 +771,14 @@ function McpInline({ agent, gateway, t, onSaved }) {
 }
 
 /** 外部智能体的 Webhook 唤醒：有新任务时网关主动通知它来取，不用等下一次轮询 */
-function WebhookInline({ agent, t, onSaved }) {
+function WebhookInline({ agent, gateway, t, onSaved }) {
   const wh = agent.webhook || null;
   const [url, setUrl] = useState(wh?.url || '');
   const [secret, setSecret] = useState('');
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState(null);   // { ok, text }
+  // 手动改了 Webhook 后要告诉它：不然它要等下一次轮询才知道，这期间可能还按老办法收任务
+  const [notify, setNotify] = useState('');
   // 手动设置：只给拿不到自己 Webhook 地址的智能体兜底；它说了要你来填时直接展开
   const [manual, setManual] = useState(!!agent.webhookWanted);
   const boxRef = useRef(null);
@@ -794,15 +796,20 @@ function WebhookInline({ agent, t, onSaved }) {
     const r = await call('webhook', { url: url.trim(), secret });
     if (r) {
       setSecret('');
-      // 保存完马上发一条测试，用户直接看到通没通
-      const tr = await call('webhookTest');
-      setMsg(tr?.result?.ok ? { ok: true, text: t('gw2.ext.whSavedOk') } : { ok: false, text: t('gw2.ext.whSavedBad', { msg: tr?.result?.message || '' }) });
+      // 保存时网关已经往这个 Webhook 发了 tokenbank.webhook_configured：它马上就知道、切到 Webhook，不用你手动转告。
+      // 发没发通就是这次的结果；没发通时不能告诉它「通了」
+      setMsg(r.notice?.ok ? { ok: true, text: t('gw2.ext.whSavedOk', { name: agent.name }) } : { ok: false, text: t('gw2.ext.whSavedBad', { msg: r.notice?.message || '' }) });
+      setNotify('');
       onSaved?.();
     }
   };
   const clear = async () => {
     const r = await call('webhook', { clear: true });
-    if (r) { setUrl(''); setSecret(''); setMsg({ ok: true, text: t('gw2.ext.whCleared') }); onSaved?.(); }
+    if (r) {
+      setUrl(''); setSecret(''); setMsg({ ok: true, text: t('gw2.ext.whCleared') });
+      setNotify(t('gw2.ext.whNotifyOff', { gw: gateway || '', min: Math.round((agent.pollIntervalSec || 300) / 60) || 5 }));
+      onSaved?.();
+    }
   };
   const test = async () => {
     const r = await call('webhookTest');
@@ -828,6 +835,16 @@ function WebhookInline({ agent, t, onSaved }) {
       )}
       <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.ext.whHint')}</p>
       {msg && !manual && <p className={`m-0 ${msg.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{msg.text}</p>}
+      {notify && (
+        <div className="rounded-lg px-3 py-2.5 bg-sky-500/10 space-y-1.5" role="status">
+          <p className="m-0 font-medium text-sky-800 dark:text-sky-200">{t('gw2.ext.whNotifyTitle', { name: agent.name })}</p>
+          <span className="flex items-start gap-2 min-w-0">
+            <pre className="m-0 flex-1 min-w-0 whitespace-pre-wrap break-all font-mono text-[11px] px-2 py-1.5 rounded bg-white/70 dark:bg-zinc-900/60 text-zinc-600 dark:text-zinc-300">{notify}</pre>
+            <CopyText text={notify} t={t} />
+          </span>
+          <button type="button" className="text-sky-700 dark:text-sky-300 hover:underline" onClick={() => setNotify('')}>{t('gw2.ext.whNotifyDone')}</button>
+        </div>
+      )}
       <button type="button" className="text-blue-600 dark:text-blue-400 hover:underline" aria-expanded={manual} onClick={() => setManual(v => !v)}>
         {manual ? t('gw2.ext.whManualHide') : t('gw2.ext.whManual')}
       </button>
@@ -1077,7 +1094,7 @@ export function ExternalAgents() {
                 </span>
               </div>
               {apiFor === a.id && <AgentApiInline harnessId={a.id} note={t('gw2.api.extNote', { name: a.name })} t={t} />}
-              {apiFor === a.id && <WebhookInline agent={a} t={t} onSaved={load} />}
+              {apiFor === a.id && <WebhookInline agent={a} gateway={gateway} t={t} onSaved={load} />}
               {apiFor === a.id && <McpInline agent={a} gateway={gateway} t={t} onSaved={load} />}
               </React.Fragment>
             );

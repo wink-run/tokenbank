@@ -559,12 +559,12 @@ function recordWebhook(agentId, res, now = Date.now()) {
 }
 
 /** 发一次通知：{ ok, status?, message? } */
-async function sendWebhook(agentId, { test = false } = {}) {
+async function sendWebhook(agentId, { test = false, event = '' } = {}) {
   const a = read().agents.find(x => x.id === agentId);
   const w = a && a.webhook;
   if (!w || !w.url) return { ok: false, message: '没有设置 Webhook' };
   const body = {
-    event: test ? 'tokenbank.test' : 'tokenbank.task_queued',
+    event: event || (test ? 'tokenbank.test' : 'tokenbank.task_queued'),
     agent_id: agentId,
     queued: (queue.get(agentId) || []).length,
     sent_at: new Date().toISOString(),
@@ -632,6 +632,15 @@ function recordMcpCall(id, now = Date.now()) {
 }
 
 /** 网关页「发一条测试」 */
+/**
+ * 用户在网关页手动配好了 Webhook：马上发一条 tokenbank.webhook_configured 告诉它，
+ * 它收到后来取一次任务、看到 webhook: true 就切到 Webhook 方式，不用等下一轮轮询。也顺带验证地址和密钥。
+ */
+function notifyWebhookConfigured(id) {
+  if (!read().agents.some(x => x.id === id)) return Promise.resolve({ ok: false, message: `没有这个外部智能体：${id}` });
+  return sendWebhook(id, { event: 'tokenbank.webhook_configured' });
+}
+
 function testWebhook(id) {
   if (!read().agents.some(x => x.id === id)) return Promise.resolve({ ok: false, message: `没有这个外部智能体：${id}` });
   return sendWebhook(id, { test: true });
@@ -657,7 +666,7 @@ module.exports = {
   approve, disable, enable, remove,
   authenticate, dispatch, pull, complete,
   setResultHandler, setPushHandler, setTakenHandler, push, pushDetailed, restore, isOnline, skillInfo, wasRemoved,
-  setWebhook, testWebhook, checkWebhookUrl, webhookHealthy, pullIntervalFor,
+  setWebhook, testWebhook, notifyWebhookConfigured, checkWebhookUrl, webhookHealthy, pullIntervalFor,
   MCP_LEVELS, setMcpLevel, recordMcpCall,
   _internal: { file, tasksFile, queue, waiting, pollers, wakeTimers, ONLINE_MS, WEBHOOK_RETRY_MS, reset() { restored = false; resultHandler = null; pushHandler = null; takenHandler = null; for (const t of deadlineTimers.values()) clearTimeout(t); deadlineTimers.clear(); for (const t of wakeTimers.values()) clearTimeout(t); wakeTimers.clear(); } },
 };

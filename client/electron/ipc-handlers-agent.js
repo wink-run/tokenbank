@@ -262,7 +262,12 @@ function registerAgentHandlers() {
       const e = ext();
       if (action === 'interval') return { success: true, pullIntervalSec: e.setPullInterval(seconds) };
       // Webhook 唤醒：网关页里设（本机、局域网可以用 http）、清除、发测试
-      if (action === 'webhook') return { success: true, webhook: e.setWebhook(String(id || ''), { url: extra.url, secret: extra.secret, clear: !!extra.clear }) };
+      if (action === 'webhook') {
+        const webhook = e.setWebhook(String(id || ''), { url: extra.url, secret: extra.secret, clear: !!extra.clear });
+        // 手动配好了：马上告诉它（它不用等下一轮轮询才知道），顺带验证地址和密钥
+        const notice = extra.clear ? null : await e.notifyWebhookConfigured(String(id || ''));
+        return { success: true, webhook, notice };
+      }
       if (action === 'webhookTest') return { success: true, result: await e.testWebhook(String(id || '')) };
       // 通过 MCP 操作 Token Bank 的权限
       if (action === 'mcp') return { success: true, agent: e.setMcpLevel(String(id || ''), String(extra.level || 'off')) };

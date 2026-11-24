@@ -177,3 +177,21 @@ test('它要用 Webhook 但拿不到地址：注册时说明，网关页提醒�
   ext.setWebhook(later, { clear: true });
   assert.equal(ext.get(later).webhookWanted, false, '取消后不再提醒');
 });
+
+test('手动配好 Webhook 后马上通知它：tokenbank.webhook_configured，不带任务内容', async () => {
+  const { code } = ext.newPairingCode();
+  const reg = ext.register({ code, name: 'NeedsUser', webhook: { manual: true } });
+  ext.approve(reg.agent_id);
+  hits.length = 0;
+  ext.setWebhook(reg.agent_id, { url: `${base}/hook`, secret: 'sec9' });
+  const r = await ext.notifyWebhookConfigured(reg.agent_id);
+  assert.equal(r.ok, true);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].body.event, 'tokenbank.webhook_configured');
+  assert.equal(hits[0].auth, 'Bearer sec9');
+  assert.deepEqual(Object.keys(hits[0].body).sort(), ['agent_id', 'event', 'queued', 'sent_at']);
+  const v = ext.get(reg.agent_id);
+  assert.equal(v.webhookWanted, false);
+  assert.equal(v.webhook.healthy, true);
+  assert.equal(v.pollIntervalSec, 900, '通知发通了：轮询放长成兜底');
+});
