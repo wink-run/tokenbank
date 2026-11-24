@@ -26,6 +26,7 @@ const builtinBackends = new Map();
 /** 当前可代理的路由行（stdio + 内置），id → row */
 let routedRows = new Map();
 let getRoutedServers = () => [];
+let routedFnSet = false;   // 桌面版启动时会传进来；命令行版没有，挂到网关时自己取
 
 /** 需按 cid 分别起后端的内置中转 MCP（其可见集随 TB_CLIENT_ID 变化） */
 const BUILTIN_RELAY_IDS = new Set([
@@ -699,114 +700,153 @@ function checkAuth(req, token) {
 }
 
 /**
+ * 中转 MCP 的 HTTP 处理：网关 11430 的 /mcp、/mcp/:appId（现在的入口），和旧的 11431 独立端口共用这一份。
+ */
+async function handleRelayRequest(req, res) {
+  // CORS：部分远程客户端探测
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept, x-api-key');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  const host = req.headers.host || '127.0.0.1';
+  const url = new URL(req.url || '/', `http://${host}`);
+
+  if (req.method === 'GET' && url.pathname === '/health') {
+    sendJson(res, 200, {
+      ok: true,
+      backends: [...backends.keys()],
+      builtinBackends: [...builtinBackends.keys()],
+      routed: (getRoutedServers() || []).length,
+    });
+    return;
+  }
+
+  if (!checkAuth(req, relayToken())) {
+    sendJson(res, 401, { error: 'unauthorized' });
+    return;
+  }
+
+  // Streamable HTTP / 简易 JSON-RPC：POST /mcp 或 /mcp/:appId
+  const parsed = parseClientIdFromPath(url.pathname);
+  const queryClient = safeClientId(url.searchParams.get('client') || url.searchParams.get('app'));
+  const clientId = parsed.clientId || queryClient;
+  const isMcpPost = req.method === 'POST' && (
+    url.pathname === '/' || (parsed.ok && (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')))
+  );
+  if (isMcpPost) {
+    if (url.pathname.startsWith('/mcp/') && !parsed.ok) {
+      sendJson(res, 404, { error: 'invalid app id' });
+      return;
+    }
+    try {
+      const body = await readJsonBody(req);
+      // 支持 batch
+      if (Array.isArray(body)) {
+        const out = [];
+        for (const item of body) {
+          const r = await handleMcpMessage(item, clientId);
+          if (r) out.push(r);
+        }
+        sendJson(res, 200, out);
+        return;
+      }
+      const result = await handleMcpMessage(body, clientId);
+      if (result == null) {
+        res.writeHead(202);
+        res.end();
+        return;
+      }
+      sendJson(res, 200, result);
+    } catch (e) {
+      sendJson(res, 400, { error: e.message || String(e) });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && parsed.ok && (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/'))) {
+    if (url.pathname.startsWith('/mcp/') && !clientId) {
+      sendJson(res, 404, { error: 'invalid app id' });
+      return;
+    }
+    // SSE 握手占位：部分客户端先 GET；返回 endpoint 事件
+    const epPath = clientId ? `/mcp/${clientId}` : '/mcp';
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    res.write(`event: endpoint\ndata: ${epPath}\n\n`);
+    const keep = setInterval(() => {
+      try { res.write(': ping\n\n'); } catch { clearInterval(keep); }
+    }, 15000);
+    req.on('close', () => clearInterval(keep));
+    return;
+  }
+
+  sendJson(res, 404, { error: 'not found' });
+}
+
+let relayTokenValue = '';
+/** 所有应用共用的中转 Key：沿用上次的，没有就生成 */
+function relayToken() {
+  if (!relayTokenValue) relayTokenValue = getGatewayEndpoint()?.token || generateToken();
+  return relayTokenValue;
+}
+
+let attachedPort = 0;
+/** 对外的中转地址：挂到网关上以后是网关的端口（11430），否则是独立端口 */
+function advertisedUrl(port) {
+  return `http://127.0.0.1:${attachedPort || port}/mcp`;
+}
+
+/**
+ * 挂到网关（11430）上：之后应用配置里写的中转地址都是网关的端口，只剩一个端口。
+ * 命令行版没有独立的中转服务，靠这个才有内置 MCP。
+ */
+function attachToGateway({ port, listRoutedFn } = {}) {
+  if (!port) return getGatewayEndpoint();
+  if (attachedPort === Number(port) && routedFnSet && typeof listRoutedFn !== 'function') return getGatewayEndpoint();
+  attachedPort = Number(port);
+  if (typeof listRoutedFn === 'function') { getRoutedServers = listRoutedFn; routedFnSet = true; }
+  else if (!routedFnSet) {
+    routedFnSet = true;
+    getRoutedServers = () => {
+      try { const m = require('./mcp-manager'); m.init(); return m.listGatewayRoutedServers(); } catch { return []; }
+    };
+  }
+  writeInfo({ url: advertisedUrl(attachedPort), token: relayToken(), port: attachedPort, via: 'gateway', startedAt: Date.now() });
+  try { syncBackends(); } catch { /* 后端起不来不影响网关 */ }
+  return getGatewayEndpoint();
+}
+
+/**
  * @param {() => object[]} listRoutedFn 返回 gateway_routed && active 的 server 行
  */
 function startMcpGateway(listRoutedFn) {
-  if (typeof listRoutedFn === 'function') getRoutedServers = listRoutedFn;
+  if (typeof listRoutedFn === 'function') { getRoutedServers = listRoutedFn; routedFnSet = true; }
   if (server) {
     syncBackends();
     return getGatewayEndpoint();
   }
 
-  const prev = getGatewayEndpoint();
-  const token = prev?.token || generateToken();
+  const token = relayToken();
 
-  server = http.createServer(async (req, res) => {
-    // CORS：部分远程客户端探测
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept, x-api-key');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
-
-    const host = req.headers.host || '127.0.0.1';
-    const url = new URL(req.url || '/', `http://${host}`);
-
-    if (req.method === 'GET' && url.pathname === '/health') {
-      sendJson(res, 200, {
-        ok: true,
-        backends: [...backends.keys()],
-        builtinBackends: [...builtinBackends.keys()],
-        routed: (getRoutedServers() || []).length,
-      });
-      return;
-    }
-
-    if (!checkAuth(req, token)) {
-      sendJson(res, 401, { error: 'unauthorized' });
-      return;
-    }
-
-    // Streamable HTTP / 简易 JSON-RPC：POST /mcp 或 /mcp/:appId
-    const parsed = parseClientIdFromPath(url.pathname);
-    const queryClient = safeClientId(url.searchParams.get('client') || url.searchParams.get('app'));
-    const clientId = parsed.clientId || queryClient;
-    const isMcpPost = req.method === 'POST' && (
-      url.pathname === '/' || (parsed.ok && (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')))
-    );
-    if (isMcpPost) {
-      if (url.pathname.startsWith('/mcp/') && !parsed.ok) {
-        sendJson(res, 404, { error: 'invalid app id' });
-        return;
-      }
-      try {
-        const body = await readJsonBody(req);
-        // 支持 batch
-        if (Array.isArray(body)) {
-          const out = [];
-          for (const item of body) {
-            const r = await handleMcpMessage(item, clientId);
-            if (r) out.push(r);
-          }
-          sendJson(res, 200, out);
-          return;
-        }
-        const result = await handleMcpMessage(body, clientId);
-        if (result == null) {
-          res.writeHead(202);
-          res.end();
-          return;
-        }
-        sendJson(res, 200, result);
-      } catch (e) {
-        sendJson(res, 400, { error: e.message || String(e) });
-      }
-      return;
-    }
-
-    if (req.method === 'GET' && parsed.ok && (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/'))) {
-      if (url.pathname.startsWith('/mcp/') && !clientId) {
-        sendJson(res, 404, { error: 'invalid app id' });
-        return;
-      }
-      // SSE 握手占位：部分客户端先 GET；返回 endpoint 事件
-      const epPath = clientId ? `/mcp/${clientId}` : '/mcp';
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      });
-      res.write(`event: endpoint\ndata: ${epPath}\n\n`);
-      const keep = setInterval(() => {
-        try { res.write(': ping\n\n'); } catch { clearInterval(keep); }
-      }, 15000);
-      req.on('close', () => clearInterval(keep));
-      return;
-    }
-
-    sendJson(res, 404, { error: 'not found' });
-  });
+  server = http.createServer((req, res) => { handleRelayRequest(req, res).catch(() => { if (!res.headersSent) sendJson(res, 500, { error: 'relay error' }); }); });
 
   const onListening = () => {
     const addr = server.address();
     const port = typeof addr === 'object' && addr ? addr.port : PREFERRED_PORT;
+    // 挂到网关上以后，对外地址一直是网关的端口；独立端口只给还没换地址的旧配置用
     writeInfo({
-      url: `http://127.0.0.1:${port}/mcp`,
+      url: advertisedUrl(port),
       token,
-      port,
+      port: attachedPort || port,
+      legacyPort: attachedPort ? port : undefined,
       startedAt: Date.now(),
     });
     syncBackends();
@@ -827,9 +867,9 @@ function startMcpGateway(listRoutedFn) {
   // 若上次已写过 info，先返回缓存；listening 后会刷新
   if (!endpoint) {
     writeInfo({
-      url: `http://127.0.0.1:${PREFERRED_PORT}/mcp`,
+      url: advertisedUrl(PREFERRED_PORT),
       token,
-      port: PREFERRED_PORT,
+      port: attachedPort || PREFERRED_PORT,
       startedAt: Date.now(),
       pending: true,
     });
@@ -883,7 +923,8 @@ function getGatewayStatus() {
     configJson: buildClientConfigJson(ep, cid),
   }));
   return {
-    running: !!server,
+    // 挂在网关端口上也算在跑（命令行版只有这一种）
+    running: !!server || !!attachedPort,
     endpoint: ep,
     /** 默认复制「通用 API」配置；UI 可按 profiles 切换应用 */
     configJson: buildClientConfigJson(ep, 'api'),
@@ -902,6 +943,8 @@ function getGatewayStatus() {
 
 module.exports = {
   startMcpGateway,
+  attachToGateway,
+  handleRelayRequest,
   stopMcpGateway,
   reloadMcpGateway,
   getGatewayEndpoint,

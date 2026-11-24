@@ -141,7 +141,7 @@ curl -X POST "$GATEWAY/v1/agent/external/tasks/$TASK_ID/messages" \
 
 用户可以允许你直接操作他的 Token Bank：看他的智能体、模型和设备，派任务给他的智能体，直接调模型。这要用户在网关页「智能体 → 外部智能体」里点开你、打开「通过 MCP 操作 Token Bank」，默认是关的。
 
-- MCP 地址：`$GATEWAY/v1/mcp`（Streamable HTTP，POST JSON-RPC）
+- MCP 地址：`$GATEWAY/mcp`（Streamable HTTP，POST JSON-RPC；`$GATEWAY/v1/mcp` 也行）
 - 登录：`Authorization: Bearer $TOKEN`（就是注册时拿到的 token）
 - 连上后用 `tools/list` 看能用哪些工具。能用哪些取决于用户给你的权限：
   - 只读：`tb_list_agents`、`tb_list_models`、`tb_list_devices`、`tb_task_status`、`tb_list_prompts`、`tb_get_prompt`、`tb_list_resources` 等

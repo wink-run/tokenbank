@@ -731,7 +731,7 @@ function McpInline({ agent, gateway, t, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const level = agent.mcpLevel || 'off';
-  const url = `${gateway}/v1/mcp`;
+  const url = `${gateway}/mcp`;
   const setLevel = async (lv) => {
     setBusy(true); setErr('');
     try {

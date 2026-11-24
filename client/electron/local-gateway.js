@@ -4748,12 +4748,23 @@ function handleRequest(req, res) {
     return;
   }
 
-  // Token Bank 的能力以 MCP 暴露给外部智能体（它自己的 token + 用户在网关页给的权限）
-  if (cleanPath === '/v1/mcp') {
-    require('./tokenbank-mcp').handle(req, res, { port: req.socket.localPort, agentKey: _agentApiKey }).catch((e) => {
-      console.error('[tokenbank-mcp]', e.message);
+  // Token Bank 的 MCP：一个端口、一个入口，按凭据分流。
+  //   本机应用：带中转 Key → 内置工具 + 投射给它的第三方 MCP（/mcp/<应用>）
+  //   外部智能体：带它注册时的 token（tbx_…）→ 按用户给的权限开放工具（/mcp 或 /v1/mcp）
+  if (cleanPath === '/mcp' || cleanPath.startsWith('/mcp/') || cleanPath === '/v1/mcp') {
+    const auth = String(req.headers.authorization || '');
+    const isExternal = auth.startsWith('Bearer tbx_');
+    const done = (e) => {
+      console.error('[mcp]', e.message);
       if (!res.headersSent) { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'mcp_error' } })); }
-    });
+    };
+    if (isExternal || cleanPath === '/v1/mcp') {
+      require('./tokenbank-mcp').handle(req, res, { port: req.socket.localPort, agentKey: _agentApiKey }).catch(done);
+    } else {
+      const relay = require('./mcp-gateway-server');
+      relay.attachToGateway({ port: _port });
+      relay.handleRelayRequest(req, res).catch(done);
+    }
     return;
   }
 
@@ -4921,6 +4932,8 @@ function start(port, getConfig, saveConfig, bindHost = '127.0.0.1', onListenErro
   _server.headersTimeout = 610_000;
   _server.listen(_port, bindHost, () => {
     console.log(`[gateway] listening on ${bindHost}:${_port}`);
+    // 内置 MCP 中转挂到网关端口上：应用配置里的中转地址都换成这个端口
+    try { require('./mcp-gateway-server').attachToGateway({ port: _port }); } catch (e) { console.warn('[mcp] attach:', e.message); }
   });
   _server.on('error', (err) => {
     console.error('[gateway] server error:', err.message);

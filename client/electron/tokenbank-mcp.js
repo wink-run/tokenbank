@@ -1,5 +1,6 @@
 // client/electron/tokenbank-mcp.js
-// 把 Token Bank 的能力以 MCP 暴露给外部智能体（比如 GrokBot）：网关同一个端口上的 POST /v1/mcp（Streamable HTTP，JSON 回答）。
+// 把 Token Bank 的能力以 MCP 暴露给外部智能体（比如 GrokBot）：网关同一个端口上的 POST /mcp（或 /v1/mcp；Streamable HTTP，JSON 回答）。
+// 和本机应用用的内置中转是同一个入口（local-gateway.js 按凭据分流）：带 tbx_ token 的到这里，带中转 Key 的到 mcp-gateway-server.js。
 //
 // 登录：外部智能体注册时拿到的 token（Authorization: Bearer tbx_…），不用新的凭据。
 // 权限：用户在网关页给每个外部智能体单独打开，默认关闭：

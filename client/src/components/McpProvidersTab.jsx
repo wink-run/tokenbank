@@ -183,6 +183,16 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
   const editPanelRef = useRef(null);
   /** 内置 MCP 网关状态（URL / token / 已路由列表） */
   const [gatewayInfo, setGatewayInfo] = useState(null);
+  // 接入的外部智能体：和本机应用列在同一个「TokenBank 内置」里，按权限通过 MCP 操作 Token Bank
+  const [externals, setExternals] = useState([]);
+  const [extBusy, setExtBusy] = useState('');
+  const [extCopied, setExtCopied] = useState('');
+  const loadExternals = useCallback(() => {
+    Promise.resolve(window.electronAPI?.agent?.externalList?.()).then((r) => {
+      if (r?.success) setExternals((r.agents || []).filter((a) => a.status === 'active'));
+    }).catch(() => {});
+  }, []);
+  useEffect(() => { loadExternals(); }, [loadExternals]);
   /** 网关按应用隔离：当前编辑/复制的目标应用 id */
   /** Gateway API 应用（与 apps:list 同源，避免下拉漏项） */
   const [gatewayApiApps, setGatewayApiApps] = useState([]);
@@ -2063,6 +2073,46 @@ function renderToolKindToggle(kind, onChange) {
                     </div>
                   )}
                 </li>
+                );
+              })}
+              {externals.map((a) => {
+                // 外部智能体从网络上连：用网关的地址（和本机应用同一个端口），凭它注册时的 token
+                const port = gatewayInfo?.endpoint?.port || 11430;
+                let host = '127.0.0.1';
+                let proto = 'http:';
+                try { host = window.location.hostname || host; proto = window.location.protocol === 'https:' ? 'https:' : 'http:'; } catch { /* 用默认 */ }
+                const url = `${proto}//${host}:${port}/mcp`;
+                const level = a.mcpLevel || 'off';
+                const prompt = t('gw2.ext.mcpPrompt', { url });
+                const setLevel = async (lv) => {
+                  setExtBusy(a.id);
+                  try { await window.electronAPI?.agent?.externalSet?.(a.id, 'mcp', { level: lv }); } finally { setExtBusy(''); loadExternals(); }
+                };
+                return (
+                  <li key={a.id} className="px-4 py-2 border-b last:border-b-0 border-zinc-100/90 dark:border-white/[0.05]">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="w-6 h-6 rounded-md bg-teal-500 text-white text-[11px] font-semibold flex items-center justify-center" aria-hidden>{(a.name || '?').slice(0, 1).toUpperCase()}</span>
+                      <span className="text-xs text-zinc-800 dark:text-zinc-100 min-w-[6rem]">{a.name}</span>
+                      <span className="text-[10px] text-zinc-500">{t('resources.mcp.extRow')}</span>
+                      {level !== 'off' && a.mcpCalls > 0 && <span className="text-[10px] text-zinc-400">{t('resources.mcp.extUsed', { n: a.mcpCalls })}</span>}
+                      <div className="ml-auto flex items-center gap-2">
+                        <label className="sr-only" htmlFor={`ext-mcp-${a.id}`}>{t('gw2.ext.mcpLevel')}</label>
+                        <select id={`ext-mcp-${a.id}`} value={level} disabled={extBusy === a.id} onChange={(e) => setLevel(e.target.value)}
+                          title={t(`gw2.ext.mcpLvHint.${level}`)}
+                          className="tb-soft-field text-[11px] px-2 py-1 rounded-md">
+                          {['off', 'read', 'operate', 'full'].map((lv) => <option key={lv} value={lv}>{t('resources.mcp.extLevel', { level: t(`gw2.ext.mcpLv.${lv}`) })}</option>)}
+                        </select>
+                        {level !== 'off' && (
+                          <button type="button"
+                            onClick={() => { navigator.clipboard?.writeText(prompt).then(() => { setExtCopied(a.id); setTimeout(() => setExtCopied(''), 1500); }).catch(() => {}); }}
+                            className="text-[11px] px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-800">
+                            {extCopied === a.id ? t('gw2.copied') : t('resources.mcp.copyRelay')}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <p className="pl-9 mt-1 mb-0 text-[10px] text-zinc-400">{t(`gw2.ext.mcpLvHint.${level}`)}</p>
+                  </li>
                 );
               })}
             </ul>
