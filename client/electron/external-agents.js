@@ -24,6 +24,8 @@ const MAX_PULL_SEC = 6 * 3600;
 const WEBHOOK_DEBOUNCE_MS = 1500;                    // 一下子派好几个：合成一次唤醒
 const WEBHOOK_RETRY_MS = [15000, 60000, 300000];     // 发不出去时再试三次；任务被取走就不再发
 const WEBHOOK_TIMEOUT_MS = 10000;
+// Webhook 通的时候轮询只是兜底：至少 15 分钟一次（任务默认 30 分钟超时，Webhook 坏了也来得及取走）
+const WEBHOOK_FALLBACK_PULL_SEC = 15 * 60;
 
 const queue = new Map();      // agentId → [{ id, prompt, createdAt }]
 const waiting = new Map();    // taskId → { resolve, timer, agentId }
@@ -183,9 +185,22 @@ function setPullInterval(seconds) {
 }
 
 /** 心跳间隔：用户设过的频率优先，否则用它自己报的，再否则按最近几次来取的间隔 */
+/** Webhook 设了、最近一次没失败：网关会主动叫醒它 */
+function webhookHealthy(a) {
+  const w = a && a.webhook;
+  if (!w || !w.url) return false;
+  return !(w.lastError && (!w.lastOkAt || w.lastError.at > w.lastOkAt));
+}
+
+/** 告诉这个外部智能体多久来取一次：Webhook 通的时候放长到兜底频率，不通时用网关页设的 */
+function pullIntervalFor(a) {
+  const base = pullIntervalSec();
+  return webhookHealthy(a) ? Math.max(base, WEBHOOK_FALLBACK_PULL_SEC) : base;
+}
+
 function intervalOf(a) {
   const configured = Number(read().pullIntervalSec);
-  let ms = configured >= MIN_PULL_SEC ? configured * 1000 : 0;
+  let ms = configured >= MIN_PULL_SEC ? pullIntervalFor(a) * 1000 : (webhookHealthy(a) ? WEBHOOK_FALLBACK_PULL_SEC * 1000 : 0);
   if (!ms) {
     ms = Number(a.declaredIntervalMs) || 0;
     if (!ms && Array.isArray(a.gaps) && a.gaps.length) {
@@ -222,6 +237,7 @@ function publicView(a, now = Date.now()) {
     // 最近一次推送被拒、且之后没有成功过：网关页标红
     lastPushError: a.lastPushError && (!a.lastPushAt || a.lastPushError.at > a.lastPushAt) ? a.lastPushError : null,
     webhook: webhookView(a),
+    pollIntervalSec: pullIntervalFor(a),
     // 它报的技能版本和当前不一样：说明它还在用旧说明（没报过的不算）
     skillOutdated: !!a.skillVersion && (() => { try { return a.skillVersion !== skillInfo().version; } catch { return false; } })(),
   };
@@ -249,7 +265,7 @@ function currentPairing(now = Date.now()) {
 }
 
 /** 外部智能体用配对码注册：先是「等你允许」，用户允许后才收任务 */
-function register({ code, name, description } = {}, now = Date.now()) {
+function register({ code, name, description, webhook } = {}, now = Date.now()) {
   const d = read();
   const p = d.pairing;
   if (!p || p.expiresAt <= now || String(code || '').trim().toUpperCase() !== p.code) {
@@ -270,7 +286,13 @@ function register({ code, name, description } = {}, now = Date.now()) {
   });
   d.pairing = null;   // 用过即作废
   write(d);
-  return { agent_id: id, token, status: 'pending' };
+  const out = { agent_id: id, token, status: 'pending' };
+  // 注册时顺带交了 Webhook：自动存下并发一条测试，用户不用再配；格式不对也不影响注册，照常轮询
+  if (webhook && typeof webhook === 'object' && webhook.url) {
+    try { out.webhook = setWebhook(id, { url: webhook.url, secret: webhook.secret, fromAgent: true }); }
+    catch (e) { out.webhook = null; out.webhook_error = e.message; }
+  }
+  return out;
 }
 
 /** 正在长轮询的取任务请求立刻收到状态变化（停用、移除），不用等到超时 */
@@ -461,6 +483,8 @@ function webhookView(a) {
   if (!w || !w.url) return null;
   return {
     url: w.url,
+    healthy: webhookHealthy(a),
+    fallbackPullSec: pullIntervalFor(a),
     hasSecret: !!w.secret,
     secretTail: w.secret ? String(w.secret).slice(-4) : '',
     sent: w.sent || 0,
@@ -486,12 +510,17 @@ function setWebhook(id, { url, secret, clear = false, fromAgent = false } = {}) 
   }
   const href = checkWebhookUrl(url, { allowLocalHttp: !fromAgent });
   const prev = a.webhook || {};
+  const changed = prev.url !== href || (secret != null && String(secret).trim() !== '' && String(secret).trim().replace(/^bearer\s+/i, '') !== prev.secret);
   let sec = secret == null || String(secret).trim() === '' ? (prev.secret || '') : String(secret).trim();
   if (/[\r\n]/.test(sec) || sec.length > 1000) throw err(400, '密钥格式不对');
   // 有人把整行「Bearer xxx」贴进来了：只留后面的
   sec = sec.replace(/^bearer\s+/i, '');
-  a.webhook = { url: href, secret: sec, setAt: Date.now(), sent: prev.url === href ? (prev.sent || 0) : 0 };
+  a.webhook = changed
+    ? { url: href, secret: sec, setAt: Date.now(), sent: 0 }
+    : { ...prev, url: href, secret: sec };
   write(d);
+  // 外部智能体自己写入的、地址或密钥变了：马上发一条测试，通了才放长轮询间隔，不通就照常轮询
+  if (fromAgent && changed) sendWebhook(id, { test: true }).catch(() => {});
   return webhookView(a);
 }
 
@@ -580,6 +609,6 @@ module.exports = {
   approve, disable, enable, remove,
   authenticate, dispatch, pull, complete,
   setResultHandler, setPushHandler, setTakenHandler, push, pushDetailed, restore, isOnline, skillInfo, wasRemoved,
-  setWebhook, testWebhook, checkWebhookUrl,
+  setWebhook, testWebhook, checkWebhookUrl, webhookHealthy, pullIntervalFor,
   _internal: { file, tasksFile, queue, waiting, pollers, wakeTimers, ONLINE_MS, WEBHOOK_RETRY_MS, reset() { restored = false; resultHandler = null; pushHandler = null; takenHandler = null; for (const t of deadlineTimers.values()) clearTimeout(t); deadlineTimers.clear(); for (const t of wakeTimers.values()) clearTimeout(t); wakeTimers.clear(); } },
 };

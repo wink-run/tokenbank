@@ -277,7 +277,7 @@ async function handleExternal(req, res, method, cleanPath) {
     };
     if (method === 'POST' && cleanPath === '/v1/agent/external/register') {
       const { body } = await readBody(req);
-      const out = ext.register({ code: body.pairing_code || body.code, name: body.name, description: body.description });
+      const out = ext.register({ code: body.pairing_code || body.code, name: body.name, description: body.description, webhook: body.webhook });
       sendJson(res, 200, { ...out, ...skillMeta() });
       return true;
     }
@@ -308,7 +308,16 @@ async function handleExternal(req, res, method, cleanPath) {
       } else if (task && task.status === 'removed') {
         sendJson(res, 410, { error: { message: '用户已在 Token Bank 里移除了你：删掉保存的 token，停掉你这边和 Token Bank 有关的定时任务', type: 'removed' }, status: 'removed', ...skillMeta() });
       } else {
-        sendJson(res, 200, { task: task ? { id: task.id, input: task.prompt } : null, status: 'active', interval: ext.pullIntervalSec(), webhook: !!(agent.webhook && agent.webhook.url), ...skillMeta() });
+        // webhook：网关现在能不能主动叫醒它；能就把轮询放长成兜底，不能就照常轮询（并告诉它为什么）
+        const me = ext.get(agent.id);
+        const wh = me && me.webhook;
+        sendJson(res, 200, {
+          task: task ? { id: task.id, input: task.prompt } : null, status: 'active',
+          interval: me ? me.pollIntervalSec : ext.pullIntervalSec(),
+          webhook: !!(wh && wh.healthy),
+          ...(wh && !wh.healthy && wh.lastError ? { webhook_error: wh.lastError.message } : {}),
+          ...skillMeta(),
+        });
       }
       return true;
     }

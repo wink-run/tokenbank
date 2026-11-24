@@ -124,3 +124,34 @@ test('测试通知、清除；外部智能体自己设时只认 https', async ()
   ext.setWebhook(id, { clear: true });
   assert.equal(ext.get(id).webhook, null);
 });
+
+test('注册时带上 Webhook：自动写入并发测试；通了轮询放长成兜底，不通自动回到短的', async () => {
+  hits.length = 0;
+  const { code } = ext.newPairingCode();
+  // 外部智能体自己写入只认 https：测试里把本机地址当 https 不行，先看格式不对时注册照样成功
+  const bad = ext.register({ code, name: 'NoHook', webhook: { url: 'http://127.0.0.1:1/x' } });
+  assert.equal(bad.status, 'pending');
+  assert.match(bad.webhook_error, /https/);
+  ext.approve(bad.agent_id);
+  assert.equal(ext.get(bad.agent_id).webhook, null);
+  assert.equal(ext.get(bad.agent_id).pollIntervalSec, 180, '没有 Webhook：照常 3 分钟轮询');
+
+  // 用网关页的方式写入本机接收端，模拟「写入后发测试」
+  const { agent_id: id } = newAgent('AutoHook');
+  ext.setWebhook(id, { url: `${base}/hook`, secret: 'k1' });
+  assert.equal(ext.get(id).pollIntervalSec, 900, '设了、还没失败过：按兜底 15 分钟');
+  assert.equal((await ext.testWebhook(id)).ok, true);
+  assert.equal(ext.get(id).webhook.healthy, true);
+  // 对方开始拒绝：记下失败，改回短间隔
+  reply = 403;
+  try {
+    assert.equal((await ext.testWebhook(id)).ok, false);
+    const v = ext.get(id);
+    assert.equal(v.webhook.healthy, false);
+    assert.equal(v.pollIntervalSec, 180, 'Webhook 不通：退回正常轮询');
+  } finally { reply = 200; }
+  // 又通了：恢复兜底间隔
+  assert.equal((await ext.testWebhook(id)).ok, true);
+  assert.equal(ext.get(id).pollIntervalSec, 900);
+  ext.setWebhook(id, { clear: true });
+});

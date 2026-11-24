@@ -952,7 +952,7 @@ export function ExternalAgents() {
                   {a.skillOutdated && <span className="block text-amber-700 dark:text-amber-400" title={t('gw2.ext.skillOldHint')}>{t('gw2.ext.skillOld')}</span>}
                   {a.webhook && (
                     <span className={`block pl-3.5 ${a.webhook.lastError ? 'text-red-600 dark:text-red-400' : META}`} title={a.webhook.url}>
-                      {a.webhook.lastError ? t('gw2.ext.whBadge.err') : t('gw2.ext.whBadge.on')}
+                      {a.webhook.healthy ? t('gw2.ext.whBadge.on', { min: Math.round((a.webhook.fallbackPullSec || 900) / 60) }) : t('gw2.ext.whBadge.err')}
                     </span>
                   )}
                 </span>
