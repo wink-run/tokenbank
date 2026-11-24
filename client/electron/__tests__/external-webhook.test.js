@@ -155,3 +155,25 @@ test('注册时带上 Webhook：自动写入并发测试；通了轮询放长成
   assert.equal(ext.get(id).pollIntervalSec, 900);
   ext.setWebhook(id, { clear: true });
 });
+
+test('它要用 Webhook 但拿不到地址：注册时说明，网关页提醒你填；填好后就用 Webhook', async () => {
+  const { code } = ext.newPairingCode();
+  const reg = ext.register({ code, name: 'CursorBot', webhook: { manual: true } });
+  assert.equal(reg.webhook_waiting_user, true);
+  ext.approve(reg.agent_id);
+  let v = ext.get(reg.agent_id);
+  assert.equal(v.webhookWanted, true, '网关页提醒你填');
+  assert.equal(v.pollIntervalSec, 180, '填好之前先轮询');
+  // 用户在网关页填好
+  ext.setWebhook(reg.agent_id, { url: `${base}/hook`, secret: 'k' });
+  v = ext.get(reg.agent_id);
+  assert.equal(v.webhookWanted, false);
+  assert.equal(v.webhook.by, 'user');
+  assert.equal(v.pollIntervalSec, 900);
+  // 已经注册过的，也可以之后再说明
+  const { agent_id: later } = newAgent('Later');
+  ext.setWebhook(later, { manual: true, fromAgent: true });
+  assert.equal(ext.get(later).webhookWanted, true);
+  ext.setWebhook(later, { clear: true });
+  assert.equal(ext.get(later).webhookWanted, false, '取消后不再提醒');
+});

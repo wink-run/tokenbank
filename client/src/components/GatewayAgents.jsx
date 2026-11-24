@@ -733,7 +733,11 @@ function WebhookInline({ agent, t, onSaved }) {
   const [secret, setSecret] = useState('');
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState(null);   // { ok, text }
-  const [manual, setManual] = useState(false);   // 手动设置：只给拿不到自己 Webhook 地址的智能体兜底
+  // 手动设置：只给拿不到自己 Webhook 地址的智能体兜底；它说了要你来填时直接展开
+  const [manual, setManual] = useState(!!agent.webhookWanted);
+  const boxRef = useRef(null);
+  // 等你填的时候，展开后直接滚到这里（上面是一大段接口说明）
+  useEffect(() => { if (agent.webhookWanted) boxRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' }); }, [agent.webhookWanted]);
   const call = async (action, extra) => {
     setBusy(action); setMsg(null);
     try {
@@ -744,7 +748,13 @@ function WebhookInline({ agent, t, onSaved }) {
   };
   const save = async () => {
     const r = await call('webhook', { url: url.trim(), secret });
-    if (r) { setSecret(''); setMsg({ ok: true, text: t('gw2.ext.whSaved') }); onSaved?.(); }
+    if (r) {
+      setSecret('');
+      // 保存完马上发一条测试，用户直接看到通没通
+      const tr = await call('webhookTest');
+      setMsg(tr?.result?.ok ? { ok: true, text: t('gw2.ext.whSavedOk') } : { ok: false, text: t('gw2.ext.whSavedBad', { msg: tr?.result?.message || '' }) });
+      onSaved?.();
+    }
   };
   const clear = async () => {
     const r = await call('webhook', { clear: true });
@@ -755,13 +765,13 @@ function WebhookInline({ agent, t, onSaved }) {
     if (r) { setMsg(r.result?.ok ? { ok: true, text: t('gw2.ext.whTestOk', { status: r.result.status || 200 }) } : { ok: false, text: r.result?.message || 'failed' }); onSaved?.(); }
   };
   const id = `wh-${agent.id.replace(/[^a-z0-9-]/gi, '')}`;
-  const mode = !wh ? t('gw2.ext.modePoll')
+  const mode = !wh ? (agent.webhookWanted ? t('gw2.ext.modeWanted') : t('gw2.ext.modePoll'))
     : wh.healthy ? t(wh.by === 'user' ? 'gw2.ext.modeWebhookUser' : 'gw2.ext.modeWebhookAgent', { min: Math.round((wh.fallbackPullSec || 900) / 60) })
       : t('gw2.ext.modeWebhookDown');
   return (
-    <div className="px-3 py-2.5 border-t border-zinc-100 dark:border-white/[0.06] text-xs space-y-2" onClick={e => e.stopPropagation()}>
+    <div ref={boxRef} className="px-3 py-2.5 border-t border-zinc-100 dark:border-white/[0.06] text-xs space-y-2" onClick={e => e.stopPropagation()}>
       <p className="m-0 font-semibold text-zinc-700 dark:text-zinc-200">{t('gw2.ext.whTitle')}</p>
-      <p className={`m-0 ${wh && !wh.healthy ? 'text-red-600 dark:text-red-400' : 'text-zinc-700 dark:text-zinc-200'}`}>{mode}</p>
+      <p className={`m-0 ${wh && !wh.healthy ? 'text-red-600 dark:text-red-400' : agent.webhookWanted ? 'text-amber-700 dark:text-amber-300' : 'text-zinc-700 dark:text-zinc-200'}`}>{mode}</p>
       {wh && (
         <p className="m-0 text-zinc-500 dark:text-zinc-400 flex flex-wrap items-center gap-2 min-w-0">
           <span className="font-mono truncate min-w-0" title={wh.url}>{wh.url}</span>
@@ -778,7 +788,13 @@ function WebhookInline({ agent, t, onSaved }) {
         {manual ? t('gw2.ext.whManualHide') : t('gw2.ext.whManual')}
       </button>
       {manual && (
-      <div className="space-y-2">
+      <div className={`space-y-2 ${agent.webhookWanted ? 'rounded-lg px-3 py-2.5 bg-amber-500/10' : ''}`}>
+      {/* 引导：去它所在的平台复制地址和密钥，填进来，发一条测试 */}
+      <ol className="m-0 pl-4 list-decimal space-y-1 text-zinc-600 dark:text-zinc-300">
+        <li>{t('gw2.ext.whGuide1', { name: agent.name })}</li>
+        <li>{t('gw2.ext.whGuide2')}</li>
+        <li>{t('gw2.ext.whGuide3')}</li>
+      </ol>
       <div className="flex flex-wrap items-center gap-2">
         <label htmlFor={`${id}-url`} className="shrink-0 w-14 text-zinc-500 dark:text-zinc-400">{t('gw2.ext.whUrl')}</label>
         <input id={`${id}-url`} value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…"
@@ -936,6 +952,13 @@ export function ExternalAgents() {
         </div>
       )}
 
+      {/* 要用 Webhook、但地址和密钥得用户来填的：顶上提醒，点「去填」展开它那一行 */}
+      {list.filter(a => a.status === 'active' && a.webhookWanted).map(a => (
+        <div key={'want-' + a.id} className="mb-2 flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-xs bg-amber-500/10 text-amber-800 dark:text-amber-200">
+          <span>{t('gw2.ext.whWantedBanner', { name: a.name })}</span>
+          <button type="button" className={BTN_PRIMARY} onClick={() => setApiFor(a.id)}>{t('gw2.ext.whWantedGo')}</button>
+        </div>
+      ))}
       {rows.length === 0 && remoteExternals.length === 0 ? (
         <div className="py-6 text-center text-xs text-zinc-400">{t('gw2.ext.empty')}</div>
       ) : (
@@ -968,8 +991,8 @@ export function ExternalAgents() {
                   )}
                   {a.skillOutdated && <span className="block text-amber-700 dark:text-amber-400" title={t('gw2.ext.skillOldHint')}>{t('gw2.ext.skillOld')}</span>}
                   {!pending && (
-                    <span className={`block pl-3.5 ${a.webhook && !a.webhook.healthy ? 'text-red-600 dark:text-red-400' : META}`} title={a.webhook?.url || ''}>
-                      {!a.webhook ? t('gw2.ext.whBadge.poll') : a.webhook.healthy ? t('gw2.ext.whBadge.on', { min: Math.round((a.webhook.fallbackPullSec || 900) / 60) }) : t('gw2.ext.whBadge.err')}
+                    <span className={`block pl-3.5 ${a.webhook && !a.webhook.healthy ? 'text-red-600 dark:text-red-400' : a.webhookWanted ? 'text-amber-700 dark:text-amber-300' : META}`} title={a.webhook?.url || ''}>
+                      {a.webhookWanted ? t('gw2.ext.whBadge.wanted') : !a.webhook ? t('gw2.ext.whBadge.poll') : a.webhook.healthy ? t('gw2.ext.whBadge.on', { min: Math.round((a.webhook.fallbackPullSec || 900) / 60) }) : t('gw2.ext.whBadge.err')}
                     </span>
                   )}
                 </span>

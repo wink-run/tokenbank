@@ -316,6 +316,7 @@ async function handleExternal(req, res, method, cleanPath) {
           interval: me ? me.pollIntervalSec : ext.pullIntervalSec(),
           webhook: !!(wh && wh.healthy),
           ...(wh && !wh.healthy && wh.lastError ? { webhook_error: wh.lastError.message } : {}),
+          ...(me && me.webhookWanted ? { webhook_waiting_user: true } : {}),
           ...skillMeta(),
         });
       }
@@ -324,8 +325,9 @@ async function handleExternal(req, res, method, cleanPath) {
     // Webhook 唤醒：外部智能体自己设（只认 https）、取消、发一条测试
     if (cleanPath === '/v1/agent/external/webhook' && (method === 'PUT' || method === 'POST')) {
       const { body } = await readBody(req);
-      const webhook = ext.setWebhook(agent.id, { url: body.url, secret: body.secret, fromAgent: true });
-      sendJson(res, 200, { ok: true, webhook, status: 'active', ...skillMeta() });
+      const manual = !!body.manual && !body.url;
+      const webhook = ext.setWebhook(agent.id, { url: body.url, secret: body.secret, fromAgent: true, manual });
+      sendJson(res, 200, { ok: true, webhook: manual ? null : webhook, ...(manual ? { webhook_waiting_user: true } : {}), status: 'active', ...skillMeta() });
       return true;
     }
     if (cleanPath === '/v1/agent/external/webhook' && method === 'DELETE') {

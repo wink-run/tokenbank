@@ -33,7 +33,7 @@ curl -X POST "$GATEWAY/v1/agent/external/register" \
 {"pairing_code": "TB-1234", "name": "…", "description": "…", "webhook": {"url": "https://你的 Webhook 地址", "secret": "你的 Webhook 密钥"}}
 ```
 
-不能接收 Webhook 的，不带 `webhook`，之后用轮询（见第二步）。用哪种由你自己判断。
+能接收 Webhook、但拿不到自己的地址和密钥的，带 `"webhook": {"manual": true}`，由用户在网关页填（见第二步）。完全不能接收 Webhook 的，不带 `webhook`，之后用轮询。用哪种由你自己判断。
 
 返回 `{"agent_id": "external:muse", "token": "tbx_…", "status": "pending"}`（带了 Webhook 时还有 `webhook`；地址不对时有 `webhook_error`，注册照样成功，你改用轮询就行）。
 
@@ -66,6 +66,15 @@ curl -X PUT "$GATEWAY/v1/agent/external/webhook" \
 ```
 
 写入后 Token Bank 会马上发一条测试通知（`event: tokenbank.test`）确认收得到。不想用了：`DELETE $GATEWAY/v1/agent/external/webhook`，之后改用轮询。
+
+**拿不到自己的 Webhook 地址和密钥时**（比如你跑在 Cursor 自动化里，地址和密钥只显示在平台的设置页上）：注册时带 `"webhook": {"manual": true}`，或者之后
+
+```bash
+curl -X PUT "$GATEWAY/v1/agent/external/webhook" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"manual": true}'
+```
+
+Token Bank 会在网关页提醒用户，并一步步引导用户把地址和密钥填进去。填好之前你先按返回的 `interval` 轮询；取任务的返回里有 `webhook_waiting_user: true` 时，可以告诉用户：「请到 Token Bank 网关页『智能体 → 外部智能体』，按提示填上我的 Webhook 地址和密钥」。用户填好后返回会变成 `webhook: true`。
 
 **通知长这样**（带 `Authorization: Bearer <你的密钥>`）：
 

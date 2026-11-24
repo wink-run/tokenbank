@@ -237,6 +237,8 @@ function publicView(a, now = Date.now()) {
     // 最近一次推送被拒、且之后没有成功过：网关页标红
     lastPushError: a.lastPushError && (!a.lastPushAt || a.lastPushError.at > a.lastPushAt) ? a.lastPushError : null,
     webhook: webhookView(a),
+    // 它要用 Webhook、但地址和密钥得你来填，还没填
+    webhookWanted: !!a.webhookWanted && !(a.webhook && a.webhook.url),
     pollIntervalSec: pullIntervalFor(a),
     // 它报的技能版本和当前不一样：说明它还在用旧说明（没报过的不算）
     skillOutdated: !!a.skillVersion && (() => { try { return a.skillVersion !== skillInfo().version; } catch { return false; } })(),
@@ -287,6 +289,12 @@ function register({ code, name, description, webhook } = {}, now = Date.now()) {
   d.pairing = null;   // 用过即作废
   write(d);
   const out = { agent_id: id, token, status: 'pending' };
+  // 用 Webhook 但自己拿不到地址：记下来，网关页引导用户填；填好之前它先轮询
+  if (webhook && typeof webhook === 'object' && webhook.manual && !webhook.url) {
+    setWebhook(id, { manual: true, fromAgent: true });
+    out.webhook = null;
+    out.webhook_waiting_user = true;
+  }
   // 注册时顺带交了 Webhook：自动存下并发一条测试，用户不用再配；格式不对也不影响注册，照常轮询
   if (webhook && typeof webhook === 'object' && webhook.url) {
     try { out.webhook = setWebhook(id, { url: webhook.url, secret: webhook.secret, fromAgent: true }); }
@@ -498,12 +506,19 @@ function webhookView(a) {
  * 设置 / 清除某个外部智能体的 Webhook。secret 留空表示沿用原来的；clear 清掉。
  * fromAgent：外部智能体自己用 token 设的，只认 https（不让它把网关指向本机和局域网里的服务）
  */
-function setWebhook(id, { url, secret, clear = false, fromAgent = false } = {}) {
+function setWebhook(id, { url, secret, clear = false, fromAgent = false, manual = false } = {}) {
   const d = read();
   const a = d.agents.find(x => x.id === id);
   if (!a) throw err(404, `没有这个外部智能体：${id}`);
+  // 它说「我用 Webhook，但地址和密钥要请用户填」：只记下这个意愿，网关页引导用户填
+  if (manual && !url) {
+    a.webhookWanted = true;
+    write(d);
+    return webhookView(a);
+  }
   if (clear) {
     delete a.webhook;
+    delete a.webhookWanted;
     write(d);
     const t = wakeTimers.get(id);
     if (t) { clearTimeout(t); wakeTimers.delete(id); }
