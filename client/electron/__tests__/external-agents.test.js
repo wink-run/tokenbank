@@ -62,9 +62,9 @@ test('disabling fails queued tasks; a wrong token is not recognised', async () =
   assert.equal(ext.get('external:grokbot'), null);
 });
 
-test('pull interval defaults to 3 minutes and a saved value is what online checks use', () => {
-  assert.equal(ext.pullIntervalSec(), 180);
-  assert.equal(ext.setPullInterval(30), 180, 'shorter than a minute stays at the default');
+test('pull interval defaults to 5 minutes and a saved value is what online checks use', () => {
+  assert.equal(ext.pullIntervalSec(), 300);
+  assert.equal(ext.setPullInterval(30), 300, 'shorter than a minute stays at the default');
   assert.equal(ext.setPullInterval(600), 600);
   assert.equal(ext.pullIntervalSec(), 600);
   const { code } = ext.newPairingCode();

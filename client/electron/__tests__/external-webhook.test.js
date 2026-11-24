@@ -134,7 +134,7 @@ test('注册时带上 Webhook：自动写入并发测试；通了轮询放长成
   assert.match(bad.webhook_error, /https/);
   ext.approve(bad.agent_id);
   assert.equal(ext.get(bad.agent_id).webhook, null);
-  assert.equal(ext.get(bad.agent_id).pollIntervalSec, 180, '没有 Webhook：照常 3 分钟轮询');
+  assert.equal(ext.get(bad.agent_id).pollIntervalSec, 300, '没有 Webhook：照常 5 分钟轮询');
 
   // 用网关页的方式写入本机接收端，模拟「写入后发测试」
   const { agent_id: id } = newAgent('AutoHook');
@@ -148,7 +148,7 @@ test('注册时带上 Webhook：自动写入并发测试；通了轮询放长成
     assert.equal((await ext.testWebhook(id)).ok, false);
     const v = ext.get(id);
     assert.equal(v.webhook.healthy, false);
-    assert.equal(v.pollIntervalSec, 180, 'Webhook 不通：退回正常轮询');
+    assert.equal(v.pollIntervalSec, 300, 'Webhook 不通：退回正常轮询');
   } finally { reply = 200; }
   // 又通了：恢复兜底间隔
   assert.equal((await ext.testWebhook(id)).ok, true);
@@ -163,7 +163,7 @@ test('它要用 Webhook 但拿不到地址：注册时说明，网关页提醒�
   ext.approve(reg.agent_id);
   let v = ext.get(reg.agent_id);
   assert.equal(v.webhookWanted, true, '网关页提醒你填');
-  assert.equal(v.pollIntervalSec, 180, '填好之前先轮询');
+  assert.equal(v.pollIntervalSec, 300, '填好之前先轮询');
   // 用户在网关页填好
   ext.setWebhook(reg.agent_id, { url: `${base}/hook`, secret: 'k' });
   v = ext.get(reg.agent_id);

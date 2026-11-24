@@ -100,10 +100,10 @@ Token Bank 会在网关页提醒用户，并一步步引导用户把地址和密
 接收不了 Webhook 时，定时来取：
 
 ```bash
-curl "$GATEWAY/v1/agent/external/tasks?wait=25&interval=180&skill_version=$SKILL_VERSION" -H "Authorization: Bearer $TOKEN"
+curl "$GATEWAY/v1/agent/external/tasks?wait=25&interval=300&skill_version=$SKILL_VERSION" -H "Authorization: Bearer $TOKEN"
 ```
 
-- `interval`：多少秒来取一次。默认 180（3 分钟），用户在网关页可以改；每次取任务的返回里都有当前的 `interval`，按它来，地址里的 `interval=` 也写成它。
+- `interval`：多少秒来取一次。默认 300（5 分钟），用户在网关页可以改；每次取任务的返回里都有当前的 `interval`，按它来，地址里的 `interval=` 也写成它。
 - `wait=25`：没任务时多等一会儿，这期间来了任务会马上给你。
 - 网关按这个频率判断你在不在线：连续两次没来才显示「离线」。持续来取，用户的网关页才会显示你「在线」。
 

@@ -18,7 +18,7 @@ const MAX_INTERVAL_MS = 6 * 3600 * 1000;
 const GRACE_MS = 30 * 1000;
 const MAX_WAIT_MS = 25 * 1000;        // 取任务的长轮询最多等这么久
 const DEFAULT_TASK_TIMEOUT_MS = 30 * 60 * 1000;
-const DEFAULT_PULL_SEC = 180;         // 默认每 3 分钟来取一次
+const DEFAULT_PULL_SEC = 300;         // 轮询的默认频率：每 5 分钟来取一次
 const MIN_PULL_SEC = 60;
 const MAX_PULL_SEC = 6 * 3600;
 const WEBHOOK_DEBOUNCE_MS = 1500;                    // 一下子派好几个：合成一次唤醒
@@ -163,7 +163,7 @@ function slug(name) {
 }
 
 /** 网关页展示用：不带 token */
-/** 用户在网关页设的拉取频率（秒）。没设过就是 3 分钟。 */
+/** 用户在网关页设的拉取频率（秒）。没设过就是 5 分钟。 */
 function pullIntervalSec() {
   const n = Number(read().pullIntervalSec);
   if (n >= MIN_PULL_SEC && n <= MAX_PULL_SEC) return Math.round(n);
@@ -173,7 +173,7 @@ function pullIntervalSec() {
 function setPullInterval(seconds) {
   const d = read();
   const n = Math.round(Number(seconds));
-  // 不到 1 分钟或超过 6 小时：不记，界面仍显示默认的 3 分钟
+  // 不到 1 分钟或超过 6 小时：不记，界面仍显示默认的 5 分钟
   if (!(n >= MIN_PULL_SEC && n <= MAX_PULL_SEC)) {
     delete d.pullIntervalSec;
     write(d);

@@ -837,7 +837,7 @@ export function ExternalAgents() {
   const [apiFor, setApiFor] = useState('');
   const [tasksFor, setTasksFor] = useState(null);
   const [tryMenu, setTryMenu] = useState(null);
-  const [intervalMin, setIntervalMin] = useState(3);   // 拉取频率，默认 3 分钟
+  const [intervalMin, setIntervalMin] = useState(5);   // 轮询频率，默认 5 分钟
   useEffect(() => {
     if (!tryMenu) return undefined;
     const close = (e) => {
@@ -886,7 +886,7 @@ export function ExternalAgents() {
     setOpen(true);
   };
   const saveInterval = async (raw) => {
-    const min = Math.max(1, Math.min(360, Math.round(Number(raw) || 3)));
+    const min = Math.max(1, Math.min(360, Math.round(Number(raw) || 5)));
     setIntervalMin(min);
     const r = await agentApi().externalSet?.('', 'interval', { seconds: min * 60 });
     if (r?.pullIntervalSec) setIntervalMin(Math.max(1, Math.round(r.pullIntervalSec / 60)));
@@ -895,6 +895,8 @@ export function ExternalAgents() {
   const rows = [...list].sort((a, b) => (b.status === 'pending') - (a.status === 'pending'));
   const gateway = (() => { try { return `${window.location.protocol}//${window.location.hostname}:11430`; } catch { return 'http://127.0.0.1:11430'; } })();
   const skillUrl = `${gateway}/v1/agent/external/skill`;
+  // 发给外部智能体的话：装技能、按技能接入；它自己判断用 Webhook 还是轮询
+  const installPrompt = t('gw2.ext.installPrompt', { skill: skillUrl, gw: gateway, code: pairing?.code || t('gw2.ext.codePending') });
   const { mesh, showDev, GRID } = useDeviceColumn();
   const remoteExternals = showDev ? remoteOnly(mesh.devices, 'externals', list.map(a => a.id)) : [];
   return (
@@ -904,9 +906,13 @@ export function ExternalAgents() {
 
       {open && (
         <div className="mb-3 rounded-xl border border-sky-200/80 dark:border-sky-900/50 bg-sky-50/70 dark:bg-sky-950/20 px-3 py-2.5 space-y-2 text-xs text-zinc-700 dark:text-zinc-200">
-          <ol className="m-0 pl-4 space-y-2 leading-relaxed">
-            <li>{t('gw2.ext.step1')} <Code>tokenbank-connect</Code>
-              <span className="flex flex-wrap items-center gap-2 mt-1"><Code>{skillUrl}</Code><CopyText text={skillUrl} t={t} /></span>
+          <ol className="m-0 pl-4 list-decimal space-y-2 leading-relaxed">
+            <li>{t('gw2.ext.step1')}
+              {/* 复制的是一段可以直接发给它的话：装技能、网关地址、配对码 */}
+              <span className="flex items-start gap-2 mt-1 min-w-0">
+                <pre className="m-0 flex-1 min-w-0 whitespace-pre-wrap break-all font-mono text-[11px] px-2 py-1.5 rounded bg-white/70 dark:bg-zinc-900/60 text-zinc-600 dark:text-zinc-300">{installPrompt}</pre>
+                <CopyText text={installPrompt} t={t} />
+              </span>
             </li>
             <li>{t('gw2.ext.step2')}
               <span className="flex flex-wrap items-center gap-2 mt-1">
@@ -919,34 +925,28 @@ export function ExternalAgents() {
             <li>{t('gw2.ext.step3')}</li>
           </ol>
           <div className="space-y-1">
-            <p className="m-0 font-semibold">{t('gw2.ext.apiTitle')}</p>
-            <label className="flex flex-wrap items-center gap-2 text-zinc-600 dark:text-zinc-300">
-              <span>{t('gw2.ext.interval')}</span>
-              <input
-                type="number"
-                min="1"
-                max="360"
-                value={intervalMin}
-                onChange={(e) => setIntervalMin(e.target.value)}
-                onBlur={(e) => saveInterval(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-                className="w-16 text-right font-mono text-sm px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-100"
-              />
-              <span>{t('gw2.ext.intervalUnit')}</span>
-              <span className="text-zinc-400">{t('gw2.ext.intervalHint')}</span>
-            </label>
-            {[
-              ['gw2.ext.apiWebhook', `PUT ${gateway}/v1/agent/external/webhook  {"url": "https://…", "secret": "…"}`],
-              ['gw2.ext.apiPull', `GET ${gateway}/v1/agent/external/tasks?wait=25&interval=${Math.max(1, Math.round(Number(intervalMin) || 3)) * 60}`],
-              ['gw2.ext.apiResult', `POST ${gateway}/v1/agent/external/tasks/{task_id}/result  {"output": "…"}`],
-              ['gw2.ext.apiPush', `POST ${gateway}/v1/agent/external/tasks/{task_id}/messages  {"output": "…"}`],
-            ].map(([k, line]) => (
-              <div key={k} className="flex flex-col md:flex-row md:items-center gap-1 md:gap-2 min-w-0">
-                <span className="shrink-0 md:w-28 text-zinc-500 dark:text-zinc-400">{t(k)}</span>
-                <Code>{line}</Code>
-              </div>
-            ))}
-            <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.ext.apiNote')}</p>
+            <p className="m-0 font-semibold">{t('gw2.ext.modesTitle')}</p>
+            <ul className="m-0 pl-4 list-disc space-y-1">
+              <li>{t('gw2.ext.modeWebhookDesc')}</li>
+              <li>
+                {t('gw2.ext.modePollDesc')}
+                <label className="inline-flex flex-wrap items-center gap-2 ml-1 text-zinc-600 dark:text-zinc-300">
+                  <span>{t('gw2.ext.interval')}</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="360"
+                    value={intervalMin}
+                    onChange={(e) => setIntervalMin(e.target.value)}
+                    onBlur={(e) => saveInterval(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                    className="w-16 text-right font-mono text-sm px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-100"
+                  />
+                  <span>{t('gw2.ext.intervalUnit')}</span>
+                  <span className="text-zinc-400">{t('gw2.ext.intervalHint')}</span>
+                </label>
+              </li>
+            </ul>
           </div>
           <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.ext.network', { gw: gateway })}</p>
         </div>
