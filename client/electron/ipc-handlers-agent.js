@@ -264,6 +264,8 @@ function registerAgentHandlers() {
       // Webhook 唤醒：网关页里设（本机、局域网可以用 http）、清除、发测试
       if (action === 'webhook') return { success: true, webhook: e.setWebhook(String(id || ''), { url: extra.url, secret: extra.secret, clear: !!extra.clear }) };
       if (action === 'webhookTest') return { success: true, result: await e.testWebhook(String(id || '')) };
+      // 通过 MCP 操作 Token Bank 的权限
+      if (action === 'mcp') return { success: true, agent: e.setMcpLevel(String(id || ''), String(extra.level || 'off')) };
       const fn = { approve: e.approve, disable: e.disable, enable: e.enable, remove: e.remove }[action];
       if (!fn) throw new Error('unknown action');
       return { success: true, result: fn(String(id || '')) };

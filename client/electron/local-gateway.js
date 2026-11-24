@@ -4748,6 +4748,15 @@ function handleRequest(req, res) {
     return;
   }
 
+  // Token Bank 的能力以 MCP 暴露给外部智能体（它自己的 token + 用户在网关页给的权限）
+  if (cleanPath === '/v1/mcp') {
+    require('./tokenbank-mcp').handle(req, res, { port: req.socket.localPort, agentKey: _agentApiKey }).catch((e) => {
+      console.error('[tokenbank-mcp]', e.message);
+      if (!res.headersSent) { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'mcp_error' } })); }
+    });
+    return;
+  }
+
   // 智能体任务。必须写在模型补全之前，避免 /v1/agent 落到 404。
   if (cleanPath.startsWith('/v1/agent')) {
     const agentHttp = require('./agent-http');

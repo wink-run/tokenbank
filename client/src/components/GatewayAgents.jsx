@@ -726,6 +726,50 @@ export function AgentsSubTabs({ tab, onTab, renderApps, renderRoutes }) {
   );
 }
 
+/** 让外部智能体通过 MCP 操作 Token Bank：默认关闭，用户按需给权限 */
+function McpInline({ agent, gateway, t, onSaved }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const level = agent.mcpLevel || 'off';
+  const url = `${gateway}/v1/mcp`;
+  const setLevel = async (lv) => {
+    setBusy(true); setErr('');
+    try {
+      const r = await agentApi().externalSet?.(agent.id, 'mcp', { level: lv });
+      if (!r?.success) throw new Error(r?.error || 'failed');
+      onSaved?.();
+    } catch (e) { setErr(e.message || String(e)); } finally { setBusy(false); }
+  };
+  // 发给它的话：MCP 地址、用注册时的 token 登录
+  const prompt = t('gw2.ext.mcpPrompt', { url });
+  const id = `mcp-${agent.id.replace(/[^a-z0-9-]/gi, '')}`;
+  return (
+    <div className="px-3 py-2.5 border-t border-zinc-100 dark:border-white/[0.06] text-xs space-y-2" onClick={e => e.stopPropagation()}>
+      <p className="m-0 font-semibold text-zinc-700 dark:text-zinc-200">{t('gw2.ext.mcpTitle')}</p>
+      <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.ext.mcpHint', { name: agent.name })}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor={id} className="text-zinc-600 dark:text-zinc-300">{t('gw2.ext.mcpLevel')}</label>
+        <select id={id} value={level} disabled={busy} onChange={(e) => setLevel(e.target.value)}
+          className="tb-soft-field text-xs px-2 py-1 rounded-md">
+          {['off', 'read', 'operate', 'full'].map(lv => <option key={lv} value={lv}>{t(`gw2.ext.mcpLv.${lv}`)}</option>)}
+        </select>
+        {level !== 'off' && agent.mcpCalls > 0 && <span className="text-zinc-500 dark:text-zinc-400">{t('gw2.ext.mcpUsed', { n: agent.mcpCalls, when: agoText(t, agent.lastMcpAt) })}</span>}
+        {err && <span className="text-red-600 dark:text-red-400">{err}</span>}
+      </div>
+      <p className="m-0 text-zinc-500 dark:text-zinc-400">{t(`gw2.ext.mcpLvHint.${level}`)}</p>
+      {level !== 'off' && (
+        <div className="space-y-1">
+          <span className="block text-zinc-600 dark:text-zinc-300">{t('gw2.ext.mcpSend')}</span>
+          <span className="flex items-start gap-2 min-w-0">
+            <pre className="m-0 flex-1 min-w-0 whitespace-pre-wrap break-all font-mono text-[11px] px-2 py-1.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{prompt}</pre>
+            <CopyText text={prompt} t={t} />
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** 外部智能体的 Webhook 唤醒：有新任务时网关主动通知它来取，不用等下一次轮询 */
 function WebhookInline({ agent, t, onSaved }) {
   const wh = agent.webhook || null;
@@ -1002,6 +1046,11 @@ export function ExternalAgents() {
                       : !a.webhook && !a.webhookWanted ? t('gw2.ext.whBadge.pollTitle', { min: Math.round((a.pollIntervalSec || 180) / 60) }) : (a.webhook?.lastError?.message || '');
                     return <span className={`inline-block mt-1 ml-3.5 px-1.5 rounded border text-[11px] leading-[18px] whitespace-nowrap ${tone}`} title={title}>{text}</span>;
                   })()}
+                  {!pending && a.mcpLevel && a.mcpLevel !== 'off' && (
+                    <span className="inline-block mt-1 ml-3.5 px-1.5 rounded border border-violet-300 text-violet-700 dark:border-violet-800 dark:text-violet-300 text-[11px] leading-[18px] whitespace-nowrap" title={t(`gw2.ext.mcpLvHint.${a.mcpLevel}`)}>
+                      {t('gw2.ext.mcpBadge', { level: t(`gw2.ext.mcpLv.${a.mcpLevel}`) })}
+                    </span>
+                  )}
                 </span>
                 {showDev && <span className="min-w-0"><DeviceChips devices={devicesHaving(mesh.devices, 'externals', a.id)} /></span>}
                 <span className="min-w-0" onClick={e => e.stopPropagation()}>
@@ -1029,6 +1078,7 @@ export function ExternalAgents() {
               </div>
               {apiFor === a.id && <AgentApiInline harnessId={a.id} note={t('gw2.api.extNote', { name: a.name })} t={t} />}
               {apiFor === a.id && <WebhookInline agent={a} t={t} onSaved={load} />}
+              {apiFor === a.id && <McpInline agent={a} gateway={gateway} t={t} onSaved={load} />}
               </React.Fragment>
             );
           })}

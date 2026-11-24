@@ -26,6 +26,8 @@ const WEBHOOK_RETRY_MS = [15000, 60000, 300000];     // 发不出去时再试三
 const WEBHOOK_TIMEOUT_MS = 10000;
 // Webhook 通的时候轮询只是兜底：至少 15 分钟一次（任务默认 30 分钟超时，Webhook 坏了也来得及取走）
 const WEBHOOK_FALLBACK_PULL_SEC = 15 * 60;
+// 通过 MCP 操作 Token Bank 的权限，从低到高；默认关闭，用户在网关页给某个外部智能体打开
+const MCP_LEVELS = ['off', 'read', 'operate', 'full'];
 
 const queue = new Map();      // agentId → [{ id, prompt, createdAt }]
 const waiting = new Map();    // taskId → { resolve, timer, agentId }
@@ -237,6 +239,10 @@ function publicView(a, now = Date.now()) {
     // 最近一次推送被拒、且之后没有成功过：网关页标红
     lastPushError: a.lastPushError && (!a.lastPushAt || a.lastPushError.at > a.lastPushAt) ? a.lastPushError : null,
     webhook: webhookView(a),
+    // 通过 MCP 操作 Token Bank 的权限：off（默认）/ read / operate / full
+    mcpLevel: MCP_LEVELS.includes(a.mcpLevel) ? a.mcpLevel : 'off',
+    mcpCalls: a.mcpCalls || 0,
+    lastMcpAt: a.lastMcpAt || 0,
     // 它要用 Webhook、但地址和密钥得你来填，还没填
     webhookWanted: !!a.webhookWanted && !(a.webhook && a.webhook.url),
     pollIntervalSec: pullIntervalFor(a),
@@ -602,6 +608,29 @@ function wake(agentId) {
   scheduleWake(agentId, 0, WEBHOOK_DEBOUNCE_MS);
 }
 
+/** 用户在网关页设它通过 MCP 能做什么 */
+function setMcpLevel(id, level) {
+  const d = read();
+  const a = d.agents.find(x => x.id === id);
+  if (!a) throw err(404, `没有这个外部智能体：${id}`);
+  if (!MCP_LEVELS.includes(level)) throw err(400, '权限只能是 off、read、operate、full');
+  a.mcpLevel = level;
+  write(d);
+  return publicView(a);
+}
+
+/** 记一次 MCP 调用：网关页能看到它用了多少次、最近一次什么时候 */
+function recordMcpCall(id, now = Date.now()) {
+  try {
+    const d = read();
+    const a = d.agents.find(x => x.id === id);
+    if (!a) return;
+    a.mcpCalls = (a.mcpCalls || 0) + 1;
+    a.lastMcpAt = now;
+    write(d);
+  } catch { /* 只是记录 */ }
+}
+
 /** 网关页「发一条测试」 */
 function testWebhook(id) {
   if (!read().agents.some(x => x.id === id)) return Promise.resolve({ ok: false, message: `没有这个外部智能体：${id}` });
@@ -629,5 +658,6 @@ module.exports = {
   authenticate, dispatch, pull, complete,
   setResultHandler, setPushHandler, setTakenHandler, push, pushDetailed, restore, isOnline, skillInfo, wasRemoved,
   setWebhook, testWebhook, checkWebhookUrl, webhookHealthy, pullIntervalFor,
+  MCP_LEVELS, setMcpLevel, recordMcpCall,
   _internal: { file, tasksFile, queue, waiting, pollers, wakeTimers, ONLINE_MS, WEBHOOK_RETRY_MS, reset() { restored = false; resultHandler = null; pushHandler = null; takenHandler = null; for (const t of deadlineTimers.values()) clearTimeout(t); deadlineTimers.clear(); for (const t of wakeTimers.values()) clearTimeout(t); wakeTimers.clear(); } },
 };
