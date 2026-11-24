@@ -990,11 +990,18 @@ export function ExternalAgents() {
                     <span className="block text-red-600 dark:text-red-400" title={a.lastPushError.taskId}>{t('gw2.ext.pushRejected', { msg: a.lastPushError.message, when: agoText(t, a.lastPushError.at) })}</span>
                   )}
                   {a.skillOutdated && <span className="block text-amber-700 dark:text-amber-400" title={t('gw2.ext.skillOldHint')}>{t('gw2.ext.skillOld')}</span>}
-                  {!pending && (
-                    <span className={`block pl-3.5 ${a.webhook && !a.webhook.healthy ? 'text-red-600 dark:text-red-400' : a.webhookWanted ? 'text-amber-700 dark:text-amber-300' : META}`} title={a.webhook?.url || ''}>
-                      {a.webhookWanted ? t('gw2.ext.whBadge.wanted') : !a.webhook ? t('gw2.ext.whBadge.poll') : a.webhook.healthy ? t('gw2.ext.whBadge.on', { min: Math.round((a.webhook.fallbackPullSec || 900) / 60) }) : t('gw2.ext.whBadge.err')}
-                    </span>
-                  )}
+                  {!pending && (() => {
+                    // 接收方式单独一个标签：Webhook（叫醒它）还是轮询（它定时来取）
+                    const tone = a.webhook && !a.webhook.healthy ? 'border-red-300 text-red-700 dark:border-red-800 dark:text-red-300'
+                      : a.webhookWanted ? 'border-amber-300 text-amber-800 dark:border-amber-800 dark:text-amber-200'
+                        : a.webhook ? 'border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-300'
+                          : 'border-zinc-300 text-zinc-600 dark:border-zinc-600 dark:text-zinc-300';
+                    const text = a.webhookWanted ? t('gw2.ext.whBadge.wanted') : !a.webhook ? t('gw2.ext.whBadge.poll')
+                      : a.webhook.healthy ? t('gw2.ext.whBadge.on') : t('gw2.ext.whBadge.err');
+                    const title = a.webhook?.healthy ? t('gw2.ext.whBadge.onTitle', { min: Math.round((a.webhook.fallbackPullSec || 900) / 60) })
+                      : !a.webhook && !a.webhookWanted ? t('gw2.ext.whBadge.pollTitle', { min: Math.round((a.pollIntervalSec || 180) / 60) }) : (a.webhook?.lastError?.message || '');
+                    return <span className={`inline-block mt-1 ml-3.5 px-1.5 rounded border text-[11px] leading-[18px] whitespace-nowrap ${tone}`} title={title}>{text}</span>;
+                  })()}
                 </span>
                 {showDev && <span className="min-w-0"><DeviceChips devices={devicesHaving(mesh.devices, 'externals', a.id)} /></span>}
                 <span className="min-w-0" onClick={e => e.stopPropagation()}>
