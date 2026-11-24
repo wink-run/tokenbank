@@ -188,7 +188,7 @@ async function handle(req, res, { port, agentKey } = {}) {
   const level = ext.MCP_LEVELS.includes(agent.mcpLevel) ? agent.mcpLevel : 'off';
   if (agent.status !== 'active' || level === 'off') {
     req.resume();
-    sendJson(res, 403, { error: { message: agent.status !== 'active' ? '你现在不能用 Token Bank（还没被允许，或被停用了）' : '用户还没允许你通过 MCP 操作 Token Bank：请用户在网关页「外部智能体」里点开你，打开「通过 MCP 操作 Token Bank」', type: 'mcp_not_allowed' } });
+    sendJson(res, 403, { error: { message: agent.status !== 'active' ? '你现在不能用 Token Bank（还没被允许，或被停用了）' : '用户还没允许你通过 MCP 操作 Token Bank：请用户在网关页「智能体 → 外部智能体」里点开你、打开「通过 MCP 操作 Token Bank」，或在「资产 → 工具 → TokenBank 内置」里给你设「MCP 权限」', type: 'mcp_not_allowed' } });
     return;
   }
   const parts = [];

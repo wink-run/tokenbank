@@ -140,7 +140,7 @@ curl -X POST "$GATEWAY/v1/agent/external/tasks/$TASK_ID/messages" \
 
 ## 第五步（可选）：通过 MCP 操作 Token Bank
 
-用户可以允许你直接操作他的 Token Bank：看他的智能体、模型和设备，派任务给他的智能体，直接调模型。这要用户在网关页「智能体 → 外部智能体」里点开你、打开「通过 MCP 操作 Token Bank」，默认是关的。
+用户可以允许你直接操作他的 Token Bank：看他的智能体、模型和设备，派任务给他的智能体，直接调模型。这要用户给你打开，默认是关的。用户在两处都能设，是同一个设置：网关页「智能体 → 外部智能体」里点开你，找到「通过 MCP 操作 Token Bank」；或者「资产 → 工具 → TokenBank 内置」列表里你那一行的「MCP 权限」。
 
 - MCP 地址：`$GATEWAY/mcp`（Streamable HTTP，POST JSON-RPC；`$GATEWAY/v1/mcp` 也行）
 - 登录：`Authorization: Bearer $TOKEN`（就是注册时拿到的 token）
@@ -148,7 +148,7 @@ curl -X POST "$GATEWAY/v1/agent/external/tasks/$TASK_ID/messages" \
   - 只读：`tb_list_agents`、`tb_list_models`、`tb_list_devices`、`tb_task_status`、`tb_list_prompts`、`tb_get_prompt`、`tb_list_resources` 等
   - 派活：再加 `tb_dispatch_agent`（派任务给用户的智能体）、`tb_chat`（直接调一个模型）
   - 完全控制：再加 `tb_hire_community_agent`（雇社区智能体，会花用户的积分）、`tb_call_mcp`
-- 返回 403、`type: mcp_not_allowed`：用户还没打开，或者你的权限不够。告诉用户去网关页给你打开，不要反复重试。
+- 返回 403、`type: mcp_not_allowed`：用户还没打开，或者你的权限不够。告诉用户去网关页「智能体 → 外部智能体」或「资产 → 工具 → TokenBank 内置」给你打开，不要反复重试。
 - 不能把任务派给你自己。用户让你做的事，用你自己的能力做；只有用户要你用 Token Bank 里别的智能体或模型时才调这些工具。
 - 派活、调模型都是替用户花他的资源：只做用户明确要你做的。
 
