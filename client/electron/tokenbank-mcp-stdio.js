@@ -80,7 +80,12 @@ let localHost = null;
 function local() {
   if (!localHost) {
     const { createLocalHost } = require('./tokenbank-mcp-local');
-    localHost = createLocalHost({ clientId: clientId(), gateway });
+    localHost = createLocalHost({
+      clientId: clientId(),
+      gateway,
+      // 在应用里起的 MCP 晚到了：告诉应用重新取工具列表（支持的应用会刷新）
+      onToolsChanged: () => send({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' }),
+    });
   }
   return localHost;
 }
@@ -100,7 +105,7 @@ async function handle(msg) {
       id,
       result: {
         protocolVersion: msg.params?.protocolVersion || PROTOCOL_VERSION,
-        capabilities: { tools: { listChanged: false } },
+        capabilities: { tools: { listChanged: true } },
         serverInfo: { name: 'tokenbank', version: '2' },
         instructions: INSTRUCTIONS,
       },
