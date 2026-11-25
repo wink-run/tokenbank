@@ -6,6 +6,7 @@ import {
   FilterMenu, LIFE_DOT,
   LIB_LIST_CLS, libRowCls, LibrarySectionHead, LibraryRowTitle,
   LibraryInspector, InspectorSection, InspectorPreview,
+  AppIconStack,
 } from '../components/LibraryControls';
 import McpProvidersTab from '../components/McpProvidersTab';
 import SkillInstallDialog from '../components/SkillInstallDialog';
@@ -3122,12 +3123,20 @@ export default function Resources() {
    * 技能默认所有支持技能的应用都能用：算出「不在哪里」，分原因。
    * excluded 你撤下过的 / clashing 那个应用里已有同名的 / pending 还没补上 / waiting 高风险等你确认
    */
+  /** 技能在哪些应用里：只算 Token Bank 纳管的应用（和工具页一致；没纳管的目录里有同名技能不算） */
+  function skillAppsOf(li) {
+    const managed = new Set((agents || []).map((a) => a.id));
+    return (li.apps || []).filter((a) => managed.has(a.id));
+  }
+
   function skillGaps(li) {
     const r = resourcesById.get(li.resourceId) || li.item || {};
     const enabled = li.apps.length > 0;
     const inApps = new Set(li.apps.map((a) => a.id));
     const skillApps = (agents || []).filter((a) => a && a.id);
-    const excluded = (Array.isArray(r.metadata?.excluded_agents) ? r.metadata.excluded_agents : []).filter((id) => !inApps.has(id));
+    // 只认 Token Bank 纳管的应用：没纳管的（比如残留的 openclaw 记录）不算
+    const managed = new Set(skillApps.map((a) => a.id));
+    const excluded = (Array.isArray(r.metadata?.excluded_agents) ? r.metadata.excluded_agents : []).filter((id) => managed.has(id) && !inApps.has(id));
     const risky = (assetFlags[li.resourceId] || {}).security === 'high';
     const missing = enabled ? skillApps.filter((a) => !inApps.has(a.id) && !excluded.includes(a.id)) : [];
     const conflictIds = new Set(Array.isArray(r.metadata?.auto_conflict_agents) ? r.metadata.auto_conflict_agents : []);
@@ -3237,6 +3246,7 @@ export default function Resources() {
                 canUnproject ? 'tb-tag-blue' : 'tb-tag-muted !border-solid'
               }`}
             >
+              <ServiceIcon id={p.agentId} name={p.label || p.agentId} boxClass="w-3.5 h-3.5 mr-1 align-[-2px]" imgClass="w-2.5 h-2.5" className="!rounded inline-flex" />
               {/* p.label 对自定义应用回退成 agentId（后端无友好名），此时用 apps 列表的展示名 */}
               {(p.label && p.label !== p.agentId)
                 ? p.label
@@ -3446,7 +3456,7 @@ export default function Resources() {
           <div className={LIB_LIST_CLS}>
             <div className={`hidden md:grid ${LIB_GRID} gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]`}>
               <span>{t('resources.col.name')}</span>
-              <span>{typeFilter === 'prompt' ? '' : typeFilter === 'skill' ? t('resources.col.notIn') : typeFilter === 'assistant' ? t('resources.assistant.runInTitle') : t('resources.col.appsMixed')}</span>
+              <span>{typeFilter === 'prompt' ? '' : typeFilter === 'skill' ? t('resources.col.apps') : typeFilter === 'assistant' ? t('resources.assistant.runInTitle') : t('resources.col.appsMixed')}</span>
               <span className="text-right">{t('resources.col.uses')}</span>
               <span>{t('resources.col.status')}</span>
               <span />
@@ -3592,7 +3602,7 @@ export default function Resources() {
             <p className="text-[11px] text-zinc-400 truncate" title={shortNames.join(' · ')}>{shortNames.join(' · ')}</p>
           </div>
         </div>
-        <div className="hidden md:block min-w-0">{members.some((m) => m.type === 'skill') ? null : renderAppNames(apps)}</div>
+        <div className="hidden md:block min-w-0">{renderAppNames(members.some((m) => m.type === 'skill') ? apps.filter((a) => (agents || []).some((g) => g.id === a.id)) : apps)}</div>
         <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{t('resources.row.uses', { n: uses || 0 })}</div>
         <div className="hidden md:flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300 min-w-0">
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${activeN ? 'bg-emerald-500' : 'bg-zinc-300'}`} aria-hidden />
@@ -3635,22 +3645,16 @@ export default function Resources() {
     );
   }
 
-  /** 启用到哪些应用：写名字，多了只写前两个 */
+  /** 在哪些应用里：和工具页一样用应用 logo 叠放，悬停看名字 */
   function renderAppNames(apps, type, li) {
     // 提示词：接了 Token Bank 的应用都能用，不按应用分
     if (type === 'prompt') return null;
-    // 技能：默认所有应用都能用，只写不在哪里；都在就空着
     if (type === 'skill' && li) {
-      const g = skillGaps(li);
-      if (!g.enabled) return <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('resources.skill.offShort')}</span>;
-      if (!g.names.length) return null;
-      const text = g.names.length > 2 ? t('resources.row.appsMore', { names: g.names.slice(0, 2).join('、'), n: g.names.length }) : g.names.join('、');
-      return <span className="block text-[11px] text-zinc-600 dark:text-zinc-300 truncate" title={g.names.join('、')}>{text}</span>;
+      if (!skillGaps(li).enabled) return <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('resources.skill.offShort')}</span>;
+      return <AppIconStack apps={skillAppsOf(li)} emptyLabel="—" />;
     }
     if (!apps.length) return <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{type === 'assistant' ? t('resources.assistant.noApp') : t('resources.row.notEnabled')}</span>;
-    const names = apps.map(a => a.label);
-    const text = names.length > 2 ? t('resources.row.appsMore', { names: names.slice(0, 2).join('、'), n: names.length }) : names.join('、');
-    return <span className="block text-[11px] text-zinc-600 dark:text-zinc-300 truncate" title={names.join('、')}>{text}</span>;
+    return <AppIconStack apps={apps} emptyLabel="—" />;
   }
 
   /** 行的状态：有问题（管家体检或依赖缺失）> 有新版本 > 在用 > 没在用，带一句原因 */
@@ -3840,7 +3844,7 @@ export default function Resources() {
         stats={[
           [t('resources.col.uses'), li.useCount || '0'],
           [t('resources.stat.lastUsed'), fmtAgo(li.lastUsed)],
-          ...(li.type === 'prompt' ? [] : li.type === 'skill' ? [[t('resources.col.notIn'), skillGaps(li).names.length]] : [[t('resources.col.apps'), li.apps.length]]),
+          ...(li.type === 'prompt' ? [] : li.type === 'skill' ? [[t('resources.col.apps'), skillAppsOf(li).length]] : [[t('resources.col.apps'), li.apps.length]]),
         ]}
         footer={menu.length > 0 ? (
           <>
@@ -3854,25 +3858,25 @@ export default function Resources() {
           </>
         ) : null}
       >
-        <InspectorSection title={li.type === 'assistant' ? t('resources.assistant.runInTitle') : li.type === 'skill' ? t('resources.col.notIn') : t('resources.col.apps')}>
+        <InspectorSection title={li.type === 'assistant' ? t('resources.assistant.runInTitle') : t('resources.col.apps')}>
           <div className="space-y-2.5">
             {li.type === 'prompt' ? (
               <p className="m-0 text-[11px] text-zinc-500 dark:text-zinc-400">{t('resources.prompt.everywhere')}</p>
             ) : li.type === 'skill' && li.resourceId ? (
-              // 技能：先写不在哪里（为什么、怎么处理），再列在哪些应用里（点 × 撤下）
+              // 技能：先列在哪些应用里（点 × 撤下，只算纳管的应用），再写没放进去的（为什么、怎么处理）和启用 / 停用
               <>
-                {renderSkillPlacement(li)}
-                {li.apps.length > 0 && (
+                {skillAppsOf(li).length > 0 && (
                   <div className="space-y-1">
                     <p className="m-0 text-[11px] text-zinc-500 dark:text-zinc-400">{t('resources.skill.inAppsTitle')}</p>
                     {renderProjections({
                       id: li.resourceId,
                       type: li.type,
-                      projections: it.projections,
+                      projections: (it.projections || []).filter((p) => (agents || []).some((a) => a.id === p.agentId)),
                       authorityPath: li.kind === 'discovered' ? it.authorityPath : (it.authorityPath || li.path),
                     })}
                   </div>
                 )}
+                {renderSkillPlacement(li)}
               </>
             ) : li.resourceId ? renderProjections({
               id: li.resourceId,

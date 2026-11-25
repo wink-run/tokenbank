@@ -2477,7 +2477,7 @@ export default {
   'resources.col.appsMixed': "Apps",
   'resources.skill.offShort': "Disabled",
   'resources.skill.everywhere': "Available in every app that supports skills",
-  'resources.skill.inAppsTitle': "In these apps (× to remove)",
+  'resources.skill.inAppsTitle': "Click × to remove it from that app",
   'resources.row.allApps': "All apps",
   'resources.skill.enable': "Enable",
   'resources.skill.disable': "Disable (remove from all apps)",

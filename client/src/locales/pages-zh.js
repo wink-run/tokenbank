@@ -2484,7 +2484,7 @@ export default {
   'resources.col.appsMixed': "应用",
   'resources.skill.offShort': "停用",
   'resources.skill.everywhere': "所有支持技能的应用都能用",
-  'resources.skill.inAppsTitle': "在这些应用里（点 × 撤下）",
+  'resources.skill.inAppsTitle': "点 × 从那个应用撤下",
   'resources.row.allApps': "所有应用",
   'resources.skill.enable': "启用",
   'resources.skill.disable': "停用（从所有应用撤下）",
