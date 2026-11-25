@@ -69,7 +69,7 @@ test('升级：以前写进应用配置的并进「给哪些应用用」；导�
     insert(db, 'mcp-fs', 'filesystem', 'npx', ['@modelcontextprotocol/server-filesystem', '/tmp'],
       { sync_clients: ['cursor', 'workbuddy'], gateway_clients: ['app-api1'] });
     insert(db, 'mcp-cu', 'computer-use', './Codex Computer Use.app/cu', ['mcp'],
-      { origin: 'client_scan', originAgents: ['codex'], cwd: path.join(HOME, '.codex', 'plugins', 'cu'), sync_clients: ['cursor', 'codex'] });
+      { origin: 'client_scan', originAgents: ['codex'], cwd: path.join(HOME, '.codex', 'plugins', 'cu'), sync_clients: ['cursor', 'codex'], description: '客户端自配 · cu' });
     mcpManager.init();
     const fsMeta = metaOf(db, 'mcp-fs');
     assert.deepEqual(fsMeta.sync_clients, []);
@@ -77,6 +77,7 @@ test('升级：以前写进应用配置的并进「给哪些应用用」；导�
     const cu = metaOf(db, 'mcp-cu');
     assert.equal(cu.exclusive_to, 'codex');
     assert.deepEqual(cu.gateway_clients, ['codex'], '给 Cursor 的撤掉，只留 Codex');
+    assert.equal(cu.description, 'cu', '导入的和 Token Bank 加的一样看待，描述不写来源');
     // 列表里只剩 tokenbank 写进应用配置
     const row = mcpManager.getServer('mcp-fs');
     assert.deepEqual(row.sync_clients, []);
@@ -160,4 +161,10 @@ test('同步只往应用配置里写 tokenbank 一条', () => {
     targets.listInstalledClientIds = saved.inst;
     targets.listSyncEnabledClientIds = saved.en;
   }
+});
+
+test('导入时自动写的描述不带来源', () => {
+  const { inferClientMcpDescription } = require('../mcp-client-sync');
+  assert.equal(inferClientMcpDescription({ command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'] }), '@modelcontextprotocol/server-github');
+  assert.equal(inferClientMcpDescription({ url: 'https://x.dev/mcp' }), 'https://x.dev/mcp');
 });

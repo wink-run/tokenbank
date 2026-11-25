@@ -957,12 +957,13 @@ function invalidateScanCache() {
 }
 
 function inferClientMcpDescription(entry) {
+  // 导入的和在 Token Bank 里加的一样看待，不写来源：只留包名 / 地址 / 命令
   const args = entry?.args || [];
   const pkg = args.find(a => typeof a === 'string' && (a.includes('/') || a.includes('-mcp')));
-  if (pkg) return `客户端自配 · ${pkg}`;
-  if (entry?.url) return `客户端自配 · ${entry.url}`;
-  if (entry?.command) return `客户端自配 · ${path.basename(entry.command)}`;
-  return '客户端自配 MCP';
+  if (pkg) return pkg;
+  if (entry?.url) return entry.url;
+  if (entry?.command) return path.basename(entry.command);
+  return '';
 }
 
 /**

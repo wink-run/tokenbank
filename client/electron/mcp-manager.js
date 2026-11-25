@@ -1439,6 +1439,11 @@ class MCPManager {
           next.sync_clients = [];
           changed = true;
         }
+        // 以前导入时描述写成「客户端自配 · xxx」：来源不再区分，只留后面的
+        if (/^客户端自配/.test(String(meta.description || ''))) {
+          next.description = String(meta.description).replace(/^客户端自配\s*(·\s*)?/, '').replace(/^MCP$/, '').trim();
+          changed = true;
+        }
         if (!meta.exclusive_checked && meta.origin === 'client_scan') {
           const owner = placement.detectExclusiveOwner({ ...row, args: this._asArray(row.args, []), metadata: meta }, { gatewayPorts: ports });
           next.exclusive_checked = true;
