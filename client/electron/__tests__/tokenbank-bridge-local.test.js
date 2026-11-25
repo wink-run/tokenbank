@@ -105,3 +105,20 @@ test('Token Bank 没开：用存着的清单照样起、照样能调', async () 
     assert.match(r.result.content[0].text, /\|$/);
   } finally { b.close(); }
 });
+
+test('应用发完请求就关输入：照样把工具列表答完再退', async () => {
+  writeInfo(gw.address().port);
+  const p = spawn(process.execPath, [path.join(__dirname, '..', 'tokenbank-mcp-stdio.js')], {
+    cwd: WORK,
+    env: { ...process.env, HOME, USERPROFILE: HOME, TB_CLIENT_ID: 'cursor' },
+    stdio: ['pipe', 'pipe', 'ignore'],
+  });
+  const lines = [];
+  readline.createInterface({ input: p.stdout }).on('line', (l) => lines.push(JSON.parse(l)));
+  p.stdin.end(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })}\n${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' })}\n`);
+  await new Promise((r) => p.on('exit', r));
+  const list = lines.find((m) => m.id === 2);
+  assert.ok(list, '工具列表答了');
+  assert.ok(list.result.tools.some((t) => t.name === 'tb_list_models'));
+  assert.ok(list.result.tools.some((t) => t.name === 'filesystem__where'));
+});

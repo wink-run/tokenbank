@@ -161,12 +161,14 @@ if (require.main === module) {
     if (!t) return;
     let msg;
     try { msg = JSON.parse(t); } catch { return; }
-    handle(msg);
+    const job = handle(msg).catch(() => {}).finally(() => inflight.delete(job));
+    inflight.add(job);
   });
-  // 应用关掉连接：在应用里起的子进程一起退
-  const bye = () => { try { localHost?.stopAll(); } catch { /* ignore */ } process.exit(0); };
-  rl.on('close', bye);
-  process.on('SIGTERM', bye);
+  // 应用关掉输入：先把已经收到的请求答完（有的应用发完请求就关输入），再连同在应用里起的子进程一起退
+  const inflight = new Set();
+  const stop = () => { try { localHost?.stopAll(); } catch { /* ignore */ } process.exit(0); };
+  rl.on('close', () => { Promise.allSettled([...inflight]).then(stop); });
+  process.on('SIGTERM', stop);
 }
 
 module.exports = { handle, forward, gateway };
