@@ -258,11 +258,13 @@ class StdioBackend {
       else p.resolve(msg.result);
     });
 
-    await this.request('initialize', {
+    const init = await this.request('initialize', {
       protocolVersion: '2024-11-05',
       capabilities: {},
       clientInfo: { name: 'tokenbank-mcp-gateway', version: '0.5.4' },
     });
+    // MCP 自己写给模型的使用说明（工具多的会在这里说怎么找工具），原样转给模型
+    this.instructions = String(init?.instructions || '');
     this.notify('notifications/initialized', {});
     const listed = await this.request('tools/list', {});
     this.toolsCache = Array.isArray(listed?.tools) ? listed.tools : [];
@@ -431,7 +433,7 @@ class HttpBackend {
   }
 
   async _start() {
-    await this._post({
+    const init = await this._post({
       jsonrpc: '2.0',
       id: this.nextId++,
       method: 'initialize',
@@ -441,6 +443,7 @@ class HttpBackend {
         clientInfo: { name: 'tokenbank-mcp-gateway', version: '0.5.4' },
       },
     }, 30000);
+    this.instructions = String(init?.instructions || '');
     try {
       await this._post({
         jsonrpc: '2.0',
@@ -572,11 +575,18 @@ function cachedTools(backend) {
 function rememberTools(backend, rawTools) {
   try {
     const all = toolCacheAll();
-    all[backend.id] = { sig: toolCacheSig(backend.row), tools: rawTools, at: Date.now() };
+    all[backend.id] = { sig: toolCacheSig(backend.row), tools: rawTools, instructions: backend.instructions || '', at: Date.now() };
     fs.mkdirSync(path.dirname(TOOL_CACHE_PATH), { recursive: true });
     fs.writeFileSync(TOOL_CACHE_PATH, JSON.stringify(all));
   } catch { /* 存不下就下次再等 */ }
 }
+/** MCP 自己的使用说明：起来了用现成的，没起来用上次存的 */
+function instructionsOf(backend) {
+  if (backend.instructions) return backend.instructions;
+  const hit = toolCacheAll()[backend.id];
+  return hit && hit.sig === toolCacheSig(backend.row) ? String(hit.instructions || '') : '';
+}
+
 /** 和 listTools 一样的格式（加前缀、标出是哪个 MCP） */
 function formatTools(backend, rawTools) {
   return rawTools.map((tool) => ({
@@ -633,11 +643,17 @@ async function aggregateTools(clientId = '', timeoutMs = 3000) {
     }
   }));
   // 工具太多的 MCP 不逐个列（Pipeworx 有七千多个，整份列表应用收不完，Token Bank 自己的工具也被淹没）：
-  // 单个超过 BIG_MCP_TOOLS 的不列；其余从小到大放，第三方总数到 NATIVE_TOOLS_MAX 为止。没列的经 tb_call_mcp 搜着调
+  // 单个超过 BIG_MCP_TOOLS 的不列；其余从小到大放，第三方总数到 NATIVE_TOOLS_MAX 为止。
+  // 没列的只把这个 MCP 本身告诉模型（名字、说明、工具数），里面用哪个工具由它自己的说明和工具来定，Token Bank 不挑
+  results.forEach((r, i) => { r.backend = list[i]; });
   const ok = results.filter((r) => r.listed).sort((a, b) => a.listed.length - b.listed.length);
+  const skipped = [];
   let total = 0;
   for (const r of ok) {
-    if (r.listed.length > BIG_MCP_TOOLS || total + r.listed.length > NATIVE_TOOLS_MAX) continue;
+    if (r.listed.length > BIG_MCP_TOOLS || total + r.listed.length > NATIVE_TOOLS_MAX) {
+      skipped.push({ name: r.backend.name, display_name: r.backend.row.display_name || r.backend.name, description: r.backend.row.metadata?.description || '', count: r.listed.length });
+      continue;
+    }
     total += r.listed.length;
     tools.push(...r.listed.map(({ _backendId, _rawName, ...rest }) => rest));
   }
@@ -647,6 +663,7 @@ async function aggregateTools(clientId = '', timeoutMs = 3000) {
   for (const tool of projectedPlainTools(clientId)) {
     tools.push(plainToolSchema(tool));
   }
+  tools.skipped = skipped;
   return tools;
 }
 
@@ -711,10 +728,15 @@ async function handleMcpMessage(msg, clientId = '', opts = {}) {
   const ctx = tokenbankContext(cid, opts);
   const onlyTokenbank = opts.scope === 'tokenbank';
   return require('./tokenbank-mcp').rpc(msg, {
-    list: async () => [
-      ...tools.listTools(ctx),
-      ...(onlyTokenbank ? [] : await aggregateTools(cid)),
-    ],
+    list: async () => {
+      const third = onlyTokenbank ? [] : await aggregateTools(cid);
+      const skipped = third.skipped || [];
+      // 工具多、没逐个列的 MCP：在 tb_call_mcp 的说明里报上它本身，模型知道有它、怎么进去
+      const own = tools.listTools(ctx).map((t) => (t.name === 'tb_call_mcp' && skipped.length
+        ? { ...t, description: `${t.description}\n这些 MCP 工具太多没逐个列出，先 tb_get_resource(type=mcp, name) 看它自己的使用说明和工具：${skipped.map((x) => `${x.name}（${x.display_name !== x.name ? `${x.display_name}，` : ''}${x.description ? `${String(x.description).slice(0, 60)}，` : ''}${x.count} 个工具）`).join('；')}` }
+        : t));
+      return [...own, ...third];
+    },
     call: (name, args) => (tools.isToolName(name) || onlyTokenbank
       ? tools.callTool(name, args, ctx)
       : routeToolCall(name, args, cid)),
@@ -892,6 +914,16 @@ function stopMcpGateway() {
  * tb_list_resources 用它列出参数名、tb_call_mcp 用它检查参数；起不来或太慢的跳过（只给工具名）。
  * @returns {Promise<Record<string, { name: string, description: string, inputSchema: object }[]>>}
  */
+/** 各 MCP 自己写给模型的使用说明：{ 前缀: 文本 } */
+function relayedInstructions(clientId = '') {
+  const out = {};
+  for (const b of backendsForClient(clientId)) {
+    const text = instructionsOf(b);
+    if (text) out[b.prefix] = text;
+  }
+  return out;
+}
+
 async function relayedToolDefs(clientId = '', timeoutMs = 8000) {
   const out = {};
   await Promise.all(backendsForClient(clientId).map(async (b) => {
@@ -976,6 +1008,7 @@ module.exports = {
   getGatewayStatus,
   buildClientConfigJson,
   setOwnConfigCheck,
+  relayedInstructions,
   BIG_MCP_TOOLS,
   NATIVE_TOOLS_MAX,
 };

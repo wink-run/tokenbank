@@ -59,7 +59,7 @@ const TOOLS = [
         type: { type: 'string', enum: ['assistant', 'skill', 'prompt', 'mcp', 'api', 'cli'], description: '可选：类型，重名时用' },
         args: { type: 'string', description: '提示词用：填进模板里的 $ARGUMENTS' },
         mode: { type: 'string', enum: ['activate', 'summary'], description: '智能体用：activate（默认）给全文，summary 只给简介' },
-        query: { type: 'string', description: 'MCP 用：工具很多时按关键词搜工具（返回工具名和参数）' },
+        page: { type: 'integer', description: 'MCP 用：工具很多时翻页（按它自己的顺序，每页 20 个）' },
       },
       required: ['name'],
     },
@@ -150,7 +150,7 @@ const TOOLS = [
   {
     name: 'tb_call_mcp',
     level: 'full',
-    description: '调用已接入的第三方 MCP 工具，或用户登记的 HTTP API、本地命令。server 填名称；tool 填工具名，API 和命令填 call。工具很多的 MCP 不会逐个出现在你的工具列表里：先 tb_get_resource(type=mcp, name, query) 搜到工具名和参数再调。',
+    description: '调用已接入的第三方 MCP 工具，或用户登记的 HTTP API、本地命令。server 填名称；tool 填工具名，API 和命令填 call。工具很多的 MCP 不会逐个出现在你的工具列表里：先 tb_get_resource(type=mcp, name) 看它自己的使用说明和工具再调。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -667,39 +667,25 @@ function signature(def) {
   return `${def.name}(${params.join(', ')})`;
 }
 
-/** 工具多的 MCP（超过这个数）不逐个列给模型，要搜 */
+/**
+ * 工具多的 MCP（超过 BIG_MCP 个）不逐个列给模型。Token Bank 不替它挑工具：只给它自己写的使用说明，
+ * 和它自己工具列表里的一页（按它给的顺序），里面用哪个由它的说明和工具决定（比如 Pipeworx 让先调 discover_tools）
+ */
 const BIG_MCP = 40;
-const SHOW_MAX = 20;
+const PAGE = 20;
 
-/** 按关键词挑工具：名字、说明里出现的词越多越靠前 */
-function searchToolDefs(defs, query, limit = SHOW_MAX) {
-  const words = String(query || '').toLowerCase().split(/[\s,，、/|]+/).filter(Boolean);
-  if (!words.length) return [];
-  return (defs || [])
-    .map((d) => {
-      const name = String(d.name || '').toLowerCase();
-      const desc = String(d.description || '').toLowerCase();
-      let score = 0;
-      for (const w of words) {
-        if (name === w) score += 10;
-        else if (name.includes(w)) score += 4;
-        if (desc.includes(w)) score += 1;
-      }
-      return { d, score };
-    })
-    .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((x) => x.d);
-}
-
-/** 自己带搜索 / 发现功能的工具（大 MCP 常有），没给关键词时先推荐这些 */
-function finderTools(defs) {
-  return (defs || []).filter((d) => /discover|search|find|lookup|list_tools|ask_/i.test(String(d.name || ''))).slice(0, 5);
+function pageOf(defs, page) {
+  const n = Math.max(1, parseInt(page, 10) || 1);
+  return { n, pages: Math.max(1, Math.ceil((defs || []).length / PAGE)), items: (defs || []).slice((n - 1) * PAGE, n * PAGE) };
 }
 
 function bigMcpHint(name, n) {
-  return `${name} 有 ${n} 个工具，太多不全列。用 tb_get_resource(type="mcp", name="${name}", query="关键词") 搜到工具名和参数，再 tb_call_mcp 调`;
+  return `${name} 有 ${n} 个工具，太多不全列。用 tb_get_resource(type="mcp", name="${name}") 看它自己的使用说明和工具（page 翻页），再 tb_call_mcp 调`;
+}
+
+/** 各 MCP 自己的使用说明 { 前缀: 文本 } */
+function relayedInstructions(cid) {
+  try { return require('./mcp-gateway-server').relayedInstructions(cid) || {}; } catch { return {}; }
 }
 
 /** 按工具定义检查参数：缺了必填的、填了不认识的。返回问题描述，没问题返回 '' */
@@ -808,10 +794,7 @@ function formatResourceLine(r) {
   const desc = r.description ? `: ${String(r.description).slice(0, 120)}` : '';
   // MCP：拿得到定义就一行一个工具、带参数名（模型列出来就直接调，参数名不能让它猜）
   if (r.type === 'mcp' && Array.isArray(r.toolDefs) && r.toolDefs.length > BIG_MCP) {
-    const found = r.query ? searchToolDefs(r.toolDefs, r.query, 10) : [];
-    const pick = found.length ? found : finderTools(r.toolDefs);
-    return [`- [MCP] ${r.name}${disp}${desc}`, `    ${bigMcpHint(r.name, r.toolDefs.length)}`,
-      ...pick.map((d) => `    ${signature(d)}${d.description ? `：${String(d.description).slice(0, 80)}` : ''}`)].join('\n');
+    return [`- [MCP] ${r.name}${disp}${desc}`, `    ${bigMcpHint(r.name, r.toolDefs.length)}`].join('\n');
   }
   if (r.type === 'mcp' && Array.isArray(r.toolDefs) && r.toolDefs.length) {
     const lines = r.toolDefs.map((d) => `    ${signature(d)}${d.description ? `：${String(d.description).slice(0, 80)}` : ''}`);
@@ -847,19 +830,20 @@ function formatResourceDetail(r) {
   if (r.type === 'mcp') {
     const all = Array.isArray(r.toolDefs) ? r.toolDefs : [];
     const big = all.length > BIG_MCP;
-    // 工具多的：只给搜到的（没给关键词给它自带的搜索工具）
-    const shown = !big ? all : (r.query ? searchToolDefs(all, r.query) : finderTools(all));
+    // 工具多的：按它自己的顺序给一页，加上它自己写的使用说明；Token Bank 不挑
+    const pg = pageOf(all, r.page);
+    const shown = big ? pg.items : all;
     const tools = all.length
       ? shown.map((d) => ({ name: d.name, description: d.description || '', parameters: d.inputSchema || {} }))
       : (r.tools || []).filter(Boolean).slice(0, SHOW_MAX);
     const first = typeof tools[0] === 'string' ? tools[0] : tools[0]?.name;
     return JSON.stringify({
       type: 'mcp', id: r.id, name: r.name, display_name: r.display_name, description: r.description,
+      ...(r.instructions ? { instructions: r.instructions } : {}),
       ...(big ? {
         tool_count: all.length,
-        note: r.query
-          ? (tools.length ? `按「${r.query}」搜到 ${tools.length} 个（共 ${all.length} 个）` : `按「${r.query}」没搜到，换个词再搜（共 ${all.length} 个工具）`)
-          : bigMcpHint(r.name, all.length),
+        page: `${pg.n}/${pg.pages}`,
+        note: `工具太多，按它自己的顺序分页给（每页 ${PAGE} 个）。先看 instructions 里它让怎么找工具；翻页：tb_get_resource(type="mcp", name="${r.name}", page=${pg.n + 1})`,
       } : {}),
       tools,
       usage: `tb_call_mcp(server="${r.name}", tool="${first || '<工具名>'}", arguments={按 parameters 填})`,
@@ -944,9 +928,7 @@ async function listResources(args, ctx) {
   else if (type === 'api' || type === 'cli') rows = plainTools(cid, type);
   else rows = [...managed('assistant'), ...managed('skill'), ...managed('prompt'), ...mcp, ...plainTools(cid)];
   if (query) {
-    rows = rows.filter((r) => `${r.name || ''} ${r.display_name || ''} ${r.description || ''} ${(r.tools || []).join(' ')}`.toLowerCase().includes(query)
-      || (r.type === 'mcp' && searchToolDefs(r.toolDefs, query, 1).length))
-      .map((r) => (r.type === 'mcp' ? { ...r, query } : r));
+    rows = rows.filter((r) => `${r.name || ''} ${r.display_name || ''} ${r.description || ''} ${(r.tools || []).join(' ')}`.toLowerCase().includes(query));
   }
   if (!rows.length) {
     const label = TYPE_TEXT[type] || '资产';
@@ -998,7 +980,7 @@ async function getResource(args, ctx) {
       const hit = findRelayedMcp(cid, ref);
       if (!hit) return textResult(`没有接入这个 MCP：${ref}。先 tb_list_resources(type=mcp) 看看。`, true);
       const defs = await relayedToolDefs(cid);
-      return textResult(formatResourceDetail({ ...hit, type: 'mcp', toolDefs: defs[hit.prefix] || null, query: args.query }));
+      return textResult(formatResourceDetail({ ...hit, type: 'mcp', toolDefs: defs[hit.prefix] || null, instructions: relayedInstructions(cid)[hit.prefix] || '', page: args.page }));
     }
     if (type === 'api' || type === 'cli') {
       const hit = findPlainTool(cid, ref, type);
@@ -1016,7 +998,7 @@ async function getResource(args, ctx) {
     if (!r) return textResult(`找不到：${ref}${type ? `（${TYPE_TEXT[type] || type}）` : ''}。先 tb_list_resources 看看。`, true);
     if (r.type === 'assistant') return activateAssistant(store, r.name || ref, cid, mode);
     if (r.type === 'prompt') return promptText(store, r.name || ref, args.args, cid);
-    if (r.type === 'mcp') return textResult(formatResourceDetail({ ...r, toolDefs: (await relayedToolDefs(cid))[r.prefix] || null, query: args.query }));
+    if (r.type === 'mcp') return textResult(formatResourceDetail({ ...r, toolDefs: (await relayedToolDefs(cid))[r.prefix] || null, instructions: relayedInstructions(cid)[r.prefix] || '', page: args.page }));
     if (r.type === 'skill') {
       try { store.recordResourceHit?.(r.id, cid); } catch { /* 只是统计 */ }
     }
@@ -1038,7 +1020,7 @@ async function capabilities(ctx) {
     caps.formatRelayedMcpSection(servers.map((s) => {
       const d = defs[s.prefix];
       if (!d) return s;
-      if (d.length > BIG_MCP) return { ...s, tools: finderTools(d).map(signature), note: bigMcpHint(s.name, d.length) };
+      if (d.length > BIG_MCP) return { ...s, tools: [], note: bigMcpHint(s.name, d.length) };
       return { ...s, tools: d.map(signature) };
     })),
     caps.formatConfiguredToolsSection(plainTools(cid)),
@@ -1088,9 +1070,8 @@ async function callMcp(args, ctx) {
   if (Array.isArray(defs) && defs.length) {
     const def = defs.find((d) => d.name === rawTool);
     if (!def) {
-      const near = defs.length > BIG_MCP ? searchToolDefs(defs, rawTool.replace(/[_-]+/g, ' ')) : defs;
       return textResult(defs.length > BIG_MCP
-        ? `${hit.name} 没有工具 ${rawTool}。${near.length ? `相近的：\n${near.map((d) => `  ${signature(d)}`).join('\n')}` : bigMcpHint(hit.name, defs.length)}`
+        ? `${hit.name} 没有工具 ${rawTool}。${bigMcpHint(hit.name, defs.length)}`
         : `${hit.name} 没有工具 ${rawTool}。它有：\n${defs.map((d) => `  ${signature(d)}`).join('\n')}`, true);
     }
     const problem = checkArgs(def, callArgs);
