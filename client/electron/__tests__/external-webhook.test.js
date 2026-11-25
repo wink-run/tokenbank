@@ -125,7 +125,7 @@ test('测试通知、清除；外部智能体自己设时只认 https', async ()
   assert.equal(ext.get(id).webhook, null);
 });
 
-test('注册时带上 Webhook：自动写入并发测试；通了轮询放长成兜底，不通自动回到短的', async () => {
+test('注册时带上 Webhook：自动写入并发测试；通了就不轮询，不通自动回到轮询', async () => {
   hits.length = 0;
   const { code } = ext.newPairingCode();
   // 外部智能体自己写入只认 https：测试里把本机地址当 https 不行，先看格式不对时注册照样成功
@@ -139,7 +139,8 @@ test('注册时带上 Webhook：自动写入并发测试；通了轮询放长成
   // 用网关页的方式写入本机接收端，模拟「写入后发测试」
   const { agent_id: id } = newAgent('AutoHook');
   ext.setWebhook(id, { url: `${base}/hook`, secret: 'k1' });
-  assert.equal(ext.get(id).pollIntervalSec, 900, '设了、还没失败过：按兜底 15 分钟');
+  assert.equal(ext.get(id).pollIntervalSec, 0, '设了、还没失败过：不轮询');
+  assert.equal(ext.get(id).receive, 'webhook');
   assert.equal((await ext.testWebhook(id)).ok, true);
   assert.equal(ext.get(id).webhook.healthy, true);
   // 对方开始拒绝：记下失败，改回短间隔
@@ -152,7 +153,7 @@ test('注册时带上 Webhook：自动写入并发测试；通了轮询放长成
   } finally { reply = 200; }
   // 又通了：恢复兜底间隔
   assert.equal((await ext.testWebhook(id)).ok, true);
-  assert.equal(ext.get(id).pollIntervalSec, 900);
+  assert.equal(ext.get(id).pollIntervalSec, 0);
   ext.setWebhook(id, { clear: true });
 });
 
@@ -169,7 +170,7 @@ test('它要用 Webhook 但拿不到地址：注册时说明，网关页提醒�
   v = ext.get(reg.agent_id);
   assert.equal(v.webhookWanted, false);
   assert.equal(v.webhook.by, 'user');
-  assert.equal(v.pollIntervalSec, 900);
+  assert.equal(v.pollIntervalSec, 0);
   // 已经注册过的，也可以之后再说明
   const { agent_id: later } = newAgent('Later');
   ext.setWebhook(later, { manual: true, fromAgent: true });
@@ -193,5 +194,5 @@ test('手动配好 Webhook 后马上通知它：tokenbank.webhook_configured，�
   const v = ext.get(reg.agent_id);
   assert.equal(v.webhookWanted, false);
   assert.equal(v.webhook.healthy, true);
-  assert.equal(v.pollIntervalSec, 900, '通知发通了：轮询放长成兜底');
+  assert.equal(v.pollIntervalSec, 0, '通知发通了：不再轮询');
 });

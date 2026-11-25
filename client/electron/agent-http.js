@@ -254,7 +254,8 @@ function buildAgentRouteLog(info = {}) {
 /**
  * 外部智能体的接口（不用网关 Key，用配对码 / 它自己的 token）：
  *   POST /v1/agent/external/register        { pairing_code, name, description } → { agent_id, token, status }
- *   GET  /v1/agent/external/tasks?wait=25   取派给它的任务 → { task: { id, input } | null }
+ *   GET  /v1/agent/external/tasks?wait=25   取派给它的任务 → { task: { id, input } | null, poll, interval }
+ *   GET  /v1/agent/external/tasks/peek      只看有没有排队的任务，不取走 → { queued, poll, interval }（给定时脚本用，不必唤醒模型）
  *   POST /v1/agent/external/tasks/:id/result { output, error }
  *   GET  /v1/agent/external/skill           tokenbank-connect 技能说明（Markdown）
  *   PUT  /v1/agent/external/webhook         { url, secret } 有新任务时叫醒它；DELETE 取消；POST …/webhook/test 发一条测试
@@ -271,9 +272,14 @@ async function handleExternal(req, res, method, cleanPath) {
       return true;
     }
     // 每个回给外部智能体的回答都带上当前技能版本，它发现和自己那份不同就重新下载
+    // 它报的版本和当前一样时只带版本号，不带地址：回答越短，它读起来花的 token 越少
     const skillMeta = () => {
-      try { return { skill_version: ext.skillInfo().version, skill_url: `http://${req.headers.host || '127.0.0.1:11430'}/v1/agent/external/skill` }; }
-      catch { return {}; }
+      try {
+        const version = ext.skillInfo().version;
+        const theirs = new URL(req.url || '/', 'http://x').searchParams.get('skill_version') || '';
+        return theirs === version ? { skill_version: version }
+          : { skill_version: version, skill_url: `http://${req.headers.host || '127.0.0.1:11430'}/v1/agent/external/skill` };
+      } catch { return {}; }
     };
     if (method === 'POST' && cleanPath === '/v1/agent/external/register') {
       const { body } = await readBody(req);
@@ -283,7 +289,8 @@ async function handleExternal(req, res, method, cleanPath) {
     }
     const qs = new URL(req.url || '/', 'http://x').searchParams;
     const isPull = method === 'GET' && cleanPath === '/v1/agent/external/tasks';
-    const agent = ext.authenticate(callerKey(req), Date.now(), { heartbeat: isPull, intervalSec: Number(qs.get('interval')) || 0, skillVersion: qs.get('skill_version') || '' });
+    const isPeek = method === 'GET' && cleanPath === '/v1/agent/external/tasks/peek';
+    const agent = ext.authenticate(callerKey(req), Date.now(), { heartbeat: isPull || isPeek, intervalSec: Number(qs.get('interval')) || 0, skillVersion: qs.get('skill_version') || '' });
     if (!agent) {
       req.resume();
       if (ext.wasRemoved(callerKey(req))) {
@@ -298,6 +305,16 @@ async function handleExternal(req, res, method, cleanPath) {
       sendJson(res, 403, { error: { message: agent.status === 'pending' ? '还在等用户允许' : '用户已停用你：暂停推送，降低取任务的频率，等用户重新启用', type: agent.status === 'pending' ? 'pending' : 'disabled' }, status: agent.status, ...skillMeta() });
       return true;
     }
+    // 要不要轮询、多久一次：Webhook 通就不轮询（interval 给旧版说明一个很长的上限）
+    const pollFields = () => {
+      const plan = ext.pollPlan(agent);
+      return { poll: plan.poll, interval: plan.poll ? plan.intervalSec : 6 * 3600 };
+    };
+    if (isPeek) {
+      req.resume();
+      sendJson(res, 200, { queued: ext.queuedCount(agent.id), status: 'active', ...pollFields(), ...skillMeta() });
+      return true;
+    }
     if (isPull) {
       req.resume();
       const wait = Number(qs.get('wait') ?? 25) * 1000;
@@ -308,13 +325,13 @@ async function handleExternal(req, res, method, cleanPath) {
       } else if (task && task.status === 'removed') {
         sendJson(res, 410, { error: { message: '用户已在 Token Bank 里移除了你：删掉保存的 token，停掉你这边和 Token Bank 有关的定时任务', type: 'removed' }, status: 'removed', ...skillMeta() });
       } else {
-        // webhook：网关现在能不能主动叫醒它；能就把轮询放长成兜底，不能就照常轮询（并告诉它为什么）
+        // 回答尽量短：没任务时它多半什么都不用做。Webhook 出问题、在等用户填地址时才多说
         const me = ext.get(agent.id);
         const wh = me && me.webhook;
         sendJson(res, 200, {
           task: task ? { id: task.id, input: task.prompt } : null, status: 'active',
-          interval: me ? me.pollIntervalSec : ext.pullIntervalSec(),
-          webhook: !!(wh && wh.healthy),
+          ...pollFields(),
+          ...(wh ? { webhook: !!wh.healthy } : {}),
           ...(wh && !wh.healthy && wh.lastError ? { webhook_error: wh.lastError.message } : {}),
           ...(me && me.webhookWanted ? { webhook_waiting_user: true } : {}),
           ...skillMeta(),

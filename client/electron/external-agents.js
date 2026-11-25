@@ -24,8 +24,14 @@ const MAX_PULL_SEC = 6 * 3600;
 const WEBHOOK_DEBOUNCE_MS = 1500;                    // 一下子派好几个：合成一次唤醒
 const WEBHOOK_RETRY_MS = [15000, 60000, 300000];     // 发不出去时再试三次；任务被取走就不再发
 const WEBHOOK_TIMEOUT_MS = 10000;
-// Webhook 通的时候轮询只是兜底：至少 15 分钟一次（任务默认 30 分钟超时，Webhook 坏了也来得及取走）
-const WEBHOOK_FALLBACK_PULL_SEC = 15 * 60;
+// 轮询的每一次都要唤醒外部智能体、花它的 token（没任务也一样）。所以：
+//   Webhook 通：不轮询，有任务才叫醒它；
+//   轮询：按用户设的频率，很久没派过任务时自动放慢（空闲越久越慢），一派任务就恢复。
+const IDLE_SLOWDOWN = [            // [空闲多久, 至少多少秒来一次]，从长到短
+  [24 * 3600 * 1000, 60 * 60],
+  [6 * 3600 * 1000, 30 * 60],
+  [2 * 3600 * 1000, 15 * 60],
+];
 // 通过 MCP 操作 Token Bank 的权限，从低到高；默认关闭，用户在网关页给某个外部智能体打开
 const MCP_LEVELS = ['off', 'read', 'operate', 'full'];
 
@@ -194,15 +200,26 @@ function webhookHealthy(a) {
   return !(w.lastError && (!w.lastOkAt || w.lastError.at > w.lastOkAt));
 }
 
-/** 告诉这个外部智能体多久来取一次：Webhook 通的时候放长到兜底频率，不通时用网关页设的 */
-function pullIntervalFor(a) {
+/**
+ * 这个外部智能体现在该不该轮询、多久一次：
+ *   { poll: false }                                   Webhook 通：不用轮询，有任务网关叫醒它
+ *   { poll: true, intervalSec, baseSec, slowed }     轮询：slowed 表示因为空闲放慢了
+ */
+function pollPlan(a, now = Date.now()) {
+  if (webhookHealthy(a)) return { poll: false, intervalSec: 0, baseSec: pullIntervalSec(), slowed: false };
   const base = pullIntervalSec();
-  return webhookHealthy(a) ? Math.max(base, WEBHOOK_FALLBACK_PULL_SEC) : base;
+  const idle = now - (a.lastTaskAt || a.createdAt || now);
+  const step = IDLE_SLOWDOWN.find(([ms]) => idle >= ms);
+  const intervalSec = Math.min(MAX_PULL_SEC, Math.max(base, step ? step[1] : 0));
+  return { poll: true, intervalSec, baseSec: base, slowed: intervalSec > base };
 }
 
-function intervalOf(a) {
+/** 在线判断用的心跳间隔：用户设过的频率优先，否则用它自己报的，再否则按最近几次来取的间隔 */
+function intervalOf(a, now = Date.now()) {
   const configured = Number(read().pullIntervalSec);
-  let ms = configured >= MIN_PULL_SEC ? pullIntervalFor(a) * 1000 : (webhookHealthy(a) ? WEBHOOK_FALLBACK_PULL_SEC * 1000 : 0);
+  const plan = pollPlan(a, now);
+  // 用户设过频率，或者空闲放慢了：它按我们给的 interval 来
+  let ms = configured >= MIN_PULL_SEC || plan.slowed ? plan.intervalSec * 1000 : 0;
   if (!ms) {
     ms = Number(a.declaredIntervalMs) || 0;
     if (!ms && Array.isArray(a.gaps) && a.gaps.length) {
@@ -210,13 +227,15 @@ function intervalOf(a) {
       ms = g[Math.floor(g.length / 2)];
     }
   }
-  if (!ms) ms = DEFAULT_PULL_SEC * 1000;
+  if (!ms) ms = plan.intervalSec * 1000 || DEFAULT_PULL_SEC * 1000;
   return Math.min(MAX_INTERVAL_MS, Math.max(MIN_INTERVAL_MS, ms));
 }
 
-/** 两次心跳都没来才算离线；正在长轮询等任务的算在线 */
+/** 两次心跳都没来才算离线；正在长轮询等任务的、Webhook 叫得醒的算在线 */
 function isOnline(a, now = Date.now()) {
-  if (a.status !== 'active' || !a.lastSeenAt) return false;
+  if (a.status !== 'active') return false;
+  if (webhookHealthy(a)) return true;
+  if (!a.lastSeenAt) return false;
   if ((pollers.get(a.id) || []).length) return true;
   return now - a.lastSeenAt <= Math.max(ONLINE_MS, 2 * intervalOf(a) + GRACE_MS);
 }
@@ -230,7 +249,7 @@ function publicView(a, now = Date.now()) {
     createdAt: a.createdAt,
     lastSeenAt: a.lastSeenAt || 0,
     online: isOnline(a, now),
-    intervalMs: a.lastSeenAt ? intervalOf(a) : 0,
+    intervalMs: a.lastSeenAt ? intervalOf(a, now) : 0,
     queued: (queue.get(a.id) || []).length,
     pairingCode: a.status === 'pending' ? a.pairingCode : undefined,
     skillVersion: a.skillVersion || '',
@@ -245,7 +264,11 @@ function publicView(a, now = Date.now()) {
     lastMcpAt: a.lastMcpAt || 0,
     // 它要用 Webhook、但地址和密钥得你来填，还没填
     webhookWanted: !!a.webhookWanted && !(a.webhook && a.webhook.url),
-    pollIntervalSec: pullIntervalFor(a),
+    // 接收方式：webhook（不轮询）或 poll（按 pollIntervalSec 来取；slowed=空闲自动放慢了）
+    receive: webhookHealthy(a) ? 'webhook' : 'poll',
+    pollIntervalSec: pollPlan(a, now).intervalSec,
+    pollSlowed: pollPlan(a, now).slowed,
+    pollBaseSec: pullIntervalSec(),
     // 它报的技能版本和当前不一样：说明它还在用旧说明（没报过的不算）
     skillOutdated: !!a.skillVersion && (() => { try { return a.skillVersion !== skillInfo().version; } catch { return false; } })(),
   };
@@ -320,12 +343,16 @@ function setStatus(id, status) {
   const d = read();
   const a = d.agents.find(x => x.id === id);
   if (!a) return null;
+  const prev = a.status;
   a.status = status;
   if (status !== 'pending') delete a.pairingCode;
   write(d);
   if (status !== 'active') {
     failQueued(id, status === 'disabled' ? '外部智能体已停用' : '外部智能体不可用');
     notifyPollers(id, status);
+  } else if (prev !== 'active' && a.webhook && a.webhook.url) {
+    // 用 Webhook 的不轮询，等批准、等重新启用也不轮询：状态变了叫醒它一次
+    sendWebhook(id, { event: 'tokenbank.status_active' }).catch(() => {});
   }
   return publicView(a);
 }
@@ -412,9 +439,15 @@ function dispatch(agentId, prompt, { timeoutMs = DEFAULT_TASK_TIMEOUT_MS, taskId
   }
   restore();
   const id = taskId || `ext_${crypto.randomBytes(8).toString('hex')}`;
+  const now = Date.now();
+  // 轮询的要等它下一次来取（空闲时可能放慢到一小时）：等它来取的时间不算进超时
+  const plan = pollPlan(a, now);
+  const waitPickupMs = plan.poll ? plan.intervalSec * 1000 : 0;
+  // 派过任务了：轮询恢复用户设的频率
+  try { const d = read(); const me = d.agents.find(x => x.id === agentId); if (me) { me.lastTaskAt = now; write(d); } } catch { /* 只是记录 */ }
   return new Promise((resolve) => {
-    const task = { id, prompt: String(prompt || ''), createdAt: Date.now() };
-    const rec = { id, agentId, prompt: task.prompt, createdAt: task.createdAt, deadline: task.createdAt + timeoutMs, takenAt: 0 };
+    const task = { id, prompt: String(prompt || ''), createdAt: now };
+    const rec = { id, agentId, prompt: task.prompt, createdAt: task.createdAt, deadline: task.createdAt + timeoutMs + waitPickupMs, takenAt: 0 };
     saveTask(rec);
     armDeadline(rec);
     waiting.set(id, { resolve, agentId });
@@ -450,6 +483,12 @@ function pull(agentId, waitMs = MAX_WAIT_MS) {
       hand(null);
     }, wait);
   });
+}
+
+/** 排着队、还没取走的任务数（peek 用，不取走） */
+function queuedCount(agentId) {
+  restore();
+  return (queue.get(agentId) || []).length;
 }
 
 /** 外部智能体回传结果 */
@@ -499,7 +538,6 @@ function webhookView(a) {
     url: w.url,
     by: w.by === 'user' ? 'user' : 'agent',
     healthy: webhookHealthy(a),
-    fallbackPullSec: pullIntervalFor(a),
     hasSecret: !!w.secret,
     secretTail: w.secret ? String(w.secret).slice(-4) : '',
     sent: w.sent || 0,
@@ -652,7 +690,7 @@ function listForAgents() {
     id: a.id, name: a.name, type: 'external', description: a.description, online: a.online, installed: true, status: 'active',
     intervalMs: a.intervalMs || 0, lastSeenAt: a.lastSeenAt || 0,
     // 接收方式：webhook（有任务网关马上叫醒它）或 poll（它定时来取）
-    receive: a.webhook && a.webhook.healthy ? 'webhook' : 'poll',
+    receive: a.receive,
   }));
 }
 
@@ -664,9 +702,9 @@ module.exports = {
   pullIntervalSec, setPullInterval,
   newPairingCode, currentPairing, register,
   approve, disable, enable, remove,
-  authenticate, dispatch, pull, complete,
+  authenticate, dispatch, pull, complete, queuedCount,
   setResultHandler, setPushHandler, setTakenHandler, push, pushDetailed, restore, isOnline, skillInfo, wasRemoved,
-  setWebhook, testWebhook, notifyWebhookConfigured, checkWebhookUrl, webhookHealthy, pullIntervalFor,
+  setWebhook, testWebhook, notifyWebhookConfigured, checkWebhookUrl, webhookHealthy, pollPlan,
   MCP_LEVELS, setMcpLevel, recordMcpCall,
   _internal: { file, tasksFile, queue, waiting, pollers, wakeTimers, ONLINE_MS, WEBHOOK_RETRY_MS, reset() { restored = false; resultHandler = null; pushHandler = null; takenHandler = null; for (const t of deadlineTimers.values()) clearTimeout(t); deadlineTimers.clear(); for (const t of wakeTimers.values()) clearTimeout(t); wakeTimers.clear(); } },
 };
