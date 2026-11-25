@@ -91,45 +91,79 @@ function isTokenbankUrl(u, gatewayPorts = []) {
 function under(p, dir) {
   const a = path.resolve(String(p));
   const b = path.resolve(String(dir));
-  const norm = (s) => (process.platform === 'win32' || process.platform === 'darwin' ? s.toLowerCase() : s);
+  const norm = (x) => (process.platform === 'win32' || process.platform === 'darwin' ? x.toLowerCase() : x);
   const rel = path.relative(norm(b), norm(a));
   return rel === '' || (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+/** 通用的运行时 / 命令行：在程序包里也不算某个应用自己的东西（Docker.app 里的 docker 等） */
+const GENERIC_BIN = /^(node|nodejs|npx|npm|pnpm|yarn|bun|bunx|deno|python\d*(\.\d+)?|pip\d*|uv|uvx|pipx|ruby|java|go|docker|podman|git|bash|sh|zsh|pwsh|powershell|cmd)(\.exe|\.cmd)?$/i;
+
+const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+/**
+ * 命令 / 工作目录在哪个程序包或应用私有目录里。返回 { private: bool, appId: '' }：
+ * private = 在某个 .app 程序包、Windows 的 Programs\X、或某个应用自己的目录里（不是通用运行时）；
+ * appId   = 能从目录名直接认出是哪个应用时给出（~/.codex、Codex.app、Codex Computer Use.app…）
+ */
+function locate(row) {
+  const meta = metaOf(row);
+  const cmd = String(row.command || '');
+  const cwd = String(meta.cwd || '');
+  if (!cmd && !cwd) return { private: false, appId: '' };
+  const relCmd = /^\.{1,2}[\\/]/.test(cmd);
+  const paths = [cwd && relCmd ? path.resolve(cwd, cmd) : cmd, cwd].filter((x) => x && path.isAbsolute(x));
+  if (!paths.length) return { private: false, appId: '' };
+  if (GENERIC_BIN.test(path.basename(cmd)) && !relCmd) return { private: false, appId: '' };
+  // 应用自己的目录（~/.codex、~/.cursor、~/.claude…）
+  for (const { id, dir } of appHomeDirs()) {
+    if (paths.some((x) => under(x, dir))) return { private: true, appId: id };
+  }
+  const home = path.resolve(os.homedir());
+  const names = labelsOf().map(({ id, label }) => ({ id, names: [...new Set([norm(label), norm(id)])].filter((n) => n.length >= 4) }));
+  let inBundle = false;
+  for (const x of paths) {
+    const rest = under(x, home) ? path.relative(home, x) : x;
+    const segs = rest.split(/[\\/]+/).filter(Boolean);
+    const lower = rest.toLowerCase();
+    const bundle = segs.some((g) => /\.app$/i.test(g)) || /[\\/]programs[\\/]|program files/.test(lower) || /application support/.test(lower);
+    if (!bundle) continue;
+    inBundle = true;
+    for (const g of segs) {
+      const n = norm(g.replace(/\.app$/i, ''));
+      const tail = norm(g.split('.').pop());
+      for (const a of names) {
+        if (a.names.some((m) => n === m || tail === m || (/\.app$/i.test(g) && n.startsWith(m)))) return { private: true, appId: a.id };
+      }
+    }
+  }
+  return { private: inBundle, appId: '' };
 }
 
 /**
  * 看这个 MCP 是不是某个应用专属的，返回应用 id；不是返回 ''。
  * @param {object} row  command/args/url/metadata（cwd、originAgents）
- * @param {{ gatewayPorts?: number[] }} [opts]
+ * @param {{ gatewayPorts?: number[], holders?: string[] }} [opts]
+ *   holders：现在自己配置里有这一条的应用（不算 Token Bank 写进去的），以它为准，导入记录可能过时
  */
 function detectExclusiveOwner(row, opts = {}) {
   if (!row) return '';
   const meta = metaOf(row);
   const origins = Array.isArray(meta.originAgents) ? meta.originAgents.filter(Boolean).map(String) : [];
+  const holders = Array.isArray(opts.holders) ? opts.holders.filter(Boolean).map(String) : [];
+  const pick = () => holders[0] || origins[0] || '';
   // 本机服务：只有开着它的那个应用才连得上（WorkBuddy 的 connector-proxy 这类）
   if (isUrlRow(row)) {
     const u = String(row.url || meta.url || '');
-    if (origins.length && isLocalHost(u) && !isTokenbankUrl(u, opts.gatewayPorts || [])) return origins[0];
+    if (isLocalHost(u) && !isTokenbankUrl(u, opts.gatewayPorts || [])) return pick();
     return '';
   }
-  const blobs = [String(row.command || ''), String(meta.cwd || ''), ...argsOf(row).map(String)].filter(Boolean);
-  // 命令、工作目录在某个应用自己的目录里（~/.codex/plugins/... 这类）
-  for (const { id, dir } of appHomeDirs()) {
-    if (blobs.some((b) => path.isAbsolute(b) && under(b, dir))) return id;
-  }
-  // 命令在某个应用的程序包里（/Applications/Codex.app/...、Windows 的 Programs\Cursor\...）
-  for (const { id, label } of labelsOf()) {
-    const name = label.toLowerCase().replace(/[^a-z0-9]+/g, '');
-    if (!name || name.length < 3) continue;
-    const hit = blobs.some((b) => {
-      const s = b.toLowerCase();
-      return s.split(/[\\/]/).some((seg) => {
-        const bare = seg.replace(/\.app$/, '').replace(/[^a-z0-9]+/g, '');
-        return bare === name && (seg.endsWith('.app') || /[\\/]programs[\\/]/.test(s));
-      });
-    });
-    if (hit) return id;
-  }
-  return '';
+  // 命令在某个应用的程序包 / 私有目录里：能认出是谁的就是谁的；
+  // 认不出（比如 Codex 的工具装在 ChatGPT.app 里）就归现在配置里有它的那个应用
+  const where = locate(row);
+  if (!where.private) return '';
+  if (where.appId && (!holders.length || holders.includes(where.appId))) return where.appId;
+  return pick() || where.appId;
 }
 
 /** 专属的 MCP 给这个应用行不行（含别名：codex / codex-desktop 算一个） */

@@ -1796,23 +1796,6 @@ function renderToolKindToggle(kind, onChange) {
     );
   }
 
-  async function setExclusive(s, owner) {
-    if (owner) {
-      const others = connectedApps(s).filter((a) => !inAppConfig(s, a.id) && !exclusiveAllows({ exclusive_to: owner }, a.id));
-      if (others.length && !window.confirm(t('resources.mcp.exclusiveConfirm', { app: appLabelOf(owner), apps: others.map((a) => a.label).join('、') }))) return;
-    }
-    setBusy(s.id);
-    try {
-      const r = await window.electronAPI.mcp.setServerExclusive({ serverId: s.id, owner });
-      if (!r?.success) throw new Error(r?.error || t('providers.mcp.gatewayToggleFailed'));
-      await loadAll({ silent: true });
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setBusy('');
-    }
-  }
-
   function renderServerInspector(s) {
     const tools = s.metadata?.tools || [];
     const apps = connectedApps(s);
@@ -1933,26 +1916,6 @@ function renderToolKindToggle(kind, onChange) {
             <p className="text-[11px] text-zinc-600 dark:text-zinc-300">
               {runsInApp(s) ? t('resources.mcp.runsApp') : t('resources.mcp.runsGateway')}
             </p>
-            {!locked && (
-            <>
-            <label className="mt-2 flex items-center gap-2 text-[11px] text-zinc-600 dark:text-zinc-300">
-              <span className="shrink-0">{t('resources.mcp.exclusiveLabel')}</span>
-              <select
-                value={exclusiveOwner(s)}
-                disabled={!!busy}
-                onChange={(e) => setExclusive(s, e.target.value)}
-                className="flex-1 min-w-0 text-[11px] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1"
-              >
-                <option value="">{t('resources.mcp.exclusiveNone')}</option>
-                {[...new Map([
-                  ...syncWritableAgents.map((a) => [a.id, a.label]),
-                  ...(exclusiveOwner(s) ? [[exclusiveOwner(s), appLabelOf(exclusiveOwner(s))]] : []),
-                ])].map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-              </select>
-            </label>
-            <p className="mt-1 text-[10px] text-zinc-400 leading-relaxed">{t('resources.mcp.exclusiveMarkHint')}</p>
-            </>
-            )}
           </InspectorSection>
         )}
         {toolKindOf(s) === 'mcp' && tools.length > 0 && (

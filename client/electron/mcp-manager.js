@@ -72,6 +72,8 @@ function isTokenbankBuiltinRelayId(serverId) {
  * 应用配置里只有一条 tokenbank；要用应用环境的 MCP 由那条桥在应用里起，其它的在网关里起。
  */
 const placement = require('./mcp-placement');
+/** 认专属的规则版本：改了规则就加一，升级时把没手动标过的重认一遍 */
+const EXCLUSIVE_RULE = 2;
 const { needsAppContext } = placement;
 
 /** 当前任务上下文，供已写入配置的派发 MCP 在调用时读取（不再为每次派发单独写临时 MCP） */
@@ -1444,10 +1446,13 @@ class MCPManager {
           next.description = String(meta.description).replace(/^客户端自配\s*(·\s*)?/, '').replace(/^MCP$/, '').trim();
           changed = true;
         }
-        if (!meta.exclusive_checked && meta.origin === 'client_scan') {
-          const owner = placement.detectExclusiveOwner({ ...row, args: this._asArray(row.args, []), metadata: meta }, { gatewayPorts: ports });
-          next.exclusive_checked = true;
+        // 认专属：规则改过就重认一次（手动标过的不动）
+        if (meta.exclusive_checked !== EXCLUSIVE_RULE && !meta.exclusive_manual) {
+          const full = { ...row, args: this._asArray(row.args, []), metadata: meta };
+          const owner = placement.detectExclusiveOwner(full, { gatewayPorts: ports, holders: this._holdersOf(full) });
+          next.exclusive_checked = EXCLUSIVE_RULE;
           if (owner) next.exclusive_to = owner;
+          else delete next.exclusive_to;
           changed = true;
         }
         if (Array.isArray(next.gateway_clients)) {
@@ -1472,6 +1477,31 @@ class MCPManager {
       console.warn('[mcp-manager] 统一 MCP 接入方式失败:', e.message);
     }
     return resync;
+  }
+
+  /**
+   * 现在自己配置里有这一条的应用（按名字或同样的命令 / 地址；Token Bank 写进去的不算）。
+   * 认专属以它为准：导入记录里的应用可能是以前 Token Bank 写过去的副本。
+   */
+  _holdersOf(row) {
+    try {
+      const { scanAllClientMcps, getTbManagedClientKeys } = require('./mcp-client-sync');
+      const tbKeys = getTbManagedClientKeys();
+      const meta = this._parseJson(row.metadata, {});
+      const keys = new Set([row.name, meta.importedFrom].filter(Boolean));
+      const url = String(row.url || '').trim();
+      const cmd = String(row.command || '').trim();
+      const isTb = (e) => /[\\/]\.tokenbank[\\/]mcp[\\/]/.test(`${e?.command || ''} ${(Array.isArray(e?.args) ? e.args : []).join(' ')}`);
+      const out = [];
+      for (const x of scanAllClientMcps() || []) {
+        if (tbKeys.has(`${x.clientId}:${x.clientKey}`) || isTb(x.entry)) continue;
+        const same = keys.has(x.clientKey)
+          || (url && String(x.entry?.url || '').trim() === url)
+          || (cmd && !/^(npx|node|uvx|python3?|docker)$/i.test(cmd) && String(x.entry?.command || '').trim() === cmd);
+        if (same && !out.includes(x.clientId)) out.push(x.clientId);
+      }
+      return out;
+    } catch { return []; }
   }
 
   /** Token Bank 网关端口（判断本机地址是不是自己） */
@@ -1588,7 +1618,7 @@ class MCPManager {
     if (!row) throw new Error('Server not found');
     const meta = this._parseJson(row.metadata, {});
     const id = String(owner || '').trim();
-    const next = { ...meta, exclusive_checked: true };
+    const next = { ...meta, exclusive_checked: EXCLUSIVE_RULE, exclusive_manual: true };
     if (id) {
       if (!/^[\w.-]{1,64}$/.test(id)) throw new Error('应用 id 不对');
       next.exclusive_to = id;
@@ -1686,11 +1716,9 @@ class MCPManager {
         ...(found.entry.cwd ? { cwd: found.entry.cwd } : {}),
         // 依赖这个应用自己东西的（命令在它目录 / 程序包里，或是它在本机开的服务）：只给它用
         ...(() => {
-          const owner = placement.detectExclusiveOwner(
-            { ...found.entry, metadata: { cwd: found.entry.cwd, originAgents: agents } },
-            { gatewayPorts: this._gatewayPorts() },
-          );
-          return owner ? { exclusive_to: owner, exclusive_checked: true } : { exclusive_checked: true };
+          const full = { name: key, ...found.entry, metadata: { cwd: found.entry.cwd, originAgents: agents, importedFrom: key } };
+          const owner = placement.detectExclusiveOwner(full, { gatewayPorts: this._gatewayPorts(), holders: this._holdersOf(full) });
+          return owner ? { exclusive_to: owner, exclusive_checked: EXCLUSIVE_RULE } : { exclusive_checked: EXCLUSIVE_RULE };
         })(),
       },
     });

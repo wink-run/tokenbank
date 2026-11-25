@@ -107,6 +107,40 @@ test('专属的不能给别的应用；在应用里跑的不能给 API 应用', 
   });
 });
 
+test('认专属：命令在不认识的程序包里（Codex 的工具装在 ChatGPT.app 里），归现在配置里有它的应用', () => {
+  assert.equal(placement.detectExclusiveOwner(
+    { command: '/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl', metadata: { originAgents: ['claude-code', 'codex'] } },
+    { holders: ['codex'] },
+  ), 'codex');
+  assert.equal(placement.detectExclusiveOwner(
+    { command: '/Users/me/Library/Application Support/x/Codex Computer Use.app/Contents/MacOS/SkyComputerUseClient' },
+    { holders: ['cursor', 'codex'] },
+  ), 'codex', '程序包名带应用名，认得出就是它');
+  assert.equal(placement.detectExclusiveOwner({ command: '/Applications/Docker.app/Contents/Resources/bin/docker', args: ['run'] }, { holders: ['cursor'] }), '', '通用命令行不算');
+  assert.equal(placement.detectExclusiveOwner(
+    { type: 'http', url: 'http://127.0.0.1:50097/mcp', metadata: { originAgents: ['claude-code', 'workbuddy'] } },
+    { holders: ['workbuddy'] },
+  ), 'workbuddy', '导入记录过时时以现在配置里有它的应用为准');
+});
+
+test('规则改了重认一次：以前认错的改过来，给错的应用撤掉', () => {
+  withDb((db) => {
+    fs.mkdirSync(path.join(HOME, '.workbuddy'), { recursive: true });
+    fs.writeFileSync(path.join(HOME, '.workbuddy', 'mcp.json'), JSON.stringify({ mcpServers: { 'connector-proxy': { url: 'http://127.0.0.1:50097/mcp' } } }));
+    require('../mcp-client-sync').invalidateScanCache();
+    try {
+      insert(db, 'mcp-cp', 'connector-proxy', '', [], { origin: 'client_scan', originAgents: ['claude-code', 'workbuddy'], exclusive_checked: true, exclusive_to: 'claude-code', gateway_clients: ['claude-code'] }, { type: 'http', url: 'http://127.0.0.1:50097/mcp' });
+      mcpManager.init();
+      const m = metaOf(db, 'mcp-cp');
+      assert.equal(m.exclusive_to, 'workbuddy');
+      assert.deepEqual(m.gateway_clients, []);
+    } finally {
+      fs.rmSync(path.join(HOME, '.workbuddy'), { recursive: true, force: true });
+      require('../mcp-client-sync').invalidateScanCache();
+    }
+  });
+});
+
 test('手动标 / 取消专属：标上时撤掉给别的应用的', () => {
   withDb((db) => {
     mcpManager.init();
@@ -118,7 +152,7 @@ test('手动标 / 取消专属：标上时撤掉给别的应用的', () => {
     mcpManager.setServerExclusive('mcp-x', '');
     m = metaOf(db, 'mcp-x');
     assert.equal(m.exclusive_to, undefined);
-    assert.equal(m.exclusive_checked, true, '取消后不再自动认回去');
+    assert.equal(m.exclusive_manual, true, '手动改过的以后不再自动认');
   });
 });
 
