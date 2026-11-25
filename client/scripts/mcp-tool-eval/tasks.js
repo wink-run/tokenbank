@@ -1,5 +1,7 @@
 // MCP 工具选择评测的任务。
-// expect：算对的 [MCP, 工具]（用途确实相同的都算对）；args：必须填对的参数，值是字符串时要求包含它（不分大小写），true 只要求有值。
+// expect：算对的 [MCP, 工具]（用途确实相同的都算对）；args：必须填对的参数，值是字符串时要求包含它（不分大小写），
+// 数组时包含任一个就行（同一个意思的不同说法），true 只要求有值。参数名必须对。
+// 模型先调只读工具查一步（找频道、看 issue）不算错，看它最后真正要做的那一步。
 // named：用户点了服务名（GitHub、Slack…）；没点名的要模型自己判断用哪个。
 'use strict';
 
@@ -14,11 +16,11 @@ const TASKS = [
   { id: 'gh-pr', named: true, prompt: '给 GitHub 仓库 wink-run/tokenbank 提个 PR：把 claude/mcp-merge 分支合到 main，标题「MCP 合成一个 tokenbank」。', expect: [['github', 'create_pull_request']], args: { owner: 'wink-run', repo: 'tokenbank', head: 'claude/mcp-merge', base: 'main' } },
   { id: 'gh-pr-get', named: true, prompt: 'GitHub 上 wink-run/tokenbank 的第 42 号 PR 现在什么状态？', expect: [['github', 'get_pull_request']], args: { owner: 'wink-run', repo: 'tokenbank', pull_number: '42' } },
   { id: 'gh-comment', named: true, prompt: '在 GitHub 的 wink-run/tokenbank 第 17 号 issue 下面回复：已在 0.8.1 修复。', expect: [['github', 'add_issue_comment']], args: { owner: 'wink-run', repo: 'tokenbank', issue_number: '17', body: '0.8.1' } },
-  { id: 'gh-create-implicit', named: false, prompt: '帮我在 https://github.com/wink-run/tokenbank 记一个 bug：Windows 上托盘图标不显示。', expect: [['github', 'create_issue']], args: { owner: 'wink-run', repo: 'tokenbank', title: '托盘' } },
+  { id: 'gh-create-implicit', named: false, prompt: '帮我在 https://github.com/wink-run/tokenbank 记一个 bug：Windows 上托盘图标不显示。', expect: [['github', 'create_issue']], args: { owner: 'wink-run', repo: 'tokenbank', title: ['托盘', 'tray'] } },
   { id: 'gh-label', named: false, prompt: 'github.com/wink-run/tokenbank 里打了 bug 标签、还没关的问题列一下。', expect: [['github', 'list_issues']], args: { owner: 'wink-run', repo: 'tokenbank' } },
 
   // 网页搜索 / 抓取
-  { id: 'web-news', named: false, prompt: '查一下最近关于 MCP 协议新版本的新闻。', expect: WEB_SEARCH, args: { query: 'MCP' } },
+  { id: 'web-news', named: false, prompt: '查一下最近关于 MCP 协议新版本的新闻。', expect: WEB_SEARCH, args: { query: ['MCP', 'Model Context Protocol'] } },
   { id: 'web-named', named: true, prompt: '用 Brave 搜一下 "streamable http transport" 是什么。', expect: [['brave-search', 'brave_web_search']], args: { query: 'streamable http' } },
   { id: 'web-local', named: false, prompt: '上海静安寺附近有什么评分高的咖啡馆？', expect: [['brave-search', 'brave_local_search']], args: { query: '咖啡' } },
   { id: 'web-price', named: false, prompt: '现在 Mac mini M4 在国内官网卖多少钱？搜一下。', expect: WEB_SEARCH, args: { query: 'Mac mini' } },
@@ -34,7 +36,7 @@ const TASKS = [
   { id: 'sl-react', named: true, prompt: '给 Slack #release 里 1732500100.000200 那条消息点个 :tada:。', expect: [['slack', 'slack_add_reaction']], args: { channel: 'release', timestamp: '1732500100.000200', reaction: 'tada' } },
   { id: 'sl-users', named: true, prompt: 'Slack 工作区里有多少人？列一下成员。', expect: [['slack', 'slack_get_users']], args: {} },
   { id: 'sl-profile', named: true, prompt: '看一下 Slack 用户 U02ABCDEF 的资料。', expect: [['slack', 'slack_get_user_profile']], args: { user_id: 'U02ABCDEF' } },
-  { id: 'sl-post-implicit', named: false, prompt: '在团队的 #general 频道（Slack）通知大家：今晚 10 点停机维护。', expect: [['slack', 'slack_post_message']], args: { channel: 'general', text: '10' } },
+  { id: 'sl-post-implicit', named: false, prompt: '在团队的 #general 频道（Slack）通知大家：今晚 10 点停机维护。', expect: [['slack', 'slack_post_message']], args: { channel: 'general', text: ['10', '22'] } },
   { id: 'sl-history-implicit', named: false, prompt: '#design 频道（我们用 Slack）昨天有人提到新 logo 吗？翻一下最近的消息。', expect: [['slack', 'slack_get_channel_history']], args: { channel: 'design' } },
 
   // 用途相近、容易选错的

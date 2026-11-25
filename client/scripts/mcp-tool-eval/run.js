@@ -19,7 +19,7 @@ const { serversFor, countTools } = require('./catalog');
 const { TASKS } = require('./tasks');
 const tb = require('../../electron/tokenbank-tools');
 
-const MAX_STEPS = 5;
+const MAX_STEPS = 6;
 const MODES = ['direct', 'gateway', 'indirect', 'indirect-schema'];
 
 function parseArgs(argv) {
@@ -144,6 +144,29 @@ function toolResultMessages(opts, results) {
   return results.map((r) => ({ role: 'tool', tool_call_id: r.id, content: r.text }));
 }
 
+// ── 先查一步：只读工具给模拟数据 ─────────────────────────────────────────────
+
+const WRITE = /(create|send|post|add|update|write|move|delete|reply|draft|fill|click|evaluate|append)/;
+const READ = /(^|_)(list|get|search|read|describe|find|query|history|users|profile|channels|forecast|alerts|extract|navigate|screenshot|fetch)(_|$)/;
+function isReadOnly(tool) {
+  return !WRITE.test(tool) && READ.test(tool);
+}
+
+function mockResult(server, tool) {
+  if (tool === 'slack_list_channels') {
+    return JSON.stringify({ channels: ['general', 'release', 'support', 'design'].map((n) => ({ id: `C_${n}`, name: n })) });
+  }
+  if (tool === 'slack_get_channel_history') {
+    return JSON.stringify({ messages: [{ ts: '1732500000.000100', user: 'U02ABCDEF', text: '登录页偶尔白屏' }, { ts: '1732500100.000200', user: 'U03XYZ', text: '0.8.1 已发布' }] });
+  }
+  if (tool === 'slack_get_users') return JSON.stringify({ members: [{ id: 'U02ABCDEF', name: 'li' }, { id: 'U03XYZ', name: 'wang' }] });
+  if (/issues/.test(tool)) {
+    return JSON.stringify({ items: [{ number: 17, title: '启动慢', state: 'open' }, { number: 88, title: 'macOS 上崩溃', state: 'open', labels: ['bug'] }] });
+  }
+  if (tool === 'get_pull_request') return JSON.stringify({ number: 42, state: 'open', title: 'MCP 合成一个 tokenbank', changed_files: 12 });
+  return JSON.stringify({ ok: true, server, tool, result: '（示例数据）' });
+}
+
 // ── 评分 ───────────────────────────────────────────────────────────────────
 
 function argsOk(expected, got) {
@@ -152,8 +175,9 @@ function argsOk(expected, got) {
     const v = a[k];
     if (v == null || v === '') return false;
     if (want === true) return true;
-    const have = Array.isArray(v) ? v.join(' ') : String(v);
-    return have.toLowerCase().includes(String(want).toLowerCase());
+    const have = (Array.isArray(v) ? v.join(' ') : String(v)).toLowerCase();
+    // 数组：几种说法任一个都算对（MCP / Model Context Protocol）
+    return (Array.isArray(want) ? want : [want]).some((w) => have.includes(String(w).toLowerCase()));
   });
 }
 
@@ -167,7 +191,7 @@ const SYSTEM = [
 async function runOne(opts, task, mode, size) {
   const { tools, map } = toolsFor(mode, size);
   const messages = [{ role: 'user', content: task.prompt }];
-  const rec = { id: task.id, named: task.named, mode, size, steps: 0, tokensIn: 0, tokensOut: 0, tool: null, toolOk: false, argsOk: false, outcome: '' };
+  const rec = { id: task.id, named: task.named, mode, size, lookups: [], steps: 0, tokensIn: 0, tokensOut: 0, tool: null, toolOk: false, argsOk: false, outcome: '' };
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
       const resp = normalize(opts, await callModel(opts, SYSTEM, messages, tools));
@@ -191,8 +215,15 @@ async function runOne(opts, task, mode, size) {
           rec.tool = c.name; rec.outcome = 'unknown_tool'; return rec;
         }
         const [server, tool, args] = picked;
+        const isExpected = task.expect.some(([s, t]) => s === server && t === tool);
+        // 先查一步再动手（发消息前先找频道、评论前先看 issue）是合理的：只读的就给它模拟数据，让它接着做
+        if (!isExpected && isReadOnly(tool)) {
+          rec.lookups.push(`${server}.${tool}`);
+          results.push({ id: c.id, text: mockResult(server, tool) });
+          continue;
+        }
         rec.tool = `${server}.${tool}`;
-        rec.toolOk = task.expect.some(([s, t]) => s === server && t === tool);
+        rec.toolOk = isExpected;
         rec.argsOk = rec.toolOk && argsOk(task.args, args);
         rec.args = args;
         rec.outcome = rec.toolOk ? (rec.argsOk ? 'ok' : 'bad_args') : 'wrong_tool';
@@ -233,6 +264,7 @@ function summarize(records) {
       named: pct(named.filter((r) => r.argsOk).length, named.length),
       unnamed: pct(unnamed.filter((r) => r.argsOk).length, unnamed.length),
       steps: (valid.reduce((s, r) => s + r.steps, 0) / (valid.length || 1)).toFixed(1),
+      lookups: (valid.reduce((s, r) => s + r.lookups.length, 0) / (valid.length || 1)).toFixed(1),
       tokens: avg((r) => r.tokensIn + r.tokensOut),
     });
   }
@@ -244,9 +276,9 @@ function printTable(opts, rows) {
   const lines = [
     `模型：${opts.model}　第三方工具：small ${countTools('small')} 个，large ${countTools('large')} 个（另有 Token Bank 自己的 ${TB_TOOLS.length} 个）`,
     '',
-    '| 工具数 | 接入方式 | 任务数 | 选对工具 | 工具和参数都对 | 点名的 | 没点名的 | 平均调用模型次数 | 平均 token |',
-    '|---|---|---|---|---|---|---|---|---|',
-    ...rows.map((r) => `| ${r.size} | ${r.mode} | ${r.n}${r.errors ? `（${r.errors} 个出错）` : ''} | ${r.tool} | ${r.both} | ${r.named} | ${r.unnamed} | ${r.steps} | ${r.tokens} |`),
+    '| 工具数 | 接入方式 | 任务数 | 选对工具 | 工具和参数都对 | 点名的 | 没点名的 | 先查了几次 | 平均调用模型次数 | 平均 token |',
+    '|---|---|---|---|---|---|---|---|---|---|',
+    ...rows.map((r) => `| ${r.size} | ${r.mode} | ${r.n}${r.errors ? `（${r.errors} 个出错）` : ''} | ${r.tool} | ${r.both} | ${r.named} | ${r.unnamed} | ${r.lookups} | ${r.steps} | ${r.tokens} |`),
   ];
   console.log(lines.join('\n'));
 }
@@ -279,7 +311,7 @@ async function main() {
   const misses = records.filter((r) => r.outcome !== 'ok');
   if (misses.length) {
     console.log('\n没做对的：');
-    for (const r of misses) console.log(`- [${r.size}/${r.mode}] ${r.id}：${r.outcome}${r.tool ? `（选了 ${r.tool}）` : ''}${r.error ? ` ${r.error}` : ''}${r.outcome === 'bad_args' ? ` 参数 ${JSON.stringify(r.args).slice(0, 160)}` : ''}`);
+    for (const r of misses) console.log(`- [${r.size}/${r.mode}] ${r.id}：${r.outcome}${r.lookups.length ? `（先查了 ${r.lookups.join('、')}）` : ''}${r.tool ? `（选了 ${r.tool}）` : ''}${r.error ? ` ${r.error}` : ''}${r.outcome === 'bad_args' ? ` 参数 ${JSON.stringify(r.args).slice(0, 160)}` : ''}`);
   }
   if (opts.out) fs.writeFileSync(path.resolve(opts.out), JSON.stringify({ model: opts.model, at: new Date().toISOString(), rows, records }, null, 2));
 }
