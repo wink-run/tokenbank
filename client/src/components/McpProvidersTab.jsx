@@ -106,6 +106,17 @@ const EMPTY_CUSTOM_FORM = {
 };
 
 /** 已存工具的种类。旧数据没有 tool_kind，一律视为 MCP。 */
+/**
+ * 要用应用自己的工作目录、或者按会话保存状态的本地 MCP（文件、git、浏览器、终端）：
+ * 经网关时进程跑在 Token Bank 里，看到的不是应用打开的项目，所以直接写进应用配置。
+ */
+const APP_CONTEXT_MCP = /(^|[-_\s/])(filesystem|files?|fs|git|puppeteer|playwright|browser|chrome|shell|terminal|desktop-commander|desktop|sqlite|obsidian)([-_\s/]|$)/i;
+function needsAppContext(s) {
+  if (!s || isMcpUrlServer(s) || toolKindOf(s) !== 'mcp') return false;
+  if (s.metadata?.categoryGroup === 'filesystem') return true;
+  return APP_CONTEXT_MCP.test(`${s.id || ''} ${s.name || ''} ${(s.args || []).join(' ')}`);
+}
+
 function toolKindOf(s) {
   const k = s?.tool_kind || s?.metadata?.tool_kind;
   return k === 'api' || k === 'cli' ? k : 'mcp';
@@ -531,12 +542,14 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
   }
 
   /**
-   * 投射的实现方式：第三方 MCP 经 TokenBank 网关中转（应用只需配置一次中转地址，增减 MCP 不再改应用配置，
-   * 密钥只存在 TokenBank）；内置 MCP 属默认基础设施，直接写入应用配置。已写入配置的第三方老条目保留，可撤销。
+   * 接入方式由 Token Bank 定，用户只选给哪些应用：
+   *   - 要用应用工作目录的本地 MCP（文件、git、浏览器、终端）和内置的：直接写进应用配置；
+   *   - 其它经网关：应用配置里那一条 tokenbank 会把它的工具原样列给模型（和直接写入一样准），
+   *     密钥只存在 Token Bank，增减 MCP 不用改应用配置。API 应用只能经网关。
    */
   function autoTransport(server, target) {
-    // 内置 MCP 默认直接写入应用配置（由 TokenBank 按应用生成正确条目）；API 应用只能经中转
-    if (server.builtin && target.kind !== 'api-app' && target.agent?.projectable) return 'project';
+    const canWrite = target.kind !== 'api-app' && target.agent?.projectable;
+    if (canWrite && (server.builtin || needsAppContext(server))) return 'project';
     if (canRelay(server)) return 'relay';
     return null;
   }
@@ -678,6 +691,9 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
       }
       const needManual = [...relayApps].filter((id) => gatewayApiApps.some((a) => a.id === id) || !relayUsableViaBuiltin(id));
       if (needManual.length) parts.push(t('resources.mcp.relaySetupHint'));
+      // 经网关加的：应用启动时读一次工具列表，重开或重连它的 MCP 后新工具才出现
+      const restart = [...relayApps].filter((id) => !needManual.includes(id));
+      if (restart.length) parts.push(t('resources.mcp.restartHint', { apps: restart.map((id) => targets.find((tg) => tg.id === id)?.label || relayTargetLabel(id)).join('、') }));
       if (projectedToWorkbuddy) parts.push(t('providers.mcp.workbuddyTrustHint'));
       if (!single) setSelectedServerIds([]);
       await loadAll({ silent: true });

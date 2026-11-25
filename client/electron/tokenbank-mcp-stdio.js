@@ -53,7 +53,8 @@ function forward(msg) {
         'Content-Length': Buffer.byteLength(body),
         Accept: 'application/json',
         Authorization: `Bearer ${gw.token}`,
-        'X-TB-Scope': 'tokenbank',
+        // 给这个应用的第三方 MCP 也原样列出来（不藏在 tb_call_mcp 后面），模型选工具、填参数都更准
+        'X-TB-Scope': 'app',
         'X-TB-Dispatch': dispatchHeader(),
       },
     }, (res) => {

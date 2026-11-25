@@ -101,15 +101,15 @@ test('权限不够、工具不存在都给出说明', async () => {
   assert.match(text(gone), /没有这个工具/);
 });
 
-test('tb_list_resources 按应用的投射门控，可按类型、关键词筛', async () => {
+test('tb_list_resources：智能体、技能、提示词看整个资产库（不按应用投射限制），可按类型、关键词筛', async () => {
   await withMocks({ relayed: PIPEWORX }, async () => {
     const mine = text(await call('tb_list_resources', {}, { clientId: 'cursor' }));
     assert.match(mine, /\[智能体\] writer/);
     assert.match(mine, /\[技能\] image-gen/);
     assert.match(mine, /\[提示词\] code-review/);
     assert.match(mine, /\[MCP\] pipeworx.*ask_pipeworx/);
-    const none = text(await call('tb_list_resources', { type: 'skill' }, { clientId: 'codex' }));
-    assert.match(none, /还没有给你用的技能/);
+    const other = text(await call('tb_list_resources', { type: 'skill' }, { clientId: 'codex' }));
+    assert.match(other, /\[技能\] image-gen/, '没投射给 codex 也能用');
     const q = text(await call('tb_list_resources', { query: '审查' }, { clientId: 'cursor' }));
     assert.ok(q.includes('code-review') && !q.includes('image-gen'));
   });
@@ -123,15 +123,16 @@ test('tb_list_resources source=catalog 列社区目录', async () => {
   });
 });
 
-test('tb_get_resource：智能体给全文并记命中；没投射的拒绝；summary 只给简介', async () => {
+test('tb_get_resource：智能体给全文并记命中；任何应用都能用；summary 只给简介', async () => {
   await withMocks({}, async (rm) => {
     const r = await call('tb_get_resource', { type: 'assistant', name: 'writer' }, { clientId: 'cursor' });
     assert.equal(r.isError, false);
     assert.match(text(r), /你是写作助手/);
     assert.match(text(r), /assistant:a1/);
     assert.deepEqual(rm.hits, ['a1']);
-    const denied = await call('tb_get_resource', { type: 'assistant', name: 'writer' }, { clientId: 'codex' });
-    assert.equal(denied.isError, true);
+    const other = await call('tb_get_resource', { type: 'assistant', name: 'writer' }, { clientId: 'codex' });
+    assert.equal(other.isError, false);
+    assert.equal((await call('tb_get_resource', { type: 'assistant', name: 'nobody' }, { clientId: 'codex' })).isError, true);
     const summary = JSON.parse(text(await call('tb_get_resource', { type: 'assistant', name: 'writer', mode: 'summary' }, { clientId: 'cursor' })));
     assert.equal(summary.dispatch_id, 'assistant:a1');
   });
@@ -146,11 +147,9 @@ test('tb_get_resource：提示词按名取正文并填 $ARGUMENTS（替代以前
   });
 });
 
-test('tb_get_resource：技能没投射给这个应用不让读', async () => {
+test('tb_get_resource：技能任何应用都能读，记下是哪个应用用的', async () => {
   await withMocks({}, async (rm) => {
-    assert.equal((await call('tb_get_resource', { type: 'skill', name: 'image-gen' }, { clientId: 'codex' })).isError, true);
-    assert.deepEqual(rm.hits, []);
-    const ok = await call('tb_get_resource', { type: 'skill', name: 'image-gen' }, { clientId: 'cursor' });
+    const ok = await call('tb_get_resource', { type: 'skill', name: 'image-gen' }, { clientId: 'codex' });
     assert.match(text(ok), /use model/);
     assert.deepEqual(rm.hits, ['s1']);
   });

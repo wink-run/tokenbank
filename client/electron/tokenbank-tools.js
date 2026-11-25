@@ -34,7 +34,7 @@ const TOOLS = [
   {
     name: 'tb_list_resources',
     level: 'read',
-    description: '列出给你用的资产：智能体、技能、提示词、第三方 MCP、HTTP API、本地命令。source=catalog 列社区目录里的（没安装的要用户在 Token Bank 里安装）。',
+    description: '列出 Token Bank 资产库里的智能体、技能、提示词，以及接入这个应用的第三方 MCP、HTTP API、本地命令。source=catalog 列社区目录里的（没安装的要用户在 Token Bank 里安装）。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -875,10 +875,11 @@ async function listResources(args, ctx) {
   const type = String(args.type || 'all').toLowerCase();
   const query = String(args.query || '').trim().toLowerCase();
   const library = isGuardian(ctx);
+  // 智能体、技能、提示词：资产库里有就能用，不按应用投射限制（按名字用时才取正文，不占上下文）
   const managed = (t) => {
     if (library) return (store.listResources({ type: t }) || []).map((r) => ({ ...r, type: t }));
     const fn = { assistant: 'listAssistantsForClient', skill: 'listSkillsForClient', prompt: 'listPromptsForClient' }[t];
-    return (store[fn](cid) || []).map((r) => ({ ...r, type: t }));
+    return (store[fn]('') || []).map((r) => ({ ...r, type: t }));
   };
   const wantMcp = type === 'mcp' || type === 'all';
   const mcp = wantMcp && relayedMcps(cid).length ? mcpRows(cid, await relayedToolDefs(cid)) : [];
@@ -894,7 +895,9 @@ async function listResources(args, ctx) {
     const label = TYPE_TEXT[type] || '资产';
     return textResult(library
       ? `（资产库里没有${label}）`
-      : `（还没有给你用的${label}：请用户在 Token Bank「资产」页把它投射到这个应用；社区里的可以用 source=catalog 看）`);
+      : type === 'mcp' || type === 'api' || type === 'cli'
+        ? `（还没有接入的${label}：请用户在 Token Bank「资产 → 工具」添加到这个应用）`
+        : `（资产库里还没有${label}：请用户在 Token Bank「资产」页添加；社区里的可以用 source=catalog 看）`);
   }
   const count = {};
   for (const r of rows) count[r.type] = (count[r.type] || 0) + 1;
@@ -903,8 +906,8 @@ async function listResources(args, ctx) {
 }
 
 function activateAssistant(store, ref, cid, mode) {
-  const resolved = store.resolveAssistantForClient(ref, cid);
-  if (!resolved.found) return textResult(`没有给你用的智能体：${ref}。先 tb_list_resources(type=assistant) 看看。`, true);
+  const resolved = store.resolveAssistantForClient(ref, '');
+  if (!resolved.found) return textResult(`资产库里没有这个智能体：${ref}。先 tb_list_resources(type=assistant) 看看。`, true);
   if (mode === 'summary' && resolved.resource) return textResult(formatResourceDetail({ ...resolved.resource, type: 'assistant' }));
   try { store.recordResourceHit?.(resolved.id, cid); } catch { /* 只是统计 */ }
   return textResult([
@@ -916,8 +919,8 @@ function activateAssistant(store, ref, cid, mode) {
 }
 
 function promptText(store, ref, args, cid) {
-  const resolved = store.resolvePromptForClient(ref, String(args || ''), cid);
-  if (!resolved.found) return textResult(`没有给你用的提示词：${ref}。先 tb_list_resources(type=prompt) 看看。`, true);
+  const resolved = store.resolvePromptForClient(ref, String(args || ''), '');
+  if (!resolved.found) return textResult(`资产库里没有这个提示词：${ref}。先 tb_list_resources(type=prompt) 看看。`, true);
   try { store.recordResourceHit?.(resolved.id, cid); } catch { /* 只是统计 */ }
   return textResult(resolved.text || '');
 }
@@ -954,9 +957,6 @@ async function getResource(args, ctx) {
     if (r.type === 'prompt') return promptText(store, r.name || ref, args.args, cid);
     if (r.type === 'mcp') return textResult(formatResourceDetail({ ...r, toolDefs: (await relayedToolDefs(cid))[r.prefix] || null }));
     if (r.type === 'skill') {
-      if (!store.isResourceProjectedToClient(r.id, cid)) {
-        return textResult(`这个技能没投射给你：${ref}。请用户在 Token Bank「资产」页投射到这个应用。`, true);
-      }
       try { store.recordResourceHit?.(r.id, cid); } catch { /* 只是统计 */ }
     }
     return textResult(formatResourceDetail(r));

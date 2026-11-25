@@ -2,7 +2,7 @@
 // 本机应用的 MCP 入口：网关 11430 的 /mcp/<应用>（凭中转 Key）。
 //   Token Bank 自己的工具（tokenbank-tools.js）在这个进程里直接执行，按这个应用的权限给；
 //   投射给这个应用的第三方 MCP（stdio / 远程 HTTP）由这里拉起、加前缀聚合进来。
-// 写进应用配置的 tokenbank 条目（tokenbank-mcp-stdio.js）也转到这里，只取 Token Bank 自己的工具。
+// 写进应用配置的 tokenbank 条目（tokenbank-mcp-stdio.js）也转到这里：一个条目里既有 Token Bank 的工具，也有给这个应用的第三方 MCP。
 'use strict';
 
 const fs = require('fs');
@@ -96,12 +96,22 @@ function parseClientIdFromPath(pathname) {
   return { ok: false, clientId: '' };
 }
 
-/** 某应用可见的第三方 MCP 后端（gateway_clients 含该应用；不指定应用时全部） */
+/** 应用 id 和它的别名（codex / codex-desktop 等算同一个应用） */
+function clientIdsOf(cid) {
+  try { return new Set([cid, ...require('./mcp-agent-targets').expandMcpClientMatchIds(cid)]); } catch { return new Set([cid]); }
+}
+
+/**
+ * 某应用可见的第三方 MCP 后端（给了这个应用的；不指定应用时全部）。
+ * 已经直接写进这个应用配置的不再经网关列一遍，免得同一组工具出现两次。
+ */
 function backendsForClient(clientId) {
   syncBackends();
   const cid = safeClientId(clientId);
+  const ids = cid ? clientIdsOf(cid) : null;
+  const has = (list) => Array.isArray(list) && list.some((id) => ids.has(id));
   return [...routedRows.values()]
-    .filter((row) => !cid || (Array.isArray(row?.gateway_clients) && row.gateway_clients.includes(cid)))
+    .filter((row) => !ids || (has(row?.gateway_clients) && !has(row?.sync_clients)))
     .map((row) => backends.get(row.id))
     .filter(Boolean);
 }
@@ -527,18 +537,29 @@ function projectedPlainTools(clientId) {
   }
 }
 
-async function aggregateTools(clientId = '') {
+/** 一起拉各个第三方 MCP 的工具；慢的（比如第一次 npx 下载）最多等 timeoutMs，不拖住应用启动 */
+async function aggregateTools(clientId = '', timeoutMs = 15000) {
   const list = backendsForClient(clientId);
   const tools = [];
   const errors = [];
-  for (const backend of list) {
+  const results = await Promise.all(list.map(async (backend) => {
+    let timer;
     try {
-      const listed = await backend.listTools();
-      tools.push(...listed.map(({ _backendId, _rawName, ...rest }) => rest));
+      const listed = await Promise.race([
+        backend.listTools(),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('启动超时')), timeoutMs); }),
+      ]);
+      return { listed };
     } catch (e) {
-      errors.push(`${backend.name}: ${e.message}`);
       console.warn('[mcp-gateway] listTools failed:', backend.name, e.message);
+      return { error: `${backend.name}: ${e.message}` };
+    } finally {
+      clearTimeout(timer);
     }
+  }));
+  for (const r of results) {
+    if (r.listed) tools.push(...r.listed.map(({ _backendId, _rawName, ...rest }) => rest));
+    else errors.push(r.error);
   }
   if (errors.length && tools.length === 0) {
     tools.push({
@@ -606,7 +627,8 @@ function tokenbankContext(cid, { port, agentKey, dispatch } = {}) {
  * @param {object} msg JSON-RPC
  * @param {string} clientId 应用 id（路径 /mcp/<应用>）
  * @param {{ scope?: string, port?: number, agentKey?: string, dispatch?: object }} opts
- *   scope='tokenbank'：只要 Token Bank 自己的工具（写进应用配置的 tokenbank 条目转过来的）
+ *   scope='tokenbank'：只要 Token Bank 自己的工具；其它（包括写进应用配置的 tokenbank 条目转过来的）
+ *   还带上给这个应用的第三方 MCP，原样列出（模型直接看到工具名和参数，比藏在 tb_call_mcp 后面准）
  */
 async function handleMcpMessage(msg, clientId = '', opts = {}) {
   const tools = require('./tokenbank-tools');

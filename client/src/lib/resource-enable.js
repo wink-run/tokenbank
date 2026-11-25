@@ -75,7 +75,7 @@ export function buildMcpInvokeText(server, lang = 'zh') {
 }
 
 /**
- * 纳管成功后：投射到可用主公，返回口令与投射结果
+ * 纳管成功后：投射到应用（技能、提示词给所有已装的，智能体按场景挑），返回口令与投射结果
  * @returns {{ agentIds: string[], invokeText: string, projected: boolean }}
  */
 export async function completeEnablePackage(resource, { lang = 'zh' } = {}) {
@@ -100,12 +100,18 @@ export async function completeEnablePackage(resource, { lang = 'zh' } = {}) {
     /* 用默认优先序 */
   }
 
-  // 按场景投射：最近真正在用技能的应用优先，不再一股脑投到所有默认应用（没有使用记录时照旧）
-  try {
-    const pref = await window.electronAPI.guardian?.preferredTargets?.({ resourceType: resource.type, candidates: installedIds.length ? installedIds : candidates });
-    if (pref?.agentIds?.length) candidates = pref.agentIds;
-  } catch {
-    /* 看护不可用时照旧 */
+  if (resource.type === 'skill' || resource.type === 'prompt') {
+    // 技能、提示词：投射到所有已装的应用。技能平时只占名字和一句说明，用到才读全文，多放几个应用不影响选得准不准；
+    // 只给少数应用，用户换个应用就找不到了
+    if (installedIds.length) candidates = installedIds;
+  } else {
+    // 智能体：投射到哪个应用就在哪个应用里跑，按场景挑最近真正在用的应用（没有使用记录时照旧）
+    try {
+      const pref = await window.electronAPI.guardian?.preferredTargets?.({ resourceType: resource.type, candidates: installedIds.length ? installedIds : candidates });
+      if (pref?.agentIds?.length) candidates = pref.agentIds;
+    } catch {
+      /* 看护不可用时照旧 */
+    }
   }
 
   // 已有投射则不再强行改
