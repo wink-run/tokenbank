@@ -30,10 +30,44 @@ function generateToken() {
   return crypto.randomBytes(24).toString('hex');
 }
 
+/**
+ * ~/.tokenbank/README.md：智能体自己去翻这个目录时第一眼看到，让它回去用 tokenbank 的工具查，
+ * 别读里面的配置、数据库自己拼答案（常是错的）
+ */
+const README_TEXT = `# Token Bank 内部数据（请不要直接读或改）
+
+这个目录是 Token Bank 自己的配置、数据库和缓存，格式随版本变化，直接读出来的结论常常是错的。
+
+如果你是 AI 智能体，想知道 Token Bank 有什么，请用 tokenbank MCP 的工具查：
+
+- 能做什么、接了哪些工具 / MCP / API / 命令：tb_capabilities
+- 有哪些技能、智能体、提示词、MCP：tb_list_resources
+- 有哪些模型：tb_list_models
+- 有哪些智能体能接活：tb_list_agents
+- 有哪些设备：tb_list_devices
+
+工具列表里看不到这些工具时，先搜一下 "tokenbank" 或 "tb_"（有的应用会先把 MCP 工具藏起来、按需加载）。
+要改设置、安装或投射，请让用户在 Token Bank 里操作。
+
+# Token Bank internal data (please don't read or edit directly)
+
+AI agents: to find out what Token Bank offers, use the tokenbank MCP tools instead
+(tb_capabilities, tb_list_resources, tb_list_models, tb_list_agents, tb_list_devices).
+`;
+function writeReadme() {
+  try {
+    const file = path.join(TB_DIR, 'README.md');
+    let cur = '';
+    try { cur = fs.readFileSync(file, 'utf8'); } catch { /* 还没有 */ }
+    if (cur !== README_TEXT) fs.writeFileSync(file, README_TEXT, 'utf8');
+  } catch { /* 写不了不影响网关 */ }
+}
+
 function writeInfo(info) {
   fs.mkdirSync(TB_DIR, { recursive: true });
   fs.writeFileSync(INFO_PATH, JSON.stringify(info, null, 2), 'utf8');
   endpoint = info;
+  writeReadme();
 }
 
 function getGatewayEndpoint() {
@@ -1009,6 +1043,7 @@ module.exports = {
   buildClientConfigJson,
   setOwnConfigCheck,
   relayedInstructions,
+  README_TEXT,
   BIG_MCP_TOOLS,
   NATIVE_TOOLS_MAX,
 };

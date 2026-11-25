@@ -15,6 +15,7 @@ const GUARDIAN_CLIENT_ID = 'guardian-chat';
 /** 连上时给模型看一次的用法说明（以前每次 tb_list_agents 都附一段规则，现在只说这一次） */
 const INSTRUCTIONS = [
   'Token Bank 是用户的模型网关和智能体管家。',
+  '- 用户问到 Token Bank（有哪些工具、MCP、模型、技能、智能体、设备，能做什么）：用这里的工具查，先 tb_capabilities。不要去读 ~/.tokenbank 下的文件自己拼，那是内部数据，拼出来常是错的。',
   '- 不确定能做什么：先 tb_capabilities。',
   '- 用户说「用某某智能体 / 技能 / 提示词」：tb_list_resources 找到，tb_get_resource 取正文，在当前对话里照着做。',
   '- 要用模型：tb_list_models；技能里写死的模型可能不存在，用 preferred 检查并换成能用的。',
@@ -28,13 +29,13 @@ const TOOLS = [
   {
     name: 'tb_capabilities',
     level: 'read',
-    description: '看 Token Bank 能给你什么：可用工具、已接入的第三方 MCP、HTTP API 和本地命令、网关接口地址。不确定该用哪个工具时先调它。',
+    description: '用户问 Token Bank 能做什么、接了哪些工具 / MCP / API / 命令时先调这个，一次就能答全：可用工具、已接入的第三方 MCP、HTTP API 和本地命令、网关接口地址。不确定该用哪个工具时也先调它。别去读 ~/.tokenbank 下的文件。',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'tb_list_resources',
     level: 'read',
-    description: '列出 Token Bank 资产库里的智能体、技能、提示词，以及接入这个应用的第三方 MCP、HTTP API、本地命令。source=catalog 列社区目录里的（没安装的要用户在 Token Bank 里安装）。',
+    description: '用户问「我有哪些技能 / 智能体 / 提示词 / MCP」时用这个查（不要去翻 ~/.tokenbank 或技能目录）：列出 Token Bank 资产库里的智能体、技能、提示词，以及接入这个应用的第三方 MCP、HTTP API、本地命令。source=catalog 列社区目录里的（没安装的要用户在 Token Bank 里安装）。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -67,7 +68,7 @@ const TOOLS = [
   {
     name: 'tb_list_agents',
     level: 'read',
-    description: '列出能接任务的智能体：本机的、我其他设备上的、雇来的社区智能体，和本机命令行工具（Claude Code、Codex 等）。',
+    description: '用户问有哪些智能体能用、能把活交给谁时用这个：列出能接任务的智能体，本机的、我其他设备上的、雇来的社区智能体，和本机命令行工具（Claude Code、Codex 等）。',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -117,7 +118,7 @@ const TOOLS = [
   {
     name: 'tb_list_models',
     level: 'read',
-    description: '列出网关里能用的模型（聊天、图像、向量）。给了 preferred 就检查它在不在，不在时换成同类能用的。',
+    description: '用户问 Token Bank 里有哪些模型能用时用这个（不要去读配置文件）：列出网关里能用的模型（聊天、图像、向量）。给了 preferred 就检查它在不在，不在时换成同类能用的。',
     inputSchema: {
       type: 'object',
       properties: {
