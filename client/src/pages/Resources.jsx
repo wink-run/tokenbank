@@ -3684,17 +3684,12 @@ export default function Resources() {
     if (f.quality === 'warn') return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyQuality'), act: 'look' };
     if (f.updateAvailable) return { kind: 'update', word: t('resources.row.update'), why: t('resources.row.whyUpdate', { to: f.updateAvailable.to }), act: 'look' };
     if (li.life.layer === 'exempt') return { kind: 'active', word: t('resources.source.builtin'), why: '', act: 'project' };
-    // 智能体是模板：说它投射到了哪里，不说「在用 / 没在用」（运行情况在网关页）
-    if (li.type === 'assistant') {
-      return li.apps.length
-        ? { kind: 'active', word: t('resources.tpl.projected', { n: li.apps.length }), why: t('resources.tpl.runInGateway'), act: 'project', gateway: true }
-        : { kind: 'idle', word: t('resources.tpl.notProjected'), why: '', act: 'project' };
-    }
+    // 智能体模板和提示词一样只说用没用过：在哪些智能体里可见看前一列，运行情况在网关页
     if (li.life.layer === 'active') {
-      return { kind: 'active', word: t('resources.state.active'), why: li.apps.length && li.type !== 'prompt' ? t('resources.row.onApps', { n: li.apps.length }) : '', act: 'project' };
+      return { kind: 'active', word: t('resources.state.active'), why: li.apps.length && li.type === 'skill' ? t('resources.row.onApps', { n: li.apps.length }) : '', act: 'project' };
     }
-    // 提示词不用启用到应用：没用过就说没用过
-    if (li.type === 'prompt') return { kind: 'idle', word: t('resources.row.promptUnused'), why: '', act: 'project' };
+    // 提示词、智能体模板不用启用到应用：没用过就说没用过
+    if (li.type === 'prompt' || li.type === 'assistant') return { kind: 'idle', word: t('resources.row.promptUnused'), why: '', act: 'project' };
     // 技能：没启用写「停用」，启用了没用过只说没用过（闲置由智能管家处理，这里不催）
     if (li.type === 'skill') return { kind: 'idle', word: li.apps.length ? t('resources.row.promptUnused') : t('resources.skill.offShort'), why: '', act: 'project' };
     // 一句话说清楚，不再「没在用」+「启用了还没用过」两句打架
