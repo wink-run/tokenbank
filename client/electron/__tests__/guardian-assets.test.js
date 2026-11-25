@@ -19,6 +19,29 @@ const assets = require('../guardian/asset-checks');
 const skillMd = (name, desc, body) => `---\nname: ${name}\ndescription: "${desc}"\n---\n\n${body}\n`;
 const LONG_BODY = Array.from({ length: 40 }, (_, i) => `Step ${i}: read the pull request diff carefully and list every problem with a concrete fix suggestion for line ${i}.`).join('\n');
 
+test('quality: YAML block description is the indented text, not the >- marker', () => {
+  const folded = `---
+name: visualize
+description: >-
+  Use /visualize for creating compact charts, diagrams, or other visuals inline
+  as part of the conversation itself.
+metadata:
+  surfaces:
+    - ide
+---
+# Visualize
+`;
+  const h = checks.parseHeader(folded);
+  assert.equal(h.name, 'visualize');
+  assert.match(h.description, /^Use \/visualize for creating compact charts/);
+  assert.equal(h.description.includes('surfaces'), false);
+  assert.ok(h.description.length > 15);
+  assert.equal(checks.qualityCheck({ name: 'visualize' }, [{ rel: 'SKILL.md', text: folded }]).some(x => x.code === 'q-short-description'), false);
+
+  const literal = `---\r\nname: x\r\ndescription: |\r\n  Review pull requests against team conventions and point out bugs\r\n---\r\n`;
+  assert.match(checks.parseHeader(literal).description, /Review pull requests/);
+});
+
 test('quality: flags missing / short / generic descriptions', () => {
   const r = { name: 'x' };
   assert.equal(checks.qualityCheck(r, [{ rel: 'SKILL.md', text: '# no header' }])[0].code, 'q-no-header');

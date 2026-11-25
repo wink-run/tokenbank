@@ -35,12 +35,31 @@ function readSkillFiles(dir) {
   return out;
 }
 
+/** `>-`、`|`、`|2-` 这类块标量标记。标记本身不是说明，正文在下一行起的缩进块里。 */
+function isYamlBlockMarker(value) {
+  return /^[|>][+-]?\d*$/.test(value) || /^[|>]\d+[+-]?$/.test(value);
+}
+
 function parseHeader(text) {
-  const m = String(text || '').match(/^\s*---\s*\n([\s\S]*?)\n---/);
+  const m = String(text || '').match(/^\s*---\s*\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return null;
+  const lines = m[1].split(/\r?\n/);
   const pick = (k) => {
-    const mm = m[1].match(new RegExp(`^${k}\\s*:\\s*(.*)$`, 'm'));
-    return mm ? mm[1].trim().replace(/^["']|["']$/g, '') : '';
+    const i = lines.findIndex((line) => new RegExp(`^${k}\\s*:`).test(line));
+    if (i < 0) return '';
+    let v = (lines[i].match(/^[^:]+:\s*(.*)$/)?.[1] || '').trim();
+    // 同一行只有 >- / | 时，把后续缩进行拼成一个值；碰到下一个顶格字段就停
+    if (isYamlBlockMarker(v)) {
+      const block = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        const line = lines[j];
+        if (!line.trim()) continue;
+        if (!/^\s+\S/.test(line)) break;
+        block.push(line.trim());
+      }
+      v = block.join(' ');
+    }
+    return v.replace(/^["']|["']$/g, '').replace(/\s+/g, ' ').trim();
   };
   return { name: pick('name'), description: pick('description') };
 }
