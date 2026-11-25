@@ -893,6 +893,10 @@ async function listResources(args, ctx) {
   }
   if (!rows.length) {
     const label = TYPE_TEXT[type] || '资产';
+    // 带了关键词没找到：别说成「资产库是空的」，模型会照着告诉用户
+    if (query) {
+      return textResult(`没有找到和「${args.query}」相关的${label}。不带关键词再列一次可以看到全部；社区里的可以用 source=catalog 搜。`);
+    }
     return textResult(library
       ? `（资产库里没有${label}）`
       : type === 'mcp' || type === 'api' || type === 'cli'

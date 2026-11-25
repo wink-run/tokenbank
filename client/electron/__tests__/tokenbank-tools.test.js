@@ -302,3 +302,11 @@ test('拿不到工具定义时照旧调用（只是没法检查）', async () =>
     tools.setRelayedToolDefs(null);
   }
 });
+
+test('带关键词没找到时说「没找到相关的」，不说资产库是空的', async () => {
+  await withMocks({}, async () => {
+    const t = text(await call('tb_list_resources', { query: 'computer' }, { clientId: 'cursor' }));
+    assert.match(t, /没有找到和「computer」相关的/);
+    assert.doesNotMatch(t, /资产库里还没有/);
+  });
+});

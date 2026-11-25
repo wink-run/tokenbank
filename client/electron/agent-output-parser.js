@@ -923,6 +923,28 @@ function cursorToolArgsInput(args) {
   return args;
 }
 
+/**
+ * MCP 工具结果的 content 取成文字：可能是字符串、[{ type:'text', text }]（MCP 原样），
+ * 或 Cursor 包过一层的 [{ text: { text } }]；图片等非文字的写个占位
+ */
+function contentText(content) {
+  if (content == null) return '';
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) {
+    if (typeof content.text === 'string') return content.text;
+    if (content.text && typeof content.text.text === 'string') return content.text.text;
+    return JSON.stringify(content, null, 2);
+  }
+  return content.map((item) => {
+    if (item == null) return '';
+    if (typeof item === 'string') return item;
+    if (typeof item.text === 'string') return item.text;
+    if (item.text && typeof item.text.text === 'string') return item.text.text;
+    if (item.type === 'image' || item.image) return '[图片]';
+    return JSON.stringify(item);
+  }).filter(Boolean).join('\n');
+}
+
 /** 从 Cursor tool_call.*ToolCall.result 提取 stdout / content */
 function cursorToolResultText(result) {
   if (result == null) return { text: '', isError: false };
@@ -948,7 +970,9 @@ function cursorToolResultText(result) {
         isError: Number(success.exitCode) > 0,
       };
     }
-    if (success.content != null) return { text: String(success.content), isError: false };
+    if (success.content != null) {
+      return { text: contentText(success.content), isError: !!success.isError };
+    }
     // write/read 元数据
     if (success.path || success.linesCreated != null || success.totalLines != null) {
       return { text: JSON.stringify(success, null, 2), isError: false };
