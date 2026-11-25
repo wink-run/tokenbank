@@ -333,7 +333,8 @@ function registerResourceHandlers() {
   ipcMain.handle('resource:unproject', async (_event, params = {}) => {
     try {
       resourceManager.init();
-      return resourceManager.unproject(params);
+      // 用户在资产页撤下：记下来，自动补齐时不再放回这个应用
+      return resourceManager.unproject({ ...params, byUser: true });
     } catch (error) {
       console.error('[IPC] resource:unproject error:', error);
       return { success: false, error: error.message };

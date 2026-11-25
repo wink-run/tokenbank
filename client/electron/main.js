@@ -2739,6 +2739,26 @@ function nodeRequest(url, method, headers, body, agentOrOpts) {
   });
 }
 
+// ── 技能自动补齐：启用的技能出现在所有支持技能的已装应用里 ──────────────────────
+let skillReconcileTimer = null;
+/** 合并短时间内的多次触发；不挡主流程，失败只记日志 */
+function scheduleSkillReconcile(delayMs = 3000) {
+  if (skillReconcileTimer) clearTimeout(skillReconcileTimer);
+  skillReconcileTimer = setTimeout(() => {
+    skillReconcileTimer = null;
+    try {
+      const r = require('./resource-manager').ensureSkillsInManagedApps();
+      if (r.added.length) {
+        console.log(`[skills] 自动补齐 ${r.added.length} 处`);
+        try { mainWindow?.webContents?.send('resources:changed'); } catch { /* 窗口没开 */ }
+      }
+    } catch (e) {
+      console.warn('[skills] 自动补齐失败:', e.message);
+    }
+  }, delayMs);
+  if (skillReconcileTimer.unref) skillReconcileTimer.unref();
+}
+
 // ── IPC handlers ──────────────────────────────────────────────────────────────
 
 function registerIPC() {
@@ -2756,6 +2776,8 @@ function registerIPC() {
         try { return getApps(); } catch { return []; }
       });
       mcpManager.init();
+      // 启动后补齐一次技能（也把以前只投了部分应用的补到其它已装应用）；晚一点跑，不拖启动
+      scheduleSkillReconcile(15000);
       startMcpGateway(() => mcpManager.listGatewayRoutedServers());
     } catch (gwErr) {
       console.warn('[mcp-gateway] start skipped:', gwErr.message);
@@ -4331,6 +4353,8 @@ function registerIPC() {
     cfg.apps = apps;
     writeLocalConfig(cfg);
     syncGatewayFromConfig(cfg);
+    // 应用纳管有变化（新装、新纳管）：已启用的技能自动放进去
+    scheduleSkillReconcile();
   }
 
   // 扫描 CLI 多账号 CONFIG_DIR，与已存 app 记录对账，把新账号补成实例记录、旧记录迁移出 instance 段。

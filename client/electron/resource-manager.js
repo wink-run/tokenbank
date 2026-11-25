@@ -1427,6 +1427,8 @@ class ResourceManager {
     }
     const ids = [...new Set(requested.filter(id => allowed.has(id)))];
     if (!ids.length) throw new Error('请至少选择一个已纳管的应用');
+    // 用户又把它投到之前撤下的应用：不再排除
+    if (resource.type === 'skill' && !options.auto) this._setSkillExcluded(resourceId, ids, false);
 
     // Skill 落盘只能进可承载 skill 的目标（智能体的关联 Skill 依赖同理）
     const skillHostableIds = ids.filter(id => getAgentTarget(id));
@@ -1562,7 +1564,8 @@ class ResourceManager {
     return { resynced };
   }
 
-  unproject({ resourceId, agentId, projectionId }) {
+  /** byUser：用户自己撤下的技能，记下来，自动补齐时不再放回这个应用 */
+  unproject({ resourceId, agentId, projectionId, byUser = false }) {
     this.init();
     const db = this._getDb();
     let row;
@@ -1579,6 +1582,7 @@ class ResourceManager {
     const resource = this.getResource(row.resource_id);
     if (resource) unprojectResource(resource, row.agent_id, row.projection_type, row.target_path);
     db.prepare('DELETE FROM resource_projections WHERE id = ?').run(row.id);
+    if (byUser && resource?.type === 'skill') this._setSkillExcluded(row.resource_id, [row.agent_id], true);
 
     if (resource?.type === 'assistant') {
       this._syncAssistantRuntimeFromProjections(row.resource_id);
@@ -1726,6 +1730,60 @@ class ResourceManager {
   }
 
   /** Skill / Prompt / 智能体投射目标：已纳管应用（同源） */
+  /** 技能 metadata.excluded_agents：用户从这些应用撤下过，自动补齐时跳过 */
+  _setSkillExcluded(resourceId, agentIds, excluded) {
+    const db = this._getDb();
+    const row = db.prepare('SELECT metadata FROM resources WHERE id = ?').get(resourceId);
+    if (!row) return;
+    let meta = {};
+    try { meta = JSON.parse(row.metadata || '{}') || {}; } catch { meta = {}; }
+    const cur = new Set(Array.isArray(meta.excluded_agents) ? meta.excluded_agents : []);
+    for (const id of agentIds || []) { if (excluded) cur.add(id); else cur.delete(id); }
+    if (cur.size) meta.excluded_agents = [...cur]; else delete meta.excluded_agents;
+    db.prepare('UPDATE resources SET metadata = ? WHERE id = ?').run(JSON.stringify(meta), resourceId);
+  }
+
+  /**
+   * 启用的技能（至少在一个应用里）自动出现在所有支持技能的已装应用里：用户只管技能开没开，不管投射。
+   * 跳过：高风险的（要用户确认才投）、用户从那个应用撤下过的、那个应用里已有同名技能的（不覆盖用户自己的）。
+   * 启动时跑一次（也补齐以前只投了部分应用的），新纳管一个应用时再跑。
+   * @param {{ securityGate?: (resource) => object|null }} opts
+   * @returns {{ added: { resourceId: string, agentId: string }[], skippedRisky: string[] }}
+   */
+  ensureSkillsInManagedApps({ securityGate } = {}) {
+    this.init();
+    const { getAgentTarget } = require('./resource-agent-targets');
+    const targets = this.listAgentTargets().map((t) => t.id).filter((id) => getAgentTarget(id));
+    const added = [];
+    const skippedRisky = [];
+    if (!targets.length) return { added, skippedRisky };
+    let gate = securityGate;
+    if (typeof gate !== 'function') {
+      try { gate = require('./guardian/asset-checks').securityGate; } catch { gate = () => null; }
+    }
+    for (const skill of this.listResources({ type: 'skill' }) || []) {
+      const have = new Set((skill.projections || []).map((p) => p.agentId || p.agent_id).filter(Boolean));
+      if (!have.size) continue;   // 没启用（一个应用都没有）
+      const excluded = new Set(Array.isArray(skill.metadata?.excluded_agents) ? skill.metadata.excluded_agents : []);
+      const missing = targets.filter((id) => !have.has(id) && !excluded.has(id));
+      if (!missing.length) continue;
+      let risky = null;
+      try { risky = gate(this.getResource(skill.id)); } catch { risky = null; }
+      if (risky) { skippedRisky.push(skill.id); continue; }
+      try {
+        const r = this.projectToAgents(skill.id, missing, 'global', { auto: true });
+        for (const one of r?.results || []) {
+          if (one.projectionType && one.projectionType !== 'conflict' && missing.includes(one.agentId)) {
+            added.push({ resourceId: skill.id, agentId: one.agentId });
+          }
+        }
+      } catch (e) {
+        console.warn('[resource-manager] 技能自动补齐失败:', skill.name, e.message);
+      }
+    }
+    return { added, skippedRisky };
+  }
+
   listAgentTargets() {
     const { listManagedResourceAgentIds } = require('./resource-agent-targets');
     const allowed = new Set(listManagedResourceAgentIds());

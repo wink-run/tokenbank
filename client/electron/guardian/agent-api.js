@@ -405,7 +405,7 @@ function projectManagedResource({ id, name, type, agentIds, agentId, scope, forc
 function unprojectManagedResource({ id, name, type, agentId, agentIds, projectionId } = {}) {
   const rm = manager();
   if (projectionId && !agentId && !agentIds) {
-    const result = rm.unproject({ projectionId });
+    const result = rm.unproject({ projectionId, byUser: true });
     if (result && result.success === false) return { ok: false, error: result.error || '撤下失败' };
     return ok({ resource: briefResource(result.resource) });
   }
@@ -414,7 +414,7 @@ function unprojectManagedResource({ id, name, type, agentId, agentIds, projectio
   const ids = asList(agentIds).concat(asList(agentId));
   if (!ids.length) return { ok: false, error: '要给出 agentId 或 projectionId' };
   let last = null;
-  for (const one of ids) last = rm.unproject({ resourceId: resource.id, agentId: one });
+  for (const one of ids) last = rm.unproject({ resourceId: resource.id, agentId: one, byUser: true });
   return ok({ resource: briefResource((last && last.resource) || rm.getResource(resource.id)), agentIds: ids });
 }
 

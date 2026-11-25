@@ -140,6 +140,11 @@ async function cmdStart(port, adminPort) {
   require('../electron/mesh/glue').startFromConfig({ gatewayPort: port })
     .catch((e) => console.warn('[mesh] start:', e && e.message));
 
+  // 启用的技能放进所有支持技能的已装应用（和桌面版一样，启动后补齐一次）
+  setTimeout(() => {
+    try { require('../electron/resource-manager').ensureSkillsInManagedApps(); } catch (e) { console.warn('[skills] 自动补齐失败:', e && e.message); }
+  }, 15000).unref?.();
+
   // 本地统计 + 会话补录（与 Electron 共用 ~/.tokenbank/local-stats.db）
   const telemetry = initGatewayTelemetry(gateway);
 
