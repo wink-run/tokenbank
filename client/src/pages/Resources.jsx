@@ -2019,7 +2019,11 @@ export default function Resources() {
     if (x + menuWidth > window.innerWidth - margin) {
       x = Math.max(margin, window.innerWidth - menuWidth - margin);
     }
-    setProjectSelected([]);
+    // 智能体：勾上它现在在跑的应用，取消勾选就是不在那儿跑了
+    const cur = resources.find((r) => r.id === resourceId);
+    setProjectSelected(cur?.type === 'assistant'
+      ? [...new Set((cur.projections || []).map((p) => p.agentId).filter(Boolean))]
+      : []);
     setProjectMenu({
       resourceId,
       x,
@@ -2056,11 +2060,47 @@ export default function Resources() {
 
   async function confirmProject() {
     if (!projectMenu) return;
+    const { resourceId } = projectMenu;
+    const current = resources.find(r => r.id === resourceId);
+    // 智能体：按勾选结果增删，全取消就是不在任何应用里跑
+    if (current?.type === 'assistant') {
+      const had = [...new Set((current.projections || []).map((p) => p.agentId).filter(Boolean))];
+      const drop = (current.projections || []).filter((p) => !projectSelected.includes(p.agentId));
+      const add = projectSelected.filter((id) => !had.includes(id));
+      if (!drop.length && !add.length) { setProjectMenu(null); return; }
+      setProjectMenu(null);
+      setBusy(resourceId);
+      setError('');
+      try {
+        let last = null;
+        for (const p of drop) {
+          const r = await window.electronAPI.resource.unproject({ resourceId, agentId: p.agentId, projectionId: p.id });
+          if (!r?.success) { setError(r?.error || t('resources.unprojectFailed')); return; }
+          last = r.resource || last;
+        }
+        if (add.length) {
+          if (current.depsBroken && current.missingDeps?.length) {
+            const list = current.missingDeps.map(d => `${d.type}:${d.name}`).join(', ');
+            if (!window.confirm(t('resources.depsBrokenConfirm', { list }))) return;
+          }
+          const r = await projectWithGuard({ resourceId, agentIds: add }, { t, name: current.display_name || current.name });
+          if (r.canceled) return;
+          if (!r.success) { setError(r.error || t('resources.projectFailed')); return; }
+          last = r.resource || last;
+        }
+        if (last) applyResourcePatch(resourceId, last);
+        setMsg(t('resources.assistant.runInSaved'));
+      } catch (e) {
+        setError(e.message);
+      } finally {
+        setBusy('');
+      }
+      return;
+    }
     if (!projectSelected.length) {
       setError(t('resources.pickAgent'));
       return;
     }
-    const { resourceId } = projectMenu;
     // 依赖缺失的智能体：投射到应用前确认
     const target = resources.find(r => r.id === resourceId);
     if (target?.type === 'assistant' && target.depsBroken && target.missingDeps?.length) {
@@ -2236,15 +2276,20 @@ export default function Resources() {
   }
 
   /** 放回某个应用（之前从那个应用撤下过），或确认高风险技能后放进去 */
-  async function putSkillInto(resourceId, agentIds) {
+  async function putSkillInto(resourceId, agentIds, { force = false } = {}) {
     const r = resourcesById.get(resourceId) || resources.find((x) => x.id === resourceId);
     if (!r || !agentIds.length) return;
     setBusy(resourceId);
     setError('');
     try {
-      const res = await projectWithGuard({ resourceId, agentIds }, { t, name: r.display_name || r.name });
+      let res = await projectWithGuard({ resourceId, agentIds }, { t, name: r.display_name || r.name });
       if (res.canceled) return;
       if (!res.success) { setError(res.error || t('resources.projectFailed')); return; }
+      // 那个应用里已有同名的：用户点的是「覆盖」才覆盖
+      if (force && res.conflicts?.length && window.confirm(t('resources.forceProjectConfirm', { hint: res.hint || '' }))) {
+        res = await window.electronAPI.resource.project({ resourceId, agentIds, force: true, allowRisky: true });
+        if (!res?.success) { setError(res?.error || t('resources.projectFailed')); return; }
+      }
       if (res.resource) applyResourcePatch(resourceId, res.resource);
       else {
         try {
@@ -2667,7 +2712,9 @@ export default function Resources() {
   // Hit-or-Exit：轻推条 + 分层计数
   const lifecycleNudges = useMemo(() => {
     const now = Date.now();
+    // 只提醒技能：技能放在应用里，每次对话都占一点上下文；提示词按需取，智能体是选在哪个应用里跑，都不占
     return resourcesInType
+      .filter((r) => r.type === 'skill')
       .filter((r) => !isLifecycleExempt(r))
       .map((r) => ({ r, life: classifyLifecycle(r, now) }))
       .filter(({ life }) => life.nudge)
@@ -3079,6 +3126,11 @@ export default function Resources() {
     const excluded = (Array.isArray(r.metadata?.excluded_agents) ? r.metadata.excluded_agents : []).filter((id) => !inApps.has(id));
     const risky = (assetFlags[li.resourceId] || {}).security === 'high';
     const waiting = enabled && risky ? skillApps.filter((a) => !inApps.has(a.id) && !excluded.includes(a.id)) : [];
+    // 启用了、却还不在某些支持技能的应用里：写明原因（同名冲突），或者给「现在放进去」
+    const notYet = enabled && !risky ? skillApps.filter((a) => !inApps.has(a.id) && !excluded.includes(a.id)) : [];
+    const conflictIds = new Set(Array.isArray(r.metadata?.auto_conflict_agents) ? r.metadata.auto_conflict_agents : []);
+    const clashing = notYet.filter((a) => conflictIds.has(a.id));
+    const pending = notYet.filter((a) => !conflictIds.has(a.id));
     const busyHere = !!busy && busy !== li.resourceId;
     return (
       <div className="space-y-2">
@@ -3095,6 +3147,20 @@ export default function Resources() {
                 </span>
               ))}
             </div>
+          </div>
+        )}
+        {clashing.length > 0 && (
+          <div className="rounded-lg border border-zinc-200 dark:border-zinc-700 px-2.5 py-2 space-y-1.5">
+            <p className="m-0 text-[11px] text-zinc-600 dark:text-zinc-300">{t('resources.skill.clashing', { apps: clashing.map((a) => a.label || a.id).join('、') })}</p>
+            <button type="button" disabled={busyHere} onClick={() => putSkillInto(li.resourceId, clashing.map((a) => a.id), { force: true })}
+              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40">{t('resources.skill.overwrite')}</button>
+          </div>
+        )}
+        {pending.length > 0 && (
+          <div className="rounded-lg border border-zinc-200 dark:border-zinc-700 px-2.5 py-2 space-y-1.5">
+            <p className="m-0 text-[11px] text-zinc-600 dark:text-zinc-300">{t('resources.skill.pending', { apps: pending.map((a) => a.label || a.id).join('、') })}</p>
+            <button type="button" disabled={busyHere} onClick={() => putSkillInto(li.resourceId, pending.map((a) => a.id))}
+              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-40">{t('resources.skill.putNow')}</button>
           </div>
         )}
         {waiting.length > 0 && (
@@ -3358,7 +3424,7 @@ export default function Resources() {
           <div className={LIB_LIST_CLS}>
             <div className={`hidden md:grid ${LIB_GRID} gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]`}>
               <span>{t('resources.col.name')}</span>
-              <span>{t('resources.col.apps')}</span>
+              <span>{typeFilter === 'prompt' ? '' : t('resources.col.apps')}</span>
               <span className="text-right">{t('resources.col.uses')}</span>
               <span>{t('resources.col.status')}</span>
               <span />
@@ -3551,7 +3617,7 @@ export default function Resources() {
   /** 启用到哪些应用：写名字，多了只写前两个 */
   function renderAppNames(apps, type) {
     // 提示词：接了 Token Bank 的应用都能用，不按应用分
-    if (type === 'prompt') return <span className="block text-[11px] text-zinc-600 dark:text-zinc-300 truncate">{t('resources.row.allApps')}</span>;
+    if (type === 'prompt') return null;
     if (!apps.length) return <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{type === 'assistant' ? t('resources.assistant.noApp') : t('resources.row.notEnabled')}</span>;
     const names = apps.map(a => a.label);
     const text = names.length > 2 ? t('resources.row.appsMore', { names: names.slice(0, 2).join('、'), n: names.length }) : names.join('、');
@@ -3578,7 +3644,7 @@ export default function Resources() {
         : { kind: 'idle', word: t('resources.tpl.notProjected'), why: '', act: 'project' };
     }
     if (li.life.layer === 'active') {
-      return { kind: 'active', word: t('resources.state.active'), why: li.apps.length ? t('resources.row.onApps', { n: li.apps.length }) : '', act: 'project' };
+      return { kind: 'active', word: t('resources.state.active'), why: li.apps.length && li.type !== 'prompt' ? t('resources.row.onApps', { n: li.apps.length }) : '', act: 'project' };
     }
     // 提示词不用启用到应用：没用过就说没用过
     if (li.type === 'prompt') return { kind: 'idle', word: t('resources.row.promptUnused'), why: '', act: 'project' };
@@ -3741,7 +3807,7 @@ export default function Resources() {
         stats={[
           [t('resources.col.uses'), li.useCount || '0'],
           [t('resources.stat.lastUsed'), fmtAgo(li.lastUsed)],
-          [t('resources.col.apps'), li.type === 'prompt' ? t('resources.row.allApps') : li.apps.length],
+          ...(li.type === 'prompt' ? [] : [[t('resources.col.apps'), li.apps.length]]),
         ]}
         footer={menu.length > 0 ? (
           <>
@@ -4022,6 +4088,8 @@ export default function Resources() {
           <p className="text-xs font-medium text-zinc-700 dark:text-zinc-200">{resource?.type === 'assistant' ? t('resources.assistant.runInTitle') : t('resources.projectTo')}</p>
           {resource?.type === 'prompt' ? (
             <p className="text-[10px] text-zinc-400 mt-0.5">{t('resources.promptMcpHint')}</p>
+          ) : resource?.type === 'assistant' ? (
+            <p className="text-[10px] text-zinc-400 mt-0.5">{t('resources.assistant.runInHint')}</p>
           ) : resource?.type !== 'skill' && (
             <p className="text-[10px] text-zinc-400 mt-0.5">{t('resources.nonSkillHint')}</p>
           )}
@@ -4064,7 +4132,7 @@ export default function Resources() {
             className="tb-press flex-1 text-xs py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-40"
             onClick={confirmProject}
           >
-            {t('resources.confirmProject')}
+            {resource?.type === 'assistant' ? t('resources.assistant.runInSave') : t('resources.confirmProject')}
           </button>
         </div>
       </div>,

@@ -1730,6 +1730,20 @@ class ResourceManager {
   }
 
   /** Skill / Prompt / 智能体投射目标：已纳管应用（同源） */
+  /** 改技能 metadata 里的一个列表字段；空列表就删掉这个字段 */
+  _setSkillMeta(resourceId, key, list) {
+    const db = this._getDb();
+    const row = db.prepare('SELECT metadata FROM resources WHERE id = ?').get(resourceId);
+    if (!row) return;
+    let meta = {};
+    try { meta = JSON.parse(row.metadata || '{}') || {}; } catch { meta = {}; }
+    const next = [...new Set(list || [])];
+    const prev = Array.isArray(meta[key]) ? meta[key] : [];
+    if (next.length === prev.length && next.every((x) => prev.includes(x))) return;
+    if (next.length) meta[key] = next; else delete meta[key];
+    db.prepare('UPDATE resources SET metadata = ? WHERE id = ?').run(JSON.stringify(meta), resourceId);
+  }
+
   /** 技能 metadata.excluded_agents：用户从这些应用撤下过，自动补齐时跳过 */
   _setSkillExcluded(resourceId, agentIds, excluded) {
     const db = this._getDb();
@@ -1772,11 +1786,14 @@ class ResourceManager {
       if (risky) { skippedRisky.push(skill.id); continue; }
       try {
         const r = this.projectToAgents(skill.id, missing, 'global', { auto: true });
+        const conflicts = [];
         for (const one of r?.results || []) {
-          if (one.projectionType && one.projectionType !== 'conflict' && missing.includes(one.agentId)) {
-            added.push({ resourceId: skill.id, agentId: one.agentId });
-          }
+          if (!missing.includes(one.agentId)) continue;
+          if (one.projectionType === 'conflict') conflicts.push(one.agentId);
+          else if (one.projectionType) added.push({ resourceId: skill.id, agentId: one.agentId });
         }
+        // 那个应用里已有同名技能、没覆盖：记下来，资产页写明原因并给「覆盖」
+        this._setSkillMeta(skill.id, 'auto_conflict_agents', conflicts);
       } catch (e) {
         console.warn('[resource-manager] 技能自动补齐失败:', skill.name, e.message);
       }

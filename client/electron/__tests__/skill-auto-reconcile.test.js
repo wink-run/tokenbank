@@ -15,9 +15,11 @@ const SKILLS = [
 ];
 
 function withStubs(fn) {
-  const saved = { init: rm.init, listAgentTargets: rm.listAgentTargets, listResources: rm.listResources, getResource: rm.getResource, projectToAgents: rm.projectToAgents, getAgentTarget: targets.getAgentTarget };
+  const saved = { init: rm.init, listAgentTargets: rm.listAgentTargets, listResources: rm.listResources, getResource: rm.getResource, projectToAgents: rm.projectToAgents, _setSkillMeta: rm._setSkillMeta, getAgentTarget: targets.getAgentTarget };
   const projected = [];
+  projected.meta = {};
   rm.init = () => {};
+  rm._setSkillMeta = (id, key, list) => { projected.meta[`${id}.${key}`] = list; };
   rm.listAgentTargets = () => ['claude-code', 'codex', 'cursor', 'trae'].map((id) => ({ id }));
   targets.getAgentTarget = (id) => (id === 'trae' ? null : { id });   // trae 不支持技能目录
   rm.listResources = () => SKILLS;
@@ -26,7 +28,7 @@ function withStubs(fn) {
     projected.push({ id, ids, auto: opts.auto });
     return { results: ids.map((agentId) => ({ agentId, projectionType: id === 's-conflict' && agentId === 'codex' ? 'conflict' : 'symlink' })) };
   };
-  try { return fn(projected); } finally { Object.assign(rm, { init: saved.init, listAgentTargets: saved.listAgentTargets, listResources: saved.listResources, getResource: saved.getResource, projectToAgents: saved.projectToAgents }); targets.getAgentTarget = saved.getAgentTarget; }
+  try { return fn(projected); } finally { Object.assign(rm, { init: saved.init, listAgentTargets: saved.listAgentTargets, listResources: saved.listResources, getResource: saved.getResource, projectToAgents: saved.projectToAgents, _setSkillMeta: saved._setSkillMeta }); targets.getAgentTarget = saved.getAgentTarget; }
 }
 
 test('启用的技能补到所有支持技能的已装应用；没启用的、高风险的、撤下过的跳过；同名冲突不算补上', () => {
@@ -40,6 +42,8 @@ test('启用的技能补到所有支持技能的已装应用；没启用的、�
     assert.deepEqual(byId['s-excl'], ['cursor'], '用户从 codex 撤下过：不放回去');
     assert.ok(projected.every((p) => p.auto === true), '自动补的不清用户的排除记录');
     assert.ok(!r.added.some((x) => x.resourceId === 's-conflict' && x.agentId === 'codex'), '同名冲突没补上');
+    assert.deepEqual(projected.meta['s-conflict.auto_conflict_agents'], ['codex'], '冲突记下来，资产页写明原因');
+    assert.deepEqual(projected.meta['s-on.auto_conflict_agents'], [], '没冲突就清掉');
     assert.ok(r.added.some((x) => x.resourceId === 's-on' && x.agentId === 'cursor'));
   });
 });
