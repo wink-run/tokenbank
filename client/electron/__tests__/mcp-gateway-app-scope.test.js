@@ -1,6 +1,6 @@
 'use strict';
 // 应用的 tokenbank 条目里，给这个应用的第三方 MCP 原样列出（不藏在 tb_call_mcp 后面）；
-// 已经直接写进这个应用配置的不再经网关列一遍
+// 用户自己在应用配置里配过的不再经网关列一遍；别的应用专属的不给
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -56,8 +56,20 @@ test('给这个应用的第三方 MCP 原样列在 tokenbank 条目里，可以�
   assert.deepEqual(calls.at(-1), { name: 'post_message', arguments: { channel: '#a', text: 'hi' } });
 });
 
-test('已经直接写进这个应用配置的，不再经网关重复列出', async () => {
-  relay.attachToGateway({ port: 1, listRoutedFn: () => rows({ sync_clients: ['cursor'] }) });
+test('用户自己在这个应用配置里配过同一条的，不再经网关重复列出', async () => {
+  relay.setOwnConfigCheck((cid, row) => cid === 'cursor' && row.name === 'chat');
+  try {
+    relay.attachToGateway({ port: 1, listRoutedFn: () => rows() });
+    relay.reloadMcpGateway();
+    assert.ok(!(await list('cursor')).includes('chat__post_message'));
+  } finally {
+    relay.setOwnConfigCheck(() => false);
+  }
+});
+
+test('别的应用专属的 MCP 不给这个应用', async () => {
+  relay.attachToGateway({ port: 1, listRoutedFn: () => rows({ gateway_clients: ['cursor', 'workbuddy'], metadata: { exclusive_to: 'workbuddy' } }) });
   relay.reloadMcpGateway();
   assert.ok(!(await list('cursor')).includes('chat__post_message'));
+  assert.ok((await list('workbuddy')).includes('chat__post_message'));
 });

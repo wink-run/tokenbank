@@ -154,6 +154,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     removeFromAgent: (params) => ipcRenderer.invoke('mcp:removeFromAgent', params),
     setServerGatewayRouted: (params) => ipcRenderer.invoke('mcp:setServerGatewayRouted', params),
     setServersGatewayRouted: (params) => ipcRenderer.invoke('mcp:setServersGatewayRouted', params),
+    setServerExclusive: (params) => ipcRenderer.invoke('mcp:setServerExclusive', params),
     getGatewayInfo: () => ipcRenderer.invoke('mcp:getGatewayInfo'),
     appLevels: () => ipcRenderer.invoke('mcp:appLevels'),
     setAppLevel: (params) => ipcRenderer.invoke('mcp:setAppLevel', params || {}),

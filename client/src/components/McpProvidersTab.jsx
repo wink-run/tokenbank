@@ -107,14 +107,19 @@ const EMPTY_CUSTOM_FORM = {
 
 /** 已存工具的种类。旧数据没有 tool_kind，一律视为 MCP。 */
 /**
- * 要用应用自己的工作目录、或者按会话保存状态的本地 MCP（文件、git、浏览器、终端）：
- * 经网关时进程跑在 Token Bank 里，看到的不是应用打开的项目，所以直接写进应用配置。
+ * 要用应用自己的工作目录、或者按会话保存状态的本地 MCP（文件、git、浏览器、终端）：在应用里跑
+ * （应用配置里那条 tokenbank 起它）。后端给了 runs_in 时以后端为准，这里只是兜底。
  */
 const APP_CONTEXT_MCP = /(^|[-_\s/@.])(filesystem|files?|fs|git|puppeteer|playwright|browser|chrome|shell|terminal|desktop-commander|desktop|computer-use|computer_use|computer|sqlite|obsidian)([-_\s/]|$)/i;
 function needsAppContext(s) {
   if (!s || isMcpUrlServer(s) || toolKindOf(s) !== 'mcp') return false;
   if (s.metadata?.categoryGroup === 'filesystem') return true;
   return APP_CONTEXT_MCP.test(`${s.id || ''} ${s.name || ''} ${(s.args || []).join(' ')}`);
+}
+
+function runsInApp(s) {
+  if (s?.runs_in) return s.runs_in === 'app';
+  return needsAppContext(s);
 }
 
 function toolKindOf(s) {
@@ -534,24 +539,57 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
     ];
   }
 
-  /** 某 MCP 在某应用上的现有接入方式：project（已写入应用配置）| relay（经网关）| null */
+  /**
+   * 某 MCP 在某应用上的现状：
+   *   project — tokenbank 自己（写进应用配置）
+   *   app     — 给了这个应用，由应用里的 tokenbank 起（要用应用的项目目录、权限）
+   *   relay   — 给了这个应用，在 Token Bank 网关里跑
+   *   own     — 用户自己在这个应用配置里配的，Token Bank 不动
+   */
   function connectionOf(server, appId) {
-    if (getInstalledAgentIds(server).includes(appId)) return 'project';
-    if (serverGatewayClients(server).includes(appId)) return 'relay';
+    if (server?.builtin) return getInstalledAgentIds(server).includes(appId) ? 'project' : (serverGatewayClients(server).includes(appId) ? 'relay' : null);
+    const match = expandClientMatchIds(appId);
+    if (serverGatewayClients(server).some((g) => match.has(g))) return runsInApp(server) ? 'app' : 'relay';
+    if ((server?.clientTargets || []).some((c) => c.installed && match.has(c.id))) return 'own';
     return null;
   }
 
+  /** 应用专属：只能给这一个应用（它依赖那个应用自己的东西） */
+  function exclusiveOwner(s) {
+    return String(s?.exclusive_to || s?.metadata?.exclusive_to || '');
+  }
+  function exclusiveAllows(s, appId) {
+    const owner = exclusiveOwner(s);
+    if (!owner) return true;
+    const mine = expandClientMatchIds(appId);
+    return [...expandClientMatchIds(owner)].some((x) => mine.has(x));
+  }
+  function appLabelOf(id) {
+    return addTargets().find((tg) => tg.id === id)?.label
+      || syncStatus?.targets?.find((x) => x.id === id)?.label
+      || id;
+  }
+  /** 不能给这个应用的原因（能给返回空） */
+  function blockReason(server, target) {
+    if (!server || server.builtin) return '';
+    if (!exclusiveAllows(server, target.id)) return t('resources.mcp.exclusiveTo', { app: appLabelOf(exclusiveOwner(server)) });
+    const canWrite = target.kind !== 'api-app' && target.agent?.projectable;
+    if (runsInApp(server) && !canWrite) return t('resources.mcp.needsAppBlocked');
+    return '';
+  }
+
   /**
-   * 接入方式由 Token Bank 定，用户只选给哪些应用：
-   *   - 要用应用工作目录的本地 MCP（文件、git、浏览器、终端）和内置的：直接写进应用配置；
-   *   - 其它经网关：应用配置里那一条 tokenbank 会把它的工具原样列给模型（和直接写入一样准），
-   *     密钥只存在 Token Bank，增减 MCP 不用改应用配置。API 应用只能经网关。
+   * 用户只选给哪些应用；应用配置里只有一条 tokenbank，在哪里跑由 Token Bank 定：
+   *   - 要用应用工作目录、权限的本地 MCP（文件、git、浏览器、电脑操作）：应用里的 tokenbank 起它（app）
+   *   - 其它在 Token Bank 网关里跑（relay），工具一样原样列给模型；密钥只存在 Token Bank
+   *   - 别的应用专属的、要在应用里跑却是 API 应用的：不能给
    */
   function autoTransport(server, target) {
     const canWrite = target.kind !== 'api-app' && target.agent?.projectable;
-    if (canWrite && (server.builtin || needsAppContext(server))) return 'project';
-    if (canRelay(server)) return 'relay';
-    return null;
+    if (server.builtin) return canWrite ? 'project' : (canRelay(server) ? 'relay' : null);
+    if (blockReason(server, target)) return null;
+    if (runsInApp(server)) return canWrite ? 'app' : null;
+    return canRelay(server) ? 'relay' : null;
   }
 
   /** 网关中转根地址（…/mcp）与某应用的专属中转地址（…/mcp/<appId>） */
@@ -646,12 +684,12 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
           const want = selectedIds.includes(tg.id);
           if (want && !cur) {
             const how = autoTransport(s, tg);
-            if (how === 'relay') relayAdd.push(tg.id);
+            if (how === 'relay' || how === 'app') relayAdd.push(tg.id);
             else if (how === 'project') projAdd.push(tg);
           } else if (!want && cur && single && !s.builtin) {
-            // 内置 MCP 默认投射到所有应用，不可取消
-            if (cur === 'relay') relayRemove.push(tg.id);
-            else projRemove.push(tg);
+            // 内置 MCP 默认投射到所有应用，不可取消；应用里自己配的 Token Bank 不动
+            if (cur === 'relay' || cur === 'app') relayRemove.push(tg.id);
+            else if (cur === 'project') projRemove.push(tg);
           }
         }
         if (relayAdd.length) {
@@ -742,9 +780,10 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
             const checked = syncSelectedIds.includes(tg.id);
             const cur = probe ? connectionOf(probe, tg.id) : null;
             const how = cur || (probe ? autoTransport(probe, tg) : (tg.kind === 'api-app' ? 'relay' : 'project'));
-            // 内置 MCP 已投射的应用锁定（不可取消）；未投射的仍可补上
-            const locked = !!(probe?.builtin && cur);
+            // 内置 MCP 已投射的应用锁定（不可取消）；应用里自己配的不归 Token Bank 管
+            const locked = !!(probe?.builtin && cur) || cur === 'own';
             const blocked = locked || (!cur && !how);
+            const reason = !cur && !how && probe ? blockReason(probe, tg) : '';
             return (
               <div key={tg.id} className={`rounded-lg ${checked || locked ? 'bg-blue-50 dark:bg-blue-950/30' : ''}`}>
                 <label className={`flex items-center gap-2 px-2 py-1.5 text-xs ${locked ? 'cursor-default' : blocked ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer hover:bg-zinc-50/60 dark:hover:bg-zinc-700/40 rounded-lg'}`}>
@@ -758,14 +797,20 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
                   <ServiceIcon id={tg.id} name={tg.label} boxClass="w-6 h-6" imgClass="w-3.5 h-3.5" />
                   <span className="flex-1 truncate text-zinc-700 dark:text-zinc-200" title={tg.label}>{tg.label}</span>
                   {locked ? (
-                    <span className="shrink-0 text-[10px] text-sky-600 dark:text-sky-300" title={t('resources.mcp.builtinLockedHint')}>
-                      {t('resources.mcp.builtinLocked')}
-                    </span>
+                    cur === 'own' ? (
+                      <span className="shrink-0 text-[10px] text-zinc-400" title={t('resources.mcp.howOwnHint')}>{t('resources.mcp.howOwn')}</span>
+                    ) : (
+                      <span className="shrink-0 text-[10px] text-sky-600 dark:text-sky-300" title={t('resources.mcp.builtinLockedHint')}>
+                        {t('resources.mcp.builtinLocked')}
+                      </span>
+                    )
+                  ) : reason ? (
+                    <span className="shrink-0 text-[10px] text-amber-600 dark:text-amber-300 truncate max-w-[9rem]" title={reason}>{reason}</span>
                   ) : how && (
-                    // 接入方式：写进应用配置（要用应用项目目录的）或经网关原样列给模型
+                    // 在哪里跑：应用里（用应用的项目目录、权限）或 Token Bank 网关里
                     <span className="shrink-0 text-[10px] text-zinc-400"
-                      title={how === 'project' ? t('resources.mcp.howConfigHint') : t('resources.mcp.howGatewayHint')}>
-                      {how === 'project' ? t('resources.mcp.howConfig') : tg.kind === 'api-app' ? t('resources.mcp.howRelayUrl') : t('resources.mcp.howGateway')}
+                      title={how === 'app' ? t('resources.mcp.howAppHint') : how === 'project' ? t('resources.mcp.builtinLockedHint') : t('resources.mcp.howGatewayHint')}>
+                      {how === 'app' ? t('resources.mcp.howApp') : how === 'project' ? t('resources.mcp.builtinLocked') : tg.kind === 'api-app' ? t('resources.mcp.howRelayUrl') : t('resources.mcp.howGateway')}
                     </span>
                   )}
                 </label>
@@ -1734,6 +1779,11 @@ function renderToolKindToggle(kind, onChange) {
             <>
               <span className={`shrink-0 text-[10px] px-1.5 py-px rounded font-medium ${TOOL_KIND_CHIP[toolKindOf(s)]}`}>{t(`providers.mcp.kind.${toolKindOf(s)}`)}</span>
               {s.builtin && <span className="shrink-0 text-[10px] text-sky-600 dark:text-sky-300">{t('providers.mcp.builtin')}</span>}
+              {exclusiveOwner(s) && (
+                <span className="shrink-0 text-[10px] px-1.5 py-px rounded bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" title={t('resources.mcp.exclusiveHint')}>
+                  {t('resources.mcp.exclusiveTo', { app: appLabelOf(exclusiveOwner(s)) })}
+                </span>
+              )}
               {origin && <span className="shrink-0">{renderMcpSourceBadge(origin)}</span>}
             </>
           )}
@@ -1757,6 +1807,23 @@ function renderToolKindToggle(kind, onChange) {
     );
   }
 
+  async function setExclusive(s, owner) {
+    if (owner) {
+      const others = connectedApps(s).filter((a) => a.how !== 'own' && !exclusiveAllows({ exclusive_to: owner }, a.id));
+      if (others.length && !window.confirm(t('resources.mcp.exclusiveConfirm', { app: appLabelOf(owner), apps: others.map((a) => a.label).join('、') }))) return;
+    }
+    setBusy(s.id);
+    try {
+      const r = await window.electronAPI.mcp.setServerExclusive({ serverId: s.id, owner });
+      if (!r?.success) throw new Error(r?.error || t('providers.mcp.gatewayToggleFailed'));
+      await loadAll({ silent: true });
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setBusy('');
+    }
+  }
+
   function renderServerInspector(s) {
     const tools = s.metadata?.tools || [];
     const apps = connectedApps(s);
@@ -1777,6 +1844,11 @@ function renderToolKindToggle(kind, onChange) {
             </span>
             <span className="text-[10px] text-zinc-400">{toolAccessLabel(s, t)}</span>
             {s.builtin && <span className="text-[10px] text-sky-600 dark:text-sky-300">{t('providers.mcp.builtin')}</span>}
+            {exclusiveOwner(s) && (
+              <span className="text-[10px] px-1.5 py-px rounded bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" title={t('resources.mcp.exclusiveHint')}>
+                {t('resources.mcp.exclusiveTo', { app: appLabelOf(exclusiveOwner(s)) })}
+              </span>
+            )}
             {origin && renderMcpSourceBadge(origin)}
           </>
         )}
@@ -1843,9 +1915,10 @@ function renderToolKindToggle(kind, onChange) {
                           <span className="text-[10px] text-sky-600 dark:text-sky-300" title={t('resources.mcp.builtinLockedHint')}>
                             {t('resources.mcp.builtinLocked')}
                           </span>
-                        ) : a.how === 'project' && (
-                          <span className="text-[10px] text-zinc-400" title={t('resources.mcp.legacyConfigHint')}>
-                            {t('resources.mcp.legacyConfig')}
+                        ) : (
+                          <span className="text-[10px] text-zinc-400"
+                            title={a.how === 'own' ? t('resources.mcp.howOwnHint') : a.how === 'app' ? t('resources.mcp.howAppHint') : t('resources.mcp.howGatewayHint')}>
+                            {a.how === 'own' ? t('resources.mcp.howOwn') : a.how === 'app' ? t('resources.mcp.howApp') : t('resources.mcp.howGatewayShort')}
                           </span>
                         )}
                       </div>
@@ -1866,6 +1939,29 @@ function renderToolKindToggle(kind, onChange) {
               {renderServerActions(s, { block: true })}
             </div>
           </InspectorSection>
+        {toolKindOf(s) === 'mcp' && !s.builtin && (
+          <InspectorSection title={t('resources.mcp.placement')}>
+            <p className="text-[11px] text-zinc-600 dark:text-zinc-300">
+              {runsInApp(s) ? t('resources.mcp.runsApp') : t('resources.mcp.runsGateway')}
+            </p>
+            <label className="mt-2 flex items-center gap-2 text-[11px] text-zinc-600 dark:text-zinc-300">
+              <span className="shrink-0">{t('resources.mcp.exclusiveLabel')}</span>
+              <select
+                value={exclusiveOwner(s)}
+                disabled={!!busy}
+                onChange={(e) => setExclusive(s, e.target.value)}
+                className="flex-1 min-w-0 text-[11px] rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1"
+              >
+                <option value="">{t('resources.mcp.exclusiveNone')}</option>
+                {[...new Map([
+                  ...syncWritableAgents.map((a) => [a.id, a.label]),
+                  ...(exclusiveOwner(s) ? [[exclusiveOwner(s), appLabelOf(exclusiveOwner(s))]] : []),
+                ])].map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </select>
+            </label>
+            <p className="mt-1 text-[10px] text-zinc-400 leading-relaxed">{t('resources.mcp.exclusiveHint')}</p>
+          </InspectorSection>
+        )}
         {toolKindOf(s) === 'mcp' && tools.length > 0 && (
           <InspectorSection title={t('resources.mcp.tools', { n: tools.length })}>
             <div className="flex flex-wrap gap-1">
