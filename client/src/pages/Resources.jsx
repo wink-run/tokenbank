@@ -3406,15 +3406,25 @@ export default function Resources() {
       );
     }
 
+    // 同名技能内容不同会分成多行，但纳管后共用一个 resourceId。
+    // 列表 key 必须用 scanKey，否则 React 会丢掉其中一行。
+    const seenKeys = new Map();
     const rows = [
       ...managedRows.map((item) => ({ key: `r-${item.id}`, kind: 'resource', item })),
       ...skillRows.map((item) => ({
-        key: useDiscoveredSkills ? `d-${item.path || item.resourceId || item.name}` : `r-${item.id}`,
+        key: useDiscoveredSkills
+          ? `d-${item.scanKey || item.authorityPath || item.path || item.resourceId || item.name}`
+          : `r-${item.id}`,
         kind: useDiscoveredSkills ? 'discovered' : 'resource',
         item,
       })),
     ]
       .sort((a, b) => cmp(a.item, b.item))
+      .map((row) => {
+        const n = seenKeys.get(row.key) || 0;
+        seenKeys.set(row.key, n + 1);
+        return n ? { ...row, key: `${row.key}#${n}` } : row;
+      })
       .map(toLibraryItem);
     // 同系列技能折叠成一组；搜索时全部展开
     const searching = !!debouncedQuery;
@@ -3422,7 +3432,7 @@ export default function Resources() {
     const isOpen = (g) => searching || openSeries.has(g.key) || g.rows.some(r => r.key === selectedKey);
     const visibleRows = blocks.flatMap(b => (b.group ? (isOpen(b.group) ? b.group.rows : []) : [b.row]));
     visibleKeysRef.current = visibleRows.map(r => r.key);
-    // 外部按资产 id 跳来（r-<id>），而技能列表按本机路径做 key（d-…）：换成对应的那一行
+    // 外部按资产 id 跳来（r-<id>），技能行的 key 是 d-<scanKey>：换成对应的那一行
     if (selectedKey && selectedKey.startsWith('r-') && !rows.some(r => r.key === selectedKey)) {
       const rid = selectedKey.slice(2);
       const alias = rows.find(r => r.resourceId === rid || r.item?.resourceId === rid || r.item?.id === rid);
