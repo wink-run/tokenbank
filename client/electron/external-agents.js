@@ -24,14 +24,9 @@ const MAX_PULL_SEC = 6 * 3600;
 const WEBHOOK_DEBOUNCE_MS = 1500;                    // 一下子派好几个：合成一次唤醒
 const WEBHOOK_RETRY_MS = [15000, 60000, 300000];     // 发不出去时再试三次；任务被取走就不再发
 const WEBHOOK_TIMEOUT_MS = 10000;
-// 轮询的每一次都要唤醒外部智能体、花它的 token（没任务也一样）。所以：
-//   Webhook 通：不轮询，有任务才叫醒它；
-//   轮询：按用户设的频率，很久没派过任务时自动放慢（空闲越久越慢），一派任务就恢复。
-const IDLE_SLOWDOWN = [            // [空闲多久, 至少多少秒来一次]，从长到短
-  [24 * 3600 * 1000, 60 * 60],
-  [6 * 3600 * 1000, 30 * 60],
-  [2 * 3600 * 1000, 15 * 60],
-];
+// 接收任务只有两种方式：
+//   Webhook：有任务网关叫醒它，不轮询；
+//   脚本轮询：它用定时脚本按用户设的频率看一眼（peek），有任务才唤醒模型来取；没任务时不经过模型、不花 token。
 // 通过 MCP 操作 Token Bank 的权限，从低到高；默认关闭，用户在网关页给某个外部智能体打开
 const MCP_LEVELS = ['off', 'read', 'operate', 'full'];
 
@@ -202,31 +197,19 @@ function webhookHealthy(a) {
 
 /**
  * 这个外部智能体现在该不该轮询、多久一次：
- *   { poll: false }                                   Webhook 通：不用轮询，有任务网关叫醒它
- *   { poll: true, intervalSec, baseSec, slowed }     轮询：slowed 表示因为空闲放慢了
+ *   { poll: false }               Webhook 通：不用轮询，有任务网关叫醒它
+ *   { poll: true, intervalSec }   脚本轮询：按用户设的频率
  */
-function pollPlan(a, now = Date.now()) {
-  if (webhookHealthy(a)) return { poll: false, intervalSec: 0, baseSec: pullIntervalSec(), slowed: false, scripted: false };
-  const base = pullIntervalSec();
-  // 用脚本看一眼（peek）的：没任务时不经过模型、不花 token，不用放慢，任务来了取得最快
-  if (scriptedCheck(a, now)) return { poll: true, intervalSec: base, baseSec: base, slowed: false, scripted: true };
-  const idle = now - (a.lastTaskAt || a.createdAt || now);
-  const step = IDLE_SLOWDOWN.find(([ms]) => idle >= ms);
-  const intervalSec = Math.min(MAX_PULL_SEC, Math.max(base, step ? step[1] : 0));
-  return { poll: true, intervalSec, baseSec: base, slowed: intervalSec > base, scripted: false };
-}
-
-/** 最近是用脚本看一眼（peek）在检查：两个间隔里来过就算 */
-function scriptedCheck(a, now = Date.now()) {
-  return !!a.lastPeekAt && now - a.lastPeekAt <= 2 * pullIntervalSec() * 1000 + 10 * 60 * 1000;
+function pollPlan(a) {
+  if (webhookHealthy(a)) return { poll: false, intervalSec: 0 };
+  return { poll: true, intervalSec: pullIntervalSec() };
 }
 
 /** 在线判断用的心跳间隔：用户设过的频率优先，否则用它自己报的，再否则按最近几次来取的间隔 */
 function intervalOf(a, now = Date.now()) {
   const configured = Number(read().pullIntervalSec);
-  const plan = pollPlan(a, now);
-  // 用户设过频率，或者空闲放慢了：它按我们给的 interval 来
-  let ms = configured >= MIN_PULL_SEC || plan.slowed ? plan.intervalSec * 1000 : 0;
+  const plan = pollPlan(a);
+  let ms = configured >= MIN_PULL_SEC ? plan.intervalSec * 1000 : 0;
   if (!ms) {
     ms = Number(a.declaredIntervalMs) || 0;
     if (!ms && Array.isArray(a.gaps) && a.gaps.length) {
@@ -271,11 +254,9 @@ function publicView(a, now = Date.now()) {
     lastMcpAt: a.lastMcpAt || 0,
     // 它要用 Webhook、但地址和密钥得你来填，还没填
     webhookWanted: !!a.webhookWanted && !(a.webhook && a.webhook.url),
-    // 接收方式：webhook（不轮询）或 poll（按 pollIntervalSec 来取；slowed=空闲自动放慢了）
-    // script = 用脚本 peek 检查（不花 token）；poll = 模型定时来取（每次都花 token）
-    receive: webhookHealthy(a) ? 'webhook' : scriptedCheck(a, now) ? 'script' : 'poll',
-    pollIntervalSec: pollPlan(a, now).intervalSec,
-    pollSlowed: pollPlan(a, now).slowed,
+    // 接收方式：webhook（不轮询）或 poll（脚本按 pollIntervalSec 看一眼）
+    receive: webhookHealthy(a) ? 'webhook' : 'poll',
+    pollIntervalSec: pollPlan(a).intervalSec,
     pollBaseSec: pullIntervalSec(),
     // 它报的技能版本和当前不一样：说明它还在用旧说明（没报过的不算）
     skillOutdated: !!a.skillVersion && (() => { try { return a.skillVersion !== skillInfo().version; } catch { return false; } })(),
@@ -451,11 +432,9 @@ function dispatch(agentId, prompt, { timeoutMs = DEFAULT_TASK_TIMEOUT_MS, taskId
   restore();
   const id = taskId || `ext_${crypto.randomBytes(8).toString('hex')}`;
   const now = Date.now();
-  // 轮询的要等它下一次来取（空闲时可能放慢到一小时）：等它来取的时间不算进超时
-  const plan = pollPlan(a, now);
+  // 轮询的要等它下一次来看：等它来取的时间不算进超时
+  const plan = pollPlan(a);
   const waitPickupMs = plan.poll ? plan.intervalSec * 1000 : 0;
-  // 派过任务了：轮询恢复用户设的频率
-  try { const d = read(); const me = d.agents.find(x => x.id === agentId); if (me) { me.lastTaskAt = now; write(d); } } catch { /* 只是记录 */ }
   return new Promise((resolve) => {
     const task = { id, prompt: String(prompt || ''), createdAt: now };
     const rec = { id, agentId, prompt: task.prompt, createdAt: task.createdAt, deadline: task.createdAt + timeoutMs + waitPickupMs, takenAt: 0 };

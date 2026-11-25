@@ -50,19 +50,15 @@ function backdate(id, field, ms) {
   fs.writeFileSync(file, JSON.stringify(d));
 }
 
-test('空闲越久轮询越慢，一派任务就恢复；等它来取的时间不算进超时', async () => {
-  const { agent_id: id } = newAgent('Idle Bot');
-  assert.deepEqual(ext.pollPlan(JSON.parse(fs.readFileSync(ext._internal.file(), 'utf8')).agents.find((x) => x.id === id)).intervalSec, 300);
-  backdate(id, 'createdAt', 3 * 3600 * 1000);
-  assert.equal(ext.get(id).pollIntervalSec, 15 * 60);
-  assert.equal(ext.get(id).pollSlowed, true);
+test('接收方式只有两种：Webhook 不轮询，其余按设定频率脚本轮询；等它来取的时间不算进超时', async () => {
+  const { agent_id: id } = newAgent('Poll Bot');
   backdate(id, 'createdAt', 30 * 3600 * 1000);
-  assert.equal(ext.get(id).pollIntervalSec, 60 * 60);
+  const v = ext.get(id);
+  assert.equal(v.receive, 'poll');
+  assert.equal(v.pollIntervalSec, 300, '空闲也不放慢：脚本检查不花 token');
   ext.dispatch(id, '做点事', { timeoutMs: 1000 });
   const rec = JSON.parse(fs.readFileSync(ext._internal.tasksFile(), 'utf8')).tasks.find((t) => t.agentId === id);
-  assert.ok(rec.deadline - rec.createdAt >= 1000 + 3600 * 1000, '它一小时来一次：超时加上这一小时');
-  assert.equal(ext.get(id).pollIntervalSec, 300, '派过任务就恢复');
-  assert.equal(ext.get(id).pollSlowed, false);
+  assert.ok(rec.deadline - rec.createdAt >= 1000 + 300 * 1000);
 });
 
 test('Webhook 通：不轮询，算在线；批准时用 Webhook 叫醒它，不用它来看', async () => {
@@ -97,19 +93,11 @@ test('HTTP：取任务的回答带 poll；peek 只看不取；版本一样时不
   assert.equal(took.task.input, '看一眼');
 });
 
-test('用脚本 peek 检查的：不放慢、标成脚本检查；有任务后模型来取不算一次定时检查', async () => {
+test('脚本看到有任务、模型紧接着来取的那一次不记间隔', async () => {
   const { agent_id: id, token } = newAgent('Script Bot');
-  backdate(id, 'createdAt', 30 * 3600 * 1000);
-  assert.equal(ext.get(id).pollIntervalSec, 60 * 60, '模型定时来取：空闲放慢');
   await fetch(`${apiBase}/v1/agent/external/tasks/peek`, { headers: { authorization: `Bearer ${token}` } });
-  const v = ext.get(id);
-  assert.equal(v.receive, 'script');
-  assert.equal(v.pollIntervalSec, 300, '脚本检查不花 token：不放慢');
-  assert.equal(v.pollSlowed, false);
-  const before = JSON.parse(fs.readFileSync(ext._internal.file(), 'utf8')).agents.find((x) => x.id === id).gaps || [];
+  const gaps = () => JSON.parse(fs.readFileSync(ext._internal.file(), 'utf8')).agents.find((x) => x.id === id).gaps || [];
+  const before = gaps();
   await fetch(`${apiBase}/v1/agent/external/tasks?wait=0`, { headers: { authorization: `Bearer ${token}` } });
-  const after = JSON.parse(fs.readFileSync(ext._internal.file(), 'utf8')).agents.find((x) => x.id === id).gaps || [];
-  assert.deepEqual(after, before, '紧跟 peek 的取任务不记间隔');
-  backdate(id, 'lastPeekAt', 3 * 3600 * 1000);
-  assert.equal(ext.get(id).receive, 'poll', '很久没用脚本查了：回到按模型轮询算');
+  assert.deepEqual(gaps(), before);
 });
