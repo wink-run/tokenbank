@@ -766,7 +766,7 @@ async function handleMcpMessage(msg, clientId = '', opts = {}) {
       const third = onlyTokenbank ? [] : await aggregateTools(cid);
       const skipped = third.skipped || [];
       // 工具多、没逐个列的 MCP：在 tb_call_mcp 的说明里报上它本身，模型知道有它、怎么进去
-      const own = tools.listTools(ctx).map((t) => (t.name === 'tb_call_mcp' && skipped.length
+      const own = (await tools.listToolsWithHints(ctx)).map((t) => (t.name === 'tb_call_mcp' && skipped.length
         ? { ...t, description: `${t.description}\n这些 MCP 工具太多没逐个列出，先 tb_get_resource(type=mcp, name) 看它自己的使用说明和工具：${skipped.map((x) => `${x.name}（${x.display_name !== x.name ? `${x.display_name}，` : ''}${x.description ? `${String(x.description).slice(0, 60)}，` : ''}${x.count} 个工具）`).join('；')}` }
         : t));
       return [...own, ...third];

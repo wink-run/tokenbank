@@ -126,7 +126,7 @@ async function handle(req, res, { port, agentKey } = {}) {
     callRelayed: (name, args) => require('./mcp-gateway-server').callRelayedTool(name, args, ''),
   };
   await answer(res, body, {
-    list: () => tools.listTools(ctx),
+    list: () => tools.listToolsWithHints(ctx),
     call: (name, args) => tools.callTool(name, args, ctx),
     onCall: () => ext.recordMcpCall(agent.id),
   });

@@ -16,6 +16,7 @@ const GUARDIAN_CLIENT_ID = 'guardian-chat';
 const INSTRUCTIONS = [
   'Token Bank 是用户的模型网关和智能体管家。',
   '- 用户问到 Token Bank（有哪些工具、MCP、模型、技能、智能体、设备，能做什么）：用这里的工具查，先 tb_capabilities。不要去读 ~/.tokenbank 下的文件自己拼，那是内部数据，拼出来常是错的。',
+  '- 不用等用户提 Token Bank：任务要用到专门的做法（翻译、写周报、做 PPT 这类）、别的模型（画图、向量等）、交给别的智能体或第三方服务时，先看 Token Bank 有没有现成的——工具说明里列了现在有哪些智能体、提示词、模型和能接活的智能体，合适就用。简单的事直接做，不用每次都查。',
   '- 不确定能做什么：先 tb_capabilities。',
   '- 用户说「用某某智能体 / 技能 / 提示词」：tb_list_resources 找到，tb_get_resource 取正文，在当前对话里照着做。',
   '- 要用模型：tb_list_models；技能里写死的模型可能不存在，用 preferred 检查并换成能用的。',
@@ -301,6 +302,87 @@ function allowedNames(level) {
 
 function isGuardian(ctx) {
   return !!ctx?.guardian;
+}
+
+// ── 工具说明里附上「现在有什么」──────────────────────────────────────────────
+// 模型每次开始都看工具列表：在几个工具的说明里写上现有的智能体、提示词、模型、能接活的智能体（名字 + 一句话），
+// 不用用户提 Token Bank、也不用先调一次，碰到合适的任务它自己就会想到用。技能和第三方 MCP 已经直接在应用里，不重复。
+// 取数据有缓存（一分钟），过期了先给旧的、后台再取；第一次最多等一小会，工具列表不能慢（Cursor 等不了）。
+
+const HINT_TTL = 60 * 1000;
+const HINT_WAIT = 800;
+const HINT_MAX = 12;
+const hintCache = new Map(); // cid → { at, hints, pending }
+
+function clip(text, n = 40) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  return t.length > n ? `${t.slice(0, n)}…` : t;
+}
+
+/** 「名字（一句话）、名字…（共 N 个）」 */
+function nameList(items, label) {
+  if (!items.length) return '';
+  const shown = items.slice(0, HINT_MAX).map((x) => (x.desc ? `${x.name}（${clip(x.desc, 24)}）` : x.name));
+  return `${label}：${shown.join('、')}${items.length > HINT_MAX ? ` 等，共 ${items.length} 个` : ''}`;
+}
+
+async function computeHints(ctx) {
+  const out = {};
+  const cid = ctx.clientId || '';
+  const settle = (p) => Promise.race([p, new Promise((r) => setTimeout(() => r(null), 3000))]).catch(() => null);
+  const [res, models, agents] = await Promise.all([
+    settle((async () => {
+      const store = rm();
+      const pick = (fn) => (store[fn]('') || []).map((r) => ({ name: r.display_name || r.name, desc: r.description }));
+      return { assistants: pick('listAssistantsForClient'), prompts: pick('listPromptsForClient') };
+    })()),
+    settle(fetchModels(ctx)),
+    settle(dispatchTargets((ctx.dispatch || {}).agentRouteId || '')),
+  ]);
+  if (res) {
+    const parts = [nameList(res.assistants, '智能体'), nameList(res.prompts, '提示词')].filter(Boolean);
+    if (parts.length) out.tb_get_resource = `现在资产库里有——${parts.join('；')}。任务和其中哪个对得上，就 tb_get_resource 取来照着做。`;
+  }
+  if (Array.isArray(models) && models.length) {
+    const by = (type) => models.filter((m) => (m.model_type || 'chat') === type).map((m) => ({ name: m.id }));
+    const parts = [nameList(by('chat'), '聊天'), nameList(by('image'), '图像'), nameList(by('embedding'), '向量')].filter(Boolean);
+    if (parts.length) out.tb_list_models = `现在能用的模型——${parts.join('；')}。`;
+  }
+  if (Array.isArray(agents)) {
+    const list = agents.filter((a) => a && a.id && !a.guardian).map((a) => ({ name: a.name || a.id, desc: a.description }));
+    const text = nameList(list, '能接活的智能体');
+    if (text) out.tb_dispatch_agent = `${text}。任务适合交给其中某个时派给它（tb_list_agents 看完整名单和 id）。`;
+  }
+  return out;
+}
+
+/** 现在有什么（按应用缓存）：有缓存先给，过期后台刷新；没有就最多等 HINT_WAIT */
+async function catalogHints(ctx = {}) {
+  const key = `${ctx.clientId || ''}|${(ctx.dispatch || {}).agentRouteId || ''}`;
+  const hit = hintCache.get(key);
+  const refresh = () => {
+    if (hit?.pending) return hit.pending;
+    const pending = computeHints(ctx).then((hints) => {
+      hintCache.set(key, { at: Date.now(), hints });
+      return hints;
+    }).catch(() => (hintCache.get(key)?.hints || {}));
+    hintCache.set(key, { ...(hintCache.get(key) || {}), pending });
+    return pending;
+  };
+  if (hit?.hints) {
+    if (Date.now() - hit.at > HINT_TTL) refresh();
+    return hit.hints;
+  }
+  const pending = refresh();
+  return Promise.race([pending, new Promise((r) => setTimeout(() => r({}), HINT_WAIT))]);
+}
+
+/** 带「现在有什么」的工具列表（给应用 tools/list 用） */
+async function listToolsWithHints(ctx = {}) {
+  const base = listTools(ctx);
+  let hints = {};
+  try { hints = await catalogHints(ctx); } catch { hints = {}; }
+  return base.map((t) => (hints[t.name] ? { ...t, description: `${t.description}\n${hints[t.name]}` } : t));
 }
 
 /** 给 tools/list 的列表（不带内部的 level 字段） */
@@ -1138,6 +1220,8 @@ module.exports = {
   normalizeLevel,
   allowedNames,
   listTools,
+  listToolsWithHints,
+  catalogHints,
   isToolName,
   callTool,
   dispatchContext,
