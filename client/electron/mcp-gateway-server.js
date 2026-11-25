@@ -199,6 +199,12 @@ class StdioBackend {
     if (!command || command === '__DYNAMIC_ELECTRON__') {
       throw new Error(`MCP ${this.name} 启动命令无效`);
     }
+    // 插件类 MCP 的命令常是相对路径（./xxx.app/...）：在它自己的目录里起
+    const cwd = String(this.row.metadata?.cwd || '').trim();
+    if (/^\.{1,2}[\\/]/.test(command)) {
+      if (!cwd) throw new Error(`MCP ${this.name} 的启动命令是相对路径（${command}），不知道在哪个目录：请在原应用里重新导入`);
+      command = path.resolve(cwd, command);
+    }
 
     const env = {
       ...process.env,
@@ -207,6 +213,7 @@ class StdioBackend {
 
     this.proc = spawn(command, args, {
       env,
+      ...(cwd ? { cwd } : {}),
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
     });
@@ -537,37 +544,88 @@ function projectedPlainTools(clientId) {
   }
 }
 
-/** 一起拉各个第三方 MCP 的工具；慢的（比如第一次 npx 下载）最多等 timeoutMs，不拖住应用启动 */
-async function aggregateTools(clientId = '', timeoutMs = 15000) {
+// ── 工具列表缓存 ─────────────────────────────────────────────────────────────
+// 应用启动时读一次工具列表，等太久它会把整条 tokenbank 丢掉（连 Token Bank 自己的工具一起没了）。
+// 所以每个第三方 MCP 上次拿到的工具定义存在磁盘上：先用它马上回答，慢的在后台接着起。
+const TOOL_CACHE_PATH = path.join(TB_DIR, 'mcp', 'relay-tool-cache.json');
+let toolCacheMem = null;
+function toolCacheAll() {
+  if (toolCacheMem) return toolCacheMem;
+  try { toolCacheMem = JSON.parse(fs.readFileSync(TOOL_CACHE_PATH, 'utf8')) || {}; } catch { toolCacheMem = {}; }
+  return toolCacheMem;
+}
+/** 启动方式变了，旧的工具定义就不算数 */
+function toolCacheSig(row) {
+  return JSON.stringify([row?.command || '', row?.args || [], row?.url || '', row?.metadata?.cwd || '']);
+}
+function cachedTools(backend) {
+  const hit = toolCacheAll()[backend.id];
+  return hit && hit.sig === toolCacheSig(backend.row) && Array.isArray(hit.tools) ? hit.tools : null;
+}
+function rememberTools(backend, rawTools) {
+  try {
+    const all = toolCacheAll();
+    all[backend.id] = { sig: toolCacheSig(backend.row), tools: rawTools, at: Date.now() };
+    fs.mkdirSync(path.dirname(TOOL_CACHE_PATH), { recursive: true });
+    fs.writeFileSync(TOOL_CACHE_PATH, JSON.stringify(all));
+  } catch { /* 存不下就下次再等 */ }
+}
+/** 和 listTools 一样的格式（加前缀、标出是哪个 MCP） */
+function formatTools(backend, rawTools) {
+  return rawTools.map((tool) => ({
+    ...tool,
+    name: `${backend.prefix}__${tool.name}`,
+    description: `[${backend.row.display_name || backend.name}] ${tool.description || tool.name}`,
+    _backendId: backend.id,
+    _rawName: tool.name,
+  }));
+}
+
+/**
+ * 某个第三方 MCP 的工具：已经起来的直接给；有缓存的先给缓存、后台接着起；
+ * 都没有的最多等 waitMs（第一次 npx 下载可能要很久，别拖住应用）
+ */
+async function toolsOf(backend, waitMs) {
+  if (backend.toolsCache) return backend.listTools();
+  const live = backend.listTools().then((listed) => {
+    if (backend.toolsCache) rememberTools(backend, backend.toolsCache);
+    return listed;
+  });
+  const cached = cachedTools(backend);
+  if (cached) {
+    live.catch((e) => console.warn('[mcp-gateway] listTools failed:', backend.name, e.message));
+    return formatTools(backend, cached);
+  }
+  let timer;
+  try {
+    return await Promise.race([
+      live,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('还在启动')), waitMs); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+    live.catch(() => {});
+  }
+}
+
+/** 一起拉各个第三方 MCP 的工具，最多等 timeoutMs，不拖住应用启动 */
+async function aggregateTools(clientId = '', timeoutMs = 3000) {
   const list = backendsForClient(clientId);
   const tools = [];
   const errors = [];
   const results = await Promise.all(list.map(async (backend) => {
-    let timer;
     try {
-      const listed = await Promise.race([
-        backend.listTools(),
-        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('启动超时')), timeoutMs); }),
-      ]);
-      return { listed };
+      return { listed: await toolsOf(backend, timeoutMs) };
     } catch (e) {
-      console.warn('[mcp-gateway] listTools failed:', backend.name, e.message);
+      console.warn('[mcp-gateway] listTools:', backend.name, e.message);
       return { error: `${backend.name}: ${e.message}` };
-    } finally {
-      clearTimeout(timer);
     }
   }));
   for (const r of results) {
     if (r.listed) tools.push(...r.listed.map(({ _backendId, _rawName, ...rest }) => rest));
     else errors.push(r.error);
   }
-  if (errors.length && tools.length === 0) {
-    tools.push({
-      name: 'tb_gateway_status',
-      description: `MCP 网关后端暂不可用：${errors.join('; ')}`,
-      inputSchema: { type: 'object', properties: {} },
-    });
-  }
+  // 起不来的只记日志，不往应用的工具列表里塞占位工具
   // 已投射的 HTTP API / 本地 CLI 跟 MCP 出现在同一份工具列表里
   for (const tool of projectedPlainTools(clientId)) {
     tools.push(plainToolSchema(tool));
@@ -808,8 +866,8 @@ async function relayedToolDefs(clientId = '', timeoutMs = 8000) {
     let timer;
     try {
       const listed = await Promise.race([
-        b.listTools(),
-        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), timeoutMs); }),
+        toolsOf(b, timeoutMs),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), timeoutMs + 500); }),
       ]);
       out[b.prefix] = listed.map((t) => ({
         name: t._rawName,

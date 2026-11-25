@@ -71,7 +71,7 @@ function isTokenbankBuiltinRelayId(serverId) {
  * 要用应用自己工作目录、或按会话保存状态的本地 MCP（文件、git、浏览器、终端）：经网关时进程跑在 Token Bank 里，
  * 看到的不是应用打开的项目，所以直接写进应用配置。和界面上 McpProvidersTab 的判断是同一条规则。
  */
-const APP_CONTEXT_MCP = /(^|[-_\s/@.])(filesystem|files?|fs|git|puppeteer|playwright|browser|chrome|shell|terminal|desktop-commander|desktop|sqlite|obsidian)([-_\s/]|$)/i;
+const APP_CONTEXT_MCP = /(^|[-_\s/@.])(filesystem|files?|fs|git|puppeteer|playwright|browser|chrome|shell|terminal|desktop-commander|desktop|computer-use|computer_use|computer|sqlite|obsidian)([-_\s/]|$)/i;
 function needsAppContext(row) {
   if (!row) return false;
   if (String(row.url || '').trim() || ['http', 'sse'].includes(String(row.type || '').toLowerCase())) return false;
@@ -284,6 +284,9 @@ class MCPManager {
     this._ensureBuiltinDefaultProjection();
     // 清掉已删除 API 应用残留的中转/投射，避免 MCP 页仍显示「New app」
     this.pruneStaleDeletedAppBindings();
+    const healed = this._healImportedCwd();
+    const moved = this._moveAppContextToConfig();
+    if (healed || moved) this._autoSyncClients();
     if (this._legacyMigrated) {
       this._legacyMigrated = false;
       this._autoSyncClients();
@@ -1397,6 +1400,74 @@ class MCPManager {
    * 将 Agent 上扫描到的 MCP 纳管进 Token Bank（不改动该 Agent 原配置、不自动同步到其他 Agent）
    * 纳管后可在「已纳管」页选择中转到其他应用
    */
+  /** 导入的 MCP 补上原应用配置里的工作目录（插件类的命令是相对路径，离开那个目录起不来） */
+  _fillImportedCwd(serverId, entry) {
+    const cwd = String(entry?.cwd || '').trim();
+    if (!cwd) return false;
+    const db = this._getDb();
+    const row = db.prepare('SELECT metadata FROM mcp_servers WHERE id = ?').get(serverId);
+    if (!row) return false;
+    const meta = this._parseJson(row.metadata, {});
+    if (meta.cwd === cwd) return false;
+    db.prepare('UPDATE mcp_servers SET metadata = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify({ ...meta, cwd }), Date.now(), serverId);
+    return true;
+  }
+
+  /**
+   * 要用应用自己目录或权限的本地 MCP（文件、git、浏览器、终端、电脑操作）如果以前经网关给了能写配置的应用，
+   * 改成写进那些应用的配置：经网关时进程跑在 Token Bank 里，看不到应用的项目，也用不了应用的系统权限
+   */
+  _moveAppContextToConfig() {
+    try {
+      const db = this._getDb();
+      const { listSyncEnabledClientIds, listInstalledClientIds, expandMcpClientMatchIds } = require('./mcp-agent-targets');
+      const installed = new Set(listInstalledClientIds());
+      const writable = listSyncEnabledClientIds().filter((id) => installed.has(id));
+      let n = 0;
+      for (const row of db.prepare('SELECT id, name, type, command, args, url, builtin, metadata FROM mcp_servers WHERE builtin = 0').all()) {
+        const meta = this._parseJson(row.metadata, {});
+        if (!needsAppContext({ ...row, args: this._asArray(row.args, []), metadata: meta })) continue;
+        const gw = Array.isArray(meta.gateway_clients) ? meta.gateway_clients : [];
+        const move = writable.filter((id) => gw.some((g) => [id, ...expandMcpClientMatchIds(id)].includes(g)));
+        if (!move.length) continue;
+        const covered = new Set(move.flatMap((id) => [id, ...expandMcpClientMatchIds(id)]));
+        const sync = [...new Set([...(Array.isArray(meta.sync_clients) ? meta.sync_clients : []), ...move])];
+        const leftGw = gw.filter((g) => !covered.has(g));
+        db.prepare('UPDATE mcp_servers SET metadata = ?, updated_at = ? WHERE id = ?')
+          .run(JSON.stringify({ ...meta, sync_clients: sync, gateway_clients: leftGw, gateway_routed: leftGw.length > 0 }), Date.now(), row.id);
+        n += 1;
+      }
+      return n;
+    } catch (e) {
+      console.warn('[mcp-manager] 本地 MCP 改写进配置失败:', e.message);
+      return 0;
+    }
+  }
+
+  /** 启动时补一遍：命令是相对路径、又没记工作目录的导入 MCP，去原应用配置里找 */
+  _healImportedCwd() {
+    try {
+      const db = this._getDb();
+      const rows = db.prepare("SELECT id, name, command, metadata FROM mcp_servers WHERE builtin = 0").all();
+      const broken = rows.filter((r) => /^\.{1,2}[\\/]/.test(String(r.command || '')) && !this._parseJson(r.metadata, {}).cwd);
+      if (!broken.length) return 0;
+      const { scanAllClientMcps } = require('./mcp-client-sync');
+      const scanned = scanAllClientMcps() || [];
+      let n = 0;
+      for (const r of broken) {
+        const meta = this._parseJson(r.metadata, {});
+        const key = meta.importedFrom || meta.clientKey || r.name;
+        const hit = scanned.find((x) => x.clientKey === key && x.entry?.cwd);
+        if (hit && this._fillImportedCwd(r.id, hit.entry)) n += 1;
+      }
+      return n;
+    } catch (e) {
+      console.warn('[mcp-manager] 补工作目录失败:', e.message);
+      return 0;
+    }
+  }
+
   importFromAgent({ clientId, clientKey, originAgents }) {
     this.init();
     const key = String(clientKey || '').trim();
@@ -1416,6 +1487,8 @@ class MCPManager {
     const db = this._getDb();
     const existing = db.prepare('SELECT id FROM mcp_servers WHERE name = ?').get(key);
     if (existing) {
+      // 以前导入时没带工作目录（相对路径的命令起不来）：这次补上
+      this._fillImportedCwd(existing.id, found.entry);
       return {
         success: true,
         server: this.getServer(existing.id),
@@ -1450,6 +1523,7 @@ class MCPManager {
         sync_clients: [],
         description: inferClientMcpDescription(found.entry),
         ...(found.entry.headers ? { headers: found.entry.headers } : {}),
+        ...(found.entry.cwd ? { cwd: found.entry.cwd } : {}),
       },
     });
     this._linkServerToProfile(DEVELOPMENT_PROFILE_ID, safeId);
