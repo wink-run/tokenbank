@@ -147,7 +147,7 @@ test('pruneStaleDeletedAppBindings 清掉列表里已不存在的 app-*', () => 
   });
 });
 
-test('要用应用项目目录的本地 MCP 直接写进应用配置，其它经网关', () => {
+test('要用应用项目目录的本地 MCP 在应用里跑，其它在网关里跑', () => {
   const { needsAppContext } = mcpManager;
   assert.equal(needsAppContext({ name: 'filesystem', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'] }), true);
   assert.equal(needsAppContext({ name: 'my-tools', command: 'npx', args: ['-y', '@playwright/mcp'] }), true);
@@ -155,31 +155,4 @@ test('要用应用项目目录的本地 MCP 直接写进应用配置，其它经
   assert.equal(needsAppContext({ name: 'search', type: 'http', url: 'https://x/mcp' }), false, '远程的走网关');
   assert.equal(needsAppContext({ name: 'pipeworx', command: 'npx', args: ['-y', '@pipeworx/mcp'] }), false);
   assert.equal(needsAppContext({ name: 'github', command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'] }), false, 'github 是远程服务，不是本地 git');
-});
-
-test('以前经网关给了应用的本地 MCP（电脑操作等）改成写进应用配置；API 应用留在网关', () => {
-  withDb(() => {
-    const origSync = mcpManager.syncToClients;
-    mcpManager.syncToClients = () => ({ success: true, results: [] });
-    const targets = require('../mcp-agent-targets');
-    const saved = { inst: targets.listInstalledClientIds, en: targets.listSyncEnabledClientIds };
-    targets.listInstalledClientIds = () => ['cursor', 'workbuddy'];
-    targets.listSyncEnabledClientIds = () => ['cursor', 'workbuddy', 'codex'];
-    try {
-      mcpManager.init();
-      const db = localStats.getDb();
-      const now = Date.now();
-      db.prepare(`INSERT INTO mcp_servers (id, name, display_name, type, command, args, env, builtin, status, metadata, created_at, updated_at)
-        VALUES ('mcp-cu', 'computer-use', 'computer-use', 'stdio', './Codex Computer Use.app/x', '["mcp"]', '{}', 0, 'active', ?, ?, ?)`)
-        .run(JSON.stringify({ gateway_clients: ['cursor', 'workbuddy', 'app-api1'], gateway_routed: true }), now, now);
-      assert.equal(mcpManager._moveAppContextToConfig(), 1);
-      const meta = JSON.parse(db.prepare("SELECT metadata FROM mcp_servers WHERE id = 'mcp-cu'").get().metadata);
-      assert.deepEqual([...meta.sync_clients].sort(), ['cursor', 'workbuddy']);
-      assert.deepEqual(meta.gateway_clients, ['app-api1']);
-    } finally {
-      mcpManager.syncToClients = origSync;
-      targets.listInstalledClientIds = saved.inst;
-      targets.listSyncEnabledClientIds = saved.en;
-    }
-  });
 });

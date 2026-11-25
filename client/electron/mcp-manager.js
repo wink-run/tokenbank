@@ -68,18 +68,11 @@ function isTokenbankBuiltinRelayId(serverId) {
 }
 
 /**
- * 要用应用自己工作目录、或按会话保存状态的本地 MCP（文件、git、浏览器、终端）：经网关时进程跑在 Token Bank 里，
- * 看到的不是应用打开的项目，所以直接写进应用配置。和界面上 McpProvidersTab 的判断是同一条规则。
+ * 每个 MCP 在哪里跑（应用里 / 网关里）、是不是某个应用专属的：见 mcp-placement.js。
+ * 应用配置里只有一条 tokenbank；要用应用环境的 MCP 由那条桥在应用里起，其它的在网关里起。
  */
-const APP_CONTEXT_MCP = /(^|[-_\s/@.])(filesystem|files?|fs|git|puppeteer|playwright|browser|chrome|shell|terminal|desktop-commander|desktop|computer-use|computer_use|computer|sqlite|obsidian)([-_\s/]|$)/i;
-function needsAppContext(row) {
-  if (!row) return false;
-  if (String(row.url || '').trim() || ['http', 'sse'].includes(String(row.type || '').toLowerCase())) return false;
-  const kind = row.metadata?.tool_kind;
-  if (kind === 'api' || kind === 'cli') return false;
-  if (row.metadata?.categoryGroup === 'filesystem') return true;
-  return APP_CONTEXT_MCP.test(`${row.id || ''} ${row.name || ''} ${(Array.isArray(row.args) ? row.args : []).join(' ')}`);
-}
+const placement = require('./mcp-placement');
+const { needsAppContext } = placement;
 
 /** 当前任务上下文，供已写入配置的派发 MCP 在调用时读取（不再为每次派发单独写临时 MCP） */
 function writeBridgeActiveContext(ctx = {}) {
@@ -285,8 +278,8 @@ class MCPManager {
     // 清掉已删除 API 应用残留的中转/投射，避免 MCP 页仍显示「New app」
     this.pruneStaleDeletedAppBindings();
     const healed = this._healImportedCwd();
-    const moved = this._moveAppContextToConfig();
-    if (healed || moved) this._autoSyncClients();
+    const unified = this._unifyPlacement();
+    if (healed || unified) this._autoSyncClients();
     if (this._legacyMigrated) {
       this._legacyMigrated = false;
       this._autoSyncClients();
@@ -731,23 +724,9 @@ class MCPManager {
       }
     } else if (!data.skipAutoSync) {
       if (data.syncInstalled) {
-        // 仅推送到已分配 / 已安装的 Agent
-        const enriched = this.listManagedServers().find(s => s.id === id);
-        const clientIds = [...new Set([
-          ...(enriched?.sync_clients || []),
-          ...(enriched?.clientTargets || []).filter(c => c.installed).map(c => c.id),
-        ])];
-        if (clientIds.length) {
-          // 保证 filterServersForClient 能下发：把目标写入 sync_clients
-          const prev = enriched?.sync_clients || [];
-          const merged = [...new Set([...prev, ...clientIds])];
-          if (merged.length !== prev.length) {
-            this._persistServerSyncClients(id, merged);
-          }
-          sync = this.syncToClients({ clientIds });
-        } else {
-          sync = { success: true, results: [], skipped: true };
-        }
+        // 改了命令 / 地址：应用配置里只有 tokenbank，不用重写；让网关和应用里的桥按新配置重起
+        try { require('./mcp-gateway-server').reloadMcpGateway(); } catch { /* 网关没起 */ }
+        sync = { success: true, results: [], skipped: true };
       } else if (!existing) {
         // 新建自定义 MCP：默认中转到全部已纳管应用
         sync = this._defaultRelayToManagedApps(id) || this._autoSyncClients();
@@ -861,6 +840,8 @@ class MCPManager {
     return this.listManagedServers().filter((s) => {
       if (!s || s.status !== 'active' || !s.gateway_routed) return false;
       if (s.metadata?.tool_kind === 'api' || s.metadata?.tool_kind === 'cli') return false;
+      // 要在应用里跑的由应用里的 tokenbank 起，网关不起
+      if (s.runs_in === 'app') return false;
       const isUrl = !!(s.url) || s.type === 'http' || s.type === 'sse';
       if (isUrl) return !!String(s.url || '').trim();
       return !!s.command;
@@ -876,7 +857,7 @@ class MCPManager {
   setServerGatewayRouted(serverId, enabled, clientIds) {
     this.init();
     const db = this._getDb();
-    const row = db.prepare('SELECT id, type, command, url, metadata FROM mcp_servers WHERE id = ?').get(serverId);
+    const row = db.prepare('SELECT id, name, type, command, args, url, metadata FROM mcp_servers WHERE id = ?').get(serverId);
     if (!row) throw new Error('Server not found');
     // API / CLI 与 MCP 共用这份应用名单，但只决定资源可见性，不进入 MCP 协议中转。
 
@@ -912,6 +893,21 @@ class MCPManager {
     if (enabled) {
       if (!targets.length) {
         throw new Error('请指定要绑定的应用（含 API 应用；不同应用可绑定不同 MCP）');
+      }
+      const full = { ...row, metadata };
+      const name = this._displayName(serverId);
+      const notMine = targets.filter((id) => !placement.allowedFor(full, id));
+      if (notMine.length) {
+        targets = targets.filter((id) => placement.allowedFor(full, id));
+        if (!targets.length) {
+          throw new Error(`「${name}」是 ${placement.appLabel(metadata.exclusive_to)} 专属的，要用它自己的东西，不能给别的应用`);
+        }
+      }
+      if (placement.runsIn(full) === 'app') {
+        targets = targets.filter((id) => this._hasBridge(id));
+        if (!targets.length) {
+          throw new Error(`「${name}」要在应用里跑（用应用的项目目录和权限），只能给本机装了 tokenbank 的应用`);
+        }
       }
       clients = [...new Set([...clients, ...targets])];
     } else if (targets.length) {
@@ -1124,6 +1120,8 @@ class MCPManager {
   /** 设置 MCP 同步到哪些 Agent（可分别指定）；未传 syncClientIds 时同步「旧+新」相关 Agent，确保取消勾选的会被移除 */
   setServerSyncClients(serverId, clientIds, options = {}) {
     this.init();
+    // 只有 tokenbank 自己写进应用配置；其它 MCP 改「给哪些应用用」
+    if (!isTokenbankBuiltinRelayId(serverId)) return this._setAppsForServer(serverId, clientIds, options.syncClientIds);
     const { listSyncEnabledClientIds } = require('./mcp-agent-targets');
     const allowed = new Set(listSyncEnabledClientIds());
     const ids = [...new Set((clientIds || []).filter(id => allowed.has(id)))];
@@ -1177,10 +1175,14 @@ class MCPManager {
       || server.clientInstalls?.find(i => i.clientId === clientId)?.clientKey
       || server.name;
 
-    // 取消 Token Bank 对该 Agent 的同步分配并重写配置
-    const set = new Set(server.sync_clients || []);
-    set.delete(clientId);
-    this.setServerSyncClients(serverId, [...set], { syncClientIds: [clientId] });
+    if (isTokenbankBuiltinRelayId(serverId)) {
+      // 取消 Token Bank 对该 Agent 的同步分配并重写配置
+      const set = new Set(server.sync_clients || []);
+      set.delete(clientId);
+      this.setServerSyncClients(serverId, [...set], { syncClientIds: [clientId] });
+    } else {
+      this.setServerGatewayRouted(serverId, false, [clientId]);
+    }
 
     // 若客户端里仍有同名自配条目（非 TB 写入），一并删除
     try {
@@ -1248,18 +1250,11 @@ class MCPManager {
     if (!row || row.builtin) return null;
     const meta = this._parseJson(row.metadata, {});
     if (Array.isArray(meta.gateway_clients)) return null;
-    let clientIds = this._listManagedRelayClientIds();
-    // 要用应用自己项目目录的本地 MCP：能写配置的应用直接写进去，写不了的（API 应用等）才经网关
-    if (needsAppContext({ ...row, args: this._asArray(row.args, []), metadata: meta })) {
-      const { listSyncEnabledClientIds, listInstalledClientIds } = require('./mcp-agent-targets');
-      const installed = new Set(listInstalledClientIds());
-      const writable = listSyncEnabledClientIds().filter((id) => installed.has(id));
-      if (writable.length) this.setServerSyncClients(serverId, writable, { syncClientIds: writable });
-      const { expandMcpClientMatchIds } = require('./mcp-agent-targets');
-      const covered = new Set(writable.flatMap((id) => [id, ...expandMcpClientMatchIds(id)]));
-      clientIds = clientIds.filter((id) => !covered.has(id));
-      if (!clientIds.length) return { success: true };
-    }
+    const full = { ...row, args: this._asArray(row.args, []), metadata: meta };
+    // 专属的只给它的应用；要在应用里跑的只给装了 tokenbank 桥的应用（API 应用在别处，起不了）
+    const clientIds = this._listManagedRelayClientIds()
+      .filter((id) => placement.allowedFor(full, id))
+      .filter((id) => placement.runsIn(full) !== 'app' || this._hasBridge(id));
     if (!clientIds.length) return this._autoSyncClients();
     return this.setServerGatewayRouted(serverId, true, clientIds);
   }
@@ -1361,6 +1356,8 @@ class MCPManager {
       // API / CLI 走资源列表，不伪装成可 tb_call_mcp 的中转 MCP
       if (s.metadata?.tool_kind === 'api' || s.metadata?.tool_kind === 'cli') continue;
       if (!this._clientMatchesRelay(s.gateway_clients, clientId)) continue;
+      // 在应用里跑的：应用的工具列表里本来就有，网关也调不到
+      if (s.runs_in === 'app') continue;
       out.push(this._summarizeRelayedServer(s));
     }
     return out;
@@ -1415,34 +1412,197 @@ class MCPManager {
   }
 
   /**
-   * 要用应用自己目录或权限的本地 MCP（文件、git、浏览器、终端、电脑操作）如果以前经网关给了能写配置的应用，
-   * 改成写进那些应用的配置：经网关时进程跑在 Token Bank 里，看不到应用的项目，也用不了应用的系统权限
+   * 统一成只经 tokenbank：以前直接写进应用配置的（sync_clients）并进「给哪些应用用」（gateway_clients），
+   * 之后同步会把 Token Bank 写过的那些条目从应用配置里清掉。顺带给导入的 MCP 认一次专属。
+   * 返回是否要重新同步应用配置。
    */
-  _moveAppContextToConfig() {
+  _unifyPlacement() {
+    let resync = false;
     try {
       const db = this._getDb();
-      const { listSyncEnabledClientIds, listInstalledClientIds, expandMcpClientMatchIds } = require('./mcp-agent-targets');
-      const installed = new Set(listInstalledClientIds());
-      const writable = listSyncEnabledClientIds().filter((id) => installed.has(id));
-      let n = 0;
-      for (const row of db.prepare('SELECT id, name, type, command, args, url, builtin, metadata FROM mcp_servers WHERE builtin = 0').all()) {
+      const { expandMcpClientMatchIds } = require('./mcp-agent-targets');
+      const ports = this._gatewayPorts();
+      for (const row of db.prepare('SELECT id, name, type, command, args, url, builtin, metadata FROM mcp_servers').all()) {
+        if (isTokenbankBuiltinRelayId(row.id)) continue;
         const meta = this._parseJson(row.metadata, {});
-        if (!needsAppContext({ ...row, args: this._asArray(row.args, []), metadata: meta })) continue;
-        const gw = Array.isArray(meta.gateway_clients) ? meta.gateway_clients : [];
-        const move = writable.filter((id) => gw.some((g) => [id, ...expandMcpClientMatchIds(id)].includes(g)));
-        if (!move.length) continue;
-        const covered = new Set(move.flatMap((id) => [id, ...expandMcpClientMatchIds(id)]));
-        const sync = [...new Set([...(Array.isArray(meta.sync_clients) ? meta.sync_clients : []), ...move])];
-        const leftGw = gw.filter((g) => !covered.has(g));
+        const next = { ...meta };
+        let changed = false;
+        const sync = Array.isArray(meta.sync_clients) ? meta.sync_clients.filter(Boolean) : [];
+        if (sync.length) {
+          const gw = Array.isArray(meta.gateway_clients) ? meta.gateway_clients : [];
+          const covered = new Set(gw.flatMap((g) => [g, ...expandMcpClientMatchIds(g)]));
+          next.gateway_clients = [...gw, ...sync.filter((id) => !covered.has(id))];
+          next.sync_clients = [];
+          changed = true;
+          resync = true;
+        } else if (Array.isArray(meta.sync_clients) && meta.sync_clients.length) {
+          next.sync_clients = [];
+          changed = true;
+        }
+        // 以前导入时描述写成「客户端自配 · xxx」：来源不再区分，只留后面的
+        if (/^客户端自配/.test(String(meta.description || ''))) {
+          next.description = String(meta.description).replace(/^客户端自配\s*(·\s*)?/, '').replace(/^MCP$/, '').trim();
+          changed = true;
+        }
+        if (!meta.exclusive_checked && meta.origin === 'client_scan') {
+          const owner = placement.detectExclusiveOwner({ ...row, args: this._asArray(row.args, []), metadata: meta }, { gatewayPorts: ports });
+          next.exclusive_checked = true;
+          if (owner) next.exclusive_to = owner;
+          changed = true;
+        }
+        if (Array.isArray(next.gateway_clients)) {
+          const full = { ...row, args: this._asArray(row.args, []), metadata: next };
+          // 专属的只留它的应用；在应用里跑的只留有 tokenbank 桥的应用（API 应用起不了）
+          const kept = next.gateway_clients.filter((id) => placement.allowedFor(full, id)
+            && (placement.runsIn(full) !== 'app' || this._hasBridge(id)));
+          if (kept.length !== next.gateway_clients.length) { next.gateway_clients = kept; changed = true; }
+        }
+        if (!changed) continue;
+        if (Array.isArray(next.gateway_clients)) next.gateway_routed = next.gateway_clients.length > 0;
         db.prepare('UPDATE mcp_servers SET metadata = ?, updated_at = ? WHERE id = ?')
-          .run(JSON.stringify({ ...meta, sync_clients: sync, gateway_clients: leftGw, gateway_routed: leftGw.length > 0 }), Date.now(), row.id);
-        n += 1;
+          .run(JSON.stringify(next), Date.now(), row.id);
       }
-      return n;
+      // 应用配置里还留着 Token Bank 以前写的其它 MCP 条目：同步一次清掉
+      if (!resync) {
+        const { getSyncStatus } = require('./mcp-client-sync');
+        const state = getSyncStatus()?.state || {};
+        resync = Object.values(state.clients || {}).some((c) => (c.bindings || []).some((b) => b.serverId && !isTokenbankBuiltinRelayId(b.serverId)));
+      }
     } catch (e) {
-      console.warn('[mcp-manager] 本地 MCP 改写进配置失败:', e.message);
-      return 0;
+      console.warn('[mcp-manager] 统一 MCP 接入方式失败:', e.message);
     }
+    return resync;
+  }
+
+  /** Token Bank 网关端口（判断本机地址是不是自己） */
+  _gatewayPorts() {
+    const ports = [11430, 11431];
+    try {
+      const info = JSON.parse(require('fs').readFileSync(require('path').join(require('os').homedir(), '.tokenbank', 'mcp-gateway.json'), 'utf8'));
+      const p = new URL(String(info?.url || '')).port;
+      if (p) ports.push(Number(p));
+    } catch { /* 没启动过 */ }
+    return ports;
+  }
+
+  _displayName(serverId) {
+    try {
+      const r = this._getDb().prepare('SELECT name, display_name FROM mcp_servers WHERE id = ?').get(serverId);
+      return r?.display_name || r?.name || serverId;
+    } catch { return serverId; }
+  }
+
+  /** 这个应用里有没有 tokenbank 桥（能写配置的本机应用才有；API 应用没有） */
+  _hasBridge(clientId) {
+    try {
+      const { listSyncEnabledClientIds, expandMcpClientMatchIds } = require('./mcp-agent-targets');
+      const writable = new Set(listSyncEnabledClientIds());
+      return [clientId, ...expandMcpClientMatchIds(clientId)].some((id) => writable.has(id));
+    } catch { return false; }
+  }
+
+  /**
+   * 用户自己在这个应用配置里配过这一条（不是 Token Bank 写的）：不再经 tokenbank 重复给一遍
+   * @param {string} clientId
+   * @param {object} server  name / metadata.importedFrom
+   */
+  ownConfigHas(clientId, server) {
+    const cid = String(clientId || '').trim();
+    if (!cid || !server) return false;
+    try {
+      const { scanAllClientMcps } = require('./mcp-client-sync');
+      const { expandMcpClientMatchIds } = require('./mcp-agent-targets');
+      const ids = new Set([cid, ...expandMcpClientMatchIds(cid)]);
+      const meta = this._parseJson(server.metadata, {});
+      const keys = new Set([server.name, meta.importedFrom].filter(Boolean));
+      const isTb = (e) => /[\\/]\.tokenbank[\\/]mcp[\\/]/.test(`${e?.command || ''} ${(Array.isArray(e?.args) ? e.args : []).join(' ')}`);
+      return (scanAllClientMcps() || []).some((x) => ids.has(x.clientId) && keys.has(x.clientKey) && !isTb(x.entry));
+    } catch { return false; }
+  }
+
+  /**
+   * 这个应用里要由 tokenbank 桥起的 MCP（给了它、要在应用里跑、不是别的应用专属、它自己配置里也没有）。
+   * 网关 GET /mcp/<应用>/local 给桥用。
+   */
+  listAppLocalServers(clientId) {
+    this.init();
+    const cid = String(clientId || '').trim();
+    if (!cid) return [];
+    const db = this._getDb();
+    const rows = db.prepare(`
+      SELECT id, name, display_name, type, command, args, url, env, builtin, status, metadata
+      FROM mcp_servers WHERE status = 'active'
+    `).all().map((row) => this._formatServerRow(row));
+    const out = [];
+    for (const s of rows) {
+      if (!s || isTokenbankBuiltinRelayId(s.id) || s.runs_in !== 'app' || !s.command) continue;
+      if (s.metadata?.tool_kind === 'api' || s.metadata?.tool_kind === 'cli') continue;
+      if (!this._clientMatchesRelay(s.gateway_clients, cid)) continue;
+      if (!placement.allowedFor(s, cid)) continue;
+      if (this.ownConfigHas(cid, s)) continue;
+      const cwd = String(s.metadata?.cwd || '').trim();
+      let command = s.command === 'npx' ? (shim?.resolveRealCommand?.('npx') || 'npx') : s.command;
+      if (cwd && /^\.{1,2}[\\/]/.test(command)) command = require('path').resolve(cwd, command);
+      out.push({
+        id: s.id,
+        name: s.name || s.id,
+        prefix: mcpToolPrefix(s.name || s.id),
+        command,
+        args: Array.isArray(s.args) ? s.args : [],
+        env: s.env && typeof s.env === 'object' ? s.env : {},
+        cwd,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * 「给哪些应用用」整体设成 clientIds（只改 affected 里的应用；不传则按全部能写配置的应用比对）。
+   * 以前的「写进应用配置」入口也走这里。
+   */
+  _setAppsForServer(serverId, clientIds, affected) {
+    const server = this.getServer(serverId);
+    if (!server) throw new Error('Server not found');
+    const want = [...new Set((clientIds || []).filter(Boolean))];
+    const scope = Array.isArray(affected) && affected.length ? affected : null;
+    const { expandMcpClientMatchIds } = require('./mcp-agent-targets');
+    const same = (a, b) => [a, ...expandMcpClientMatchIds(a)].includes(b);
+    const remove = (server.gateway_clients || []).filter((g) => (!scope || scope.some((x) => same(x, g)))
+      && !want.some((w) => same(w, g)));
+    if (remove.length) this.setServerGatewayRouted(serverId, false, remove);
+    const add = want.filter((w) => !(server.gateway_clients || []).some((g) => same(w, g)));
+    if (add.length) this.setServerGatewayRouted(serverId, true, add);
+    return { success: true, server: this.getServer(serverId) };
+  }
+
+  /**
+   * 手动标 / 取消「应用专属」。标上后已给别的应用的一并撤掉。
+   * @param {string} serverId
+   * @param {string} owner 应用 id；空 = 取消
+   */
+  setServerExclusive(serverId, owner) {
+    this.init();
+    if (isTokenbankBuiltinRelayId(serverId)) throw new Error('Token Bank 自己的 MCP 所有应用都能用');
+    const db = this._getDb();
+    const row = db.prepare('SELECT id, metadata FROM mcp_servers WHERE id = ?').get(serverId);
+    if (!row) throw new Error('Server not found');
+    const meta = this._parseJson(row.metadata, {});
+    const id = String(owner || '').trim();
+    const next = { ...meta, exclusive_checked: true };
+    if (id) {
+      if (!/^[\w.-]{1,64}$/.test(id)) throw new Error('应用 id 不对');
+      next.exclusive_to = id;
+      if (Array.isArray(meta.gateway_clients)) {
+        next.gateway_clients = meta.gateway_clients.filter((g) => placement.allowedFor({ metadata: next }, g));
+        next.gateway_routed = next.gateway_clients.length > 0;
+      }
+    } else {
+      delete next.exclusive_to;
+    }
+    db.prepare('UPDATE mcp_servers SET metadata = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(next), Date.now(), serverId);
+    try { require('./mcp-gateway-server').reloadMcpGateway(); } catch { /* 网关没起 */ }
+    return { success: true, server: this.getServer(serverId) };
   }
 
   /** 启动时补一遍：命令是相对路径、又没记工作目录的导入 MCP，去原应用配置里找 */
@@ -1524,6 +1684,14 @@ class MCPManager {
         description: inferClientMcpDescription(found.entry),
         ...(found.entry.headers ? { headers: found.entry.headers } : {}),
         ...(found.entry.cwd ? { cwd: found.entry.cwd } : {}),
+        // 依赖这个应用自己东西的（命令在它目录 / 程序包里，或是它在本机开的服务）：只给它用
+        ...(() => {
+          const owner = placement.detectExclusiveOwner(
+            { ...found.entry, metadata: { cwd: found.entry.cwd, originAgents: agents } },
+            { gatewayPorts: this._gatewayPorts() },
+          );
+          return owner ? { exclusive_to: owner, exclusive_checked: true } : { exclusive_checked: true };
+        })(),
       },
     });
     this._linkServerToProfile(DEVELOPMENT_PROFILE_ID, safeId);
@@ -1728,7 +1896,8 @@ class MCPManager {
     const { listSyncEnabledClientIds } = require('./mcp-agent-targets');
     const syncAllowed = listSyncEnabledClientIds();
     // 未显式配置 sync_clients → 空列表（不默认投射到全部 Agent）
-    const sync_clients = Array.isArray(metadata.sync_clients)
+    // 只有 tokenbank 自己写进应用配置；其它 MCP 都经它（给哪些应用用记在 gateway_clients）
+    const sync_clients = isTokenbankBuiltinRelayId(row.id) && Array.isArray(metadata.sync_clients)
       ? metadata.sync_clients.filter((id) => syncAllowed.includes(id))
       : [];
 
@@ -1758,6 +1927,8 @@ class MCPManager {
       gateway_clients,
       gateway_routed: gateway_clients.length > 0,
       builtin: !!row.builtin,
+      runs_in: isTokenbankBuiltinRelayId(row.id) ? 'app' : placement.runsIn({ ...row, metadata }),
+      exclusive_to: String(metadata.exclusive_to || ''),
     };
   }
 

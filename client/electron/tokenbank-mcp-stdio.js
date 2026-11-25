@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // client/electron/tokenbank-mcp-stdio.js
-// 写进各应用 MCP 配置的 tokenbank 条目（stdio）。自己不执行工具：每条消息转给网关 /mcp/<应用>，
-// 工具在网关进程里跑（tokenbank-tools.js），和直接连网关的应用、外部智能体是同一份实现。
+// 写进各应用 MCP 配置的 tokenbank 条目（stdio），应用配置里只有这一条。
+//  - Token Bank 的工具和在网关里跑的第三方 MCP：消息转给网关 /mcp/<应用>（tokenbank-tools.js 是同一份实现）
+//  - 要用应用自己项目目录或系统权限的 MCP（文件、git、浏览器、电脑操作）：在这里起子进程（tokenbank-mcp-local.js），
+//    工具一起列给模型；Token Bank 没开时也能用
 //
 // 环境变量：
 //   TB_CLIENT_ID      哪个应用（决定看到哪些投射的资产、用哪一档权限）
@@ -74,6 +76,15 @@ function forward(msg) {
   });
 }
 
+let localHost = null;
+function local() {
+  if (!localHost) {
+    const { createLocalHost } = require('./tokenbank-mcp-local');
+    localHost = createLocalHost({ clientId: clientId(), gateway });
+  }
+  return localHost;
+}
+
 function send(msg) {
   if (msg) process.stdout.write(`${JSON.stringify(msg)}\n`);
 }
@@ -98,6 +109,36 @@ async function handle(msg) {
   }
   if (msg?.method === 'ping') { send({ jsonrpc: '2.0', id, result: {} }); return; }
   if (isNotice) { forward(msg).catch(() => {}); return; }
+  if (msg?.method === 'tools/list' && clientId()) {
+    // 网关的和在应用里起的一起列；在应用里起的慢也不拖：先用上次存的工具列表
+    const [remote, mine] = await Promise.all([
+      forward(msg).then((r) => ({ r }), (e) => ({ e })),
+      local().listTools().catch(() => []),
+    ]);
+    let tools;
+    if (remote.r && Array.isArray(remote.r.result?.tools)) tools = remote.r.result.tools;
+    else if (remote.r) { send(remote.r); return; }
+    else {
+      // 没连上时先给完整列表，调用时再提示打开 Token Bank
+      const tb = require('./tokenbank-tools');
+      tools = tb.listTools({ level: 'full', guardian: clientId() === tb.GUARDIAN_CLIENT_ID });
+    }
+    const taken = new Set(tools.map((t) => t.name));
+    send({ jsonrpc: '2.0', id, result: { ...(remote.r?.result || {}), tools: [...tools, ...mine.filter((t) => !taken.has(t.name))] } });
+    return;
+  }
+  if (msg?.method === 'tools/call' && clientId()) {
+    let mine = null;
+    try { await local().load(); mine = local().owner(msg.params?.name); } catch { /* 没有本地的 */ }
+    if (mine) {
+      try {
+        send({ jsonrpc: '2.0', id, result: await local().call(msg.params?.name, msg.params?.arguments) });
+      } catch (e) {
+        send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: e.message }], isError: true } });
+      }
+      return;
+    }
+  }
   try {
     send(await forward(msg));
   } catch (e) {
@@ -122,6 +163,10 @@ if (require.main === module) {
     try { msg = JSON.parse(t); } catch { return; }
     handle(msg);
   });
+  // 应用关掉连接：在应用里起的子进程一起退
+  const bye = () => { try { localHost?.stopAll(); } catch { /* ignore */ } process.exit(0); };
+  rl.on('close', bye);
+  process.on('SIGTERM', bye);
 }
 
 module.exports = { handle, forward, gateway };

@@ -560,6 +560,8 @@ function syncAll(servers, options = {}) {
 
 /** 读取 MCP 应同步到哪些 Agent（须显式投射，且仅本机已安装） */
 function getServerSyncClients(server) {
+  // 应用配置里只写 tokenbank 一条；其它 MCP 经它（在应用里跑的由它起，其它的在网关里）
+  if (!server || (server.id !== BUILTIN_ID && server.name !== BUILTIN_ID)) return [];
   const { listSyncEnabledClientIds, listInstalledClientIds } = require('./mcp-agent-targets');
   const allowed = listSyncEnabledClientIds();
   const installed = new Set(listInstalledClientIds());
@@ -955,12 +957,13 @@ function invalidateScanCache() {
 }
 
 function inferClientMcpDescription(entry) {
+  // 导入的和在 Token Bank 里加的一样看待，不写来源：只留包名 / 地址 / 命令
   const args = entry?.args || [];
   const pkg = args.find(a => typeof a === 'string' && (a.includes('/') || a.includes('-mcp')));
-  if (pkg) return `客户端自配 · ${pkg}`;
-  if (entry?.url) return `客户端自配 · ${entry.url}`;
-  if (entry?.command) return `客户端自配 · ${path.basename(entry.command)}`;
-  return '客户端自配 MCP';
+  if (pkg) return pkg;
+  if (entry?.url) return entry.url;
+  if (entry?.command) return path.basename(entry.command);
+  return '';
 }
 
 /**

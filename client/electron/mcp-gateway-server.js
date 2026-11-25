@@ -101,17 +101,24 @@ function clientIdsOf(cid) {
   try { return new Set([cid, ...require('./mcp-agent-targets').expandMcpClientMatchIds(cid)]); } catch { return new Set([cid]); }
 }
 
+/** 用户自己在这个应用配置里配过同一条：不再经 tokenbank 列一遍（测试可替换） */
+let ownConfigHas = (cid, row) => {
+  try { return require('./mcp-manager').ownConfigHas(cid, row); } catch { return false; }
+};
+function setOwnConfigCheck(fn) { ownConfigHas = typeof fn === 'function' ? fn : () => false; }
+
 /**
  * 某应用可见的第三方 MCP 后端（给了这个应用的；不指定应用时全部）。
- * 已经直接写进这个应用配置的不再经网关列一遍，免得同一组工具出现两次。
+ * 应用自己配置里已经有的不再列一遍，免得同一组工具出现两次；别的应用专属的不给。
  */
 function backendsForClient(clientId) {
   syncBackends();
   const cid = safeClientId(clientId);
   const ids = cid ? clientIdsOf(cid) : null;
   const has = (list) => Array.isArray(list) && list.some((id) => ids.has(id));
+  const { allowedFor } = require('./mcp-placement');
   return [...routedRows.values()]
-    .filter((row) => !ids || (has(row?.gateway_clients) && !has(row?.sync_clients)))
+    .filter((row) => !ids || (has(row?.gateway_clients) && allowedFor(row, cid) && !ownConfigHas(cid, row)))
     .map((row) => backends.get(row.id))
     .filter(Boolean);
 }
@@ -742,6 +749,21 @@ async function handleRelayRequest(req, res, { port, agentKey } = {}) {
     return;
   }
 
+  // 应用里的 tokenbank 桥来取「要在应用里起的 MCP」：GET /mcp/<应用>/local
+  const localMatch = /^\/mcp\/([^/]+)\/local\/?$/.exec(url.pathname);
+  if (req.method === 'GET' && localMatch) {
+    const cid = safeClientId(decodeURIComponent(localMatch[1]));
+    if (!cid) { sendJson(res, 404, { error: 'invalid app id' }); return; }
+    try {
+      const m = require('./mcp-manager');
+      m.init();
+      sendJson(res, 200, { servers: m.listAppLocalServers(cid) });
+    } catch (e) {
+      sendJson(res, 500, { error: e.message || String(e) });
+    }
+    return;
+  }
+
   // Streamable HTTP / 简易 JSON-RPC：POST /mcp 或 /mcp/:appId
   const parsed = parseClientIdFromPath(url.pathname);
   const queryClient = safeClientId(url.searchParams.get('client') || url.searchParams.get('app'));
@@ -943,4 +965,5 @@ module.exports = {
   getGatewayEndpoint,
   getGatewayStatus,
   buildClientConfigJson,
+  setOwnConfigCheck,
 };
