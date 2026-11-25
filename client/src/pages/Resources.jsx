@@ -3775,10 +3775,10 @@ export default function Resources() {
     if (li.life.layer === 'active') {
       return { kind: 'active', word: t('resources.state.active'), why: li.apps.length && li.type === 'skill' ? t('resources.row.onApps', { n: li.apps.length }) : '', act: 'project' };
     }
-    // 提示词、智能体模板不用启用到应用：没用过就说没用过
-    if (li.type === 'prompt' || li.type === 'assistant') return { kind: 'idle', word: t('resources.row.promptUnused'), why: '', act: 'project' };
-    // 技能：没启用写「停用」，启用了没用过只说没用过（闲置由智能管家处理，这里不催）
-    if (li.type === 'skill') return { kind: 'idle', word: li.apps.length ? t('resources.row.promptUnused') : t('resources.skill.offShort'), why: '', act: 'project' };
+    // 提示词不用启用到应用：没用过就说没用过
+    if (li.type === 'prompt') return { kind: 'idle', word: t('resources.row.promptUnused'), why: '', act: 'project' };
+    // 技能、智能体模板：哪里都没放写「停用」，放了没用过只说没用过（闲置由智能管家处理，这里不催）
+    if (li.type === 'skill' || li.type === 'assistant') return { kind: 'idle', word: li.apps.length ? t('resources.row.promptUnused') : t('resources.skill.offShort'), why: '', act: 'project' };
     // 一句话说清楚，不再「没在用」+「启用了还没用过」两句打架
     const word = { pending: t('resources.row.whyPending'), dormant: t('resources.row.whyDormant'), cold: t('resources.row.whyCold'), shelf: t('resources.row.whyShelf') }[li.life.layer] || t('resources.state.idle');
     return { kind: 'idle', word, why: '', act: 'project' };
@@ -3845,7 +3845,7 @@ export default function Resources() {
             : <span className="truncate text-zinc-500 dark:text-zinc-400">· {rs.why}</span>)}
         </div>
         <div className="hidden md:block min-w-0">{renderAppNames(li.apps, li.type, li)}</div>
-        <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{li.type === 'assistant' ? '—' : t('resources.row.uses', { n: li.useCount || 0 })}</div>
+        <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{t('resources.row.uses', { n: li.useCount || 0 })}</div>
         <div className="hidden md:flex items-start gap-1.5 text-[11px] min-w-0">
           <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${stateDot}`} aria-hidden />
           <span className="min-w-0">
@@ -3925,9 +3925,9 @@ export default function Resources() {
           <>
             <span className={`text-[10px] px-1.5 py-px rounded font-medium ${visual.chip}`}>{typeBadge(li.type, t)}</span>
             <span className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
-              <span className={`w-1.5 h-1.5 rounded-full ${(li.type === 'prompt' || li.type === 'skill') ? (li.useCount ? 'bg-emerald-500' : 'bg-zinc-300') : (LIFE_DOT[li.life.layer] || 'bg-zinc-300')}`} aria-hidden />
-              {li.type === 'prompt' || li.type === 'skill'
-                ? (li.useCount ? t('resources.state.active') : (li.type === 'skill' && !li.apps.length ? t('resources.skill.offShort') : t('resources.row.promptUnused')))
+              <span className={`w-1.5 h-1.5 rounded-full ${['prompt', 'skill', 'assistant'].includes(li.type) ? (li.useCount ? 'bg-emerald-500' : 'bg-zinc-300') : (LIFE_DOT[li.life.layer] || 'bg-zinc-300')}`} aria-hidden />
+              {['prompt', 'skill', 'assistant'].includes(li.type)
+                ? (li.useCount ? t('resources.state.active') : ((li.type === 'skill' || li.type === 'assistant') && !li.apps.length ? t('resources.skill.offShort') : t('resources.row.promptUnused')))
                 : lifeLabel(li.life)}
             </span>
             {!li.builtin && li.kind !== 'discovered' && (
