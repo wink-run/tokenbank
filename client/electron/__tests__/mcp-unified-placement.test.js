@@ -202,3 +202,23 @@ test('导入时自动写的描述不带来源', () => {
   assert.equal(inferClientMcpDescription({ command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'] }), '@modelcontextprotocol/server-github');
   assert.equal(inferClientMcpDescription({ url: 'https://x.dev/mcp' }), 'https://x.dev/mcp');
 });
+
+test('取消给某个应用：连同它的别名一起撤；保存时别名统一成一个', () => {
+  withDb((db) => {
+    mcpManager.init();
+    insert(db, 'mcp-pw', 'pipeworx', '', [], { gateway_clients: ['claude-desktop', 'cursor'], gateway_routed: true }, { type: 'http', url: 'https://example.com/mcp' });
+    mcpManager.setServerGatewayRouted('mcp-pw', false, ['claude-code']);
+    assert.deepEqual(metaOf(db, 'mcp-pw').gateway_clients, ['cursor'], 'claude-desktop 也撤了');
+    insert(db, 'mcp-x', 'x', '', [], { gateway_clients: ['claude-desktop'] }, { type: 'http', url: 'https://example.com/x' });
+    mcpManager.setServerGatewayRouted('mcp-x', true, ['cursor']);
+    assert.deepEqual(metaOf(db, 'mcp-x').gateway_clients, ['claude-code', 'cursor'], '保存时别名统一');
+  });
+});
+
+test('升级：已存的别名统一成一个', () => {
+  withDb((db) => {
+    insert(db, 'mcp-pw', 'pipeworx', '', [], { gateway_clients: ['claude-desktop', 'claude-code', 'cursor'] }, { type: 'http', url: 'https://example.com/mcp' });
+    mcpManager.init();
+    assert.deepEqual(metaOf(db, 'mcp-pw').gateway_clients, ['claude-code', 'cursor']);
+  });
+});

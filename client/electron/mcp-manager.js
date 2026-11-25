@@ -911,10 +911,12 @@ class MCPManager {
           throw new Error(`「${name}」要在应用里跑（用应用的项目目录和权限），只能给本机装了 tokenbank 的应用`);
         }
       }
-      clients = [...new Set([...clients, ...targets])];
+      clients = this._canonicalClients([...clients, ...targets]);
     } else if (targets.length) {
-      const remove = new Set(targets);
-      clients = clients.filter((id) => !remove.has(id));
+      // 连同别名一起撤（claude-desktop 是 Claude Code 的别名，列表里不单独显示；只撤 claude-code 时它还在，工具照样给）
+      const { expandMcpClientMatchIds } = require('./mcp-agent-targets');
+      const remove = new Set(targets.flatMap((id) => [id, ...expandMcpClientMatchIds(id)]));
+      clients = clients.filter((id) => !remove.has(id) && !expandMcpClientMatchIds(id).some((x) => remove.has(x)));
     } else {
       clients = [];
     }
@@ -1456,6 +1458,11 @@ class MCPManager {
           changed = true;
         }
         if (Array.isArray(next.gateway_clients)) {
+          const canon = this._canonicalClients(next.gateway_clients);
+          if (canon.length !== next.gateway_clients.length || canon.some((id, i) => id !== next.gateway_clients[i])) {
+            next.gateway_clients = canon;
+            changed = true;
+          }
           const full = { ...row, args: this._asArray(row.args, []), metadata: next };
           // 专属的只留它的应用；在应用里跑的只留有 tokenbank 桥的应用（API 应用起不了）
           const kept = next.gateway_clients.filter((id) => placement.allowedFor(full, id)
@@ -1520,6 +1527,12 @@ class MCPManager {
       const r = this._getDb().prepare('SELECT name, display_name FROM mcp_servers WHERE id = ?').get(serverId);
       return r?.display_name || r?.name || serverId;
     } catch { return serverId; }
+  }
+
+  /** 应用 id 统一成一个（codex-desktop → codex、claude-desktop → claude-code），去重 */
+  _canonicalClients(ids) {
+    const { resolveMcpSyncClientId } = require('./mcp-agent-targets');
+    return [...new Set((ids || []).filter(Boolean).map((id) => resolveMcpSyncClientId(id) || id))];
   }
 
   /** 这个应用里有没有 tokenbank 桥（能写配置的本机应用才有；API 应用没有） */
