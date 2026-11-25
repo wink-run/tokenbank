@@ -552,6 +552,8 @@ export default function Resources() {
   const [msg, setMsg] = useState('');
   const [expandedId, setExpandedId] = useState(null);
   const [projectMenu, setProjectMenu] = useState(null);
+  // 智能体模板「+」：点一下就加到那个通用智能体里可见，不用勾选再保存
+  const [visibleMenu, setVisibleMenu] = useState(null);
   const [projectSelected, setProjectSelected] = useState([]);
   const [editorOpen, setEditorOpen] = useState(false);
   const [skillInstallOpen, setSkillInstallOpen] = useState(false);
@@ -2011,6 +2013,83 @@ export default function Resources() {
     } catch {
       return String(ms);
     }
+  }
+
+  /** 智能体模板能放进的通用智能体（已纳管的） */
+  function visibleTargets() {
+    return (assistantAgents.length ? assistantAgents : agents).filter((a) => a && a.id);
+  }
+
+  function openVisibleMenu(e, resourceId) {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const w = 208;
+    setVisibleMenu((cur) => (cur?.resourceId === resourceId ? null : {
+      resourceId,
+      x: Math.max(8, Math.min(rect.left, window.innerWidth - w - 8)),
+      y: rect.bottom + 4,
+      up: rect.bottom + 260 > window.innerHeight ? window.innerHeight - rect.top + 4 : null,
+    }));
+  }
+
+  /** 加到一个通用智能体里可见：点了就生效 */
+  async function addVisibleIn(resourceId, agentId) {
+    const target = resources.find((r) => r.id === resourceId);
+    if (target?.depsBroken && target.missingDeps?.length) {
+      const list = target.missingDeps.map((d) => `${d.type}:${d.name}`).join(', ');
+      if (!window.confirm(t('resources.depsBrokenConfirm', { list }))) return;
+    }
+    setVisibleMenu(null);
+    setBusy(resourceId);
+    setError('');
+    try {
+      const r = await projectWithGuard({ resourceId, agentIds: [agentId] }, { t, name: target?.display_name || target?.name });
+      if (r.canceled) return;
+      if (!r.success) { setError(r.error || t('resources.projectFailed')); return; }
+      if (r.resource) applyResourcePatch(resourceId, r.resource);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy('');
+    }
+  }
+
+  function renderVisibleMenu() {
+    if (!visibleMenu) return null;
+    const res = resources.find((r) => r.id === visibleMenu.resourceId);
+    const have = new Set((res?.projections || []).map((p) => p.agentId).filter(Boolean));
+    const left = visibleTargets().filter((a) => !have.has(a.id));
+    return createPortal(
+      <>
+        <div className="fixed inset-0 z-[90]" onClick={() => setVisibleMenu(null)} />
+        <div
+          className="fixed z-[91] w-52 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg py-1"
+          style={visibleMenu.up != null ? { left: visibleMenu.x, bottom: visibleMenu.up } : { left: visibleMenu.x, top: visibleMenu.y }}
+        >
+          {left.length === 0 ? (
+            <p className="m-0 px-3 py-2 text-[11px] text-zinc-400">{t('resources.assistant.visibleAll')}</p>
+          ) : left.map((a) => (
+            <button key={a.id} type="button" onClick={() => addVisibleIn(visibleMenu.resourceId, a.id)}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/50">
+              <ServiceIcon id={a.id} name={a.label} boxClass="w-5 h-5" imgClass="w-3 h-3" className="!rounded-md" />
+              <span className="truncate">{a.label || a.id}</span>
+            </button>
+          ))}
+        </div>
+      </>,
+      document.body,
+    );
+  }
+
+  /** 「+」按钮：在 logo 后面，加到更多通用智能体里可见 */
+  function visibleAddButton(resourceId, extra = '') {
+    return (
+      <button type="button" onClick={(e) => openVisibleMenu(e, resourceId)} disabled={!!busy && busy !== resourceId}
+        title={t('resources.assistant.visibleAdd')} aria-label={t('resources.assistant.visibleAdd')}
+        className={`shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-md border border-dashed border-zinc-300 dark:border-zinc-600 text-zinc-400 hover:border-blue-400 hover:text-blue-500 text-xs leading-none disabled:opacity-40 ${extra}`}>
+        +
+      </button>
+    );
   }
 
   /** 智能体模板去网关运行：切到专业智能体、打开新建弹窗并选好这个模板 */
@@ -3667,6 +3746,14 @@ export default function Resources() {
       if (!skillGaps(li).enabled) return <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('resources.skill.offShort')}</span>;
       return <AppIconStack apps={skillAppsOf(li)} emptyLabel="—" />;
     }
+    if (type === 'assistant' && li?.resourceId) {
+      return (
+        <span className="inline-flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+          {apps.length ? <AppIconStack apps={apps} emptyLabel="—" /> : <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('resources.assistant.noApp')}</span>}
+          {visibleAddButton(li.resourceId)}
+        </span>
+      );
+    }
     if (!apps.length) return <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{type === 'assistant' ? t('resources.assistant.noApp') : t('resources.row.notEnabled')}</span>;
     return <AppIconStack apps={apps} emptyLabel="—" />;
   }
@@ -3852,7 +3939,7 @@ export default function Resources() {
         stats={[
           [t('resources.col.uses'), li.useCount || '0'],
           [t('resources.stat.lastUsed'), fmtAgo(li.lastUsed)],
-          ...(li.type === 'prompt' ? [] : li.type === 'skill' ? [[t('resources.col.apps'), skillAppsOf(li).length]] : [[t('resources.col.apps'), li.apps.length]]),
+          ...(li.type === 'prompt' ? [] : li.type === 'skill' ? [[t('resources.col.apps'), skillAppsOf(li).length]] : [[li.type === 'assistant' ? t('resources.assistant.runInTitle') : t('resources.col.apps'), li.apps.length]]),
         ]}
         footer={menu.length > 0 ? (
           <>
@@ -3886,18 +3973,17 @@ export default function Resources() {
                 )}
                 {renderSkillPlacement(li)}
               </>
-            ) : li.type === 'assistant' ? (
-              // 智能体模板：只看它在哪些应用上跑，改在网关
-              li.apps.length ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {li.apps.map((a) => (
-                    <span key={a.id} className="tb-tag tb-tag-muted text-[10px] px-2 py-0.5 inline-flex items-center gap-1">
-                      <ServiceIcon id={a.id} name={a.label} boxClass="w-3.5 h-3.5" imgClass="w-2.5 h-2.5" className="!rounded" />
-                      {a.label}
-                    </span>
-                  ))}
-                </div>
-              ) : <span className="text-[11px] text-zinc-400">{t('resources.tpl.notProjected')}</span>
+            ) : li.type === 'assistant' && li.resourceId ? (
+              // 智能体模板：在哪些通用智能体里可见，点 × 去掉，点 + 加
+              <div className="flex flex-wrap items-center gap-1.5">
+                {li.apps.length > 0 && renderProjections({
+                  id: li.resourceId,
+                  type: li.type,
+                  projections: it.projections,
+                  authorityPath: li.kind === 'discovered' ? it.authorityPath : (it.authorityPath || li.path),
+                }, { inline: true })}
+                {visibleAddButton(li.resourceId)}
+              </div>
             ) : li.resourceId ? renderProjections({
               id: li.resourceId,
               type: li.type,
@@ -4655,6 +4741,7 @@ export default function Resources() {
       </div>
 
       {renderProjectMenu()}
+      {renderVisibleMenu()}
 
       {/* 闲置 Skill 清理 — portal 到 body，避免被主内容区 / glass 裁切 */}
       {cleanupOpen && createPortal(
