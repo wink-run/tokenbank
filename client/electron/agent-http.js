@@ -290,7 +290,7 @@ async function handleExternal(req, res, method, cleanPath) {
     const qs = new URL(req.url || '/', 'http://x').searchParams;
     const isPull = method === 'GET' && cleanPath === '/v1/agent/external/tasks';
     const isPeek = method === 'GET' && cleanPath === '/v1/agent/external/tasks/peek';
-    const agent = ext.authenticate(callerKey(req), Date.now(), { heartbeat: isPull || isPeek, intervalSec: Number(qs.get('interval')) || 0, skillVersion: qs.get('skill_version') || '' });
+    const agent = ext.authenticate(callerKey(req), Date.now(), { heartbeat: isPull || isPeek, peek: isPeek, intervalSec: Number(qs.get('interval')) || 0, skillVersion: qs.get('skill_version') || '' });
     if (!agent) {
       req.resume();
       if (ext.wasRemoved(callerKey(req))) {

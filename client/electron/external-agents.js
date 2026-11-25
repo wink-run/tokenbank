@@ -206,12 +206,19 @@ function webhookHealthy(a) {
  *   { poll: true, intervalSec, baseSec, slowed }     轮询：slowed 表示因为空闲放慢了
  */
 function pollPlan(a, now = Date.now()) {
-  if (webhookHealthy(a)) return { poll: false, intervalSec: 0, baseSec: pullIntervalSec(), slowed: false };
+  if (webhookHealthy(a)) return { poll: false, intervalSec: 0, baseSec: pullIntervalSec(), slowed: false, scripted: false };
   const base = pullIntervalSec();
+  // 用脚本看一眼（peek）的：没任务时不经过模型、不花 token，不用放慢，任务来了取得最快
+  if (scriptedCheck(a, now)) return { poll: true, intervalSec: base, baseSec: base, slowed: false, scripted: true };
   const idle = now - (a.lastTaskAt || a.createdAt || now);
   const step = IDLE_SLOWDOWN.find(([ms]) => idle >= ms);
   const intervalSec = Math.min(MAX_PULL_SEC, Math.max(base, step ? step[1] : 0));
-  return { poll: true, intervalSec, baseSec: base, slowed: intervalSec > base };
+  return { poll: true, intervalSec, baseSec: base, slowed: intervalSec > base, scripted: false };
+}
+
+/** 最近是用脚本看一眼（peek）在检查：两个间隔里来过就算 */
+function scriptedCheck(a, now = Date.now()) {
+  return !!a.lastPeekAt && now - a.lastPeekAt <= 2 * pullIntervalSec() * 1000 + 10 * 60 * 1000;
 }
 
 /** 在线判断用的心跳间隔：用户设过的频率优先，否则用它自己报的，再否则按最近几次来取的间隔 */
@@ -265,7 +272,8 @@ function publicView(a, now = Date.now()) {
     // 它要用 Webhook、但地址和密钥得你来填，还没填
     webhookWanted: !!a.webhookWanted && !(a.webhook && a.webhook.url),
     // 接收方式：webhook（不轮询）或 poll（按 pollIntervalSec 来取；slowed=空闲自动放慢了）
-    receive: webhookHealthy(a) ? 'webhook' : 'poll',
+    // script = 用脚本 peek 检查（不花 token）；poll = 模型定时来取（每次都花 token）
+    receive: webhookHealthy(a) ? 'webhook' : scriptedCheck(a, now) ? 'script' : 'poll',
     pollIntervalSec: pollPlan(a, now).intervalSec,
     pollSlowed: pollPlan(a, now).slowed,
     pollBaseSec: pullIntervalSec(),
@@ -385,13 +393,16 @@ function wasRemoved(token) {
 
 /** 用 token 认出是哪个外部智能体；顺带记下「最近来过」。
  *  heartbeat：这次是来取任务，记下和上次的间隔；intervalSec：它自己报的心跳间隔 */
-function authenticate(token, now = Date.now(), { heartbeat = false, intervalSec = 0, skillVersion = '' } = {}) {
+function authenticate(token, now = Date.now(), { heartbeat = false, peek = false, intervalSec = 0, skillVersion = '' } = {}) {
   if (!token) return null;
   const h = hashToken(token);
   const d = read();
   const a = d.agents.find(x => x.tokenHash === h);
   if (!a) return null;
-  if (heartbeat) {
+  if (peek) a.lastPeekAt = now;
+  // 脚本看到有任务后模型马上来取：这次不算一次定时检查，不记间隔
+  const followsPeek = heartbeat && !peek && a.lastPeekAt && now - a.lastPeekAt < 10 * 60 * 1000;
+  if (heartbeat && !followsPeek) {
     if (a.lastPollAt) {
       const gap = now - a.lastPollAt;
       if (gap > 1000 && gap < MAX_INTERVAL_MS) a.gaps = [...(a.gaps || []), gap].slice(-5);

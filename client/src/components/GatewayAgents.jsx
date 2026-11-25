@@ -817,15 +817,18 @@ function WebhookInline({ agent, gateway, t, onSaved }) {
   };
   const id = `wh-${agent.id.replace(/[^a-z0-9-]/gi, '')}`;
   const min = Math.round((agent.pollIntervalSec || agent.pollBaseSec || 300) / 60);
-  const mode = !wh ? (agent.webhookWanted ? t('gw2.ext.modeWanted') : t('gw2.ext.modePoll', { min }))
+  const scripted = (!wh || !wh.healthy) && agent.receive === 'script';
+  const mode = scripted && !wh ? t('gw2.ext.modeScript', { min })
+    : !wh ? (agent.webhookWanted ? t('gw2.ext.modeWanted') : t('gw2.ext.modePoll', { min }))
     : wh.healthy ? t(wh.by === 'user' ? 'gw2.ext.modeWebhookUser' : 'gw2.ext.modeWebhookAgent')
       : t('gw2.ext.modeWebhookDown');
   // 轮询要花它的 token：标成提醒色；空闲自动放慢了也说一声
-  const polling = !wh || !wh.healthy;
+  const polling = (!wh || !wh.healthy) && !scripted;
   return (
     <div ref={boxRef} className="px-3 py-2.5 border-t border-zinc-100 dark:border-white/[0.06] text-xs space-y-2" onClick={e => e.stopPropagation()}>
       <p className="m-0 font-semibold text-zinc-700 dark:text-zinc-200">{t('gw2.ext.whTitle')}</p>
       <p className={`m-0 ${wh && !wh.healthy ? 'text-red-600 dark:text-red-400' : polling ? 'text-amber-700 dark:text-amber-300' : 'text-zinc-700 dark:text-zinc-200'}`}>{mode}</p>
+      {polling && !agent.webhookWanted && <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.ext.modePollTip')}</p>}
       {polling && agent.pollSlowed && (
         <p className="m-0 text-zinc-500 dark:text-zinc-400">{t('gw2.ext.modePollSlowed', { min, base: Math.round((agent.pollBaseSec || 300) / 60) })}</p>
       )}
@@ -1061,12 +1064,12 @@ export function ExternalAgents() {
                     // 接收方式单独一个标签：Webhook（叫醒它）还是轮询（它定时来取）
                     const tone = a.webhook && !a.webhook.healthy ? 'border-red-300 text-red-700 dark:border-red-800 dark:text-red-300'
                       : a.webhookWanted ? 'border-amber-300 text-amber-800 dark:border-amber-800 dark:text-amber-200'
-                        : a.webhook ? 'border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-300'
-                          : 'border-amber-300 text-amber-800 dark:border-amber-800 dark:text-amber-200';   // 轮询要花它的 token
-                    const text = a.webhookWanted ? t('gw2.ext.whBadge.wanted') : !a.webhook ? t('gw2.ext.whBadge.poll')
+                        : a.webhook || a.receive === 'script' ? 'border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-300'
+                          : 'border-amber-300 text-amber-800 dark:border-amber-800 dark:text-amber-200';   // 模型定时来取要花它的 token
+                    const text = a.webhookWanted ? t('gw2.ext.whBadge.wanted') : !a.webhook ? t(a.receive === 'script' ? 'gw2.ext.whBadge.script' : 'gw2.ext.whBadge.poll')
                       : a.webhook.healthy ? t('gw2.ext.whBadge.on') : t('gw2.ext.whBadge.err');
                     const title = a.webhook?.healthy ? t('gw2.ext.whBadge.onTitle')
-                      : !a.webhook && !a.webhookWanted ? t('gw2.ext.whBadge.pollTitle', { min: Math.round((a.pollIntervalSec || 180) / 60) }) : (a.webhook?.lastError?.message || '');
+                      : !a.webhook && !a.webhookWanted ? t(a.receive === 'script' ? 'gw2.ext.whBadge.scriptTitle' : 'gw2.ext.whBadge.pollTitle', { min: Math.round((a.pollIntervalSec || 300) / 60) }) : (a.webhook?.lastError?.message || '');
                     return <span className={`inline-block mt-1 ml-3.5 px-1.5 rounded border text-[11px] leading-[18px] whitespace-nowrap ${tone}`} title={title}>{text}</span>;
                   })()}
                   {!pending && a.mcpLevel && a.mcpLevel !== 'off' && (

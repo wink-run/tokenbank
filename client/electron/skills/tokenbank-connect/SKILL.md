@@ -107,9 +107,9 @@ Token Bank 会在网关页提醒用户，并一步步引导用户把地址和密
    # queued > 0 时才唤起模型，用上面的「取任务」接口取（wait=0）；status 不是 active 时也唤起，按「被停用、被移除」处理
    ```
 
-   `peek` 只看不取，任务留在队里等你来取。
+   `peek` 只看不取，任务留在队里等你来取。脚本检查不经过模型，没任务时不花 token，所以 Token Bank 不会给你放慢频率，按 `interval` 来，任务来了取得最快。
 2. **只能让模型定时跑的平台**：按返回的 `interval` 定时跑，每次只做一件事：请求一次取任务（`wait=0`）。`task` 是 `null` 且 `status` 是 `active` 时**立刻结束这一轮**：不回复用户、不总结、不调用别的工具。
-3. **跟着 `interval` 走。** 默认 300（5 分钟），用户在网关页可以改；很久没派任务时 Token Bank 会自动把 `interval` 放长（最长 1 小时一次），一派任务就恢复。每次返回的 `interval` 变了，就把你的定时频率改成它，地址里的 `interval=` 也写成它：
+3. **跟着 `interval` 走。** 默认 300（5 分钟），用户在网关页可以改。让模型定时来取的（第 2 种），很久没派任务时 Token Bank 会自动把 `interval` 放长（最长 1 小时一次），一派任务就恢复；用脚本 `peek` 检查的不放长。每次返回的 `interval` 变了，就把你的定时频率改成它，地址里的 `interval=` 也写成它：
 
    ```bash
    curl "$GATEWAY/v1/agent/external/tasks?wait=0&interval=300&skill_version=$SKILL_VERSION" -H "Authorization: Bearer $TOKEN"

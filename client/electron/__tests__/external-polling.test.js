@@ -96,3 +96,20 @@ test('HTTP：取任务的回答带 poll；peek 只看不取；版本一样时不
   const took = await get(`/v1/agent/external/tasks?wait=0&skill_version=${version}`);
   assert.equal(took.task.input, '看一眼');
 });
+
+test('用脚本 peek 检查的：不放慢、标成脚本检查；有任务后模型来取不算一次定时检查', async () => {
+  const { agent_id: id, token } = newAgent('Script Bot');
+  backdate(id, 'createdAt', 30 * 3600 * 1000);
+  assert.equal(ext.get(id).pollIntervalSec, 60 * 60, '模型定时来取：空闲放慢');
+  await fetch(`${apiBase}/v1/agent/external/tasks/peek`, { headers: { authorization: `Bearer ${token}` } });
+  const v = ext.get(id);
+  assert.equal(v.receive, 'script');
+  assert.equal(v.pollIntervalSec, 300, '脚本检查不花 token：不放慢');
+  assert.equal(v.pollSlowed, false);
+  const before = JSON.parse(fs.readFileSync(ext._internal.file(), 'utf8')).agents.find((x) => x.id === id).gaps || [];
+  await fetch(`${apiBase}/v1/agent/external/tasks?wait=0`, { headers: { authorization: `Bearer ${token}` } });
+  const after = JSON.parse(fs.readFileSync(ext._internal.file(), 'utf8')).agents.find((x) => x.id === id).gaps || [];
+  assert.deepEqual(after, before, '紧跟 peek 的取任务不记间隔');
+  backdate(id, 'lastPeekAt', 3 * 3600 * 1000);
+  assert.equal(ext.get(id).receive, 'poll', '很久没用脚本查了：回到按模型轮询算');
+});
