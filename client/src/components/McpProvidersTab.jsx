@@ -110,7 +110,7 @@ const EMPTY_CUSTOM_FORM = {
  * 要用应用自己的工作目录、或者按会话保存状态的本地 MCP（文件、git、浏览器、终端）：
  * 经网关时进程跑在 Token Bank 里，看到的不是应用打开的项目，所以直接写进应用配置。
  */
-const APP_CONTEXT_MCP = /(^|[-_\s/@.])(filesystem|files?|fs|git|puppeteer|playwright|browser|chrome|shell|terminal|desktop-commander|desktop|sqlite|obsidian)([-_\s/]|$)/i;
+const APP_CONTEXT_MCP = /(^|[-_\s/@.])(filesystem|files?|fs|git|puppeteer|playwright|browser|chrome|shell|terminal|desktop-commander|desktop|computer-use|computer_use|computer|sqlite|obsidian)([-_\s/]|$)/i;
 function needsAppContext(s) {
   if (!s || isMcpUrlServer(s) || toolKindOf(s) !== 'mcp') return false;
   if (s.metadata?.categoryGroup === 'filesystem') return true;

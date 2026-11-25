@@ -86,7 +86,11 @@ function serverToEntry(serverRow, clientId) {
 
   if (!command) return null;
 
+  // 相对路径的命令换成绝对路径，并带上工作目录：写到别的应用里也能起来
+  const cwd = String(serverRow.metadata?.cwd || '').trim();
+  if (cwd && /^\.{1,2}[\\/]/.test(command)) command = path.resolve(cwd, command);
   const entry = { command, args: Array.isArray(args) ? args : [] };
+  if (cwd) entry.cwd = cwd;
   if (env && Object.keys(env).length) entry.env = env;
   return entry;
 }
@@ -257,6 +261,7 @@ function buildCodexMcpSections(entries) {
     } else {
       blocks.push(`command = ${tomlQuote(entry.command)}`);
       blocks.push(`args = ${JSON.stringify(entry.args || [])}`);
+      if (entry.cwd) blocks.push(`cwd = ${tomlQuote(entry.cwd)}`);
       if (entry.env && Object.keys(entry.env).length) {
         blocks.push('');
         blocks.push(`[mcp_servers.${key}.env]`);
@@ -778,6 +783,7 @@ function normalizeMcpEntry(raw) {
     url: url ? String(url) : null,
     headers: raw.headers && typeof raw.headers === 'object' ? raw.headers : undefined,
   };
+  if (raw.cwd) entry.cwd = String(raw.cwd);
   if (!entry.command && !entry.url) return null;
   return entry;
 }
@@ -869,6 +875,8 @@ function parseCodexMcpSections(text) {
             const val = parseTomlScalar(kv[2]);
             if (kv[1] === 'command') entry.command = String(val || '');
             else if (kv[1] === 'args') entry.args = Array.isArray(val) ? val.map(String) : [];
+            // 工作目录：插件类 MCP 的命令常写成相对路径（./xxx.app/...），离开这个目录就起不来
+            else if (kv[1] === 'cwd') entry.cwd = String(val || '');
           }
         }
         i += 1;
@@ -1271,6 +1279,8 @@ module.exports = {
   listAgentInstallations,
   getClientMcpEntry,
   getClientMcpEntryForAgent,
+  parseMcpEntriesFromFile,
+  normalizeMcpEntry,
   removeRawClientMcpEntry,
   scanAllClientMcps,
   invalidateScanCache,
