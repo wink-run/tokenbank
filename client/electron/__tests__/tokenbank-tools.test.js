@@ -243,3 +243,63 @@ test('派活上下文：调用方给的优先，其次编排时为这个应用�
   assert.equal(d.parentTaskId, 'p-1');
   assert.equal(d.workingDir, '/work');
 });
+
+const SLACK = [{ id: 'mcp-slack', name: 'slack', display_name: 'Slack', description: 'Slack 消息', tools: ['slack_post_message', 'slack_add_reaction'], prefix: 'slack' }];
+const SLACK_DEFS = {
+  slack: [
+    { name: 'slack_post_message', description: 'Post a message', inputSchema: { type: 'object', properties: { channel: { type: 'string' }, text: { type: 'string' }, thread_ts: { type: 'string' } }, required: ['channel', 'text'] } },
+    { name: 'slack_add_reaction', description: 'React to a message', inputSchema: { type: 'object', properties: { channel: { type: 'string' }, timestamp: { type: 'string' }, reaction: { type: 'string' } }, required: ['channel', 'timestamp', 'reaction'] } },
+  ],
+};
+
+test('列出第三方 MCP 时带参数名：模型列出来就直接调，参数名不能让它猜', async () => {
+  tools.setRelayedToolDefs(() => SLACK_DEFS);
+  try {
+    await withMocks({ relayed: SLACK }, async () => {
+      const listed = text(await call('tb_list_resources', { type: 'mcp' }));
+      assert.match(listed, /slack_post_message\(channel, text, thread_ts\?\)：Post a message/);
+      assert.match(listed, /slack_add_reaction\(channel, timestamp, reaction\)/);
+      const detail = JSON.parse(text(await call('tb_get_resource', { type: 'mcp', name: 'slack' })));
+      assert.deepEqual(detail.tools[0].parameters.required, ['channel', 'text']);
+      assert.match(text(await call('tb_capabilities', {})), /slack_post_message\(channel, text, thread_ts\?\)/);
+    });
+  } finally {
+    tools.setRelayedToolDefs(null);
+  }
+});
+
+test('tb_call_mcp 先按定义检查：参数名不对、工具名不对都不调用，告诉它正确写法；对了才发出去', async () => {
+  tools.setRelayedToolDefs(() => SLACK_DEFS);
+  const sent = [];
+  const ctx = { callRelayed: async (name, args) => { sent.push([name, args]); return { content: [{ type: 'text', text: 'ok' }] }; } };
+  try {
+    await withMocks({ relayed: SLACK }, async () => {
+      const badArgs = await call('tb_call_mcp', { server: 'slack', tool: 'slack_add_reaction', arguments: { channel: 'C1', timestamp: '1.2', emoji: 'tada' } }, ctx);
+      assert.equal(badArgs.isError, true);
+      assert.match(text(badArgs), /缺少 reaction；没有这些参数：emoji/);
+      assert.match(text(badArgs), /slack_add_reaction\(channel, timestamp, reaction\)/);
+      const badTool = await call('tb_call_mcp', { server: 'slack', tool: 'post_message', arguments: {} }, ctx);
+      assert.match(text(badTool), /没有工具 post_message[\s\S]*slack_post_message\(channel, text, thread_ts\?\)/);
+      assert.deepEqual(sent, [], '错的都没发出去');
+      const ok = await call('tb_call_mcp', { server: 'slack', tool: 'slack__slack_post_message', arguments: { channel: '#release', text: '0.8.1' } }, ctx);
+      assert.equal(ok.isError, false);
+      assert.deepEqual(sent, [['slack__slack_post_message', { channel: '#release', text: '0.8.1' }]]);
+    });
+  } finally {
+    tools.setRelayedToolDefs(null);
+  }
+});
+
+test('拿不到工具定义时照旧调用（只是没法检查）', async () => {
+  tools.setRelayedToolDefs(() => ({}));
+  try {
+    await withMocks({ relayed: SLACK }, async () => {
+      const sent = [];
+      await call('tb_call_mcp', { server: 'slack', tool: 'slack_post_message', arguments: { channel_id: 'x' } }, { callRelayed: async (n, a) => { sent.push(a); return { content: [] }; } });
+      assert.deepEqual(sent, [{ channel_id: 'x' }]);
+      assert.match(text(await call('tb_list_resources', { type: 'mcp' })), /\[工具: slack_post_message, slack_add_reaction\]/);
+    });
+  } finally {
+    tools.setRelayedToolDefs(null);
+  }
+});

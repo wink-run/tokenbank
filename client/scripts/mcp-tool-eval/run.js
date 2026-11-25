@@ -3,8 +3,7 @@
 //
 //   direct          MCP 直接写进应用配置：工具名 mcp__<MCP>__<工具>，带完整定义
 //   gateway         经网关、原样列给应用：工具名 <MCP>__<工具>，带完整定义
-//   indirect        经网关、藏在 tb_call_mcp 后面（现在的实现：tb_get_resource 只给工具名）
-//   indirect-schema 同上，但 tb_get_resource 给出每个工具的说明和参数定义
+//   indirect        经网关、藏在 tb_call_mcp 后面：tb_list_resources 列出工具签名（带参数名），tb_call_mcp 按定义检查参数
 // 每种都带 Token Bank 自己的 11 个工具（应用里本来就有）。工具少（small，约 16 个第三方工具）和工具多（large，约 60 个）各跑一遍。
 //
 // 用法：
@@ -20,7 +19,7 @@ const { TASKS } = require('./tasks');
 const tb = require('../../electron/tokenbank-tools');
 
 const MAX_STEPS = 6;
-const MODES = ['direct', 'gateway', 'indirect', 'indirect-schema'];
+const MODES = ['direct', 'gateway', 'indirect'];
 
 function parseArgs(argv) {
   const o = { api: 'openai', runs: 1, concurrency: 4, modes: MODES, sizes: ['small', 'large'], only: null, maxTokens: 1024 };
@@ -63,6 +62,11 @@ function toolsFor(mode, size) {
 
 // ── 模拟 Token Bank 那边：发现类工具走真实实现，调用第三方只记录不执行 ─────────
 
+/** 网关能拿到的第三方工具定义（tb_list_resources 列签名、tb_call_mcp 检查参数用） */
+function relayedDefs(size) {
+  return Object.fromEntries(serversFor(size).map((s) => [s.name.replace(/[^a-zA-Z0-9_-]+/g, '_'), s.tools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }))]));
+}
+
 function relayedSummaries(size) {
   return serversFor(size).map((s) => ({ id: `mcp-${s.name}`, name: s.name, display_name: s.name, description: s.description, tools: s.tools.map((t) => t.name), prefix: s.name.replace(/[^a-zA-Z0-9_-]+/g, '_') }));
 }
@@ -88,12 +92,6 @@ async function runTbTool(name, args, mode, size) {
     const prefix = prefixed.slice(0, idx);
     const server = serversFor(size).find((s) => s.name.replace(/[^a-zA-Z0-9_-]+/g, '_') === prefix);
     return { thirdParty: [server ? server.name : prefix, prefixed.slice(idx + 2), a] };
-  }
-  if (name === 'tb_get_resource' && mode === 'indirect-schema' && String(args.type || 'mcp') === 'mcp') {
-    const s = serversFor(size).find((x) => x.name.toLowerCase() === String(args.name || '').toLowerCase());
-    if (s) {
-      return { text: JSON.stringify({ type: 'mcp', name: s.name, description: s.description, tools: s.tools.map((t) => ({ name: t.name, description: t.description, parameters: t.inputSchema })), usage: `tb_call_mcp(server="${s.name}", tool="<工具名>", arguments={...})` }, null, 2) };
-    }
   }
   if (['tb_capabilities', 'tb_list_resources', 'tb_get_resource', 'tb_list_models', 'tb_list_devices'].includes(name)) {
     const r = await tb.callTool(name, args, { level: 'full', clientId: 'eval', gatewayUrl: 'http://127.0.0.1:9' });
@@ -298,6 +296,7 @@ async function main() {
       const j = jobs[next++];
       // 每个任务看到的第三方 MCP 跟着工具数走
       tb.setRelayedMcpLister(() => relayedSummaries(j.size));
+      tb.setRelayedToolDefs(() => relayedDefs(j.size));
       const r = await runOne(opts, j.task, j.mode, j.size);
       records.push(r);
       done += 1;

@@ -19,7 +19,7 @@ const INSTRUCTIONS = [
   '- 用户说「用某某智能体 / 技能 / 提示词」：tb_list_resources 找到，tb_get_resource 取正文，在当前对话里照着做。',
   '- 要用模型：tb_list_models；技能里写死的模型可能不存在，用 preferred 检查并换成能用的。',
   '- 交给别的智能体做：tb_list_agents → tb_dispatch_agent。本机智能体优先，其次雇来的社区智能体，最后命令行工具；只从名单里选，选描述最贴合这件事的。互不依赖的子任务用 background=true 一起派出去，再 tb_task_status(wait="any") 逐个收。',
-  '- 用户点名的第三方 MCP、HTTP API 或本地命令不在你的工具列表里时：tb_call_mcp。',
+  '- 要用第三方服务（搜索、GitHub、Slack 等）、HTTP API 或本地命令，但你的工具列表里没有：tb_list_resources(type=mcp) 看接入了哪些、参数叫什么，再 tb_call_mcp。这类事不要派给智能体。',
   '- 不要臆造资产内容。安装、投射、改设置请用户在 Token Bank 里操作。',
   '能用哪些工具由用户在 Token Bank 给你的权限决定。',
 ].join('\n');
@@ -645,6 +645,39 @@ let _plainLister = null;
 function setResourceManager(rm) { _resourceManager = rm || null; }
 function setRelayedMcpLister(fn) { _relayedLister = typeof fn === 'function' ? fn : null; }
 function setPlainToolLister(fn) { _plainLister = typeof fn === 'function' ? fn : null; }
+let _toolDefsLister = null;
+/** 单测注入：(cid) => { 前缀: [{ name, description, inputSchema }] } */
+function setRelayedToolDefs(fn) { _toolDefsLister = typeof fn === 'function' ? fn : null; }
+
+/** 第三方 MCP 每个工具的定义，按前缀分组；拿不到时是 {}（只能给工具名） */
+async function relayedToolDefs(cid) {
+  try {
+    return (await (_toolDefsLister ? _toolDefsLister(cid) : require('./mcp-gateway-server').relayedToolDefs(cid))) || {};
+  } catch {
+    return {};
+  }
+}
+
+/** 工具签名：slack_post_message(channel, text, thread_ts?)，可选参数带 ? */
+function signature(def) {
+  const props = def?.inputSchema?.properties && typeof def.inputSchema.properties === 'object' ? Object.keys(def.inputSchema.properties) : [];
+  const required = new Set(Array.isArray(def?.inputSchema?.required) ? def.inputSchema.required : []);
+  const params = [...props.filter((k) => required.has(k)), ...props.filter((k) => !required.has(k)).map((k) => `${k}?`)];
+  return `${def.name}(${params.join(', ')})`;
+}
+
+/** 按工具定义检查参数：缺了必填的、填了不认识的。返回问题描述，没问题返回 '' */
+function checkArgs(def, args) {
+  const schema = def?.inputSchema || {};
+  const props = schema.properties && typeof schema.properties === 'object' ? schema.properties : null;
+  const a = args && typeof args === 'object' ? args : {};
+  const missing = (Array.isArray(schema.required) ? schema.required : []).filter((k) => a[k] == null || a[k] === '');
+  const unknown = props && schema.additionalProperties !== true ? Object.keys(a).filter((k) => !(k in props)) : [];
+  const parts = [];
+  if (missing.length) parts.push(`缺少 ${missing.join('、')}`);
+  if (unknown.length) parts.push(`没有这些参数：${unknown.join('、')}`);
+  return parts.join('；');
+}
 
 function rm() {
   return _resourceManager || require('./resource-manager');
@@ -683,9 +716,10 @@ function findPlainTool(cid, ref, type) {
   return matchRef(plainTools(cid, type), ref);
 }
 
-function mcpRows(cid) {
+function mcpRows(cid, defs = {}) {
   return relayedMcps(cid).map((s) => ({
     type: 'mcp', id: s.id, name: s.name, display_name: s.display_name, description: s.description, tools: s.tools, prefix: s.prefix,
+    toolDefs: defs[s.prefix] || null,
   }));
 }
 
@@ -736,6 +770,11 @@ const TYPE_TEXT = { assistant: '智能体', skill: '技能', prompt: '提示词'
 function formatResourceLine(r) {
   const disp = r.display_name && r.display_name !== r.name ? ` (${r.display_name})` : '';
   const desc = r.description ? `: ${String(r.description).slice(0, 120)}` : '';
+  // MCP：拿得到定义就一行一个工具、带参数名（模型列出来就直接调，参数名不能让它猜）
+  if (r.type === 'mcp' && Array.isArray(r.toolDefs) && r.toolDefs.length) {
+    const lines = r.toolDefs.map((d) => `    ${signature(d)}${d.description ? `：${String(d.description).slice(0, 80)}` : ''}`);
+    return [`- [MCP] ${r.name}${disp}${desc}`, ...lines].join('\n');
+  }
   const tools = r.type === 'mcp' && Array.isArray(r.tools) && r.tools.length ? ` [工具: ${r.tools.join(', ')}]` : '';
   return `- [${TYPE_TEXT[r.type] || r.type}] ${r.name}${disp}${desc}${tools}`;
 }
@@ -762,10 +801,13 @@ function formatResourceDetail(r) {
     }, null, 2);
   }
   if (r.type === 'mcp') {
-    const tools = (r.tools || []).filter(Boolean);
+    const tools = Array.isArray(r.toolDefs) && r.toolDefs.length
+      ? r.toolDefs.map((d) => ({ name: d.name, description: d.description || '', parameters: d.inputSchema || {} }))
+      : (r.tools || []).filter(Boolean);
+    const first = typeof tools[0] === 'string' ? tools[0] : tools[0]?.name;
     return JSON.stringify({
       type: 'mcp', id: r.id, name: r.name, display_name: r.display_name, description: r.description, tools,
-      usage: `tb_call_mcp(server="${r.name}", tool="${tools[0] || '<工具名>'}", arguments={...})`,
+      usage: `tb_call_mcp(server="${r.name}", tool="${first || '<工具名>'}", arguments={按 parameters 填})`,
     }, null, 2);
   }
   if (r.type === 'api') {
@@ -826,7 +868,7 @@ function listCatalog(args) {
   return textResult(`社区目录 ${items.length} 项（未安装的请用户在 Token Bank 里安装）\n${lines.join('\n')}`);
 }
 
-function listResources(args, ctx) {
+async function listResources(args, ctx) {
   if (args.source === 'catalog') return listCatalog(args);
   const store = rm();
   const cid = ctx.clientId || '';
@@ -838,11 +880,13 @@ function listResources(args, ctx) {
     const fn = { assistant: 'listAssistantsForClient', skill: 'listSkillsForClient', prompt: 'listPromptsForClient' }[t];
     return (store[fn](cid) || []).map((r) => ({ ...r, type: t }));
   };
+  const wantMcp = type === 'mcp' || type === 'all';
+  const mcp = wantMcp && relayedMcps(cid).length ? mcpRows(cid, await relayedToolDefs(cid)) : [];
   let rows;
   if (['assistant', 'skill', 'prompt'].includes(type)) rows = managed(type);
-  else if (type === 'mcp') rows = mcpRows(cid);
+  else if (type === 'mcp') rows = mcp;
   else if (type === 'api' || type === 'cli') rows = plainTools(cid, type);
-  else rows = [...managed('assistant'), ...managed('skill'), ...managed('prompt'), ...mcpRows(cid), ...plainTools(cid)];
+  else rows = [...managed('assistant'), ...managed('skill'), ...managed('prompt'), ...mcp, ...plainTools(cid)];
   if (query) {
     rows = rows.filter((r) => `${r.name || ''} ${r.display_name || ''} ${r.description || ''} ${(r.tools || []).join(' ')}`.toLowerCase().includes(query));
   }
@@ -878,7 +922,7 @@ function promptText(store, ref, args, cid) {
   return textResult(resolved.text || '');
 }
 
-function getResource(args, ctx) {
+async function getResource(args, ctx) {
   const ref = String(args.name || '').trim();
   if (!ref) return textResult('缺少 name', true);
   const store = rm();
@@ -888,8 +932,9 @@ function getResource(args, ctx) {
   try {
     if (type === 'mcp') {
       const hit = findRelayedMcp(cid, ref);
-      return hit ? textResult(formatResourceDetail({ ...hit, type: 'mcp' }))
-        : textResult(`没有接入这个 MCP：${ref}。先 tb_list_resources(type=mcp) 看看。`, true);
+      if (!hit) return textResult(`没有接入这个 MCP：${ref}。先 tb_list_resources(type=mcp) 看看。`, true);
+      const defs = await relayedToolDefs(cid);
+      return textResult(formatResourceDetail({ ...hit, type: 'mcp', toolDefs: defs[hit.prefix] || null }));
     }
     if (type === 'api' || type === 'cli') {
       const hit = findPlainTool(cid, ref, type);
@@ -907,6 +952,7 @@ function getResource(args, ctx) {
     if (!r) return textResult(`找不到：${ref}${type ? `（${TYPE_TEXT[type] || type}）` : ''}。先 tb_list_resources 看看。`, true);
     if (r.type === 'assistant') return activateAssistant(store, r.name || ref, cid, mode);
     if (r.type === 'prompt') return promptText(store, r.name || ref, args.args, cid);
+    if (r.type === 'mcp') return textResult(formatResourceDetail({ ...r, toolDefs: (await relayedToolDefs(cid))[r.prefix] || null }));
     if (r.type === 'skill') {
       if (!store.isResourceProjectedToClient(r.id, cid)) {
         return textResult(`这个技能没投射给你：${ref}。请用户在 Token Bank「资产」页投射到这个应用。`, true);
@@ -919,13 +965,16 @@ function getResource(args, ctx) {
   }
 }
 
-function capabilities(ctx) {
+async function capabilities(ctx) {
   const caps = require('./tb-capabilities');
   const allow = allowedNames(ctx.level);
   const cid = ctx.clientId || '';
+  const servers = relayedMcps(cid);
+  const defs = servers.length ? await relayedToolDefs(cid) : {};
   return textResult([
     caps.formatCapabilitiesOverview({ tools: TOOLS.filter((t) => allow.has(t.name)), gatewayUrl: gatewayUrl(ctx) }),
-    caps.formatRelayedMcpSection(relayedMcps(cid)),
+    // 有定义时工具写成签名（带参数名）
+    caps.formatRelayedMcpSection(servers.map((s) => (defs[s.prefix] ? { ...s, tools: defs[s.prefix].map(signature) } : s))),
     caps.formatConfiguredToolsSection(plainTools(cid)),
   ].join('\n\n'));
 }
@@ -966,8 +1015,22 @@ async function callMcp(args, ctx) {
     return textResult(`没有接入这个 MCP：${serverRef}（已接入：${names}）。请用户在 Token Bank「资产 → 工具」把它投射到这个应用。`, true);
   }
   if (typeof ctx.callRelayed !== 'function') return textResult('这里调不了第三方 MCP', true);
+  const rawTool = tool.startsWith(`${hit.prefix}__`) ? tool.slice(hit.prefix.length + 2) : tool;
+  const callArgs = toolArgs(args);
+  // 先按工具定义检查：工具名不对、参数名不对，直接告诉它正确的写法，不把错的参数发给第三方
+  const defs = (await relayedToolDefs(cid))[hit.prefix];
+  if (Array.isArray(defs) && defs.length) {
+    const def = defs.find((d) => d.name === rawTool);
+    if (!def) {
+      return textResult(`${hit.name} 没有工具 ${rawTool}。它有：\n${defs.map((d) => `  ${signature(d)}`).join('\n')}`, true);
+    }
+    const problem = checkArgs(def, callArgs);
+    if (problem) {
+      return textResult(`参数不对（${problem}），没有调用。正确的写法：${signature(def)}\n参数定义：${JSON.stringify(def.inputSchema)}`, true);
+    }
+  }
   try {
-    return asToolResult(await ctx.callRelayed(tool.includes('__') ? tool : `${hit.prefix}__${tool}`, toolArgs(args)));
+    return asToolResult(await ctx.callRelayed(`${hit.prefix}__${rawTool}`, callArgs));
   } catch (e) {
     return textResult(`调用 ${hit.display_name || hit.name}.${tool} 失败：${e.message}`, true);
   }
@@ -1037,6 +1100,9 @@ module.exports = {
   setResourceManager,
   setRelayedMcpLister,
   setPlainToolLister,
+  setRelayedToolDefs,
+  signature,
+  checkArgs,
   findManagedResource,
   formatResourceDetail,
   formatTaskStatus,

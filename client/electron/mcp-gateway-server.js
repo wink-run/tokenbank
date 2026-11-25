@@ -775,6 +775,32 @@ function stopMcpGateway() {
   backends.clear();
 }
 
+/**
+ * 投射给这个应用的第三方 MCP 每个工具的定义（原名、说明、参数），按前缀分组。
+ * tb_list_resources 用它列出参数名、tb_call_mcp 用它检查参数；起不来或太慢的跳过（只给工具名）。
+ * @returns {Promise<Record<string, { name: string, description: string, inputSchema: object }[]>>}
+ */
+async function relayedToolDefs(clientId = '', timeoutMs = 8000) {
+  const out = {};
+  await Promise.all(backendsForClient(clientId).map(async (b) => {
+    let timer;
+    try {
+      const listed = await Promise.race([
+        b.listTools(),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), timeoutMs); }),
+      ]);
+      out[b.prefix] = listed.map((t) => ({
+        name: t._rawName,
+        description: String(t.description || '').replace(/^\[[^\]]*\]\s*/, ''),
+        inputSchema: t.inputSchema && typeof t.inputSchema === 'object' ? t.inputSchema : {},
+      }));
+    } catch { /* 拿不到就只给工具名 */ } finally {
+      clearTimeout(timer);
+    }
+  }));
+  return out;
+}
+
 /** tb_call_mcp 用：调用投射给这个应用的第三方 MCP 工具（带前缀的名字） */
 function callRelayedTool(prefixedName, args, clientId = '') {
   return routeToolCall(prefixedName, args, clientId);
@@ -827,6 +853,7 @@ function getGatewayStatus() {
 module.exports = {
   BUILTIN_ID,
   callRelayedTool,
+  relayedToolDefs,
   handleMcpMessage,
   startMcpGateway,
   attachToGateway,
