@@ -37,8 +37,15 @@ function formatRelayedMcpSection(servers) {
   }
   for (const s of list) {
     const title = s.display_name && s.display_name !== s.name ? `${s.display_name}（${s.name}）` : (s.display_name || s.name || s.id);
-    const tools = (s.tools || []).filter(Boolean);
+    let tools = (s.tools || []).filter(Boolean);
+    // 工具太多的（几千个）不全写：给搜法
+    if (tools.length > 40) {
+      if (!s.note) lines.push(`- ${s.display_name || s.name}：有 ${tools.length} 个工具，用 tb_get_resource(type=mcp, name="${s.name || s.id}", query="关键词") 搜`);
+      tools = s.note ? tools.slice(0, 5) : [];
+      if (!s.note) continue;
+    }
     lines.push(`- ${title}${s.description ? `：${s.description}` : ''}`);
+    if (s.note) lines.push(`  ${s.note}`);
     lines.push(`  工具：${tools.length ? tools.join(', ') : '用 tb_get_resource(type=mcp) 查'}`);
     lines.push(`  例：tb_call_mcp(server="${s.name || s.id}", tool="${tools[0] || '<工具名>'}", arguments={...})`);
   }

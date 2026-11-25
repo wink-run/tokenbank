@@ -616,6 +616,10 @@ async function toolsOf(backend, waitMs) {
 }
 
 /** 一起拉各个第三方 MCP 的工具，最多等 timeoutMs，不拖住应用启动 */
+/** 单个 MCP 工具超过这么多就不逐个列；第三方工具最多列这么多 */
+const BIG_MCP_TOOLS = 40;
+const NATIVE_TOOLS_MAX = 120;
+
 async function aggregateTools(clientId = '', timeoutMs = 3000) {
   const list = backendsForClient(clientId);
   const tools = [];
@@ -628,10 +632,16 @@ async function aggregateTools(clientId = '', timeoutMs = 3000) {
       return { error: `${backend.name}: ${e.message}` };
     }
   }));
-  for (const r of results) {
-    if (r.listed) tools.push(...r.listed.map(({ _backendId, _rawName, ...rest }) => rest));
-    else errors.push(r.error);
+  // 工具太多的 MCP 不逐个列（Pipeworx 有七千多个，整份列表应用收不完，Token Bank 自己的工具也被淹没）：
+  // 单个超过 BIG_MCP_TOOLS 的不列；其余从小到大放，第三方总数到 NATIVE_TOOLS_MAX 为止。没列的经 tb_call_mcp 搜着调
+  const ok = results.filter((r) => r.listed).sort((a, b) => a.listed.length - b.listed.length);
+  let total = 0;
+  for (const r of ok) {
+    if (r.listed.length > BIG_MCP_TOOLS || total + r.listed.length > NATIVE_TOOLS_MAX) continue;
+    total += r.listed.length;
+    tools.push(...r.listed.map(({ _backendId, _rawName, ...rest }) => rest));
   }
+  for (const r of results) if (!r.listed) errors.push(r.error);
   // 起不来的只记日志，不往应用的工具列表里塞占位工具
   // 已投射的 HTTP API / 本地 CLI 跟 MCP 出现在同一份工具列表里
   for (const tool of projectedPlainTools(clientId)) {
@@ -966,4 +976,6 @@ module.exports = {
   getGatewayStatus,
   buildClientConfigJson,
   setOwnConfigCheck,
+  BIG_MCP_TOOLS,
+  NATIVE_TOOLS_MAX,
 };
