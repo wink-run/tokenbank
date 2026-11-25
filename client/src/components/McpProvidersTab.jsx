@@ -110,7 +110,7 @@ const EMPTY_CUSTOM_FORM = {
  * 要用应用自己的工作目录、或者按会话保存状态的本地 MCP（文件、git、浏览器、终端）：
  * 经网关时进程跑在 Token Bank 里，看到的不是应用打开的项目，所以直接写进应用配置。
  */
-const APP_CONTEXT_MCP = /(^|[-_\s/])(filesystem|files?|fs|git|puppeteer|playwright|browser|chrome|shell|terminal|desktop-commander|desktop|sqlite|obsidian)([-_\s/]|$)/i;
+const APP_CONTEXT_MCP = /(^|[-_\s/@.])(filesystem|files?|fs|git|puppeteer|playwright|browser|chrome|shell|terminal|desktop-commander|desktop|sqlite|obsidian)([-_\s/]|$)/i;
 function needsAppContext(s) {
   if (!s || isMcpUrlServer(s) || toolKindOf(s) !== 'mcp') return false;
   if (s.metadata?.categoryGroup === 'filesystem') return true;
@@ -761,9 +761,11 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
                     <span className="shrink-0 text-[10px] text-sky-600 dark:text-sky-300" title={t('resources.mcp.builtinLockedHint')}>
                       {t('resources.mcp.builtinLocked')}
                     </span>
-                  ) : cur === 'project' && (
-                    <span className="shrink-0 text-[10px] text-zinc-400" title={t('resources.mcp.legacyConfigHint')}>
-                      {t('resources.mcp.legacyConfig')}
+                  ) : how && (
+                    // 接入方式：写进应用配置（要用应用项目目录的）或经网关原样列给模型
+                    <span className="shrink-0 text-[10px] text-zinc-400"
+                      title={how === 'project' ? t('resources.mcp.howConfigHint') : t('resources.mcp.howGatewayHint')}>
+                      {how === 'project' ? t('resources.mcp.howConfig') : tg.kind === 'api-app' ? t('resources.mcp.howRelayUrl') : t('resources.mcp.howGateway')}
                     </span>
                   )}
                 </label>

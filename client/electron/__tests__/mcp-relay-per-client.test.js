@@ -146,3 +146,13 @@ test('pruneStaleDeletedAppBindings 清掉列表里已不存在的 app-*', () => 
     }
   });
 });
+
+test('要用应用项目目录的本地 MCP 直接写进应用配置，其它经网关', () => {
+  const { needsAppContext } = mcpManager;
+  assert.equal(needsAppContext({ name: 'filesystem', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'] }), true);
+  assert.equal(needsAppContext({ name: 'my-tools', command: 'npx', args: ['-y', '@playwright/mcp'] }), true);
+  assert.equal(needsAppContext({ name: 'git', command: 'uvx', args: ['mcp-server-git'] }), true);
+  assert.equal(needsAppContext({ name: 'search', type: 'http', url: 'https://x/mcp' }), false, '远程的走网关');
+  assert.equal(needsAppContext({ name: 'pipeworx', command: 'npx', args: ['-y', '@pipeworx/mcp'] }), false);
+  assert.equal(needsAppContext({ name: 'github', command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'] }), false, 'github 是远程服务，不是本地 git');
+});

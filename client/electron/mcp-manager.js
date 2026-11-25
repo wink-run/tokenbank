@@ -67,6 +67,20 @@ function isTokenbankBuiltinRelayId(serverId) {
   return serverId === BUILTIN_ID;
 }
 
+/**
+ * 要用应用自己工作目录、或按会话保存状态的本地 MCP（文件、git、浏览器、终端）：经网关时进程跑在 Token Bank 里，
+ * 看到的不是应用打开的项目，所以直接写进应用配置。和界面上 McpProvidersTab 的判断是同一条规则。
+ */
+const APP_CONTEXT_MCP = /(^|[-_\s/@.])(filesystem|files?|fs|git|puppeteer|playwright|browser|chrome|shell|terminal|desktop-commander|desktop|sqlite|obsidian)([-_\s/]|$)/i;
+function needsAppContext(row) {
+  if (!row) return false;
+  if (String(row.url || '').trim() || ['http', 'sse'].includes(String(row.type || '').toLowerCase())) return false;
+  const kind = row.metadata?.tool_kind;
+  if (kind === 'api' || kind === 'cli') return false;
+  if (row.metadata?.categoryGroup === 'filesystem') return true;
+  return APP_CONTEXT_MCP.test(`${row.id || ''} ${row.name || ''} ${(Array.isArray(row.args) ? row.args : []).join(' ')}`);
+}
+
 /** 当前任务上下文，供已写入配置的派发 MCP 在调用时读取（不再为每次派发单独写临时 MCP） */
 function writeBridgeActiveContext(ctx = {}) {
   const dir = path.join(os.homedir(), '.tokenbank', 'mcp');
@@ -1227,11 +1241,22 @@ class MCPManager {
   _defaultRelayToManagedApps(serverId) {
     if (!serverId || isTokenbankBuiltinRelayId(serverId)) return null;
     const db = this._getDb();
-    const row = db.prepare('SELECT id, builtin, metadata FROM mcp_servers WHERE id = ?').get(serverId);
+    const row = db.prepare('SELECT id, name, type, command, args, url, builtin, metadata FROM mcp_servers WHERE id = ?').get(serverId);
     if (!row || row.builtin) return null;
     const meta = this._parseJson(row.metadata, {});
     if (Array.isArray(meta.gateway_clients)) return null;
-    const clientIds = this._listManagedRelayClientIds();
+    let clientIds = this._listManagedRelayClientIds();
+    // 要用应用自己项目目录的本地 MCP：能写配置的应用直接写进去，写不了的（API 应用等）才经网关
+    if (needsAppContext({ ...row, args: this._asArray(row.args, []), metadata: meta })) {
+      const { listSyncEnabledClientIds, listInstalledClientIds } = require('./mcp-agent-targets');
+      const installed = new Set(listInstalledClientIds());
+      const writable = listSyncEnabledClientIds().filter((id) => installed.has(id));
+      if (writable.length) this.setServerSyncClients(serverId, writable, { syncClientIds: writable });
+      const { expandMcpClientMatchIds } = require('./mcp-agent-targets');
+      const covered = new Set(writable.flatMap((id) => [id, ...expandMcpClientMatchIds(id)]));
+      clientIds = clientIds.filter((id) => !covered.has(id));
+      if (!clientIds.length) return { success: true };
+    }
     if (!clientIds.length) return this._autoSyncClients();
     return this.setServerGatewayRouted(serverId, true, clientIds);
   }
@@ -1689,6 +1714,7 @@ module.exports.DEFAULT_PROFILE_ID = DEFAULT_PROFILE_ID;
 module.exports.DEVELOPMENT_PROFILE_ID = DEVELOPMENT_PROFILE_ID;
 module.exports.BUILTIN_ID = BUILTIN_ID;
 module.exports.LEGACY_BUILTIN_IDS = LEGACY_BUILTIN_IDS;
+module.exports.needsAppContext = needsAppContext;
 module.exports.writeTokenbankLauncher = writeTokenbankLauncher;
 module.exports.writeBridgeActiveContext = writeBridgeActiveContext;
 module.exports.writeElectronAsNodeLauncher = writeElectronAsNodeLauncher;
