@@ -415,6 +415,14 @@ function TodayTaskList({ agentId, name, onClose, t }) {
   );
 }
 
+/** 从资产页「去网关运行」跳过来：切到专业智能体后直接打开新建弹窗，选好这个模板 */
+let pendingNewPro = null;
+export function requestNewPro(resourceId) {
+  pendingNewPro = resourceId || '';
+  // 已经在专业智能体页上：直接通知它打开
+  try { window.dispatchEvent(new CustomEvent('tb:new-pro')); } catch { /* 没有 window */ }
+}
+
 /** 能跑专业智能体的通用智能体（和后端 ASSISTANT_RUNTIME_IDS 一致） */
 const PRO_RUNTIME_IDS = ['claude-code', 'codex', 'cursor', 'kimi-code', 'pi'];
 
@@ -422,11 +430,11 @@ const PRO_RUNTIME_IDS = ['claude-code', 'codex', 'cursor', 'kimi-code', 'pi'];
  * 新建专业智能体：就在网关页选「哪个智能体模板」+「在哪个通用智能体上跑」，不跳资产页。
  * 做的事：把模板放进那个应用（投射），没在别处跑过的就把它设成默认在那儿跑。
  */
-function NewProDialog({ onClose, onDone, t }) {
+function NewProDialog({ onClose, onDone, t, preselect = '' }) {
   const navigate = useNavigate();
   const [templates, setTemplates] = useState(null);
   const [runtimes, setRuntimes] = useState([]);
-  const [pick, setPick] = useState('');
+  const [pick, setPick] = useState(preselect);
   const [runtime, setRuntime] = useState('');
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
@@ -442,7 +450,11 @@ function NewProDialog({ onClose, onDone, t }) {
       setTemplates(list);
       const targets = (tg?.assistantAgents || tg?.agents || []).filter((a) => PRO_RUNTIME_IDS.includes(a.id));
       setRuntimes(targets);
-      if (targets.length) setRuntime((cur) => cur || targets[0].id);
+      // 默认选一个它还没在上面跑的应用
+      const tpl = list.find((x) => x.id === preselect);
+      const used = tpl ? (tpl.projections || []).map((p) => p.agentId || p.agent_id) : [];
+      const first = targets.find((a) => !used.includes(a.id)) || targets[0];
+      if (first) setRuntime((cur) => cur || first.id);
     });
   }, []);
   useEffect(() => {
@@ -589,7 +601,21 @@ export function ProfessionalAgents() {
   const [apiFor, setApiFor] = useState('');   // 哪一行展开了「接口示例」
   const [tasksFor, setTasksFor] = useState(null);   // 弹窗里看哪个智能体今天的任务
   const [runtimeErr, setRuntimeErr] = useState('');
-  const [newOpen, setNewOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState(() => {
+    if (pendingNewPro === null) return false;
+    const id = pendingNewPro;
+    pendingNewPro = null;
+    return { preselect: id };
+  });
+  useEffect(() => {
+    const open = () => {
+      if (pendingNewPro === null) return;
+      setNewOpen({ preselect: pendingNewPro });
+      pendingNewPro = null;
+    };
+    window.addEventListener('tb:new-pro', open);
+    return () => window.removeEventListener('tb:new-pro', open);
+  }, []);
   // 试一下：游乐场，或复制口令贴到投射的应用
   const [tryMenu, setTryMenu] = useState(null);
   const [tryNote, setTryNote] = useState('');
@@ -786,7 +812,7 @@ export function ProfessionalAgents() {
           </div>
         </div>
       )}
-      {newOpen && <NewProDialog t={t} onClose={() => setNewOpen(false)} onDone={() => { setNewOpen(false); setReload((v) => v + 1); }} />}
+      {newOpen && <NewProDialog t={t} preselect={newOpen.preselect || ''} onClose={() => setNewOpen(false)} onDone={() => { setNewOpen(false); setReload((v) => v + 1); }} />}
       {tryMenu && (
         <div
           data-try-menu

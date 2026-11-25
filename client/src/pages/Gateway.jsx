@@ -11,7 +11,7 @@ import claudeDevModeImg2 from '../assets/claude-devmode-2.webp';
 import { brandIconFor, resolveBrandIcon } from '../lib/brandIcons';
 import { APP_ICONS, isAppIcon, appIconSvg } from '../lib/appIcons';
 import { useLang } from '../store/lang';
-import { AgentsSubTabs, AgentRoutesPanel, SubTabBar, MAIN_BUTTON_CLASS } from '../components/GatewayAgents';
+import { AgentsSubTabs, AgentRoutesPanel, SubTabBar, MAIN_BUTTON_CLASS, requestNewPro } from '../components/GatewayAgents';
 import { useAuth } from '../store/index';
 import RouteSelect, { tierOptgroups, usableSceneRoutes, formatModelDropdownLabel } from '../components/RouteSelect';
 import {
@@ -4965,7 +4965,11 @@ export default function Gateway() {
     if (!want) return;
     if (want === 'routes') setMainTab(1);
     else if (want === 'apps') setMainTab(0);
-    else if (want === 'pro' || want === 'ext') setGwTab(want);
+    else if (want === 'pro' || want === 'ext') {
+      // 资产页「去网关运行」：切到专业智能体并打开新建弹窗，选好那个模板
+      if (want === 'pro' && gwLocation.state?.newPro !== undefined) requestNewPro(gwLocation.state.newPro);
+      setGwTab(want);
+    }
     gwNavigate(gwLocation.pathname, { replace: true, state: null });
   }, [gwLocation.state]); // eslint-disable-line react-hooks/exhaustive-deps
   // 顶部「请求 / 任务」点进来：先切到场景路由（明细只挂在这个 Tab），再滚到列表。

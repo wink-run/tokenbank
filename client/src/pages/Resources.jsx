@@ -1231,6 +1231,15 @@ export default function Resources() {
    */
   async function enableResource(resource) {
     if (!resource?.id || resource.type === 'mcp') return '';
+    // 智能体模板只进资产库：在哪个应用上跑，去网关新建专业智能体时选
+    if (resource.type === 'assistant') {
+      try {
+        const fresh = await window.electronAPI.resource.listResources({ type: 'assistant' });
+        const hit = (fresh?.resources || []).find((r) => r.id === resource.id);
+        if (hit) upsertResourceLocally(hit);
+      } catch { /* ignore */ }
+      return t('resources.tplAdded', { name: resource.display_name || resource.name });
+    }
     try {
       const pack = await completeEnablePackage(resource, { lang });
       if (pack.invokeText) await copyText(pack.invokeText);
@@ -2002,6 +2011,11 @@ export default function Resources() {
     } catch {
       return String(ms);
     }
+  }
+
+  /** 智能体模板去网关运行：切到专业智能体、打开新建弹窗并选好这个模板 */
+  function runInGateway(resourceId) {
+    navigate('/gateway', { state: { gatewayTab: 'pro', newPro: resourceId } });
   }
 
   async function openProjectMenu(e, resourceId) {
@@ -3788,14 +3802,13 @@ export default function Resources() {
               {busy === li.resourceId ? t('resources.busy') : t('resources.skill.enable')}
             </button>
           ) : li.resourceId && li.type === 'assistant' && (
-            // 智能体：在哪个应用里跑
+            // 智能体模板：资产页只放模板，在哪个应用上跑去网关新建专业智能体时选
             <button
               type="button"
-              disabled={!!busy && busy !== li.resourceId}
-              onClick={(e) => openProjectMenu(e, li.resourceId)}
-              className="tb-press text-[11px] px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-45"
+              onClick={() => runInGateway(li.resourceId)}
+              className="tb-press text-[11px] px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
             >
-              {busy === li.resourceId ? t('resources.busy') : t('resources.assistant.runInShort')}
+              {t('resources.assistant.runInShort')}
             </button>
           )}
           <AssetMoreMenu label={t('resources.moreActions')} items={libraryMenuItems(li)} />
@@ -3878,6 +3891,18 @@ export default function Resources() {
                 )}
                 {renderSkillPlacement(li)}
               </>
+            ) : li.type === 'assistant' ? (
+              // 智能体模板：只看它在哪些应用上跑，改在网关
+              li.apps.length ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {li.apps.map((a) => (
+                    <span key={a.id} className="tb-tag tb-tag-muted text-[10px] px-2 py-0.5 inline-flex items-center gap-1">
+                      <ServiceIcon id={a.id} name={a.label} boxClass="w-3.5 h-3.5" imgClass="w-2.5 h-2.5" className="!rounded" />
+                      {a.label}
+                    </span>
+                  ))}
+                </div>
+              ) : <span className="text-[11px] text-zinc-400">{t('resources.tpl.notProjected')}</span>
             ) : li.resourceId ? renderProjections({
               id: li.resourceId,
               type: li.type,
@@ -3885,11 +3910,12 @@ export default function Resources() {
               authorityPath: li.kind === 'discovered' ? it.authorityPath : (it.authorityPath || li.path),
             }) : <span className="text-[11px] text-zinc-400">{t('resources.notProjected')}</span>}
             {li.type === 'assistant' && li.resourceId && (
-              <button type="button" disabled={!!busy && busy !== li.resourceId}
-                onClick={(e) => openProjectMenu(e, li.resourceId)}
-                className={`${ASSET_BTN_PRIMARY} w-full`}>
-                {busy === li.resourceId ? t('resources.busy') : t('resources.assistant.runIn')}
-              </button>
+              <>
+                <p className="m-0 text-[10px] text-zinc-400">{t('resources.assistant.runInHint')}</p>
+                <button type="button" onClick={() => runInGateway(li.resourceId)} className={`${ASSET_BTN_PRIMARY} w-full`}>
+                  {t('resources.assistant.runIn')}
+                </button>
+              </>
             )}
             {li.resourceId && rs.kind === 'issue' && (
               <DiagnosePanel resourceId={li.resourceId} resourceName={li.name} why={rs.why || rs.word} />
