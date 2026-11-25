@@ -3118,22 +3118,34 @@ export default function Resources() {
    * 技能放在哪些应用：Token Bank 自动维护，这里只给三样东西——
    * 你撤下过的应用（可以放回）、高风险等你确认的、启用 / 停用。
    */
-  function renderSkillPlacement(li) {
+  /**
+   * 技能默认所有支持技能的应用都能用：算出「不在哪里」，分原因。
+   * excluded 你撤下过的 / clashing 那个应用里已有同名的 / pending 还没补上 / waiting 高风险等你确认
+   */
+  function skillGaps(li) {
     const r = resourcesById.get(li.resourceId) || li.item || {};
     const enabled = li.apps.length > 0;
     const inApps = new Set(li.apps.map((a) => a.id));
     const skillApps = (agents || []).filter((a) => a && a.id);
     const excluded = (Array.isArray(r.metadata?.excluded_agents) ? r.metadata.excluded_agents : []).filter((id) => !inApps.has(id));
     const risky = (assetFlags[li.resourceId] || {}).security === 'high';
-    const waiting = enabled && risky ? skillApps.filter((a) => !inApps.has(a.id) && !excluded.includes(a.id)) : [];
-    // 启用了、却还不在某些支持技能的应用里：写明原因（同名冲突），或者给「现在放进去」
-    const notYet = enabled && !risky ? skillApps.filter((a) => !inApps.has(a.id) && !excluded.includes(a.id)) : [];
+    const missing = enabled ? skillApps.filter((a) => !inApps.has(a.id) && !excluded.includes(a.id)) : [];
     const conflictIds = new Set(Array.isArray(r.metadata?.auto_conflict_agents) ? r.metadata.auto_conflict_agents : []);
+    const waiting = risky ? missing : [];
+    const notYet = risky ? [] : missing;
     const clashing = notYet.filter((a) => conflictIds.has(a.id));
     const pending = notYet.filter((a) => !conflictIds.has(a.id));
+    const names = [...excluded.map(appLabelOf), ...missing.map((a) => a.label || appLabelOf(a.id))];
+    return { enabled, excluded, waiting, clashing, pending, names };
+  }
+
+  function renderSkillPlacement(li) {
+    const { enabled, excluded, waiting, clashing, pending } = skillGaps(li);
     const busyHere = !!busy && busy !== li.resourceId;
+    const none = enabled && !excluded.length && !waiting.length && !clashing.length && !pending.length;
     return (
       <div className="space-y-2">
+        {none && <p className="m-0 text-[11px] text-zinc-600 dark:text-zinc-300">{t('resources.skill.everywhere')}</p>}
         <p className="m-0 text-[10px] text-zinc-400">{enabled ? t('resources.skill.autoHint') : t('resources.skill.offHint')}</p>
         {excluded.length > 0 && (
           <div className="space-y-1">
@@ -3424,7 +3436,7 @@ export default function Resources() {
           <div className={LIB_LIST_CLS}>
             <div className={`hidden md:grid ${LIB_GRID} gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]`}>
               <span>{t('resources.col.name')}</span>
-              <span>{typeFilter === 'prompt' ? '' : t('resources.col.apps')}</span>
+              <span>{typeFilter === 'prompt' ? '' : typeFilter === 'skill' ? t('resources.col.notIn') : typeFilter === 'assistant' ? t('resources.assistant.runInTitle') : t('resources.col.appsMixed')}</span>
               <span className="text-right">{t('resources.col.uses')}</span>
               <span>{t('resources.col.status')}</span>
               <span />
@@ -3544,7 +3556,6 @@ export default function Resources() {
     for (const li of members) for (const a of li.apps) if (!apps.some(x => x.id === a.id)) apps.push(a);
     const uses = members.reduce((n, li) => n + (li.useCount || 0), 0);
     const activeN = members.filter(li => li.life.layer === 'active').length;
-    const idleN = members.filter(li => li.life.layer === 'dormant' || li.life.layer === 'cold').length;
     const projected = members.map(li => (li.kind === 'resource' ? li.item : li.linked)).filter(r => r?.projections?.length);
     const prefix = new RegExp(`^${group.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[-_:/.]?`, 'i');
     const shortNames = members.map(li => String(li.name || '').replace(prefix, '') || li.name);
@@ -3571,12 +3582,12 @@ export default function Resources() {
             <p className="text-[11px] text-zinc-400 truncate" title={shortNames.join(' · ')}>{shortNames.join(' · ')}</p>
           </div>
         </div>
-        <div className="hidden md:block min-w-0">{renderAppNames(apps)}</div>
+        <div className="hidden md:block min-w-0">{members.some((m) => m.type === 'skill') ? null : renderAppNames(apps)}</div>
         <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{t('resources.row.uses', { n: uses || 0 })}</div>
         <div className="hidden md:flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300 min-w-0">
-          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${idleN ? 'bg-amber-400' : activeN ? 'bg-emerald-500' : 'bg-zinc-300'}`} aria-hidden />
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${activeN ? 'bg-emerald-500' : 'bg-zinc-300'}`} aria-hidden />
           <span className="truncate">
-            {idleN ? t('resources.series.idle', { n: idleN }) : t('resources.series.active', { a: activeN, n: members.length })}
+            {t('resources.series.active', { a: activeN, n: members.length })}
           </span>
         </div>
         <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
@@ -3615,9 +3626,17 @@ export default function Resources() {
   }
 
   /** 启用到哪些应用：写名字，多了只写前两个 */
-  function renderAppNames(apps, type) {
+  function renderAppNames(apps, type, li) {
     // 提示词：接了 Token Bank 的应用都能用，不按应用分
     if (type === 'prompt') return null;
+    // 技能：默认所有应用都能用，只写不在哪里；都在就空着
+    if (type === 'skill' && li) {
+      const g = skillGaps(li);
+      if (!g.enabled) return <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('resources.skill.offShort')}</span>;
+      if (!g.names.length) return null;
+      const text = g.names.length > 2 ? t('resources.row.appsMore', { names: g.names.slice(0, 2).join('、'), n: g.names.length }) : g.names.join('、');
+      return <span className="block text-[11px] text-zinc-600 dark:text-zinc-300 truncate" title={g.names.join('、')}>{text}</span>;
+    }
     if (!apps.length) return <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{type === 'assistant' ? t('resources.assistant.noApp') : t('resources.row.notEnabled')}</span>;
     const names = apps.map(a => a.label);
     const text = names.length > 2 ? t('resources.row.appsMore', { names: names.slice(0, 2).join('、'), n: names.length }) : names.join('、');
@@ -3648,6 +3667,8 @@ export default function Resources() {
     }
     // 提示词不用启用到应用：没用过就说没用过
     if (li.type === 'prompt') return { kind: 'idle', word: t('resources.row.promptUnused'), why: '', act: 'project' };
+    // 技能：没启用写「停用」，启用了没用过只说没用过（闲置由智能管家处理，这里不催）
+    if (li.type === 'skill') return { kind: 'idle', word: li.apps.length ? t('resources.row.promptUnused') : t('resources.skill.offShort'), why: '', act: 'project' };
     // 一句话说清楚，不再「没在用」+「启用了还没用过」两句打架
     const word = { pending: t('resources.row.whyPending'), dormant: t('resources.row.whyDormant'), cold: t('resources.row.whyCold'), shelf: t('resources.row.whyShelf') }[li.life.layer] || t('resources.state.idle');
     return { kind: 'idle', word, why: '', act: 'project' };
@@ -3713,7 +3734,7 @@ export default function Resources() {
                 className="truncate text-blue-600 dark:text-blue-400">· {rs.why}</button>
             : <span className="truncate text-zinc-500 dark:text-zinc-400">· {rs.why}</span>)}
         </div>
-        <div className="hidden md:block min-w-0">{renderAppNames(li.apps, li.type)}</div>
+        <div className="hidden md:block min-w-0">{renderAppNames(li.apps, li.type, li)}</div>
         <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{li.type === 'assistant' ? '—' : t('resources.row.uses', { n: li.useCount || 0 })}</div>
         <div className="hidden md:flex items-start gap-1.5 text-[11px] min-w-0">
           <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${stateDot}`} aria-hidden />
@@ -3795,8 +3816,10 @@ export default function Resources() {
           <>
             <span className={`text-[10px] px-1.5 py-px rounded font-medium ${visual.chip}`}>{typeBadge(li.type, t)}</span>
             <span className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
-              <span className={`w-1.5 h-1.5 rounded-full ${LIFE_DOT[li.life.layer] || 'bg-zinc-300'}`} aria-hidden />
-              {li.type === 'prompt' ? (li.useCount ? t('resources.state.active') : t('resources.row.promptUnused')) : lifeLabel(li.life)}
+              <span className={`w-1.5 h-1.5 rounded-full ${(li.type === 'prompt' || li.type === 'skill') ? (li.useCount ? 'bg-emerald-500' : 'bg-zinc-300') : (LIFE_DOT[li.life.layer] || 'bg-zinc-300')}`} aria-hidden />
+              {li.type === 'prompt' || li.type === 'skill'
+                ? (li.useCount ? t('resources.state.active') : (li.type === 'skill' && !li.apps.length ? t('resources.skill.offShort') : t('resources.row.promptUnused')))
+                : lifeLabel(li.life)}
             </span>
             {!li.builtin && li.kind !== 'discovered' && (
               <span className="text-[10px] text-zinc-400">{sourceLabel(it.source, t)}</span>
@@ -3807,7 +3830,7 @@ export default function Resources() {
         stats={[
           [t('resources.col.uses'), li.useCount || '0'],
           [t('resources.stat.lastUsed'), fmtAgo(li.lastUsed)],
-          ...(li.type === 'prompt' ? [] : [[t('resources.col.apps'), li.apps.length]]),
+          ...(li.type === 'prompt' ? [] : li.type === 'skill' ? [[t('resources.col.notIn'), skillGaps(li).names.length]] : [[t('resources.col.apps'), li.apps.length]]),
         ]}
         footer={menu.length > 0 ? (
           <>
@@ -3821,17 +3844,32 @@ export default function Resources() {
           </>
         ) : null}
       >
-        <InspectorSection title={li.type === 'assistant' ? t('resources.assistant.runInTitle') : t('resources.col.apps')}>
+        <InspectorSection title={li.type === 'assistant' ? t('resources.assistant.runInTitle') : li.type === 'skill' ? t('resources.col.notIn') : t('resources.col.apps')}>
           <div className="space-y-2.5">
             {li.type === 'prompt' ? (
               <p className="m-0 text-[11px] text-zinc-500 dark:text-zinc-400">{t('resources.prompt.everywhere')}</p>
+            ) : li.type === 'skill' && li.resourceId ? (
+              // 技能：先写不在哪里（为什么、怎么处理），再列在哪些应用里（点 × 撤下）
+              <>
+                {renderSkillPlacement(li)}
+                {li.apps.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="m-0 text-[11px] text-zinc-500 dark:text-zinc-400">{t('resources.skill.inAppsTitle')}</p>
+                    {renderProjections({
+                      id: li.resourceId,
+                      type: li.type,
+                      projections: it.projections,
+                      authorityPath: li.kind === 'discovered' ? it.authorityPath : (it.authorityPath || li.path),
+                    })}
+                  </div>
+                )}
+              </>
             ) : li.resourceId ? renderProjections({
               id: li.resourceId,
               type: li.type,
               projections: it.projections,
               authorityPath: li.kind === 'discovered' ? it.authorityPath : (it.authorityPath || li.path),
             }) : <span className="text-[11px] text-zinc-400">{t('resources.notProjected')}</span>}
-            {li.type === 'skill' && li.resourceId && renderSkillPlacement(li)}
             {li.type === 'assistant' && li.resourceId && (
               <button type="button" disabled={!!busy && busy !== li.resourceId}
                 onClick={(e) => openProjectMenu(e, li.resourceId)}
@@ -4400,83 +4438,7 @@ export default function Resources() {
         )}
         {!isMcp && viewTab === 'managed' && !layerFilter && (
           <>
-        {lifecycleNudges.length > 0 && (() => {
-          const unprojectAll = lifecycleNudges.filter(x => x.life.nudge !== 'invoke').map(x => x.r);
-          const shown = nudgeGroups.slice(0, 4);
-          const more = nudgeGroups.length - shown.length;
-          return (
-          <div className="rounded-xl border border-zinc-200/80 dark:border-zinc-700/70 bg-white/50 dark:bg-zinc-900/40 px-3 py-2 space-y-1.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-[11px] text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5 min-w-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" aria-hidden />
-                <span className="font-medium">{t('resources.layer.nudgeTitle', { n: lifecycleNudges.length })}</span>
-                <span className="text-zinc-400 hidden sm:inline">{t('resources.layer.nudgeSub')}</span>
-              </p>
-              <div className="ml-auto flex items-center gap-1.5">
-                {unprojectAll.length > 1 && (
-                  <button
-                    type="button"
-                    disabled={!!busy}
-                    onClick={() => handleUnprojectMany(unprojectAll, t('resources.layer.nudgeAllLabel'))}
-                    className="tb-press text-[11px] px-2 py-0.5 rounded-md text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 disabled:opacity-50"
-                  >
-                    {busy === 'cold-bulk' ? t('resources.busy') : t('resources.layer.nudgeUnprojectAll', { n: unprojectAll.length })}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => snoozeNudges(lifecycleNudges)}
-                  title={t('resources.layer.nudgeSnoozeHint')}
-                  className="tb-press text-[11px] px-2 py-0.5 rounded-md text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                >
-                  {t('resources.layer.nudgeSnooze')}
-                </button>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {shown.map((g) => {
-                const one = g.list[0].r;
-                const bk = g.series ? `series-${g.key}` : `cold-${one.id}`;
-                return (
-                <span
-                  key={g.key}
-                  className="inline-flex items-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white/80 dark:bg-zinc-900/60 text-[11px] overflow-hidden"
-                >
-                  <span className="px-2 py-0.5 text-zinc-700 dark:text-zinc-200 max-w-[12rem] truncate" title={g.list.map(x => x.r.display_name || x.r.name).join('\n')}>
-                    {g.label}
-                    {g.series && <span className="ml-1 text-zinc-400">{t('resources.series.badge', { n: g.list.length })}</span>}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={!!busy}
-                    onClick={() => {
-                      if (g.mode === 'invoke') { copyInvokeFor(one); return; }
-                      if (g.series) handleUnprojectMany(g.list.map(x => x.r), g.label, bk);
-                      else handleUnprojectAll(one);
-                    }}
-                    title={g.mode === 'invoke' ? t('resources.layer.nudgeInvokeHint') : t('resources.layer.nudgeUnprojectHint')}
-                    className="tb-press px-2 py-0.5 border-l border-zinc-200 dark:border-zinc-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 disabled:opacity-50"
-                  >
-                    {busy === bk
-                      ? t('resources.busy')
-                      : g.mode === 'invoke' ? t('resources.layer.nudgeInvoke') : t('resources.layer.nudgeUnproject')}
-                  </button>
-                </span>
-                );
-              })}
-              {more > 0 && (
-                <button
-                  type="button"
-                  onClick={() => changeLayerFilter('dormant')}
-                  className="tb-press text-[11px] px-2 py-0.5 rounded-md text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                >
-                  {t('resources.layer.nudgeMore', { n: more })}
-                </button>
-              )}
-            </div>
-          </div>
-          );
-        })()}
+        {/* 闲置技能交给智能管家：启用 30 天一次没用过的自动从应用撤下（记录里可撤销），不在这里打扰 */}
           </>
         )}
 

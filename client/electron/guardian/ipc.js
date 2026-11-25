@@ -84,6 +84,7 @@ function startGuardian({ gateway, initialDelayMs } = {}) {
   startedOnce = true;
   try { require('./projection-heal').register(); } catch (e) { console.warn('[guardian] projection-heal:', e.message); }
   try { require('./asset-checks').register(); } catch (e) { console.warn('[guardian] asset-checks:', e.message); }
+  try { require('./idle-skills').register(); } catch (e) { console.warn('[guardian] idle-skills:', e.message); }
   try { require('./dispatch-learn').register(); } catch (e) { console.warn('[guardian] dispatch-learn:', e.message); }
   try { require('./command').register(); } catch (e) { console.warn('[guardian] command:', e.message); }
   try { guardian.tidy(); } catch (e) { console.warn('[guardian] tidy:', e.message); }

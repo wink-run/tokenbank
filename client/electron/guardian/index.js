@@ -374,6 +374,12 @@ function start({ initialDelayMs = 30000 } = {}) {
   started = true;
   const t = setTimeout(() => { if (checks.has('projection')) runCheck('projection').catch(() => {}); }, initialDelayMs);
   if (t.unref) t.unref();
+  // 闲置技能：启动后看一次，之后每天一次
+  const idle = () => { if (checks.has('idle-skills')) runCheck('idle-skills').catch(() => {}); };
+  const t2 = setTimeout(idle, initialDelayMs + 60000);
+  if (t2.unref) t2.unref();
+  const t3 = setInterval(idle, 24 * 60 * 60 * 1000);
+  if (t3.unref) t3.unref();
 }
 
 function stop() {
