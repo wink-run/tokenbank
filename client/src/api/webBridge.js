@@ -185,7 +185,6 @@ const mcp = {
   removeFromAgent: call('mcp:removeFromAgent', {}),
   setServerGatewayRouted: call('mcp:setServerGatewayRouted', {}),
   setServersGatewayRouted: call('mcp:setServersGatewayRouted', {}),
-  setServerExclusive: call('mcp:setServerExclusive', {}),
   getGatewayInfo: call0('mcp:getGatewayInfo'),
   appLevels: call0('mcp:appLevels'),
   setAppLevel: call('mcp:setAppLevel', {}),

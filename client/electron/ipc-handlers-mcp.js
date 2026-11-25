@@ -204,17 +204,6 @@ function registerMcpHandlers() {
     }
   });
 
-  // 应用专属：owner 为空 = 取消
-  ipcMain.handle('mcp:setServerExclusive', async (_event, { serverId, owner } = {}) => {
-    try {
-      mcpManager.init();
-      return mcpManager.setServerExclusive(serverId, owner || '');
-    } catch (error) {
-      console.error('[IPC] mcp:setServerExclusive error:', error);
-      return { success: false, error: error.message };
-    }
-  });
-
   ipcMain.handle('mcp:setServersGatewayRouted', async (_event, { serverIds, enabled, clientIds }) => {
     try {
       mcpManager.init();

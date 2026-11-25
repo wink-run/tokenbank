@@ -1286,6 +1286,7 @@ module.exports = {
   normalizeMcpEntry,
   removeRawClientMcpEntry,
   scanAllClientMcps,
+  getTbManagedClientKeys,
   invalidateScanCache,
   inferClientMcpDescription,
   getServerSyncClients,
