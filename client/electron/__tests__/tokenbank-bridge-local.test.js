@@ -122,3 +122,14 @@ test('应用发完请求就关输入：照样把工具列表答完再退', async
   assert.ok(list.result.tools.some((t) => t.name === 'tb_list_models'));
   assert.ok(list.result.tools.some((t) => t.name === 'filesystem__where'));
 });
+
+test('存过工具列表：马上答，不等在应用里起的 MCP', async () => {
+  writeInfo(gw.address().port);
+  const b = bridge();
+  try {
+    const t = Date.now();
+    const list = await b.ask('tools/list', {});
+    assert.ok(Date.now() - t < 900, `用了 ${Date.now() - t}ms`);
+    assert.ok(list.result.tools.some((x) => x.name === 'filesystem__where'));
+  } finally { b.close(); }
+});

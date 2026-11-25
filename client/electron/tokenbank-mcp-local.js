@@ -165,7 +165,7 @@ function present(child, tools) {
  * 管一个应用里的这些子进程。
  * @param {{ clientId: string, gateway: () => ({base,token}|null) }} opts
  */
-function createLocalHost({ clientId, gateway }) {
+function createLocalHost({ clientId, gateway, onToolsChanged }) {
   const cid = String(clientId || '').trim();
   const children = new Map(); // id → LocalChild
   let cache = readCache(cid);
@@ -180,8 +180,8 @@ function createLocalHost({ clientId, gateway }) {
   }
 
   /** 取清单（Token Bank 没开用上次存的） */
-  async function refresh() {
-    const fresh = await fetchServers(typeof gateway === 'function' ? gateway() : null, cid);
+  async function refresh(timeoutMs = 2000) {
+    const fresh = await fetchServers(typeof gateway === 'function' ? gateway() : null, cid, timeoutMs);
     if (fresh) {
       const keep = {};
       for (const s of fresh) if (cache.tools[s.id] && cache.tools[s.id].sig === signature(s)) keep[s.id] = cache.tools[s.id];
@@ -191,31 +191,52 @@ function createLocalHost({ clientId, gateway }) {
     apply(cache.servers);
   }
 
+  /**
+   * 清单：有存着的先用（马上能答），后台再向 Token Bank 取新的；第一次没存过才等，最多 1 秒
+   */
   function load() {
-    if (!loaded) loaded = refresh().catch(() => apply(cache.servers));
+    if (!loaded) {
+      if (cache.servers.length) {
+        apply(cache.servers);
+        loaded = Promise.resolve();
+        refresh().catch(() => {});
+      } else {
+        loaded = refresh(1000).catch(() => apply(cache.servers));
+      }
+    }
     return loaded;
   }
 
-  /** 列工具：等子进程最多 waitMs，没起完的先用上次存的工具列表，后台接着起 */
-  async function listTools(waitMs = 3000) {
-    loaded = null; // 每次列工具都重取清单：在 Token Bank 里改了，应用重连就生效
+  /** 子进程起来了：存下工具列表（下次马上能答）；和上次不一样就告诉应用工具变了 */
+  function remember(child) {
+    const prev = JSON.stringify(cache.tools[child.server.id]?.tools || null);
+    cache.tools[child.server.id] = { sig: signature(child.server), tools: child.tools || [] };
+    writeCache(cid, cache);
+    if (prev !== JSON.stringify(child.tools || []) && typeof onToolsChanged === 'function') onToolsChanged();
+  }
+
+  /**
+   * 列工具要快（应用等工具列表的时间很短，Cursor 命令行每次运行都重开一个）：
+   * 存过工具列表的马上给，子进程在后台起；没存过的最多等 waitMs，起完后存下并通知应用
+   */
+  async function listTools(waitMs = 1000) {
     await load();
     const out = [];
     await Promise.all([...children.values()].map(async (child) => {
-      const started = child.ensure().then(() => {
-        cache.tools[child.server.id] = { sig: signature(child.server), tools: child.tools || [] };
-        writeCache(cid, cache);
-        return child.tools || [];
-      });
+      const started = child.ensure().then(() => { remember(child); return child.tools || []; });
       started.catch(() => {});
+      const cached = cache.tools[child.server.id];
+      if (cached && cached.sig === signature(child.server)) {
+        out.push(...present(child, cached.tools));
+        return;
+      }
       let timer;
       const tools = await Promise.race([
         started.catch(() => null),
         new Promise((r) => { timer = setTimeout(() => r(null), waitMs); }),
       ]);
       clearTimeout(timer);
-      const use = tools || cache.tools[child.server.id]?.tools || [];
-      out.push(...present(child, use));
+      out.push(...present(child, tools || []));
     }));
     return out;
   }
