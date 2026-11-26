@@ -9,8 +9,9 @@ SHARE_MAX_CHARS = 1_200_000
 # 抢到发言权却一直没开任务，很快让出来；任务跑起来后给一轮足够长的时间
 TURN_IDLE_SEC = 30
 TURN_MAX_SEC = 20 * 60
+# 本机中转 /media/agent/，或切到 COS 后的 /agent-media/（可带预签名参数）
 _MEDIA_URL = re.compile(
-    r"^(?:https?://\S+)?/media/agent/[A-Za-z0-9_-]+/[^/?#\s]+$",
+    r"^(?:https?://[^/\s]+)?/(?:media/agent|agent-media)/[A-Za-z0-9_-]+/[^?#\s]+(?:\?[^#\s]*)?$",
     re.I,
 )
 

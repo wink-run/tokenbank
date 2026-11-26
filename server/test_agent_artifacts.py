@@ -69,6 +69,41 @@ def test_publish_rewrites_local_path():
     assert public[0]["url"] == url
 
 
+def test_publish_uploads_to_cos_when_given():
+    tmp = tempfile.mkdtemp(prefix="tb-art-")
+    tmp_path = Path(tmp)
+    seen = {}
+
+    def uploader(key, body, content_type):
+        seen["key"] = key
+        seen["n"] = len(body)
+        seen["type"] = content_type
+        return f"https://demo.cos.ap-guangzhou.myqcloud.com/{key}"
+
+    stored = publish_agent_artifacts(
+        "task_abc",
+        [{
+            "name": "pelican_bicycle.png",
+            "mime": "image/png",
+            "dataUrl": DATA,
+            "localPath": LOCAL,
+        }],
+        media_dir=tmp_path,
+        origin="https://tokenbank.wink.run",
+        uploader=uploader,
+    )
+    url = "https://demo.cos.ap-guangzhou.myqcloud.com/agent-media/task_abc/pelican_bicycle.png"
+    assert stored[0]["url"] == url
+    assert seen["key"] == "agent-media/task_abc/pelican_bicycle.png"
+    assert seen["type"] == "image/png"
+    assert seen["n"] > 0
+    # 已经在 COS 上的文件不再写一份到本机
+    assert not (tmp_path / "task_abc" / "pelican_bicycle.png").exists()
+    rewritten = rewrite_artifact_paths("图：`" + LOCAL + "`", stored)
+    assert rewritten.count(url) == 1
+    assert LOCAL not in rewritten
+
+
 def test_chinese_filename_keeps_extension():
     tmp = tempfile.mkdtemp(prefix="tb-art-")
     tmp_path = Path(tmp)
