@@ -1,4 +1,4 @@
-// 盘点页选中本机时：接不接我其他设备派来的活、开不开放本机模型、工作区（名字 → 本机目录）。
+// 设置页「我的设备」里的本机设置：批准新设备、接不接我其他设备派来的活、开不开放本机模型、中转、工作区（名字 → 本机目录）。
 // 只在本机改；其他设备只看到工作区的名字，看不到路径。
 import React, { useCallback, useEffect, useState } from 'react';
 import { useLang } from '../store/lang';

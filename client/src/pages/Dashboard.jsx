@@ -9,11 +9,9 @@ import { fetchDashboardStats } from './TokenDashboard';
 import { getTransactions } from '../api/client';
 import { useNavigate } from 'react-router-dom';
 import { formatDeviceTitle, deviceIdentityKey, mergeSameDevices } from '../lib/device-display';
-import { getUserDevices, deleteDevice } from '../api/client';
-import { getReportedDeviceId, requestAccountsHeartbeat } from '../hooks/useDeviceReporter';
-import { renameDevice, deviceNameError } from '../api/deviceName';
-import SelfDeviceSettings from '../components/SelfDeviceSettings';
-import { useMeshDevices, relayBadge } from '../api/meshDevices';
+import { getUserDevices } from '../api/client';
+import { getReportedDeviceId } from '../hooks/useDeviceReporter';
+import { useMeshDevices, relayBadge, getSelfSettings } from '../api/meshDevices';
 
 /** 几行用量相加成一台（次数、Token、费用、分层、模型） */
 function sumUsageRows(rows, base) {
@@ -464,11 +462,18 @@ export default function Dashboard() {
   // 个人页「我的设备」那份列表：盘点页的设备名、合并方式都以它为准
   const [myDevices, setMyDevices] = useState([]);
   // 改设备名称：选中一台设备后点「改名」；改完先在胶囊上显示，云端心跳到了再以云端为准
-  const [renaming, setRenaming] = useState(null);   // { id, draft, error, saving }
-  const [nameOverride, setNameOverride] = useState({});
+  const [nameOverride] = useState({});
+  // 有新设备想加入我的设备网络：盘点页提醒一句，去设置页批准
+  const [pendingJoin, setPendingJoin] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => Promise.resolve(getSelfSettings()).then((st) => { if (alive) setPendingJoin(st?.cloud?.pending || []); }).catch(() => {});
+    load();
+    const timer = setInterval(load, 30000);
+    return () => { alive = false; clearInterval(timer); };
+  }, []);
   const [devicesTick, setDevicesTick] = useState(0);
   const [showIdle, setShowIdle] = useState(false);
-  const [removing, setRemoving] = useState(null);   // 删除离线设备：{ id, label, ids, saving, error }
   const mesh = useMeshDevices();
   // 设备胶囊上标「中继」：账号现在用的中继是哪台（我的设备网络里看到的）
   const relayOf = (id) => {
@@ -742,81 +747,21 @@ export default function Dashboard() {
             </button>
           )}
           {!cloud && <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">{user ? t('dashboard.scopeNoCloud') : t('dashboard.scopeNote')}</span>}
-          {/* 选中一台设备时可以改名：和交易页「设备名称」是同一个，派活时写 @名称 */}
-          {scope !== 'all' && !renaming && (
-            <button type="button" onClick={() => setRenaming({ id: scope, draft: nameOverride[scope] || '', error: '', saving: false })}
+          {/* 改名、移除离线设备、本机设置都在设置页「我的设备」；这里只看统计 */}
+          {cloud && (
+            <button type="button" onClick={() => navigate('/account', { state: { focus: 'devices' } })}
               className="shrink-0 min-h-[32px] md:min-h-[28px] px-2 text-xs text-blue-600 dark:text-blue-400 hover:underline">
-              {t('dashboard.rename')}
-            </button>
-          )}
-          {/* 离线的其他设备可以删：重装、容器重建留下的旧记录 */}
-          {pickedDevice && !isThis(pickedDevice) && !pickedDevice.online && !renaming && !removing && (
-            <button type="button"
-              onClick={() => setRemoving({ id: pickedDevice.device_id, label: nameOverride[pickedDevice.device_id] || labels[pickedDevice.device_id] || formatDeviceTitle(pickedDevice), ids: pickedDevice.device_ids || [pickedDevice.device_id], saving: false, error: '' })}
-              className="shrink-0 min-h-[32px] md:min-h-[28px] px-2 text-xs text-red-500 hover:underline">
-              {t('dashboard.removeDevice')}
+              {t('dashboard.manageDevices')}
             </button>
           )}
         </div>
-        {removing && (
-          <div className="flex flex-wrap items-center gap-2 text-xs" role="alertdialog" aria-label={t('dashboard.removeDevice')}>
-            <span className="text-zinc-700 dark:text-zinc-200">{t('dashboard.removeConfirm', { name: removing.label })}</span>
-            <button type="button" disabled={removing.saving}
-              onClick={async () => {
-                setRemoving({ ...removing, saving: true, error: '' });
-                try {
-                  for (const id of removing.ids.filter(Boolean)) await deleteDevice(id);
-                  setRemoving(null);
-                  setScopePick('all');
-                  setDevicesTick((n) => n + 1);
-                } catch (e) {
-                  setRemoving({ ...removing, saving: false, error: e?.response?.data?.detail || e?.message || String(e) });
-                }
-              }}
-              className="min-h-[28px] px-3 rounded-lg font-medium bg-red-500 text-white hover:bg-red-600 disabled:opacity-60">
-              {removing.saving ? t('dashboard.removing') : t('dashboard.removeDevice')}
-            </button>
-            <button type="button" onClick={() => setRemoving(null)} className="min-h-[28px] px-2 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200">
-              {t('gateway.common.cancel')}
-            </button>
-            <span className={`basis-full text-[11px] ${removing.error ? 'text-red-500' : 'text-zinc-400 dark:text-zinc-500'}`}>
-              {removing.error || t('dashboard.removeHint')}
-            </span>
-          </div>
+        {/* 有新设备想加入：这里提醒一句，批准 / 拒绝在设置页 */}
+        {pendingJoin.length > 0 && (
+          <button type="button" onClick={() => navigate('/account', { state: { focus: 'devices' } })}
+            className="self-start text-left text-xs rounded-lg px-3 py-2 bg-amber-500/10 text-amber-800 dark:text-amber-200 hover:bg-amber-500/15">
+            {t('dashboard.pendingJoin', { name: pendingJoin.map((p) => p.name || p.device_id).join('、') })}
+          </button>
         )}
-        {renaming && (
-          <form className="flex flex-wrap items-center gap-2" onSubmit={async (ev) => {
-            ev.preventDefault();
-            const draft = String(renaming.draft || '').trim();
-            const bad = deviceNameError(draft);
-            if (bad) { setRenaming({ ...renaming, error: bad }); return; }
-            setRenaming({ ...renaming, saving: true, error: '' });
-            const r = await renameDevice(renaming.id === 'local' ? 'self' : renaming.id, draft);
-            if (!r.ok) { setRenaming({ ...renaming, saving: false, error: r.error }); return; }
-            setNameOverride((m) => ({ ...m, [renaming.id]: r.name || '' }));
-            setRenaming(null);
-            requestAccountsHeartbeat();
-            setTimeout(() => setDevicesTick((n) => n + 1), 2000);
-          }}>
-            <label htmlFor="dash-rename" className="text-xs text-zinc-500 dark:text-zinc-400">{t('dashboard.renameLabel')}</label>
-            <input id="dash-rename" autoFocus value={renaming.draft} placeholder={t('dashboard.renamePh')}
-              onChange={(e) => setRenaming({ ...renaming, draft: e.target.value, error: '' })}
-              onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null); }}
-              className="tb-soft-field w-44 text-xs px-3 py-1.5 rounded-lg text-zinc-900 dark:text-zinc-100" />
-            <button type="submit" disabled={renaming.saving}
-              className="min-h-[28px] px-3 rounded-lg text-xs font-medium bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60">
-              {renaming.saving ? t('dashboard.renameSaving') : t('common.save')}
-            </button>
-            <button type="button" onClick={() => setRenaming(null)} className="min-h-[28px] px-2 text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200">
-              {t('gateway.common.cancel')}
-            </button>
-            <span className={`basis-full text-[11px] ${renaming.error ? 'text-red-500' : 'text-zinc-400 dark:text-zinc-500'}`}>
-              {renaming.error || t('dashboard.renameHint')}
-            </span>
-          </form>
-        )}
-        {/* 选中本机：接活、开放模型、工作区（设备网络开着才有） */}
-        {useLocal && !renaming && <SelfDeviceSettings />}
       </div>
 
       {/* Summary cards — 5列 */}

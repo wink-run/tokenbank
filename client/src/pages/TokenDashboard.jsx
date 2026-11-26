@@ -11,7 +11,9 @@ import { billingAccountsFromDevices } from '../lib/accountsSummary';
 import { enrichBillingCost, resolveBillableSubscriptions } from '../utils/billing-cost';
 import { loadUserAccounts } from '../api/userAccounts';
 import { formatDeviceTitle, formatLegacyPlatform, effectiveDeviceType, mergeSameDevices } from '../lib/device-display';
-import { getReportedDeviceId } from '../hooks/useDeviceReporter';
+import { getReportedDeviceId, requestAccountsHeartbeat } from '../hooks/useDeviceReporter';
+import { renameDevice, deviceNameError } from '../api/deviceName';
+import SelfDeviceSettings from '../components/SelfDeviceSettings';
 import { isAppIcon, appIconSvg } from '../lib/appIcons';
 
 /** 从云端拉取各设备聚合盘点；失败时回退本机数据，并合并订阅折算 + 按量费用 */
@@ -671,10 +673,13 @@ function isCurrentDevice(device, currentId) {
   return ids.includes(currentId);
 }
 
+/** 我的设备：设备管理都在这里（本机设置、批准新设备、改名、移除离线的）；盘点页只看统计 */
 function DevicesSection() {
   const { t } = useLang();
   const [devices, setDevices] = useState(null);
   const [currentId, setCurrentId] = useState(() => getReportedDeviceId());
+  const [renaming, setRenaming] = useState(null);   // { key, id, draft, error, saving }
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -699,7 +704,20 @@ function DevicesSection() {
     // 心跳会改写机器名和系统版本，稍后再拉一次，避免停在旧的 CLI / 10.15.7
     const timer = setTimeout(load, 2500);
     return () => { alive = false; clearTimeout(timer); };
-  }, []);
+  }, [tick]);
+
+  async function saveRename(e) {
+    e.preventDefault();
+    const draft = String(renaming.draft || '').trim();
+    const bad = deviceNameError(draft);
+    if (bad) { setRenaming({ ...renaming, error: bad }); return; }
+    setRenaming({ ...renaming, saving: true, error: '' });
+    const r = await renameDevice(renaming.self ? 'self' : renaming.id, draft);
+    if (!r.ok) { setRenaming({ ...renaming, saving: false, error: r.error }); return; }
+    setRenaming(null);
+    requestAccountsHeartbeat();
+    setTimeout(() => setTick((n) => n + 1), 2000);
+  }
 
   async function handleRemove(device) {
     const ids = device.device_ids?.length ? device.device_ids : [device.device_id];
@@ -713,22 +731,28 @@ function DevicesSection() {
     } catch {}
   }
 
-  if (devices === null) return null;
-  if (devices.length === 0) return null;
-
   return (
-    <section className={`${PROFILE_CARD} p-5 space-y-3`}>
+    <section id="devices" className={`${PROFILE_CARD} p-5 space-y-3 scroll-mt-3`}>
       <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{t('profile.devicesTitle')}</h2>
+      {/* 本机：批准新设备、设备网络、接活、开放模型、中转、工作区 */}
+      <div className="tb-soft-tile rounded-xl px-3 py-3 space-y-2">
+        <p className="m-0 text-xs font-medium text-zinc-600 dark:text-zinc-300">{t('profile.thisDeviceSettings')}</p>
+        <SelfDeviceSettings />
+      </div>
+      {devices && devices.length > 0 && (
       <div className="space-y-2">
-        {devices.map((d, i) => (
-          <div key={`${d.device_id ?? ''}-${i}`}
-            className="tb-soft-tile flex items-center gap-3 px-3 py-2.5 rounded-xl">
+        {devices.map((d, i) => {
+          const key = `${d.device_id ?? ''}-${i}`;
+          const self = isCurrentDevice(d, currentId);
+          return (
+          <div key={key} className="tb-soft-tile px-3 py-2.5 rounded-xl">
+          <div className="flex items-center gap-3">
             <span className="text-base select-none shrink-0">{DEVICE_ICON[effectiveDeviceType(d)] || '🖥'}</span>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${d.online ? 'bg-green-500' : 'bg-zinc-400'}`} />
                 <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">{formatDeviceTitle(d)}</span>
-                {isCurrentDevice(d, currentId) && (
+                {self && (
                   <span className="shrink-0 text-[10px] leading-4 px-1.5 rounded-full bg-zinc-200/80 dark:bg-zinc-600 text-zinc-600 dark:text-zinc-200">
                     {t('profile.thisDevice')}
                   </span>
@@ -756,15 +780,42 @@ function DevicesSection() {
             }`}>
               {d.online ? t('profile.online') : t('profile.offline')}
             </span>
-            {!d.online && (
-              <button onClick={() => handleRemove(d)}
+            {renaming?.key !== key && (
+              <button type="button" onClick={() => setRenaming({ key, id: d.device_id, self, draft: '', error: '', saving: false })}
+                className="shrink-0 text-xs text-blue-600 dark:text-blue-400 hover:underline px-1">
+                {t('dashboard.rename')}
+              </button>
+            )}
+            {!d.online && !self && (
+              <button onClick={() => handleRemove(d)} title={t('dashboard.removeDevice')}
                 className="shrink-0 text-xs text-zinc-400 hover:text-red-500 dark:hover:text-red-400 transition-colors px-1">
-                ✕
+                {t('dashboard.removeDevice')}
               </button>
             )}
           </div>
-        ))}
+          {renaming?.key === key && (
+            <form className="mt-2 flex flex-wrap items-center gap-2" onSubmit={saveRename}>
+              <input autoFocus value={renaming.draft} placeholder={t('dashboard.renamePh')}
+                onChange={(e) => setRenaming({ ...renaming, draft: e.target.value, error: '' })}
+                onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null); }}
+                className="tb-soft-field w-44 text-xs px-3 py-1.5 rounded-lg text-zinc-900 dark:text-zinc-100" />
+              <button type="submit" disabled={renaming.saving}
+                className="min-h-[28px] px-3 rounded-lg text-xs font-medium bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60">
+                {renaming.saving ? t('dashboard.renameSaving') : t('common.save')}
+              </button>
+              <button type="button" onClick={() => setRenaming(null)} className="min-h-[28px] px-2 text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200">
+                {t('gateway.common.cancel')}
+              </button>
+              <span className={`basis-full text-[11px] ${renaming.error ? 'text-red-500' : 'text-zinc-400 dark:text-zinc-500'}`}>
+                {renaming.error || t('dashboard.renameHint')}
+              </span>
+            </form>
+          )}
+          </div>
+          );
+        })}
       </div>
+      )}
     </section>
   );
 }
@@ -808,10 +859,11 @@ export default function TokenDashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 从侧栏齿轮或其它页带 focus: 'settings' 过来：滚到设置
+  // 从侧栏齿轮或其它页带 focus: 'settings' / 'devices' 过来：滚到那一块
   useEffect(() => {
-    if (location.state?.focus !== 'settings') return;
-    setTimeout(() => document.getElementById('settings')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
+    const focus = location.state?.focus;
+    if (focus !== 'settings' && focus !== 'devices') return;
+    setTimeout(() => document.getElementById(focus)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
   }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!user && !guest) return null;
