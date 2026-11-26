@@ -6,6 +6,17 @@ VIDEO = "https://tokenbank.wink.run/media/agent/at-1/clip.mp4"
 LOCAL = "/Users/ully/.tokenbank/contribute-workspaces/a/u1/outputs/clip.mp4"
 
 
+def test_share_keeps_cos_media_url():
+    cos = "https://demo.cos.ap-guangzhou.myqcloud.com/agent-media/task_abc/clip.mp4?q-sign=1"
+    out = normalize_share_messages([{
+        "role": "assistant",
+        "content": "成片",
+        "parts": [{"type": "text", "text": "成片"}],
+        "artifacts": [{"name": "clip.mp4", "mime": "video/mp4", "kind": "file", "url": cos}],
+    }])
+    assert out[0]["artifacts"][0]["url"] == cos
+
+
 def test_share_keeps_transcript_and_proxy_video():
     out = normalize_share_messages([
         {"role": "user", "content": "做一支宣传片", "images": ["data:image/png;base64,aaaa"]},

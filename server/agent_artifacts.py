@@ -152,8 +152,12 @@ def publish_agent_artifacts(
     *,
     media_dir: Path | None = None,
     origin: str | None = None,
+    uploader=None,
 ) -> list:
-    """校验并落盘。返回项含 url；local 只给改写正文用，不要发给调用方。"""
+    """校验并落盘。返回项含 url；local 只给改写正文用，不要发给调用方。
+
+    配了 COS 时，图片和文件上传到对象存储，地址换成 COS。上传失败仍写本机。
+    """
     out = []
     if not isinstance(raw, list):
         return out
@@ -162,6 +166,12 @@ def publish_agent_artifacts(
         return out
     root = Path(media_dir) if media_dir is not None else AGENT_MEDIA_DIR
     host = (origin if origin is not None else public_origin()).rstrip("/")
+    # 测试传入 media_dir 时不碰线上 COS，除非显式给了 uploader
+    cos_put = uploader
+    if cos_put is None and media_dir is None:
+        from cos_media import enabled, put_bytes
+        if enabled():
+            cos_put = put_bytes
     cleanup_agent_media(root)
     total = 0
     used = set()
@@ -188,15 +198,23 @@ def publish_agent_artifacts(
             candidate = (f"{stem}{suffix}.{ext}" if ext else f"{stem}{suffix}")[:120]
             n += 1
         used.add(candidate)
-        dest_dir = root / safe_task
-        try:
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            (dest_dir / candidate).write_bytes(blob)
-        except OSError:
-            continue
         mime = str(item.get("mime") or "application/octet-stream").split(";")[0].strip()[:80]
         if "/" not in mime:
             mime = "application/octet-stream"
+        cos_url = ""
+        if cos_put is not None:
+            try:
+                cos_url = str(cos_put(f"agent-media/{safe_task}/{candidate}", blob, mime) or "")
+            except Exception:
+                cos_url = ""
+        if not cos_url:
+            dest_dir = root / safe_task
+            try:
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                (dest_dir / candidate).write_bytes(blob)
+            except OSError:
+                continue
+            cos_url = f"{host}/media/agent/{safe_task}/{candidate}"
         kind = "image" if mime.startswith("image/") and "svg" not in mime else "file"
         local = str(item.get("localPath") or "").strip()
         out.append({
@@ -204,7 +222,7 @@ def publish_agent_artifacts(
             "name": raw_name,
             "mime": mime,
             "kind": kind,
-            "url": f"{host}/media/agent/{safe_task}/{candidate}",
+            "url": cos_url,
             "dataUrl": data_url,
             "local": local,
         })
