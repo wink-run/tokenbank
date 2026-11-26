@@ -3423,7 +3423,7 @@ export default function Debug() {
   const fieldCls = 'tb-soft-field rounded-lg text-xs text-zinc-900 dark:text-zinc-100';
   const ghostBtn = 'tb-soft-tile shrink-0 px-2.5 py-1.5 text-xs rounded-lg text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 disabled:opacity-40';
   // 正文 14px；占位提示小一号，输入后的文字仍是 14px
-  const composerField = 'tb-soft-field flex-1 rounded-xl px-3 py-2.5 text-[14px] leading-normal text-zinc-900 dark:text-zinc-100 placeholder:text-[13px] placeholder-zinc-400 overflow-y-auto disabled:opacity-50';
+  const composerField = 'tb-soft-field flex-1 rounded-xl px-3 py-2.5 text-sm leading-normal text-zinc-900 dark:text-zinc-100 placeholder:text-xs placeholder-zinc-400 overflow-y-auto disabled:opacity-50';
 
 
   return (
@@ -3719,7 +3719,7 @@ export default function Debug() {
                 <div className="flex-1 flex items-center justify-center text-center text-zinc-400 dark:text-zinc-500 px-6">
                   <div className="max-w-md">
                     <p className="text-[14px] leading-normal font-medium text-zinc-500 dark:text-zinc-400 mb-2">{t('debug.tabs.hub')}</p>
-                    <p className="text-[14px] leading-normal mb-4">{t('debug.agent.hubEmpty')}</p>
+                    <p className="text-xs leading-normal mb-4">{t('debug.agent.hubEmpty')}</p>
                     <div className="flex items-center justify-center gap-2 text-sm">
                       <span className="text-zinc-500">{t('debug.agent.mainAgentColon')}</span>
                       <select
@@ -4229,6 +4229,7 @@ export default function Debug() {
         onRestore={restoreLlmSession}
       />
       <AgentSessionHistoryPanel
+        key={agentSessionKey(selectedAgent)}
         open={historyOpen && mode === 'agent'}
         onClose={() => setHistoryOpen(false)}
         agentKey={agentSessionKey(selectedAgent)}

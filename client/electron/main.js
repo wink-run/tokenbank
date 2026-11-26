@@ -6059,6 +6059,11 @@ app.whenReady().then(() => {
   try { cursorHooks.syncForApps(readLocalConfig().apps || [], process.execPath); } catch (e) {
     console.warn('[cursor-hooks] startup sync skipped:', e.message);
   }
+  // 旧数据：一个智能体投射到多个运行时。只留它真正在跑的那一个
+  try {
+    const r = require('./resource-manager').collapseExtraAssistantRuntimes();
+    if (r.removed) console.log(`[resources] 清掉多余的智能体运行时投射 ${r.removed} 条`);
+  } catch (e) { console.warn('[resources] collapse assistant runtimes skipped:', e.message); }
   // 一次性迁移：hook 已装时清掉历史 transcript 0 token 行并导入 hook 事件
   try {
     const MIG = '__migrate_cursor_hook_purge_v1__';

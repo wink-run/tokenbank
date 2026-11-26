@@ -285,6 +285,23 @@ function resolveAssistantRuntimeAgent(config, projections = [], availableIds = n
   return fromProj[0];
 }
 
+/**
+ * 旧数据会把同一个智能体投射到好几个能跑它的应用上。
+ * 只留它真正在跑的那一个（content.runtime_agent，没有就按现有解析规则）。
+ * 没有多余投射时返回空字符串，调用方不用改。
+ */
+function extraAssistantRuntimeIds(config, projections = []) {
+  const ids = [];
+  for (const p of projections || []) {
+    const id = p?.agentId || p?.agent_id;
+    if (!ASSISTANT_RUNTIME_IDS.has(id) || ids.includes(id)) continue;
+    ids.push(id);
+  }
+  if (ids.length <= 1) return [];
+  const keep = resolveAssistantRuntimeAgent(config, projections) || ids[0];
+  return ids.filter((id) => id !== keep);
+}
+
 /** 投射过、能跑它的应用（按投射顺序；availableIds 给了就只留本机能用的） */
 function projectedRuntimeIds(projections = [], availableIds = null) {
   const out = [];
@@ -349,6 +366,7 @@ module.exports = {
   parseAssistantConfig,
   resolveAssistantContext,
   resolveAssistantRuntimeAgent,
+  extraAssistantRuntimeIds,
   withAssistantRuntimeAgent,
   buildAssistantLaunch,
   formatAssistantContent,

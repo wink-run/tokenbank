@@ -1394,6 +1394,7 @@ class MCPManager {
       FROM mcp_servers
       ORDER BY builtin DESC, display_name ASC, name ASC
     `).all().map(row => this._formatServerRow(row));
+    this._attachUseCounts(rows);
     const { enrichServersWithClientInstalls } = require('./mcp-client-sync');
     return enrichServersWithClientInstalls(rows);
   }
@@ -1933,6 +1934,24 @@ class MCPManager {
     };
   }
 
+  /** 调用次数对上 id / 名称（记录里常是不带 mcp- 前缀的短名） */
+  _attachUseCounts(rows) {
+    let counts = new Map();
+    try {
+      counts = require('./local-stats').getMcpCallCountMap();
+    } catch { /* 统计库还没就绪就当没用过 */ }
+    const nOf = (s) => {
+      const keys = [s.id, s.name, s.display_name]
+        .map((x) => String(x || '').trim().toLowerCase())
+        .filter(Boolean);
+      const aliases = keys.flatMap((k) => [k, k.replace(/^mcp[-_]/, '')]);
+      let n = 0;
+      for (const k of aliases) if (counts.has(k)) n = Math.max(n, counts.get(k));
+      return n;
+    };
+    for (const s of rows) s.use_count = nOf(s);
+  }
+
   _formatServerRow(row) {
     const metadata = this._parseJson(row.metadata, {});
     const { listSyncEnabledClientIds } = require('./mcp-agent-targets');
@@ -1960,10 +1979,18 @@ class MCPManager {
       gateway_clients = gateway_clients.filter((id) => !isDeletedAppClientId(id));
     } catch { /* ignore */ }
 
+    // 目录 metadata.tools 经常只是几个示例名（Pipeworx 写了 5 个，实际七千多个）
+    const listed = Array.isArray(metadata.tools) ? metadata.tools.filter(Boolean).length : 0;
+    let tool_count = listed;
+    try {
+      const live = require('./mcp-gateway-server').cachedToolCount(row.id);
+      if (live > tool_count) tool_count = live;
+    } catch { /* 网关模块还没就绪时用目录里的数量 */ }
     return {
       ...row,
       args: this._parseJson(row.args, []),
       env: this._parseJson(row.env, {}),
+      tool_count,
       metadata,
       sync_clients,
       gateway_clients,

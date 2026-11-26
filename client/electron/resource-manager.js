@@ -64,6 +64,7 @@ const {
   formatAssistantContent,
   assistantContentNeedsMigration,
   resolveAssistantRuntimeAgent,
+  extraAssistantRuntimeIds,
   withAssistantRuntimeAgent,
   hasAssistantEnableProjection,
   resolveAssistantContext,
@@ -1615,6 +1616,40 @@ class ResourceManager {
       }
     }
     return { count };
+  }
+
+  /**
+   * 旧版把智能体投射到每一个能跑它的应用。现在一个专业智能体只在一个应用上跑，
+   * 多出来的运行时投射清掉，避免网关页出现「默认在」好几个应用的下拉。
+   */
+  collapseExtraAssistantRuntimes() {
+    this.init();
+    const db = this._getDb();
+    const ids = db.prepare("SELECT id FROM resources WHERE type = 'assistant'").all();
+    let removed = 0;
+    for (const { id } of ids) {
+      const resource = this.getResource(id);
+      if (!resource) continue;
+      const config = parseAssistantConfig(resource.content);
+      const drop = new Set(extraAssistantRuntimeIds(config, resource.projections || []));
+      if (!drop.size) continue;
+      for (const proj of resource.projections || []) {
+        if (!drop.has(proj.agentId)) continue;
+        try { unprojectResource(resource, proj.agentId, proj.projectionType, proj.targetPath); } catch { /* 引用投射没有落盘 */ }
+        db.prepare('DELETE FROM resource_projections WHERE id = ?').run(proj.id);
+        removed += 1;
+      }
+      const keep = resolveAssistantRuntimeAgent(config, (resource.projections || []).filter((p) => !drop.has(p.agentId)));
+      if (keep && keep !== config.runtime_agent) {
+        const content = withAssistantRuntimeAgent(resource.content, keep);
+        db.prepare('UPDATE resources SET content = ?, hash = ?, updated_at = ? WHERE id = ?')
+          .run(content, this._hashContent(content), Date.now(), id);
+      }
+    }
+    if (removed) {
+      try { require('./agent-executor').invalidateAgentListCache?.(); } catch { /* ignore */ }
+    }
+    return { removed };
   }
 
   /** 清掉已删除 app-* 上的资源投射残留 */

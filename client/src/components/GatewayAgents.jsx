@@ -521,7 +521,6 @@ function NewProDialog({ onClose, onDone, t, preselect = '' }) {
             ) : (
               <ul className="m-0 p-0 list-none max-h-72 overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-700 divide-y divide-zinc-100 dark:divide-zinc-700/60">
                 {shown.map((x) => {
-                  const on = runsOn(x);
                   const sel = pick === x.id;
                   return (
                     <li key={x.id}>
@@ -532,7 +531,6 @@ function NewProDialog({ onClose, onDone, t, preselect = '' }) {
                           <span className="block text-xs font-medium text-zinc-800 dark:text-zinc-100 truncate">{x.display_name || x.name}</span>
                           {x.description && <span className="block text-[11px] text-zinc-500 dark:text-zinc-400 truncate">{x.description}</span>}
                         </span>
-                        {on.length > 0 && <span className="shrink-0 text-[10px] text-emerald-700 dark:text-emerald-400">{t('gw2.proNew.runsOn', { apps: on.map(labelOf).join('、') })}</span>}
                       </button>
                     </li>
                   );

@@ -1301,13 +1301,9 @@ function ManualAddPanel({ app, routes, availableModels = [], localBase = '', onU
     else setCliErr(r?.error === 'exists' ? t('gateway.app.cliAccountExists') : (r?.error || t('gateway.common.saveFailed')));
   }
 
-  return createPortal(
-    <div className="electron-no-drag fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
-      <div
-        className="bg-white dark:bg-zinc-800 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-700 w-full max-w-2xl max-h-[92vh] overflow-y-auto flex flex-col"
-        onClick={e => e.stopPropagation()}
-      >
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
+  return (
+    <div className="mb-3 rounded-xl border border-zinc-200/80 dark:border-zinc-700 bg-white/80 dark:bg-zinc-900/50 overflow-hidden">
+      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-zinc-100 dark:border-zinc-800">
         {isAppIcon(icon) ? appIconSvg(icon, 'w-6 h-6') : <span className="text-xl">{icon}</span>}
         <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100 flex-1">{t('gateway.app.newTitle')}</h3>
         <button onClick={onCancel} className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 text-lg">✕</button>
@@ -1460,9 +1456,7 @@ function ManualAddPanel({ app, routes, availableModels = [], localBase = '', onU
       </div>
       </>
       )}
-      </div>
-    </div>,
-    document.body,
+    </div>
   );
 }
 
@@ -2828,8 +2822,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
     return pick ? encodeTierModelRoute(pick.tier, pick.id) : '';
   }
 
-  // 手工添加：未被识别的应用 → 创建 manual 应用，弹层编辑
-  // （原注释：内联展开 ManualAddPanel）
+  // 手工添加：未被识别的应用 → 创建 manual 应用，在列表上方展开编辑（不弹窗）
   // （已识别的 CLI/桌面应用都在列表里直接托管，不走此入口）
   async function addCustom() {
     // draft:true → 列表不显示这条临时条目（只在内联面板里编辑），保存时清除草稿标记才出现。
@@ -3306,7 +3299,7 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
               </div>
             )}
 
-            {/* 手工添加 → 弹层（ManualAddPanel，portal 到 body，避免被应用列表卡片裁切）*/}
+            {/* 手工添加：在列表上方展开，不弹窗 */}
             {manualDraft && (
               <ManualAddPanel app={manualDraft} routes={routes} availableModels={availableModels}
                 localBase={localBase}
