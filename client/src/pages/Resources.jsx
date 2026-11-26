@@ -25,7 +25,6 @@ import {
   buildPreviewText,
   resourceDescription,
   resourceDisplayName,
-  resourceIntro,
   shortenHomePath,
   typeVisual,
 } from '../components/ResourceAssetCard';
@@ -73,10 +72,9 @@ const IDLE_LAYERS = new Set(['pending', 'dormant', 'cold', 'shelf']);
 const STATE_DOT = { active: 'bg-emerald-500', idle: 'bg-zinc-400', issue: 'bg-rose-500' };
 const LIST_SORT_KEY = 'tokenbank.resources.listSort';
 const DEFAULT_IDLE_DAYS = 60;
-/** 资产库列表列宽：名称 | 投射到 | 使用 | 状态 | 操作 */
-// 名称 | 启用到 | 使用 | 状态（一个词 + 一句原因）| 操作
-const LIB_GRID = 'grid-cols-[minmax(0,1fr)_9rem_3.5rem_11rem_8rem]';
-const LIB_GRID_MD = 'md:grid-cols-[minmax(0,1fr)_9rem_3.5rem_11rem_8rem]';
+/** 资产库列表列宽：名称 | 应用图标 | 状态 | 操作。表头和每一行必须同一套宽度，否则各算各的会对不齐 */
+const LIB_GRID = 'grid-cols-[minmax(0,1fr)_11rem_11rem_3rem]';
+const LIB_GRID_MD = 'md:grid-cols-[minmax(0,1fr)_11rem_11rem_3rem]';
 
 const LIST_SORT_OPTIONS = [
   { id: 'smart', labelKey: 'resources.sort.smart' },
@@ -552,7 +550,7 @@ export default function Resources() {
   const [msg, setMsg] = useState('');
   const [expandedId, setExpandedId] = useState(null);
   const [projectMenu, setProjectMenu] = useState(null);
-  // 智能体模板「+」：点一下就加到那个通用智能体里可见，不用勾选再保存
+  // 智能体模板：图标后面一个按钮，点开下拉勾选在哪些通用智能体里可见
   const [visibleMenu, setVisibleMenu] = useState(null);
   const [projectSelected, setProjectSelected] = useState([]);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -2020,18 +2018,6 @@ export default function Resources() {
     return (assistantAgents.length ? assistantAgents : agents).filter((a) => a && a.id);
   }
 
-  function openVisibleMenu(e, resourceId) {
-    e.stopPropagation();
-    const rect = e.currentTarget.getBoundingClientRect();
-    const w = 208;
-    setVisibleMenu((cur) => (cur?.resourceId === resourceId ? null : {
-      resourceId,
-      x: Math.max(8, Math.min(rect.left, window.innerWidth - w - 8)),
-      y: rect.bottom + 4,
-      up: rect.bottom + 260 > window.innerHeight ? window.innerHeight - rect.top + 4 : null,
-    }));
-  }
-
   /** 加到一个通用智能体里可见：点了就生效 */
   async function addVisibleIn(resourceId, agentId) {
     const target = resources.find((r) => r.id === resourceId);
@@ -2039,7 +2025,6 @@ export default function Resources() {
       const list = target.missingDeps.map((d) => `${d.type}:${d.name}`).join(', ');
       if (!window.confirm(t('resources.depsBrokenConfirm', { list }))) return;
     }
-    setVisibleMenu(null);
     setBusy(resourceId);
     setError('');
     try {
@@ -2054,41 +2039,83 @@ export default function Resources() {
     }
   }
 
+  function openVisibleMenu(e, resourceId) {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const w = 220;
+    setVisibleMenu((cur) => (cur?.resourceId === resourceId ? null : {
+      resourceId,
+      x: Math.max(8, Math.min(rect.left, window.innerWidth - w - 8)),
+      y: rect.bottom + 4,
+      up: rect.bottom + 280 > window.innerHeight ? window.innerHeight - rect.top + 4 : null,
+    }));
+  }
+
+  /** 已可见的图标叠成一排，后面只有一个按钮，点开下拉勾选 */
+  function renderVisibleToggles(resource) {
+    const resourceId = resource?.id || resource?.resourceId;
+    if (!resourceId) return null;
+    const shown = [];
+    for (const p of resource?.projections || []) {
+      if (!isAgentAppId(p.agentId) || shown.some((x) => x.agentId === p.agentId)) continue;
+      shown.push(p);
+    }
+    return (
+      <span className="inline-flex flex-nowrap items-center" onClick={(e) => e.stopPropagation()}>
+        {shown.map((p, i) => (
+          <span key={p.id || p.agentId} className={`inline-flex rounded-md ring-2 ring-white dark:ring-zinc-900 ${i ? '-ml-2' : ''}`}>
+            <ServiceIcon id={p.agentId} name={p.label || p.agentId} boxClass="w-6 h-6" imgClass="w-4 h-4" className="!rounded-md" title={appNameById.get(p.agentId) || p.label || p.agentId} />
+          </span>
+        ))}
+        <button
+          type="button"
+          disabled={!!busy && busy !== resourceId}
+          title={t('resources.assistant.visiblePick')}
+          aria-label={t('resources.assistant.visiblePick')}
+          aria-expanded={visibleMenu?.resourceId === resourceId}
+          onClick={(e) => openVisibleMenu(e, resourceId)}
+          className="shrink-0 ml-1 inline-flex items-center justify-center w-6 h-6 rounded-md border border-dashed border-zinc-300 dark:border-zinc-600 text-[10px] leading-none text-zinc-400 hover:border-blue-400 hover:text-blue-500 disabled:opacity-40"
+        >
+          ▾
+        </button>
+      </span>
+    );
+  }
+
   function renderVisibleMenu() {
     if (!visibleMenu) return null;
     const res = resources.find((r) => r.id === visibleMenu.resourceId);
-    const have = new Set((res?.projections || []).map((p) => p.agentId).filter(Boolean));
-    const left = visibleTargets().filter((a) => !have.has(a.id));
+    const have = new Map();
+    for (const p of res?.projections || []) {
+      if (p.agentId && !have.has(p.agentId)) have.set(p.agentId, p);
+    }
+    const targets = visibleTargets();
     return createPortal(
       <>
         <div className="fixed inset-0 z-[90]" onClick={() => setVisibleMenu(null)} />
         <div
-          className="fixed z-[91] w-52 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg py-1"
+          className="fixed z-[91] w-52 max-h-72 overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg py-1"
           style={visibleMenu.up != null ? { left: visibleMenu.x, bottom: visibleMenu.up } : { left: visibleMenu.x, top: visibleMenu.y }}
         >
-          {left.length === 0 ? (
-            <p className="m-0 px-3 py-2 text-[11px] text-zinc-400">{t('resources.assistant.visibleAll')}</p>
-          ) : left.map((a) => (
-            <button key={a.id} type="button" onClick={() => addVisibleIn(visibleMenu.resourceId, a.id)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/50">
-              <ServiceIcon id={a.id} name={a.label} boxClass="w-5 h-5" imgClass="w-3 h-3" className="!rounded-md" />
-              <span className="truncate">{a.label || a.id}</span>
-            </button>
-          ))}
+          {targets.length === 0 ? (
+            <p className="m-0 px-3 py-2 text-[11px] text-zinc-400">{t('resources.assistant.noApp')}</p>
+          ) : targets.map((a) => {
+            const proj = have.get(a.id);
+            const on = !!proj;
+            return (
+              <button key={a.id} type="button"
+                disabled={busy === visibleMenu.resourceId || busy === `${visibleMenu.resourceId}-${a.id}`}
+                onClick={() => (on ? handleUnproject(res, proj) : addVisibleIn(visibleMenu.resourceId, a.id))}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/50 disabled:opacity-40">
+                <ServiceIcon id={a.id} name={a.label} boxClass="w-5 h-5" imgClass="w-3 h-3" className="!rounded-md" />
+                <span className="flex-1 truncate">{a.label || a.id}</span>
+                {on && <span className="text-blue-600 dark:text-blue-400" aria-hidden>✓</span>}
+              </button>
+            );
+          })}
         </div>
       </>,
       document.body,
-    );
-  }
-
-  /** 「+」按钮：在 logo 后面，加到更多通用智能体里可见 */
-  function visibleAddButton(resourceId, extra = '') {
-    return (
-      <button type="button" onClick={(e) => openVisibleMenu(e, resourceId)} disabled={!!busy && busy !== resourceId}
-        title={t('resources.assistant.visibleAdd')} aria-label={t('resources.assistant.visibleAdd')}
-        className={`shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-md border border-dashed border-zinc-300 dark:border-zinc-600 text-zinc-400 hover:border-blue-400 hover:text-blue-500 text-xs leading-none disabled:opacity-40 ${extra}`}>
-        +
-      </button>
     );
   }
 
@@ -3548,10 +3575,9 @@ export default function Resources() {
         <div className="flex-1 min-w-0 space-y-2">
           <div className={LIB_LIST_CLS}>
             <div className={`hidden md:grid ${LIB_GRID} gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]`}>
-              <span>{t('resources.col.name')}</span>
-              <span>{typeFilter === 'prompt' ? '' : typeFilter === 'skill' ? t('resources.col.apps') : typeFilter === 'assistant' ? t('resources.assistant.runInTitle') : t('resources.col.appsMixed')}</span>
-              <span className="text-right">{t('resources.col.uses')}</span>
-              <span>{t('resources.col.status')}</span>
+              <span className="truncate">{t('resources.col.name')}</span>
+              <span className="truncate">{typeFilter === 'prompt' ? '' : t('resources.assistant.runInTitle')}</span>
+              <span className="truncate">{t('resources.col.status')}</span>
               <span />
             </div>
             <ul role="listbox" aria-label={t('resources.tab.library')}>
@@ -3695,15 +3721,16 @@ export default function Resources() {
             <p className="text-[11px] text-zinc-400 truncate" title={shortNames.join(' · ')}>{shortNames.join(' · ')}</p>
           </div>
         </div>
-        <div className="hidden md:block min-w-0">{renderAppNames(members.some((m) => m.type === 'skill') ? apps.filter((a) => (agents || []).some((g) => g.id === a.id)) : apps)}</div>
-        <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{t('resources.row.uses', { n: uses || 0 })}</div>
-        <div className="hidden md:flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300 min-w-0">
+        <div className="hidden md:block min-w-0 overflow-hidden">{renderAppNames(members.some((m) => m.type === 'skill') ? apps.filter((a) => (agents || []).some((g) => g.id === a.id)) : apps)}</div>
+        <div className="hidden md:flex items-center gap-1.5 text-[11px] min-w-0">
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${activeN ? 'bg-emerald-500' : 'bg-zinc-300'}`} aria-hidden />
-          <span className="truncate">
-            {t('resources.series.active', { a: activeN, n: members.length })}
+          <span className="truncate text-zinc-600 dark:text-zinc-300">
+            {uses > 0
+              ? `${t('resources.row.usedTimes', { n: uses })} · ${t('resources.series.active', { a: activeN, n: members.length })}`
+              : t('resources.series.active', { a: activeN, n: members.length })}
           </span>
         </div>
-        <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-1.5 min-w-0" onClick={e => e.stopPropagation()}>
           <AssetMoreMenu
             label={t('resources.moreActions')}
             items={[
@@ -3743,18 +3770,11 @@ export default function Resources() {
     // 提示词：接了 Token Bank 的应用都能用，不按应用分
     if (type === 'prompt') return null;
     if (type === 'skill' && li) {
-      if (!skillGaps(li).enabled) return <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('resources.skill.offShort')}</span>;
-      return <AppIconStack apps={skillAppsOf(li)} emptyLabel="—" />;
+      // 一个图标都没有就是停用，不再另写「停用」
+      return <AppIconStack apps={skillGaps(li).enabled ? skillAppsOf(li) : []} emptyLabel="—" />;
     }
-    if (type === 'assistant' && li?.resourceId) {
-      return (
-        <span className="inline-flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-          {apps.length ? <AppIconStack apps={apps} emptyLabel="—" /> : <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('resources.assistant.noApp')}</span>}
-          {visibleAddButton(li.resourceId)}
-        </span>
-      );
-    }
-    if (!apps.length) return <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{type === 'assistant' ? t('resources.assistant.noApp') : t('resources.row.notEnabled')}</span>;
+    if (type === 'assistant' && li?.resourceId) return renderVisibleToggles(li.item);
+    if (!apps.length) return <span className="text-[11px] text-zinc-400 dark:text-zinc-500">—</span>;
     return <AppIconStack apps={apps} emptyLabel="—" />;
   }
 
@@ -3771,17 +3791,26 @@ export default function Resources() {
     if (f.quality === 'warn') return { kind: 'issue', word: t('resources.state.issue'), why: t('resources.row.whyQuality'), act: 'look' };
     if (f.updateAvailable) return { kind: 'update', word: t('resources.row.update'), why: t('resources.row.whyUpdate', { to: f.updateAvailable.to }), act: 'look' };
     if (li.life.layer === 'exempt') return { kind: 'active', word: t('resources.source.builtin'), why: '', act: 'project' };
-    // 智能体模板和提示词一样只说用没用过：在哪些智能体里可见看前一列，运行情况在网关页
+    // 智能体模板和提示词一样只说用没用过：在哪些智能体里可用看前一列，运行情况在网关页
     if (li.life.layer === 'active') {
-      return { kind: 'active', word: t('resources.state.active'), why: li.apps.length && li.type === 'skill' ? t('resources.row.onApps', { n: li.apps.length }) : '', act: 'project' };
+      // 用过几次就够了；在哪些应用里看前一列图标，不再写「N 个应用」
+      return { kind: 'active', word: t('resources.state.active'), why: '', act: 'project' };
     }
     // 提示词不用启用到应用：没用过就说没用过
     if (li.type === 'prompt') return { kind: 'idle', word: t('resources.row.promptUnused'), why: '', act: 'project' };
-    // 技能、智能体模板：哪里都没放写「停用」，放了没用过只说没用过（闲置由智能管家处理，这里不催）
-    if (li.type === 'skill' || li.type === 'assistant') return { kind: 'idle', word: li.apps.length ? t('resources.row.promptUnused') : t('resources.skill.offShort'), why: '', act: 'project' };
+    // 技能、智能体模板：状态只说用没用过。哪里都不可见就是停用，不在这一列重复
+    if (li.type === 'skill' || li.type === 'assistant') return { kind: 'idle', word: t('resources.row.promptUnused'), why: '', act: 'project' };
     // 一句话说清楚，不再「没在用」+「启用了还没用过」两句打架
     const word = { pending: t('resources.row.whyPending'), dormant: t('resources.row.whyDormant'), cold: t('resources.row.whyCold'), shelf: t('resources.row.whyShelf') }[li.life.layer] || t('resources.state.idle');
     return { kind: 'idle', word, why: '', act: 'project' };
+  }
+
+  /** 这一列只留一句：0 次和「还没用过」不叠着说 */
+  function usagePhrase(li, rs) {
+    if (rs.kind === 'issue' || rs.kind === 'update') return rs.word;
+    const n = li.useCount || 0;
+    if (n > 0) return t('resources.row.usedTimes', { n });
+    return rs.word;
   }
 
   /** 行里的一句描述：不重复系统提示词；智能体模板写它带了哪些技能 */
@@ -3838,26 +3867,25 @@ export default function Resources() {
         />
         <div className="md:hidden col-start-1 col-span-2 row-start-2 flex flex-nowrap items-center gap-1.5 min-w-0 text-[12px] pl-12 -mt-1">
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${stateDot}`} aria-hidden />
-          <span className={`shrink-0 ${stateCls}`}>{rs.word}</span>
+          <span className={`shrink-0 ${stateCls}`}>{usagePhrase(li, rs)}</span>
           {rs.why && (rs.gateway
             ? <button type="button" onClick={(e) => { e.stopPropagation(); navigate('/gateway', { state: { gatewayTab: 'pro' } }); }}
                 className="truncate text-blue-600 dark:text-blue-400">· {rs.why}</button>
             : <span className="truncate text-zinc-500 dark:text-zinc-400">· {rs.why}</span>)}
         </div>
-        <div className="hidden md:block min-w-0">{renderAppNames(li.apps, li.type, li)}</div>
-        <div className="hidden md:block text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-300">{t('resources.row.uses', { n: li.useCount || 0 })}</div>
+        <div className="hidden md:block min-w-0 overflow-hidden">{renderAppNames(li.apps, li.type, li)}</div>
         <div className="hidden md:flex items-start gap-1.5 text-[11px] min-w-0">
           <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${stateDot}`} aria-hidden />
           <span className="min-w-0">
-            <span className={`block truncate ${stateCls}`}>{rs.word}</span>
+            <span className={`block truncate ${stateCls}`}>{usagePhrase(li, rs)}</span>
             {rs.why && (rs.gateway
               ? <button type="button" onClick={(e) => { e.stopPropagation(); navigate('/gateway', { state: { gatewayTab: 'pro' } }); }}
                   className="block truncate text-blue-600 dark:text-blue-400 hover:underline text-left">{rs.why}</button>
               : <span className="block truncate text-zinc-400 dark:text-zinc-500" title={rs.why}>{rs.why}</span>)}
           </span>
         </div>
-        <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
-          {rs.act === 'look' ? (
+        <div className="flex items-center justify-end gap-1.5 min-w-0" onClick={e => e.stopPropagation()}>
+          {rs.act === 'look' && (rs.config || rs.kind === 'update') ? (
             <button
               type="button"
               onClick={() => {
@@ -3873,26 +3901,7 @@ export default function Resources() {
             >
               {rs.config ? t('resources.env.rowAct') : rs.kind === 'update' ? t('resources.row.seeUpdate') : t('resources.row.look')}
             </button>
-          ) : li.resourceId && li.type === 'skill' && !li.apps.length ? (
-            // 技能：没启用时一个「启用」，启用后不用再管放进哪些应用
-            <button
-              type="button"
-              disabled={!!busy && busy !== li.resourceId}
-              onClick={() => enableSkill(li.resourceId)}
-              className="tb-press text-[11px] px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-45"
-            >
-              {busy === li.resourceId ? t('resources.busy') : t('resources.skill.enable')}
-            </button>
-          ) : li.resourceId && li.type === 'assistant' && (
-            // 智能体模板：资产页只放模板，在哪个应用上跑去网关新建专业智能体时选
-            <button
-              type="button"
-              onClick={() => runInGateway(li.resourceId)}
-              className="tb-press text-[11px] px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-            >
-              {t('resources.assistant.runInShort')}
-            </button>
-          )}
+          ) : null}
           <AssetMoreMenu label={t('resources.moreActions')} items={libraryMenuItems(li)} />
         </div>
       </li>
@@ -3913,6 +3922,7 @@ export default function Resources() {
     const it = li.item;
     const visual = typeVisual(li.type);
     const previewSrc = li.kind === 'discovered' ? (li.linked || it) : it;
+    const preview = buildPreviewText(li.type, previewSrc);
     const menu = libraryMenuItems(li);
     const rs = rowState(li);
     return (
@@ -3927,7 +3937,7 @@ export default function Resources() {
             <span className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
               <span className={`w-1.5 h-1.5 rounded-full ${['prompt', 'skill', 'assistant'].includes(li.type) ? (li.useCount ? 'bg-emerald-500' : 'bg-zinc-300') : (LIFE_DOT[li.life.layer] || 'bg-zinc-300')}`} aria-hidden />
               {['prompt', 'skill', 'assistant'].includes(li.type)
-                ? (li.useCount ? t('resources.state.active') : ((li.type === 'skill' || li.type === 'assistant') && !li.apps.length ? t('resources.skill.offShort') : t('resources.row.promptUnused')))
+                ? (li.useCount ? t('resources.state.active') : t('resources.row.promptUnused'))
                 : lifeLabel(li.life)}
             </span>
             {!li.builtin && li.kind !== 'discovered' && (
@@ -3939,7 +3949,7 @@ export default function Resources() {
         stats={[
           [t('resources.col.uses'), li.useCount || '0'],
           [t('resources.stat.lastUsed'), fmtAgo(li.lastUsed)],
-          ...(li.type === 'prompt' ? [] : li.type === 'skill' ? [[t('resources.col.apps'), skillAppsOf(li).length]] : [[li.type === 'assistant' ? t('resources.assistant.runInTitle') : t('resources.col.apps'), li.apps.length]]),
+          ...(li.type === 'prompt' ? [] : [[t('resources.assistant.runInTitle'), li.type === 'skill' ? skillAppsOf(li).length : li.apps.length]]),
         ]}
         footer={menu.length > 0 ? (
           <>
@@ -3953,7 +3963,7 @@ export default function Resources() {
           </>
         ) : null}
       >
-        <InspectorSection title={li.type === 'assistant' ? t('resources.assistant.runInTitle') : t('resources.col.apps')}>
+        <InspectorSection title={li.type === 'prompt' ? t('resources.col.apps') : t('resources.assistant.runInTitle')}>
           <div className="space-y-2.5">
             {li.type === 'prompt' ? (
               <p className="m-0 text-[11px] text-zinc-500 dark:text-zinc-400">{t('resources.prompt.everywhere')}</p>
@@ -3974,16 +3984,7 @@ export default function Resources() {
                 {renderSkillPlacement(li)}
               </>
             ) : li.type === 'assistant' && li.resourceId ? (
-              // 智能体模板：在哪些通用智能体里可见，点 × 去掉，点 + 加
-              <div className="flex flex-wrap items-center gap-1.5">
-                {li.apps.length > 0 && renderProjections({
-                  id: li.resourceId,
-                  type: li.type,
-                  projections: it.projections,
-                  authorityPath: li.kind === 'discovered' ? it.authorityPath : (it.authorityPath || li.path),
-                }, { inline: true })}
-                {visibleAddButton(li.resourceId)}
-              </div>
+              renderVisibleToggles(it)
             ) : li.resourceId ? renderProjections({
               id: li.resourceId,
               type: li.type,
@@ -4045,14 +4046,11 @@ export default function Resources() {
             </button>
           </InspectorSection>
         )}
-        {resourceIntro(previewSrc) ? (
-          <InspectorSection title={t('resources.detailIntro')}>
-            <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-300 whitespace-pre-wrap">{resourceIntro(previewSrc)}</p>
+        {preview ? (
+          <InspectorSection title={t('resources.preview')}>
+            <InspectorPreview text={preview} />
           </InspectorSection>
         ) : null}
-        <InspectorSection title={t('resources.preview')}>
-          <InspectorPreview text={buildPreviewText(li.type, previewSrc) || t('resources.emptyDetail')} />
-        </InspectorSection>
       </LibraryInspector>
     );
   }
@@ -4147,6 +4145,7 @@ export default function Resources() {
     const name = resourceDisplayName(item.type, item);
     const builtin = isBuiltinResource(item);
     const purposes = purposesOf(item);
+    const preview = buildPreviewText(item.type, item);
     return (
       <LibraryInspector
         logo={<AssetLogo type={item.type} icon={item.icon || item.metadata?.icon} name={name || item.catalogId} />}
@@ -4210,14 +4209,11 @@ export default function Resources() {
             </div>
           </InspectorSection>
         )}
-        {resourceIntro(item) ? (
-          <InspectorSection title={t('resources.detailIntro')}>
-            <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-300 whitespace-pre-wrap">{resourceIntro(item)}</p>
+        {preview ? (
+          <InspectorSection title={t('resources.preview')}>
+            <InspectorPreview text={preview} />
           </InspectorSection>
         ) : null}
-        <InspectorSection title={t('resources.preview')}>
-          <InspectorPreview text={buildPreviewText(item.type, item) || t('resources.emptyDetail')} />
-        </InspectorSection>
       </LibraryInspector>
     );
   }
@@ -4345,7 +4341,6 @@ export default function Resources() {
               const typed = ['prompt', 'skill', 'assistant'].includes(typeFilter);
               // 所有「加东西」的入口收进一个「添加」，不再随类型换按钮
               const items = [
-                { key: 'catalog', label: t('resources.add.catalog'), hint: t('resources.add.catalogHint'), run: () => changeViewTab('recommend') },
                 { key: 'install', label: t('resources.add.install'), hint: t('resources.menu.installHint'), run: () => setSkillInstallOpen(true) },
                 { key: 'scan', label: t('resources.scanShort'), hint: t('resources.menu.scanHint'), run: () => {
                   if (!showSkillTabs) changeTypeFilter('skill', 'managed');
@@ -4354,12 +4349,7 @@ export default function Resources() {
                 } },
                 !isWebBridge() && { key: 'import', label: t('resources.add.import'), hint: t('resources.menu.importHint'), disabled: busy === 'import' || busyEdit, run: handleImportFile },
                 { key: 'create', label: typed ? t('resources.createOf', { type: t(`resources.tabType.${typeFilter}`) }) : t('resources.add.create'), hint: t('resources.menu.createHint'), disabled: busyEdit,
-                  run: () => { if (viewTab !== 'managed') changeViewTab('managed'); openCreateEditor(typed ? typeFilter : '', !typed); } },
-                { key: 'tool', label: t('resources.add.tool'), hint: t('resources.add.toolHint'), run: () => {
-                  if (viewTab !== 'managed') changeViewTab('managed');
-                  if (!isMcp) changeTypeFilter('mcp', 'managed');
-                  setTimeout(() => setMcpCreateSignal(n => n + 1), isMcp ? 0 : 150);
-                } },
+                  run: () => { if (viewTab !== 'managed') changeViewTab('managed'); openCreateEditor(typeFilter === 'mcp' ? 'mcp' : (typed ? typeFilter : ''), typeFilter !== 'mcp'); } },
               ].filter(Boolean);
               return (
                 <>
@@ -4422,7 +4412,21 @@ export default function Resources() {
               </button>
             );
           })}
-          <div className="relative w-full md:w-64 md:ml-auto md:max-w-[40vw] mb-1.5 self-center">
+          {/* 社区推荐放在类型标签右侧，不用点开「添加」才能找到 */}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={viewTab === 'recommend'}
+            onClick={() => { if (viewTab !== 'recommend') changeViewTab('recommend'); }}
+            className={`md:ml-auto -mb-px pb-2.5 text-[13px] border-b-2 transition-colors whitespace-nowrap ${
+              viewTab === 'recommend'
+                ? 'border-zinc-900 dark:border-zinc-100 text-zinc-900 dark:text-zinc-50 font-semibold'
+                : 'border-transparent text-blue-600 dark:text-blue-400 hover:text-blue-500'
+            }`}
+          >
+            {t('resources.tab.recommend')}
+          </button>
+          <div className="relative w-full md:w-64 md:max-w-[40vw] mb-1.5 self-center">
             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" aria-hidden>
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3.5 h-3.5"><circle cx="9" cy="9" r="5.5" /><path d="M13.5 13.5 17 17" strokeLinecap="round" /></svg>
             </span>
@@ -4460,7 +4464,7 @@ export default function Resources() {
       <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-3">
         {viewTab === 'recommend' && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">{t('resources.add.catalog')}</span>
+            <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">{t('resources.tab.recommend')}</span>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">{t('resources.add.catalogHint')}</span>
             <button type="button" onClick={() => changeViewTab('managed')}
               className="ml-auto text-xs px-2.5 py-1 rounded-lg text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20">
@@ -5081,14 +5085,18 @@ export default function Resources() {
             </div>
             <div className="p-4 space-y-3">
               {!editorForm.id && editorForm.pickType && (
-                <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-800/70" role="radiogroup" aria-label={t('resources.editorType')}>
-                  {['prompt', 'skill', 'assistant'].map(ty => (
+                <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-800/70" role="radiogroup" aria-label={t('resources.editorType')}>
+                  {['prompt', 'skill', 'assistant', 'mcp'].map(ty => (
                     <button
                       key={ty}
                       type="button"
                       role="radio"
                       aria-checked={editorForm.type === ty}
-                      onClick={() => setEditorForm(prev => ({ ...prev, type: ty, asStep: ty === 'assistant' ? (prev.asStep || 'brief') : prev.asStep }))}
+                      onClick={() => {
+                        // 工具不走这篇表单，转到 MCP / API / 命令行的接入
+                        if (ty === 'mcp') { openMcpCreate(); return; }
+                        setEditorForm(prev => ({ ...prev, type: ty, asStep: ty === 'assistant' ? (prev.asStep || 'brief') : prev.asStep }));
+                      }}
                       className={`text-xs py-1.5 rounded-lg transition ${editorForm.type === ty ? 'bg-white dark:bg-zinc-900 shadow-sm font-medium text-zinc-900 dark:text-zinc-100' : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'}`}
                     >
                       {t(`resources.tabType.${ty}`)}

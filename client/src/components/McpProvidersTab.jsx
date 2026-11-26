@@ -5,13 +5,13 @@ import { useLang } from '../store/lang';
 import { getApps } from '../api/adapter';
 import { ASSET_BTN_GHOST, ASSET_BTN_MANAGED, ASSET_BTN_PRIMARY, AssetMoreMenu } from './ResourceAssetCard';
 import {
-  FilterMenu, AppIconStack, LIB_LIST_CLS, libRowCls, LibrarySectionHead, LibraryRowTitle,
+  FilterMenu, LIB_LIST_CLS, libRowCls, LibrarySectionHead, LibraryRowTitle,
   LibraryInspector, InspectorSection, InspectorPreview,
 } from './LibraryControls';
 
 /** MCP 列表列宽：勾选 | 名称 | 投射到 | 类型 | 状态 | 操作（Tailwind 需字面量） */
-const MCP_GRID = 'grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[auto_minmax(0,1fr)_7rem_3.5rem_4.5rem_9rem]';
-const MCP_HEAD_GRID = 'md:grid-cols-[auto_minmax(0,1fr)_7rem_3.5rem_4.5rem_9rem]';
+const MCP_GRID = 'grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[auto_minmax(0,1fr)_9rem_3.5rem_4.5rem_3rem]';
+const MCP_HEAD_GRID = 'md:grid-cols-[auto_minmax(0,1fr)_9rem_3.5rem_4.5rem_3rem]';
 
 /** MCP 图标：目录给的 emoji，缺省扳手 */
 function McpLogo({ icon }) {
@@ -189,7 +189,6 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
   const [syncMenuPos, setSyncMenuPos] = useState(null);
   /** null=批量安装菜单，string=单行 MCP id */
   const [installMenuServerId, setInstallMenuServerId] = useState(null);
-  const [syncSelectedIds, setSyncSelectedIds] = useState([]);
   // 菜单模式：project=写盘投射；relay=中转绑定（分按钮入口）
   const [syncMenuMode, setSyncMenuMode] = useState('project');
   const [selectedServerIds, setSelectedServerIds] = useState([]);
@@ -490,10 +489,9 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
     }
     setInstallMenuServerId(serverId);
     setSyncMenuMode(mode);
-    setSyncSelectedIds(selectedAgentIds);
     if (anchorEl) {
       const r = anchorEl.getBoundingClientRect();
-      const menuW = 320;
+      const menuW = 208;
       const spaceBelow = window.innerHeight - r.bottom - 8;
       const spaceAbove = r.top - 8;
       // 下方空间不足时向上展开，避免被视口裁切
@@ -666,7 +664,9 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
    * 应用勾选结果：新勾选按 autoTransport 接入；单条模式下取消勾选 = 撤掉现有接入（写盘或中转）。
    * 批量模式只做添加。
    */
-  async function applyAddToApps(selectedIds) {
+  async function applyAddToApps(selectedIds, opts = {}) {
+    const keepOpen = !!opts.keepOpen;
+    const toggleId = opts.toggleId || null;
     const single = installMenuServerId;
     const serverIds = single ? [single] : selectedSyncableIds;
     if (!serverIds.length) {
@@ -674,7 +674,12 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
       return;
     }
     const targets = addTargets();
-    closeSyncMenu();
+    // 批量时：还没全部接上就补上，已经都在就一起撤下
+    const toggleAllOn = !!(toggleId && serverIds.every((id) => {
+      const sv = servers.find((x) => x.id === id);
+      return sv && connectionOf(sv, toggleId);
+    }));
+    if (!keepOpen) closeSyncMenu();
     setBusy(single || 'sync');
     setSyncMsg('');
     const parts = [];
@@ -688,12 +693,15 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
         const projAdd = []; const projRemove = []; const ownRemove = [];
         for (const tg of targets) {
           const cur = connectionOf(s, tg.id);
-          const want = selectedIds.includes(tg.id);
+          // 下拉里点一行就改这一项；批量时同样按当前有没有接入来加或撤
+          const want = toggleId
+            ? (tg.id === toggleId ? !toggleAllOn : !!cur)
+            : selectedIds.includes(tg.id);
           if (want && !cur) {
             const how = autoTransport(s, tg);
             if (how === 'relay' || how === 'app') relayAdd.push(tg.id);
             else if (how === 'project') projAdd.push(tg);
-          } else if (!want && cur && single && !s.builtin) {
+          } else if (!want && cur && (single || toggleId) && !s.builtin) {
             // 内置 MCP 默认投射到所有应用，不可取消；应用里自己配的 Token Bank 不动
             if (cur === 'project') projRemove.push(tg);
             else if (inAppConfig(s, tg.id)) ownRemove.push(tg);
@@ -746,7 +754,7 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
       const restart = [...relayApps].filter((id) => !needManual.includes(id));
       if (restart.length) parts.push(t('resources.mcp.restartHint', { apps: restart.map((id) => targets.find((tg) => tg.id === id)?.label || relayTargetLabel(id)).join('、') }));
       if (projectedToWorkbuddy) parts.push(t('providers.mcp.workbuddyTrustHint'));
-      if (!single) setSelectedServerIds([]);
+      if (!single && !keepOpen) setSelectedServerIds([]);
       await loadAll({ silent: true });
       setSyncMsg(parts.join('\n') || t('providers.mcp.notInstalledAny'));
     } catch (e) {
@@ -757,16 +765,12 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
     }
   }
 
-  function toggleAddSelected(id) {
-    setSyncSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  }
-
-  /** 「添加到应用」统一菜单：只选应用，接入方式自动决定并在行内标注 */
+  /** 和资产页一样：点一行就加上或撤下，不另开确认弹窗 */
   function renderAddMenu() {
     if (!syncMenuOpen || !syncMenuPos) return null;
     const single = installMenuServerId ? servers.find((x) => x.id === installMenuServerId) : null;
     const batchServers = single ? [] : selectedSyncableIds.map((id) => servers.find((x) => x.id === id)).filter(Boolean);
-    const probe = single || batchServers[0] || null;
+    const group = single ? [single] : batchServers;
     const targets = addTargets();
     return createPortal(
       <div
@@ -777,77 +781,32 @@ export default function McpProvidersTab({ viewTab: controlledView = null, search
           ...(syncMenuPos.top != null ? { top: syncMenuPos.top } : { bottom: syncMenuPos.bottom }),
           maxHeight: syncMenuPos.maxH,
         }}
-        className="electron-no-drag fixed z-[9999] w-80 flex flex-col rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg overflow-hidden"
+        className="electron-no-drag fixed z-[9999] w-52 overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg py-1"
       >
-        <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-700 shrink-0">
-          <p className="text-xs font-medium text-zinc-700 dark:text-zinc-200">
-            {single
-              ? t('resources.mcp.addTitle', { name: single.display_name || single.name })
-              : t('resources.mcp.addTitleBatch', { n: batchServers.length })}
-          </p>
-          <p className="text-[10px] text-zinc-400 mt-0.5">{single?.builtin ? t('resources.mcp.builtinLockedHint') : t('resources.mcp.addHint')}</p>
-        </div>
-        <div className="p-2 min-h-0 flex-1 overflow-y-auto space-y-0.5">
-          {targets.length === 0 && <p className="text-xs text-zinc-400 px-2 py-2">{t('providers.mcp.noAgents')}</p>}
-          {targets.map((tg) => {
-            const checked = syncSelectedIds.includes(tg.id);
-            const cur = probe ? connectionOf(probe, tg.id) : null;
-            const how = cur || (probe ? autoTransport(probe, tg) : (tg.kind === 'api-app' ? 'relay' : 'project'));
-            // 内置 MCP 已投射的应用锁定（不可取消）；应用里自己配的不归 Token Bank 管
-            const locked = !!(probe?.builtin && cur);
-            const blocked = locked || (!cur && !how);
-            const reason = !cur && !how && probe ? blockReason(probe, tg) : '';
-            return (
-              <div key={tg.id} className={`rounded-lg ${checked || locked ? 'bg-blue-50 dark:bg-blue-950/30' : ''}`}>
-                <label className={`flex items-center gap-2 px-2 py-1.5 text-xs ${locked ? 'cursor-default' : blocked ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer hover:bg-zinc-50/60 dark:hover:bg-zinc-700/40 rounded-lg'}`}>
-                  <input
-                    type="checkbox"
-                    checked={checked || locked}
-                    disabled={blocked}
-                    onChange={() => toggleAddSelected(tg.id)}
-                    className="rounded border-zinc-300 dark:border-zinc-600"
-                  />
-                  <ServiceIcon id={tg.id} name={tg.label} boxClass="w-6 h-6" imgClass="w-3.5 h-3.5" />
-                  <span className="flex-1 truncate text-zinc-700 dark:text-zinc-200" title={tg.label}>{tg.label}</span>
-                  {locked ? (
-                    <span className="shrink-0 text-[10px] text-sky-600 dark:text-sky-300" title={t('resources.mcp.builtinLockedHint')}>
-                      {t('resources.mcp.builtinLocked')}
-                    </span>
-                  ) : reason ? (
-                    <span className="shrink-0 text-[10px] text-amber-600 dark:text-amber-300 truncate max-w-[9rem]" title={reason}>{reason}</span>
-                  ) : how && (
-                    // 在哪里跑：应用里（用应用的项目目录、权限）或 Token Bank 网关里
-                    <span className="shrink-0 text-[10px] text-zinc-400"
-                      title={how === 'app' ? t('resources.mcp.howAppHint') : how === 'project' ? t('resources.mcp.builtinLockedHint') : t('resources.mcp.howGatewayHint')}>
-                      {how === 'app' ? t('resources.mcp.howApp') : how === 'project' ? t('resources.mcp.builtinLocked') : tg.kind === 'api-app' ? t('resources.mcp.howRelayUrl') : t('resources.mcp.howGateway')}
-                    </span>
-                  )}
-                </label>
-                {checked && how === 'relay' && (
-                  tg.kind !== 'api-app' && relayUsableViaBuiltin(tg.id) ? (
-                    <p className="pl-10 pr-2 pb-1.5 -mt-0.5 text-[10px] text-zinc-400">{t('resources.mcp.viaBuiltinNote')}</p>
-                  ) : (
-                    <div className="pl-10 pr-2 pb-1.5 -mt-0.5">{renderRelayUrl(tg.id, { compact: true })}</div>
-                  )
-                )}
-              </div>
-            );
-          })}
-        </div>
-        <div className="shrink-0 p-2 border-t border-zinc-100 dark:border-zinc-700 flex gap-2">
-          <button type="button" onClick={closeSyncMenu}
-            className="flex-1 text-xs py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-600">
-            {t('providers.mcp.cancel')}
-          </button>
-          <button
-            type="button"
-            disabled={!!busy || (!single && syncSelectedIds.length === 0)}
-            onClick={() => applyAddToApps(syncSelectedIds)}
-            className="tb-press flex-1 text-xs py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-40"
-          >
-            {busy ? t('providers.mcp.processing') : t('resources.mcp.addConfirm')}
-          </button>
-        </div>
+        {targets.length === 0 ? (
+          <p className="m-0 px-3 py-2 text-[11px] text-zinc-400">{t('providers.mcp.noAgents')}</p>
+        ) : targets.map((tg) => {
+          const on = group.length > 0 && group.every((s) => connectionOf(s, tg.id));
+          const probe = single || group[0] || null;
+          const cur = probe ? connectionOf(probe, tg.id) : null;
+          const how = cur || (probe ? autoTransport(probe, tg) : (tg.kind === 'api-app' ? 'relay' : 'project'));
+          const locked = !!(probe?.builtin && cur);
+          const blocked = locked || (!cur && !how);
+          return (
+            <button
+              key={tg.id}
+              type="button"
+              disabled={!!busy || blocked}
+              title={blocked && !locked && probe ? blockReason(probe, tg) : undefined}
+              onClick={() => applyAddToApps([], { keepOpen: true, toggleId: tg.id })}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/50 disabled:opacity-40"
+            >
+              <ServiceIcon id={tg.id} name={tg.label} boxClass="w-5 h-5" imgClass="w-3 h-3" className="!rounded-md" />
+              <span className="flex-1 truncate">{tg.label}</span>
+              {on && <span className="text-blue-600 dark:text-blue-400" aria-hidden>✓</span>}
+            </button>
+          );
+        })}
       </div>,
       document.body,
     );
@@ -1673,8 +1632,24 @@ function renderToolKindToggle(kind, onChange) {
     );
   }
 
-  function serverStatusDot(s) {
-    return s.status === 'active' ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600';
+  function serverUseCount(s) {
+    return Math.max(0, Number(s?.use_count) || 0);
+  }
+
+  /** 和技能一样：用过几次，不用「已启用」 */
+  function serverUsagePhrase(s) {
+    const n = serverUseCount(s);
+    return n > 0 ? t('resources.row.usedTimes', { n }) : t('resources.row.promptUnused');
+  }
+
+  function serverUsageDot(s) {
+    return serverUseCount(s) > 0 ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600';
+  }
+
+  function serverUsageCls(s) {
+    return serverUseCount(s) > 0
+      ? 'font-medium text-emerald-700 dark:text-emerald-300'
+      : 'text-zinc-500 dark:text-zinc-400';
   }
 
   /** 以前导入时自动写的「客户端自配 · xxx」：来源不再区分，只留后面的包名 / 地址 */
@@ -1702,19 +1677,44 @@ function renderToolKindToggle(kind, onChange) {
     return s.builtin ? isTbBuiltinRelayMcp(s) : canRouteViaGateway(s);
   }
 
-  function renderServerActions(s, { block = false } = {}) {
-    const active = s.status === 'active';
-    if (!active || (!s.builtin && !canRelay(s) && !serverHasDiskProjection(s))) return null;
+  function canPickApps(s) {
+    if (!s || exclusiveOwner(s) || s.status !== 'active') return false;
+    if (!s.builtin && !canRelay(s) && !serverHasDiskProjection(s)) return false;
+    return addTargets().length > 0;
+  }
+
+  /** 已接入的图标叠在一起，后面一个 ▾，点开下拉勾选 */
+  function renderAppPicker(s, { buttonOnly = false } = {}) {
+    const apps = connectedApps(s);
+    const shown = apps.slice(0, 4);
+    const rest = apps.length - shown.length;
+    const pickBtn = canPickApps(s) && (
+          <button
+            type="button"
+            data-row-install-btn
+            disabled={!!busy && busy !== s.id}
+            title={t('resources.assistant.visiblePick')}
+            aria-label={t('resources.assistant.visiblePick')}
+            aria-expanded={syncMenuOpen && installMenuServerId === s.id}
+            onClick={(e) => openAddMenu(s, e.currentTarget)}
+            className="shrink-0 ml-1 inline-flex items-center justify-center w-6 h-6 rounded-md border border-dashed border-zinc-300 dark:border-zinc-600 text-[10px] leading-none text-zinc-400 hover:border-blue-400 hover:text-blue-500 disabled:opacity-40"
+          >
+          ▾
+        </button>
+    );
+    if (buttonOnly) return pickBtn || null;
     return (
-      <button
-        type="button"
-        data-row-install-btn
-        disabled={!!busy || addTargets().length === 0}
-        onClick={(e) => openAddMenu(s, e.currentTarget)}
-        className={`${ASSET_BTN_PRIMARY} ${block ? 'w-full' : '!px-2.5 !py-1 !text-[11px] !rounded-lg'}`}
-      >
-        {busy === s.id ? t('providers.mcp.processing') : (block ? t('resources.project') : t('resources.projectShort'))}
-      </button>
+      <span className="inline-flex flex-nowrap items-center min-w-0" onClick={(e) => e.stopPropagation()}>
+        {shown.length === 0 ? (
+          <span className="text-[11px] text-zinc-400 dark:text-zinc-500">—</span>
+        ) : shown.map((a, i) => (
+          <span key={a.id} className={`inline-flex rounded-md ring-2 ring-white dark:ring-zinc-900 ${i ? '-ml-2' : ''}`}>
+            <ServiceIcon id={a.id} name={a.label} boxClass="w-6 h-6" imgClass="w-4 h-4" className="!rounded-md" title={a.label} />
+          </span>
+        ))}
+        {rest > 0 && <span className="ml-1 text-[10px] text-zinc-400 tabular-nums">+{rest}</span>}
+        {pickBtn}
+      </span>
     );
   }
 
@@ -1777,19 +1777,18 @@ function renderToolKindToggle(kind, onChange) {
             </>
           )}
         />
-        <div className="hidden md:flex items-center gap-1.5 min-w-0">
-          <AppIconStack apps={connectedApps(s)} emptyLabel="—" />
+        <div className="hidden md:flex items-center min-w-0">
+          {renderAppPicker(s)}
         </div>
         <span className="hidden md:block text-[11px] text-zinc-500">{toolAccessLabel(s, t)}</span>
         <span className="hidden md:flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300">
-          <span className={`w-1.5 h-1.5 rounded-full ${serverStatusDot(s)}`} aria-hidden />
-          {s.status === 'active' ? t('providers.mcp.enabled') : t('providers.mcp.disabled')}
+          <span className={`w-1.5 h-1.5 rounded-full ${serverUsageDot(s)}`} aria-hidden />
+          <span className={serverUsageCls(s)}>{serverUsagePhrase(s)}</span>
         </span>
         <div
-          className={`flex items-center justify-end gap-1.5 transition-opacity ${sel ? '' : 'md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100'}`}
+          className="flex items-center justify-end gap-1.5"
           onClick={e => e.stopPropagation()}
         >
-          {!locked && renderServerActions(s)}
           {!locked && menu.length > 0 && <AssetMoreMenu label={t('resources.moreActions')} items={menu} />}
         </div>
       </li>
@@ -1798,6 +1797,9 @@ function renderToolKindToggle(kind, onChange) {
 
   function renderServerInspector(s) {
     const tools = s.metadata?.tools || [];
+    // 数量用网关实际拉到的；比目录里的示例名多，就不要把示例名当成全部
+    const toolCount = Math.max(tools.length, Number(s.tool_count) || 0);
+    const toolsPartial = toolCount > tools.length;
     const apps = connectedApps(s);
     // 应用专属：只读，不给操作入口，免得误删、误给别的应用
     const locked = !!exclusiveOwner(s);
@@ -1811,9 +1813,9 @@ function renderToolKindToggle(kind, onChange) {
         chips={(
           <>
             <span className={`text-[10px] px-1.5 py-px rounded font-medium ${TOOL_KIND_CHIP[toolKindOf(s)]}`}>{t(`providers.mcp.kind.${toolKindOf(s)}`)}</span>
-            <span className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
-              <span className={`w-1.5 h-1.5 rounded-full ${serverStatusDot(s)}`} aria-hidden />
-              {s.status === 'active' ? t('providers.mcp.enabled') : t('providers.mcp.disabled')}
+            <span className="inline-flex items-center gap-1 text-[11px]">
+              <span className={`w-1.5 h-1.5 rounded-full ${serverUsageDot(s)}`} aria-hidden />
+              <span className={serverUsageCls(s)}>{serverUsagePhrase(s)}</span>
             </span>
             <span className="text-[10px] text-zinc-400">{toolAccessLabel(s, t)}</span>
             {s.builtin && <span className="text-[10px] text-sky-600 dark:text-sky-300">{t('providers.mcp.builtin')}</span>}
@@ -1826,8 +1828,8 @@ function renderToolKindToggle(kind, onChange) {
         )}
         desc={serverDesc(s)}
         stats={[
-          [t('resources.mcp.toolCount'), tools.length],
-          [t('resources.col.apps'), apps.length],
+          [t('resources.mcp.toolCount'), toolCount],
+          [t('resources.assistant.runInTitle'), apps.length],
         ]}
         footer={menu.length > 0 ? (
           <>
@@ -1872,7 +1874,7 @@ function renderToolKindToggle(kind, onChange) {
             </InspectorSection>
           </>
         )}
-        <InspectorSection title={t('resources.col.apps')}>
+        <InspectorSection title={t('resources.assistant.runInTitle')}>
             <div className="space-y-2">
               {apps.length === 0 ? (
                 <p className="text-[11px] text-zinc-400">{t('resources.mcp.notAdded')}</p>
@@ -1894,10 +1896,8 @@ function renderToolKindToggle(kind, onChange) {
                           </span>
                         )}
                       </div>
-                      {a.how === 'relay' && (
-                        gatewayApiApps.some((x) => x.id === a.id) || !relayUsableViaBuiltin(a.id)
-                          ? <div className="pl-7">{renderRelayUrl(a.id)}</div>
-                          : <p className="pl-7 text-[10px] text-zinc-400">{t('resources.mcp.viaBuiltinNote')}</p>
+                      {a.how === 'relay' && (gatewayApiApps.some((x) => x.id === a.id) || !relayUsableViaBuiltin(a.id)) && (
+                        <div className="pl-7">{renderRelayUrl(a.id)}</div>
                       )}
                     </li>
                   ))}
@@ -1908,7 +1908,9 @@ function renderToolKindToggle(kind, onChange) {
                   ? t('resources.mcp.builtinLockedHint')
                   : locked ? t('resources.mcp.exclusiveHint') : t('resources.mcp.accessHint')}
               </p>
-              {!locked && renderServerActions(s, { block: true })}
+              {!locked && canPickApps(s) && (
+                <div>{renderAppPicker(s, { buttonOnly: true })}</div>
+              )}
             </div>
           </InspectorSection>
         {toolKindOf(s) === 'mcp' && !s.builtin && !locked && (
@@ -1918,13 +1920,17 @@ function renderToolKindToggle(kind, onChange) {
             </p>
           </InspectorSection>
         )}
-        {toolKindOf(s) === 'mcp' && tools.length > 0 && (
-          <InspectorSection title={t('resources.mcp.tools', { n: tools.length })}>
-            <div className="flex flex-wrap gap-1">
-              {tools.map(tool => (
-                <span key={tool} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{tool}</span>
-              ))}
-            </div>
+        {toolKindOf(s) === 'mcp' && toolCount > 0 && (
+          <InspectorSection title={t('resources.mcp.tools', { n: toolCount })}>
+            {toolsPartial ? (
+              <p className="text-[11px] text-zinc-500 leading-relaxed">{t('resources.mcp.toolsMany', { n: toolCount })}</p>
+            ) : (
+              <div className="flex flex-wrap gap-1">
+                {tools.map(tool => (
+                  <span key={tool} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{tool}</span>
+                ))}
+              </div>
+            )}
           </InspectorSection>
         )}
         {toolKindOf(s) === 'mcp' && (s.command || s.url) && (
@@ -2394,7 +2400,7 @@ function renderToolKindToggle(kind, onChange) {
         role="option"
         aria-selected={sel}
         onClick={() => setSelectedKey(sel ? null : key)}
-        className={`${libRowCls(sel)} grid-cols-1 md:grid-cols-[minmax(0,1fr)_4.5rem_minmax(0,1.1fr)_minmax(0,5.5rem)_4.5rem_6.5rem]`}
+        className={`${libRowCls(sel)} grid-cols-1 md:grid-cols-[minmax(0,1fr)_4.5rem_minmax(0,1.1fr)_9rem_4.5rem_3rem]`}
       >
         <LibraryRowTitle
           logo={<McpLogo icon={kind === 'api' ? '🌐' : '⌘'} />}
@@ -2403,15 +2409,14 @@ function renderToolKindToggle(kind, onChange) {
         />
         <span className="text-[11px] font-mono text-zinc-500 truncate">{mid}</span>
         <span className="text-[11px] font-mono text-zinc-600 dark:text-zinc-300 truncate" title={detail}>{detail || '—'}</span>
-        <div className="hidden md:flex items-center gap-1.5 min-w-0">
-          <AppIconStack apps={connectedApps(s)} emptyLabel="—" />
+        <div className="hidden md:flex items-center min-w-0">
+          {renderAppPicker(s)}
         </div>
         <span className="flex items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-300">
-          <span className={`w-1.5 h-1.5 rounded-full ${serverStatusDot(s)}`} aria-hidden />
-          {s.status === 'active' ? t('providers.mcp.enabled') : t('providers.mcp.disabled')}
+          <span className={`w-1.5 h-1.5 rounded-full ${serverUsageDot(s)}`} aria-hidden />
+          <span className={serverUsageCls(s)}>{serverUsagePhrase(s)}</span>
         </span>
         <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
-          {renderServerActions(s)}
           {menu.length > 0 && <AssetMoreMenu label={t('resources.moreActions')} items={menu} />}
         </div>
       </li>
@@ -2457,11 +2462,11 @@ function renderToolKindToggle(kind, onChange) {
         {items.length === 0 ? renderKindEmpty(kind) : (
           <div className={LIB_LIST_CLS}>
             {plain ? (
-              <div className="hidden md:grid md:grid-cols-[minmax(0,1fr)_4.5rem_minmax(0,1.1fr)_minmax(0,5.5rem)_4.5rem_6.5rem] gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]">
+              <div className="hidden md:grid md:grid-cols-[minmax(0,1fr)_4.5rem_minmax(0,1.1fr)_9rem_4.5rem_3rem] gap-3 px-4 py-2 text-[11px] text-zinc-400 border-b border-zinc-100 dark:border-white/[0.05]">
                 <span>{t('resources.col.name')}</span>
                 <span>{kind === 'api' ? t('providers.mcp.method') : t('providers.mcp.cwd')}</span>
                 <span>{kind === 'api' ? 'URL' : t('providers.mcp.col.command')}</span>
-                <span>{t('resources.col.apps')}</span>
+                <span>{t('resources.assistant.runInTitle')}</span>
                 <span>{t('resources.col.status')}</span>
                 <span />
               </div>
@@ -2479,7 +2484,7 @@ function renderToolKindToggle(kind, onChange) {
                   )}
                 </span>
                 <span>{t('resources.col.name')}</span>
-                <span>{t('resources.col.apps')}</span>
+                <span>{t('resources.assistant.runInTitle')}</span>
                 <span>{t('providers.mcp.type')}</span>
                 <span>{t('resources.col.status')}</span>
                 <span />

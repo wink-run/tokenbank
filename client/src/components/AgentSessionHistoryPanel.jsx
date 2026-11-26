@@ -1,9 +1,10 @@
 // 历史会话面板：每个历史对话即一个可继续的 session（单一列表，不再分「已保存 / 最近任务」）
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   deleteAgentSessionSnapshot,
   formatSessionTime,
+  sessionLastSpokenAt,
   hideAgentHistoryTasks,
   isAgentHistoryTaskHidden,
   listAgentSessionSnapshots,
@@ -57,24 +58,42 @@ export default function AgentSessionHistoryPanel({
   onDeleted,
 }) {
   const { t } = useLang();
+  // 列表从空开始。readyKey 对上当前智能体之前，不画任何一条，避免先闪上一个智能体。
   const [localItems, setLocalItems] = useState([]);
   const [orphanDbItems, setOrphanDbItems] = useState([]);
+  const [readyKey, setReadyKey] = useState(null);
   const [loading, setLoading] = useState(false);
+  const agentKeyRef = useRef(agentKey);
+  agentKeyRef.current = agentKey;
+
+  const listReady = readyKey === agentKey;
 
   const refreshLocal = useCallback(() => {
     setLocalItems(listAgentSessionSnapshots(agentKey));
   }, [agentKey]);
 
+  // 本地列表和数据库补全都齐了，才允许画出来
+  const publish = useCallback((requestedKey, orphans) => {
+    if (agentKeyRef.current !== requestedKey) return;
+    setLocalItems(listAgentSessionSnapshots(requestedKey));
+    setOrphanDbItems(orphans);
+    setReadyKey(requestedKey);
+    setLoading(false);
+  }, []);
+
   const loadOrphanDbSessions = useCallback(async () => {
-    if (!open || !window.electronAPI?.agent?.listRecentTasks || !listAgentId) {
-      setOrphanDbItems([]);
+    const requestedKey = agentKey;
+    if (!open) return;
+    setLoading(true);
+    if (!window.electronAPI?.agent?.listRecentTasks || !listAgentId) {
+      publish(requestedKey, []);
       return;
     }
-    setLoading(true);
     try {
       const res = await window.electronAPI.agent.listRecentTasks({ agentId: listAgentId, limit: 25 });
+      if (agentKeyRef.current !== requestedKey) return;
       if (!res.success || !res.tasks?.length) {
-        setOrphanDbItems([]);
+        publish(requestedKey, []);
         return;
       }
       const untitled = t('debug.history.untitled');
@@ -122,14 +141,11 @@ export default function AgentSessionHistoryPanel({
 
         orphans.push(dbTaskToSessionItem(task, untitled));
       }
-      setOrphanDbItems(orphans);
-      refreshLocal();
+      publish(requestedKey, orphans);
     } catch {
-      setOrphanDbItems([]);
-    } finally {
-      setLoading(false);
+      publish(requestedKey, []);
     }
-  }, [open, agentKey, listAgentId, t, refreshLocal]);
+  }, [open, agentKey, listAgentId, t, publish]);
 
   useEffect(() => {
     if (!open) return;
@@ -139,10 +155,12 @@ export default function AgentSessionHistoryPanel({
 
   // 统一会话列表：本地多轮优先，孤儿 DB 任务并入同一列表（按时间）
   const sessions = useMemo(() => {
+    // 还没加载完当前智能体时，列表保持为空，界面只显示 loading
+    if (!listReady) return [];
     const local = (localItems || []).map(it => ({ ...it, source: 'local' }));
     const merged = [...local, ...(orphanDbItems || [])];
     return merged.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
-  }, [localItems, orphanDbItems]);
+  }, [listReady, localItems, orphanDbItems]);
 
   async function handleRestore(item) {
     if (item.source === 'local') {
@@ -226,7 +244,9 @@ export default function AgentSessionHistoryPanel({
 
   if (!open) return null;
 
-  const empty = !sessions.length && !loading;
+  // 换了智能体或刚打开：这一帧就进 loading，不把上一份会话画出来
+  const pending = !listReady;
+  const empty = !pending && !sessions.length && !loading;
 
   return createPortal(
     <div
@@ -255,11 +275,11 @@ export default function AgentSessionHistoryPanel({
           {empty && (
             <p className="text-center text-sm text-zinc-400 py-10">{t('debug.history.empty')}</p>
           )}
-          {loading && !sessions.length && (
+          {(pending || (loading && !sessions.length)) && (
             <p className="text-center text-sm text-zinc-400 py-6">{t('debug.history.loading')}</p>
           )}
 
-          {sessions.length > 0 && (
+          {!pending && sessions.length > 0 && (
             <ul className="space-y-1">
               {sessions.map(item => (
                 <li key={item.id}>
@@ -282,7 +302,7 @@ export default function AgentSessionHistoryPanel({
                           className="text-[11px] text-zinc-400 mt-0.5 truncate"
                           title={item.sessionWorkingDir || undefined}
                         >
-                          {formatSessionTime(item.savedAt)}
+                          {formatSessionTime(sessionLastSpokenAt(item))}
                           {item.turnCount > 1
                             ? t('debug.history.turns', { n: item.turnCount })
                             : (item.status ? ` · ${item.status}` : '')}

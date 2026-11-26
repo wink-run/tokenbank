@@ -113,6 +113,14 @@ test('kimi-code projection enables playground runtime', () => {
   assert.ok(launch.promptPrefix.includes('你是助手'));
 });
 
+test('extra runtime projections are the ones other than the agent it actually runs on', () => {
+  const { extraAssistantRuntimeIds } = require('../resource-assistant');
+  const projs = [{ agentId: 'claude-code' }, { agentId: 'cursor' }, { agentId: 'codex' }, { agentId: 'workbuddy' }];
+  assert.deepEqual(extraAssistantRuntimeIds({ runtime_agent: '' }, projs).sort(), ['codex', 'cursor']);
+  assert.deepEqual(extraAssistantRuntimeIds({ runtime_agent: 'codex' }, projs), ['claude-code', 'cursor']);
+  assert.deepEqual(extraAssistantRuntimeIds({ runtime_agent: 'codex' }, [{ agentId: 'codex' }]), []);
+});
+
 test('resolveAssistantRuntimeAgent keeps configured runtime if still projected', () => {
   const { resolveAssistantRuntimeAgent } = require('../resource-assistant');
   const config = parseAssistantConfig(JSON.stringify({ soul: 'x', runtime_agent: 'claude-code' }));

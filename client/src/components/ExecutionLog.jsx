@@ -621,7 +621,13 @@ function attachTurnArtifacts(items, artifacts) {
 
 function formatTime(ts) {
   if (!ts) return '';
-  return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const d = new Date(ts);
+  const clock = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
+  // 当天只显示钟点；跨天补上月/日，避免昨天下午看起来像今天
+  if (d.toDateString() === new Date().toDateString()) {
+    return d.toLocaleTimeString('zh-CN', clock);
+  }
+  return d.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', ...clock });
 }
 
 /** 工具和推理的耗时。不到 10 秒保留一位小数。 */
@@ -1405,12 +1411,12 @@ function ThinkingGroupCard({ item, live = false }) {
           <span className="text-xs text-zinc-400 shrink-0">{open ? '▾' : '▸'}</span>
         </button>
         {open && (
-          <div className="px-3 pb-2.5 text-[14px] leading-normal max-h-80 overflow-y-auto text-zinc-700 dark:text-zinc-300 border-t border-zinc-200/50 dark:border-white/[0.06]">
+          <div className="px-3 pb-2.5 text-[10px] leading-relaxed max-h-80 overflow-y-auto text-zinc-700 dark:text-zinc-300 border-t border-zinc-200/50 dark:border-white/[0.06]">
             <StreamMarkdownContent
               content={raw}
               live={live}
               preferPlainWhileLive
-              density="reading"
+              density="compact"
             />
             {live && (
               <span className="inline-block animate-pulse text-zinc-400 ml-0.5">▊</span>
@@ -1870,9 +1876,9 @@ export default function ExecutionLog({
       {/* 本轮尚无回复/推理气泡：新开一条空回复放呼吸光标，不粘在历史消息上 */}
       {waitingForReply && (
         <div className="flex justify-start">
-          <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-[13px] leading-normal tb-soft-bubble border-blue-200/60 dark:border-blue-800/40 text-zinc-900 dark:text-zinc-100 min-h-[2.25rem] flex items-center gap-2">
+          <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-xs leading-normal tb-soft-bubble border-blue-200/60 dark:border-blue-800/40 text-zinc-900 dark:text-zinc-100 min-h-[2.25rem] flex items-center gap-2">
             <span className="inline-block h-2.5 w-14 rounded bg-blue-200 dark:bg-blue-800 animate-pulse shrink-0" />
-            <span className="text-[13px] leading-normal text-blue-600/90 dark:text-blue-300/90 animate-pulse">{externalWait || t('debug.log.executing')}</span>
+            <span className="text-xs leading-normal text-blue-600/90 dark:text-blue-300/90 animate-pulse">{externalWait || t('debug.log.executing')}</span>
             <span className="inline-block animate-pulse text-blue-500 dark:text-blue-400">▊</span>
           </div>
         </div>

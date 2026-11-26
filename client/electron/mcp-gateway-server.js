@@ -606,6 +606,11 @@ function cachedTools(backend) {
   const hit = toolCacheAll()[backend.id];
   return hit && hit.sig === toolCacheSig(backend.row) && Array.isArray(hit.tools) ? hit.tools : null;
 }
+/** 详情页用：目录里往往只写了几个示例名，这里给上次实际拉到的数量 */
+function cachedToolCount(serverId) {
+  const hit = toolCacheAll()[serverId];
+  return hit && Array.isArray(hit.tools) ? hit.tools.length : 0;
+}
 function rememberTools(backend, rawTools) {
   try {
     const all = toolCacheAll();
@@ -1042,6 +1047,7 @@ module.exports = {
   getGatewayStatus,
   buildClientConfigJson,
   setOwnConfigCheck,
+  cachedToolCount,
   relayedInstructions,
   README_TEXT,
   BIG_MCP_TOOLS,

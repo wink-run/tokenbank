@@ -696,6 +696,40 @@ function getSkillCallStatsMap() {
   return map;
 }
 
+/** 各 MCP / API 工具的全部调用次数（key 为小写 server 名） */
+function getMcpCallCountMap() {
+  const map = new Map();
+  if (!db) return map;
+  const add = (key, n) => {
+    const k = String(key || '').trim().toLowerCase();
+    const c = Number(n) || 0;
+    if (!k || c <= 0) return;
+    map.set(k, (map.get(k) || 0) + c);
+  };
+  try {
+    const rows = db.prepare(
+      "SELECT lower(mcp_server) AS key, COUNT(*) AS n FROM tool_calls " +
+      "WHERE mcp_server IS NOT NULL AND trim(mcp_server) != '' GROUP BY lower(mcp_server)",
+    ).all();
+    for (const r of rows) add(r.key, r.n);
+    // 经 Token Bank 中转时，记录挂在 tokenbank 上，真正的工具名是「服务名__工具」
+    const prefixed = db.prepare(
+      "SELECT lower(substr(tool_key, 1, instr(tool_key, '__') - 1)) AS key, COUNT(*) AS n " +
+      "FROM tool_calls WHERE instr(tool_key, '__') > 1 " +
+      "AND (mcp_server IS NULL OR lower(mcp_server) = 'tokenbank' " +
+      "OR lower(mcp_server) LIKE 'tokenbank-%' OR lower(mcp_server) LIKE 'tb-%') " +
+      "GROUP BY 1",
+    ).all();
+    for (const r of prefixed) {
+      if (!r.key || String(r.key).startsWith('tb')) continue;
+      add(r.key, r.n);
+    }
+  } catch (e) {
+    console.error('[local-stats] getMcpCallCountMap failed:', e.message);
+  }
+  return map;
+}
+
 /** 批量写入工具调用（INSERT OR IGNORE by call_uid） */
 function recordToolCalls(calls = []) {
   if (!db || !_insertToolCallStmt || !calls.length) return 0;
@@ -1923,7 +1957,7 @@ module.exports = {
   getImportState, setImportState, resetSessionData, resetImportState, deleteZeroTokenSessionRows, close,
   listSessionMeta, getSessionMeta, setSessionMeta,
   recordSkillCalls, deleteSkillCallsBySourcePath, getSkillLastUsedMap, getSkillCallStatsMap,
-  recordToolCalls, deleteToolCallsBySourcePath,
+  recordToolCalls, deleteToolCallsBySourcePath, getMcpCallCountMap,
   querySkillUsageStats, queryToolUsageStats, queryMcpUsageStats,
   todaySinceTs, sinceTsForDays, sinceMsForDays, purgeOlderThan, queryGatewayInputCostRate, queryModelProviderLatency,
   queryProviderActivity,

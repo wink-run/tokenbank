@@ -651,6 +651,36 @@ export function deleteLlmSessionSnapshot(id) {
   writeLlmStore(store);
 }
 
+/** 一轮里最后一次说话：发送时间、完成时间、步骤时间里最晚的那个。续跑占位句不算。 */
+function turnLastSpokenAt(turn) {
+  if (!turn || typeof turn !== 'object') return 0;
+  if (looksLikeResumePrompt(turn.user)) return 0;
+  let latest = 0;
+  const consider = (ts) => {
+    const n = Number(ts) || 0;
+    if (n > latest) latest = n;
+  };
+  consider(turn.sentAt);
+  consider(turn.timestamp);
+  const steps = Array.isArray(turn.steps) ? turn.steps : [];
+  for (const step of steps) consider(step?.timestamp);
+  return latest;
+}
+
+/** 会话列表用的时间：最后一次说话，不用打开/保存的当前时间 */
+export function sessionLastSpokenAt(item) {
+  let latest = 0;
+  for (const turn of item?.conversationTurns || []) {
+    const n = turnLastSpokenAt(turn);
+    if (n > latest) latest = n;
+  }
+  for (const msg of item?.conversation || []) {
+    const n = Number(msg?.timestamp || msg?.created_at || 0) || 0;
+    if (n > latest) latest = n;
+  }
+  return latest || Number(item?.savedAt) || 0;
+}
+
 export function formatSessionTime(ts) {
   if (!ts) return '';
   const d = new Date(ts);

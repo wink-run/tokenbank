@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import {
   deleteLlmSessionSnapshot,
   formatSessionTime,
+  sessionLastSpokenAt,
   listLlmSessionSnapshots,
 } from '../lib/debug-session-history';
 import { useLang } from '../store/lang';
@@ -88,7 +89,7 @@ export default function LlmSessionHistoryPanel({ open, onClose, onRestore }) {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-zinc-800 dark:text-zinc-200 truncate">{item.title}</p>
                           <p className="text-[11px] text-zinc-400 mt-0.5">
-                            {formatSessionTime(item.savedAt)}
+                            {formatSessionTime(sessionLastSpokenAt(item))}
                             {item.turnCount > 1 ? t('debug.history.turns', { n: item.turnCount }) : ''}
                             {item.imageMode ? ` · ${t('debug.modeImage')}` : ''}
                           </p>

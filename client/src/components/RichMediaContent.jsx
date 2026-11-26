@@ -64,7 +64,9 @@ export function StreamMarkdownContent({
   if (!display) return null;
 
   if (usePlain) {
-    const plainCls = density === 'reading'
+    const plainCls = density === 'compact'
+      ? 'whitespace-pre-wrap break-words text-[10px] leading-relaxed font-sans m-0'
+      : density === 'reading'
       ? 'whitespace-pre-wrap break-words text-[14px] leading-normal font-sans m-0'
       : 'whitespace-pre-wrap break-words text-xs leading-relaxed font-sans m-0';
     return (
@@ -353,8 +355,17 @@ function renderTextBlock(text, keyPrefix, theme = 'default', density = 'default'
   const blocks = parseMarkdownBlocks(text);
   const isInv = theme === 'inverted';
   // reading：比智能管家正文小一号，14px / 行高 1.5；代码和表格再小一档
+  // compact：和执行日志里的工具输出一样，10px
   const reading = density === 'reading';
-  const headingCls = reading
+  const compact = density === 'compact';
+  const headingCls = compact
+    ? {
+      1: `text-[10px] font-semibold mt-1 ${isInv ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`,
+      2: `text-[10px] font-semibold mt-1 ${isInv ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`,
+      3: `text-[10px] font-semibold mt-1 ${isInv ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`,
+      4: `text-[10px] font-medium mt-0.5 ${isInv ? 'text-white/90' : 'text-zinc-800 dark:text-zinc-200'}`,
+    }
+    : reading
     ? {
       1: `text-[14px] font-semibold mt-1 ${isInv ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`,
       2: `text-[14px] font-semibold mt-1 ${isInv ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}`,
@@ -375,8 +386,8 @@ function renderTextBlock(text, keyPrefix, theme = 'default', density = 'default'
   const codeInlineCls = isInv
     ? 'bg-white/15 text-white'
     : 'bg-gray-100 dark:bg-gray-800';
-  const codeSize = reading ? 'text-[12px]' : 'text-[0.9em]';
-  const bodySize = reading ? 'text-[14px] leading-normal' : 'text-sm';
+  const codeSize = compact ? 'text-[10px]' : reading ? 'text-[12px]' : 'text-[0.9em]';
+  const bodySize = compact ? 'text-[10px] leading-relaxed' : reading ? 'text-[14px] leading-normal' : 'text-sm';
   const codeBlockSize = reading ? 'text-[11px] leading-relaxed' : 'text-xs';
   const tableSize = reading ? 'text-[12px] leading-relaxed' : 'text-xs';
   const inline = (value) => renderInline(value, codeInlineCls, codeSize);
