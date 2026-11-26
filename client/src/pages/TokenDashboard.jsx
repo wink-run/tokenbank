@@ -15,7 +15,6 @@ import { getReportedDeviceId, requestAccountsHeartbeat } from '../hooks/useDevic
 import { renameDevice, deviceNameError } from '../api/deviceName';
 import SelfDeviceSettings from '../components/SelfDeviceSettings';
 import DeviceConnectionMap from '../components/DeviceConnectionMap';
-import { useMeshDevices } from '../api/meshDevices';
 import { isAppIcon, appIconSvg } from '../lib/appIcons';
 
 /** 从云端拉取各设备聚合盘点；失败时回退本机数据，并合并订阅折算 + 按量费用 */
@@ -681,7 +680,6 @@ function DevicesSection() {
   const [devices, setDevices] = useState(null);
   const [currentId, setCurrentId] = useState(() => getReportedDeviceId());
   const [renaming, setRenaming] = useState(null);   // { key, id, draft, error, saving }
-  const meshOn = useMeshDevices().enabled;
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -743,10 +741,10 @@ function DevicesSection() {
         <SelfDeviceSettings />
       </div>
       {/* 连接图：这台电脑到每台设备现在怎么连（直连 / 经中转 / 离线） */}
-      {meshOn && (
+      {devices && devices.length > 0 && (
         <div className="tb-soft-tile rounded-xl px-3 py-3 space-y-2">
           <p className="m-0 text-xs font-medium text-zinc-600 dark:text-zinc-300">{t('profile.conn.title')}</p>
-          <DeviceConnectionMap />
+          <DeviceConnectionMap devices={devices} isSelf={(d) => isCurrentDevice(d, currentId)} titleOf={formatDeviceTitle} />
         </div>
       )}
       {devices && devices.length > 0 && (

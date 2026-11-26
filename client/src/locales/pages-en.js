@@ -947,6 +947,8 @@ export default {
   "dashboard.pendingJoin": "New device \"{name}\" wants to join your device network. Approve or reject it in Settings →",
   "profile.thisDeviceSettings": "This computer",
   'profile.conn.title': "Connections",
+  'profile.conn.notConnected': "Online, not on the device network",
+  'profile.conn.meshOff': "Device network is off here",
   'profile.conn.empty': "No other devices yet",
   'profile.conn.addr.lan': "LAN",
   'profile.conn.addr.tailscale': "Tailscale",

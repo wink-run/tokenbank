@@ -949,6 +949,8 @@ export default {
   "dashboard.pendingJoin": "新设备「{name}」想加入我的设备网络，去设置里批准或拒绝 →",
   "profile.thisDeviceSettings": "这台电脑",
   'profile.conn.title': "连接方式",
+  'profile.conn.notConnected': "在线，没连上设备网络",
+  'profile.conn.meshOff': "本机没开设备网络",
   'profile.conn.empty': "还没有其他设备",
   'profile.conn.addr.lan': "局域网",
   'profile.conn.addr.tailscale': "Tailscale",
