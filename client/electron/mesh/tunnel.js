@@ -98,7 +98,13 @@ function serveLocal(req, ctx, out) {
     return { cancel() {} };
   }
   const body = req.body || Buffer.alloc(0);
+  const method = String(req.method || 'GET').toUpperCase();
+  const pathOnly = String(req.path || '').split('?')[0];
+  // 对方派来一个智能体任务：记下谁来的、本机网关回了什么。每秒来查进度不打
+  const agentPost = method === 'POST' && pathOnly === '/v1/agent/responses';
+  if (agentPost) ctx.log?.(`[mesh] 收到来自 ${ctx.fromDeviceId} 的智能体任务（${body.length} 字节）`);
   if (body.length > MAX_REQUEST_BODY) {
+    if (agentPost) ctx.log?.(`[mesh] 拒了来自 ${ctx.fromDeviceId} 的智能体任务：正文太大（${body.length} 字节）`);
     out.head(413, { 'content-type': 'application/json' });
     out.chunk(Buffer.from(JSON.stringify({ error: { message: 'request body too large' } })));
     out.done();
@@ -107,6 +113,7 @@ function serveLocal(req, ctx, out) {
   const headers = inboundHeaders(req.headers, ctx);
   headers['content-length'] = String(body.length);
   const r = http.request({ host: '127.0.0.1', port: ctx.gatewayPort, method: req.method, path: req.path, headers }, (res) => {
+    if (agentPost) ctx.log?.(`[mesh] 本机网关应答 HTTP ${res.statusCode}（来自 ${ctx.fromDeviceId} 的智能体任务）`);
     out.head(res.statusCode, responseHeaders(res.headers));
     let chain = Promise.resolve();
     res.on('data', (c) => {
@@ -116,7 +123,10 @@ function serveLocal(req, ctx, out) {
     res.on('end', () => { chain.then(() => out.done(), () => {}); });
     res.on('error', (e) => { chain.then(() => out.error(e.message), () => {}); });
   });
-  r.on('error', (e) => out.error(`本机网关不可用：${e.message}`));
+  r.on('error', (e) => {
+    if (agentPost) ctx.log?.(`[mesh] 转给本机网关失败（来自 ${ctx.fromDeviceId}）：${e.message}`);
+    out.error(`本机网关不可用：${e.message}`);
+  });
   r.end(body);
   return { cancel() { try { r.destroy(); } catch { /* 已结束 */ } } };
 }

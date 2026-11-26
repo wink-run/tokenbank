@@ -117,7 +117,11 @@ function taskToResponse(task) {
     failed: 'failed',
     cancelled: 'cancelled',
   };
-  const text = task?.result?.summary || task?.result?.output || task?.error || '';
+  // 结果字段空着时，用已经落库的 output 步骤拼正文。否则对端只看到空的 output
+  let text = task?.result?.summary || task?.result?.output || task?.error || '';
+  if (!String(text).trim() && Array.isArray(task?.steps)) {
+    text = require('./agent-executor').textFromMeshSteps(task.steps);
+  }
   const created = Number(task?.created_at) || 0;
   const done = Number(task?.completed_at) || 0;
   const ctx = task?.context && typeof task.context === 'object' ? task.context : {};
@@ -504,10 +508,14 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
     if (fromMesh && !body.previous_response_id && !replay) {
       const load = meshGlue.selfLoad();
       if (load.running >= load.max) {
+        meshGlue.logLine(`[mesh] 拒了来自其他设备的任务：本机正在跑 ${load.running}/${load.max}（${harnessId || '未指定'}）`);
         report({ ok: false, error: 'busy', prompt, harnessId });
         sendJson(res, 429, { error: { message: `这台设备正在跑 ${load.running} 个任务，满了`, type: 'mesh_busy' } });
         return true;
       }
+    }
+    if (fromMesh) {
+      meshGlue.logLine(`[mesh] 本机接到其他设备的任务 ${harnessId || '未指定'}，提示 ${prompt.length} 字${body.background ? '，后台' : ''}`);
     }
     if (boundAgent) {
       if (!harnessId) harnessId = boundAgent;   // 用智能体自己的 Key 可以不写 harness_id
