@@ -355,6 +355,7 @@ export default {
   'gateway.detail.colContext': '上下文',
   'gateway.detail.colRequests': '请求',
   'gateway.detail.colTime': '时间',
+  'gateway.detail.colDetail': '详情',
   'gateway.detail.byModelCalls': '按模型调用明细',
   'gateway.detail.callDetails': '调用明细',
   'gateway.detail.recentCount': '{n} 条 · 最新的在前',

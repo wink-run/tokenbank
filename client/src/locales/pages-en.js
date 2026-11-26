@@ -355,6 +355,7 @@ export default {
   'gateway.detail.colContext': 'Context',
   'gateway.detail.colRequests': 'Requests',
   'gateway.detail.colTime': 'Time',
+  'gateway.detail.colDetail': 'Details',
   'gateway.detail.byModelCalls': 'Calls by model',
   'gateway.detail.callDetails': 'Call details',
   'gateway.detail.recentCount': '{n} rows · newest first',
