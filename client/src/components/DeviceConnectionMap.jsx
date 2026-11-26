@@ -1,76 +1,42 @@
 // client/src/components/DeviceConnectionMap.jsx
-// 设置页「我的设备」里的连接图：这台电脑到我的每台设备现在怎么连的。
-//   左边是这台电脑，右边是其他设备；
-//   每台设备一行：线从这台电脑散开，到中间和那台设备同一高度，中间的标签写怎么连的——
-//   直连画实线（局域网 / Tailscale / IPv6 / 公网 + 延迟），经中转画虚线（官方中继 / 经我另一台设备），离线画灰色点线。
-// 设备和下面的设备列表是同一份（账号下的设备），连接状态来自设备网络的 /v1/devices（connection、addr_kind、via、rtt_ms），
-// 每 10 秒刷新。没连上的也画出来并标明：在线但没连上设备网络、离线、本机没开设备网络。
+// 设置页「我的设备」：一张图里看全我的设备和它们现在怎么连的（不再另外列一份设备列表）。
+//   左边是这台电脑，右边一行一台设备（卡片里带名字、系统、设备号、改名 / 移除），
+//   中间的线和标签写这台电脑到它现在怎么连：
+//   直连画绿色实线（局域网 / Tailscale / IPv6 / 公网 + 延迟），经中转画紫色虚线（官方中继 / 经我另一台设备），
+//   在线但没连上设备网络、本机没开设备网络画橙色点线，离线画灰色点线。
+// 设备是账号下的那份；连接状态来自设备网络的 /v1/devices（connection、addr_kind、via、rtt_ms），每 10 秒刷新。
 import React from 'react';
 import { useLang } from '../store/lang';
 import { useMeshDevices } from '../api/meshDevices';
 
-const W = 640;
-const ROW = 58;
-const PAD = 24;
-const X_SELF = 92;
-const X_MID = 320;
-const X_DEV = 548;
-
+const ROW = 76;          // 每台设备一行的高度（卡片高度固定，线才对得上）
+const LINK_W = 72;       // 这台电脑到标签之间画曲线的宽度
 const ADDR = { lan: 'lan', tailscale: 'tailscale', ipv6: 'ipv6', public: 'public' };
-
-function Node({ x, y, title, sub, tone = 'normal', align = 'middle' }) {
-  const box = tone === 'self'
-    ? 'fill-blue-50 stroke-blue-400 dark:fill-blue-950/60 dark:stroke-blue-500'
-    : tone === 'off'
-      ? 'fill-zinc-50 stroke-zinc-300 dark:fill-zinc-900 dark:stroke-zinc-700'
-      : tone === 'relay'
-        ? 'fill-violet-50 stroke-violet-300 dark:fill-violet-950/50 dark:stroke-violet-600'
-        : 'fill-white stroke-zinc-300 dark:fill-zinc-800 dark:stroke-zinc-600';
-  const w = 150;
-  const h = sub ? 40 : 30;
-  return (
-    <g>
-      <rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx={10} className={`${box} stroke-[1.2]`} />
-      <text x={x} y={sub ? y - 3 : y + 4} textAnchor={align} className={`text-[12px] font-medium ${tone === 'off' ? 'fill-zinc-400' : 'fill-zinc-800 dark:fill-zinc-100'}`}>
-        {title.length > 16 ? `${title.slice(0, 15)}…` : title}
-      </text>
-      {sub && (
-        <text x={x} y={y + 12} textAnchor={align} className="text-[10px] fill-zinc-500 dark:fill-zinc-400">{sub}</text>
-      )}
-    </g>
-  );
-}
-
-function Pill({ x, y, text, tone }) {
-  const w = Math.max(56, text.length * 11 + 16);
-  const cls = tone === 'direct'
-    ? 'fill-emerald-50 stroke-emerald-300 dark:fill-emerald-950/60 dark:stroke-emerald-700'
-    : tone === 'relay'
-      ? 'fill-violet-50 stroke-violet-300 dark:fill-violet-950/60 dark:stroke-violet-700'
-      : tone === 'warn'
-        ? 'fill-amber-50 stroke-amber-300 dark:fill-amber-950/50 dark:stroke-amber-700'
-        : 'fill-zinc-50 stroke-zinc-200 dark:fill-zinc-900 dark:stroke-zinc-700';
-  const tcls = tone === 'direct' ? 'fill-emerald-700 dark:fill-emerald-300'
-    : tone === 'relay' ? 'fill-violet-700 dark:fill-violet-300'
-      : tone === 'warn' ? 'fill-amber-700 dark:fill-amber-300' : 'fill-zinc-400';
-  return (
-    <g>
-      <rect x={x - w / 2} y={y - 10} width={w} height={20} rx={10} className={`${cls} stroke-1`} />
-      <text x={x} y={y + 4} textAnchor="middle" className={`text-[10.5px] ${tcls}`}>{text}</text>
-    </g>
-  );
-}
-
 const norm = (x) => String(x || '').trim().toLowerCase();
 
+const TONE = {
+  direct: { line: 'stroke-emerald-500', dash: undefined, pill: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800', bar: 'border-emerald-500 border-solid' },
+  relay: { line: 'stroke-violet-400', dash: '6 5', pill: 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800', bar: 'border-violet-400 border-dashed' },
+  warn: { line: 'stroke-amber-300 dark:stroke-amber-700', dash: '2 5', pill: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800', bar: 'border-amber-300 dark:border-amber-700 border-dotted' },
+  off: { line: 'stroke-zinc-300 dark:stroke-zinc-600', dash: '2 5', pill: 'bg-zinc-50 text-zinc-400 border-zinc-200 dark:bg-zinc-900 dark:border-zinc-700', bar: 'border-zinc-300 dark:border-zinc-600 border-dotted' },
+};
+
 /**
- * @param {{ devices: object[], isSelf: (d: object) => boolean, titleOf: (d: object) => string }} props
- *   devices：账号下的设备（和下面的列表同一份）；isSelf：是不是这台电脑；titleOf：显示名
+ * @param {{ devices: object[], isSelf: (d) => boolean, titleOf: (d) => string,
+ *   renderSelf: (selfDevice: object|null, info: { serving: number }) => React.ReactNode,
+ *   renderCard: (row: { key, device, title, online, kind }) => React.ReactNode }} props
  */
-export default function DeviceConnectionMap({ devices = [], isSelf = () => false, titleOf = (d) => d.name || d.device_id }) {
+export default function DeviceConnectionMap({ devices = [], isSelf = () => false, titleOf = (d) => d.name || d.device_id, renderSelf, renderCard }) {
   const { t } = useLang();
   const mesh = useMeshDevices();
   const meshOthers = mesh.others || [];
+  const self = mesh.self;
+
+  // 认这台电脑：先按设备号（isSelf），认不出时按设备网络里本机的名字
+  const selfNames = new Set([self?.label, self?.name, ...(self?.aliases || [])].filter(Boolean).map(norm));
+  const selfAcc = devices.find(isSelf) || (selfNames.size ? devices.find((d) => selfNames.has(norm(titleOf(d))) || selfNames.has(norm(d.name))) : null);
+  const isMe = (d) => (selfAcc ? d === selfAcc : isSelf(d));
+
   // 账号设备对上设备网络里的那台：按设备号，对不上再按名字
   const meshOf = (d) => {
     const ids = new Set((d.device_ids?.length ? d.device_ids : [d.device_id]).filter(Boolean).map(String));
@@ -78,24 +44,15 @@ export default function DeviceConnectionMap({ devices = [], isSelf = () => false
     return meshOthers.find((m) => ids.has(String(m.device_id)))
       || meshOthers.find((m) => names.has(norm(m.label)) || names.has(norm(m.name)) || (m.aliases || []).some((a) => names.has(norm(a))));
   };
-  const self = mesh.self;
-  // 认这台电脑：先按设备号（isSelf），认不出时按设备网络里本机的名字
-  const selfNames = new Set([self?.label, self?.name, ...(self?.aliases || [])].filter(Boolean).map(norm));
-  const selfAcc = devices.find(isSelf) || (selfNames.size ? devices.find((d) => selfNames.has(norm(titleOf(d))) || selfNames.has(norm(d.name))) : null);
-  const isMe = (d) => (selfAcc ? d === selfAcc : isSelf(d));
   const used = new Set();
   const rows = devices.filter((d) => !isMe(d)).map((d) => {
     const m = meshOf(d);
     if (m) used.add(m.device_id);
-    return { key: d.device_id, title: titleOf(d), online: !!d.online || !!m?.online, m };
+    return { key: d.device_id, device: d, title: titleOf(d), online: !!d.online || !!m?.online, m };
   });
-  // 设备网络里有、账号列表里没有的（比如还没同步上来）也画上
-  for (const m of meshOthers) if (!used.has(m.device_id)) rows.push({ key: `mesh-${m.device_id}`, title: m.label || m.name || m.device_id, online: !!m.online, m });
+  // 设备网络里有、账号列表里还没有的（还没同步上来）也画上
+  for (const m of meshOthers) if (!used.has(m.device_id)) rows.push({ key: `mesh-${m.device_id}`, device: null, title: m.label || m.name || m.device_id, online: !!m.online, m });
   rows.sort((a, b) => (b.online - a.online) || a.title.localeCompare(b.title));
-  if (!rows.length) {
-    return <p className="m-0 text-xs text-zinc-400 dark:text-zinc-500">{t('profile.conn.empty')}</p>;
-  }
-  const others = rows;
 
   const kindOf = (r) => {
     const m = r.m;
@@ -105,48 +62,57 @@ export default function DeviceConnectionMap({ devices = [], isSelf = () => false
     if (!mesh.enabled) return 'meshOff';
     return 'notConnected';
   };
-  const H = PAD * 2 + others.length * ROW;
-  const yOf = (i) => PAD + ROW / 2 + i * ROW;
-  const ySelf = H / 2;
   const rtt = (r) => (Number.isFinite(r.m?.rtt_ms) ? ` · ${Math.round(r.m.rtt_ms)}ms` : '');
-  const addrText = (r) => t(`profile.conn.addr.${ADDR[r.m?.addr_kind] || 'lan'}`);
-  const serving = Number(self?.relay?.sessions) || 0;
-
-  // 从这台电脑散开，到中间时已经和那台设备同一高度，再直线连过去
-  const path = (y) => `M ${X_SELF + 75} ${ySelf} C ${X_SELF + 150} ${ySelf}, ${X_MID - 150} ${y}, ${X_MID - 70} ${y} L ${X_DEV - 75} ${y}`;
-  const label = (d, k) => (k === 'direct' ? `${addrText(d)}${rtt(d)}`
-    : k === 'official' ? `${t('profile.conn.official')}${rtt(d)}`
-      : k === 'device' ? `${t('profile.conn.viaDevice', { name: d.m?.via?.label || d.m?.via?.device_id || '?' })}${rtt(d)}`
+  const label = (r, k) => (k === 'direct' ? `${t(`profile.conn.addr.${ADDR[r.m?.addr_kind] || 'lan'}`)}${rtt(r)}`
+    : k === 'official' ? `${t('profile.conn.official')}${rtt(r)}`
+      : k === 'device' ? `${t('profile.conn.viaDevice', { name: r.m?.via?.label || r.m?.via?.device_id || '?' })}${rtt(r)}`
         : k === 'offline' ? t('profile.conn.offline')
           : k === 'meshOff' ? t('profile.conn.meshOff') : t('profile.conn.notConnected'));
+  const toneOf = (k) => (k === 'direct' ? 'direct' : k === 'official' || k === 'device' ? 'relay' : k === 'offline' ? 'off' : 'warn');
+  const serving = Number(self?.relay?.sessions) || 0;
+
+  const H = Math.max(rows.length, 1) * ROW;
+  const ySelf = H / 2;
 
   return (
-    <div className="space-y-2">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto max-w-2xl" role="img" aria-label={t('profile.conn.title')}>
-        {others.map((d, i) => {
-          const k = kindOf(d);
-          const stroke = k === 'direct' ? 'stroke-emerald-500'
-            : k === 'official' || k === 'device' ? 'stroke-violet-400'
-              : k === 'notConnected' || k === 'meshOff' ? 'stroke-amber-300 dark:stroke-amber-700'
-                : 'stroke-zinc-300 dark:stroke-zinc-600';
-          const dash = k === 'direct' ? undefined : k === 'official' || k === 'device' ? '6 5' : '2 5';
-          return <path key={`l-${d.key}`} d={path(yOf(i))} fill="none" className={`${stroke} stroke-[1.6]`} strokeDasharray={dash} strokeLinecap="round" />;
-        })}
-        {others.map((d, i) => {
-          const k = kindOf(d);
-          return <Pill key={`p-${d.key}`} x={X_MID} y={yOf(i)} text={label(d, k)} tone={k === 'direct' ? 'direct' : k === 'official' || k === 'device' ? 'relay' : k === 'offline' ? 'off' : 'warn'} />;
-        })}
-        <Node x={X_SELF} y={ySelf} title={(selfAcc && titleOf(selfAcc)) || self?.label || self?.name || t('profile.thisDevice')}
-          sub={serving ? t('profile.conn.serving', { n: serving }) : t('profile.thisDevice')} tone="self" />
-        {others.map((d, i) => {
-          const k = kindOf(d);
-          return (
-            <Node key={`n-${d.key}`} x={X_DEV} y={yOf(i)} title={d.title}
-              sub={Number(d.m?.relay?.sessions) ? t('profile.conn.serving', { n: d.m.relay.sessions }) : ''}
-              tone={k === 'offline' ? 'off' : 'normal'} />
-          );
-        })}
-      </svg>
+    <div className="flex items-stretch min-w-0">
+      {/* 这台电脑 */}
+      <div className="shrink-0 w-56 sm:w-64 flex items-center" style={{ minHeight: ROW }}>
+        <div className="w-full">{renderSelf?.(selfAcc || null, { serving })}</div>
+      </div>
+      {rows.length === 0 ? (
+        <div className="flex items-center pl-4 text-xs text-zinc-400 dark:text-zinc-500">{t('profile.conn.empty')}</div>
+      ) : (
+        <>
+          {/* 从这台电脑散开的线 */}
+          <svg className="hidden sm:block shrink-0" width={LINK_W} height={H} viewBox={`0 0 ${LINK_W} ${H}`} aria-hidden>
+            {rows.map((r, i) => {
+              const y = i * ROW + ROW / 2;
+              const tone = TONE[toneOf(kindOf(r))];
+              return <path key={r.key} d={`M 0 ${ySelf} C ${LINK_W * 0.55} ${ySelf}, ${LINK_W * 0.45} ${y}, ${LINK_W} ${y}`} fill="none" className={`${tone.line} stroke-[1.6]`} strokeDasharray={tone.dash} strokeLinecap="round" />;
+            })}
+          </svg>
+          {/* 每台设备一行：怎么连的 —— 设备卡片 */}
+          <div className="flex-1 min-w-0 pl-2 sm:pl-0">
+            {rows.map((r) => {
+              const k = kindOf(r);
+              const tone = TONE[toneOf(k)];
+              return (
+                <div key={r.key} className="flex items-center min-w-0" style={{ height: ROW }}>
+                  {/* 标签列定宽：右边卡片对齐；标签两侧的线补满 */}
+                  <span className="shrink-0 w-48 flex items-center">
+                    <span className={`hidden sm:block flex-1 border-t-[1.6px] ${tone.bar}`} aria-hidden />
+                    <span className={`shrink-0 text-[11px] whitespace-nowrap px-2.5 py-0.5 rounded-full border ${tone.pill}`}>{label(r, k)}</span>
+                    <span className={`hidden sm:block flex-1 border-t-[1.6px] ${tone.bar}`} aria-hidden />
+                  </span>
+                  <span className={`hidden sm:block w-4 shrink-0 border-t-[1.6px] ${tone.bar}`} aria-hidden />
+                  <div className="flex-1 min-w-0 ml-2 sm:ml-0">{renderCard?.({ ...r, kind: k })}</div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }

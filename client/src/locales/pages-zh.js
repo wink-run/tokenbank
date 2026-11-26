@@ -951,6 +951,7 @@ export default {
   'profile.conn.title': "连接方式",
   'profile.conn.notConnected': "在线，没连上设备网络",
   'profile.conn.meshOff': "本机没开设备网络",
+  'profile.renameOf': "给「{name}」改名",
   'profile.conn.empty': "还没有其他设备",
   'profile.conn.addr.lan': "局域网",
   'profile.conn.addr.tailscale': "Tailscale",

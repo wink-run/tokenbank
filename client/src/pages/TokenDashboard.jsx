@@ -674,6 +674,46 @@ function isCurrentDevice(device, currentId) {
   return ids.includes(currentId);
 }
 
+/** 连接图里的一张设备卡片：名字、版本、系统和设备号、今日调用，带改名 / 移除。高度固定，线才对得上 */
+function DeviceCard({ d, title, online, self = false, serving = 0, editing = false, onRename, onRemove, t }) {
+  const name = d ? formatDeviceTitle(d) : title;
+  const on = d ? (self ? true : (online ?? !!d.online)) : !!online;
+  const ids = d ? (d.device_ids?.length ? d.device_ids : [d.device_id]).filter(Boolean).join(' · ') : '';
+  return (
+    <div className={`h-[60px] flex items-center gap-2 px-2.5 rounded-xl border min-w-0 ${self
+      ? 'bg-blue-50/70 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800'
+      : editing ? 'bg-white border-blue-300 dark:bg-zinc-800 dark:border-blue-700'
+        : 'bg-white border-zinc-200 dark:bg-zinc-800/60 dark:border-zinc-700'} ${on ? '' : 'opacity-70'}`}>
+      <span className="text-base select-none shrink-0">{d ? (DEVICE_ICON[effectiveDeviceType(d)] || '🖥') : '🖥'}</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${on ? 'bg-green-500' : 'bg-zinc-400'}`} />
+          <span className="text-sm font-medium text-zinc-800 dark:text-zinc-100 truncate">{name}</span>
+          {self && <span className="shrink-0 text-[10px] leading-4 px-1.5 rounded-full bg-zinc-200/80 dark:bg-zinc-600 text-zinc-600 dark:text-zinc-200">{t('profile.thisDevice')}</span>}
+          {d?.version && <span className="text-[11px] text-zinc-400 shrink-0">v{d.version}</span>}
+        </div>
+        <div className="flex items-center gap-2 mt-0.5 min-w-0 text-[11px] text-zinc-400">
+          {d && <span className="truncate shrink-0 max-w-[40%]">{formatLegacyPlatform(d.platform)}</span>}
+          {/* 设备号：两台同名 Mac 才能对上是不是同一条记录 */}
+          {ids && <span className="font-mono text-[10px] truncate">{ids}</span>}
+          {serving > 0 && <span className="shrink-0">{t('profile.conn.serving', { n: serving })}</span>}
+          {d && d.today_calls > 0 && <span className="shrink-0">{t('profile.todayCalls', { n: d.today_calls })}</span>}
+        </div>
+      </div>
+      {onRename && (
+        <button type="button" onClick={onRename} className="shrink-0 text-xs text-blue-600 dark:text-blue-400 hover:underline px-1">
+          {t('dashboard.rename')}
+        </button>
+      )}
+      {onRemove && (
+        <button type="button" onClick={onRemove} className="shrink-0 text-xs text-zinc-400 hover:text-red-500 dark:hover:text-red-400 px-1">
+          {t('dashboard.removeDevice')}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** 我的设备：设备管理都在这里（本机设置、批准新设备、改名、移除离线的）；盘点页只看统计 */
 function DevicesSection() {
   const { t } = useLang();
@@ -740,69 +780,28 @@ function DevicesSection() {
         <p className="m-0 text-xs font-medium text-zinc-600 dark:text-zinc-300">{t('profile.thisDeviceSettings')}</p>
         <SelfDeviceSettings />
       </div>
-      {/* 连接图：这台电脑到每台设备现在怎么连（直连 / 经中转 / 离线） */}
+      {/* 我的设备和它们现在怎么连：一张图，不另外列表（卡片上改名 / 移除） */}
       {devices && devices.length > 0 && (
-        <div className="tb-soft-tile rounded-xl px-3 py-3 space-y-2">
-          <p className="m-0 text-xs font-medium text-zinc-600 dark:text-zinc-300">{t('profile.conn.title')}</p>
-          <DeviceConnectionMap devices={devices} isSelf={(d) => isCurrentDevice(d, currentId)} titleOf={formatDeviceTitle} />
-        </div>
-      )}
-      {devices && devices.length > 0 && (
-      <div className="space-y-2">
-        {devices.map((d, i) => {
-          const key = `${d.device_id ?? ''}-${i}`;
-          const self = isCurrentDevice(d, currentId);
-          return (
-          <div key={key} className="tb-soft-tile px-3 py-2.5 rounded-xl">
-          <div className="flex items-center gap-3">
-            <span className="text-base select-none shrink-0">{DEVICE_ICON[effectiveDeviceType(d)] || '🖥'}</span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${d.online ? 'bg-green-500' : 'bg-zinc-400'}`} />
-                <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">{formatDeviceTitle(d)}</span>
-                {self && (
-                  <span className="shrink-0 text-[10px] leading-4 px-1.5 rounded-full bg-zinc-200/80 dark:bg-zinc-600 text-zinc-600 dark:text-zinc-200">
-                    {t('profile.thisDevice')}
-                  </span>
-                )}
-                {d.version && <span className="text-xs text-zinc-400 shrink-0">v{d.version}</span>}
-              </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-xs text-zinc-400 truncate">{formatLegacyPlatform(d.platform)}</span>
-                {/* 标出设备 id，两台同名 Mac 才能对上是不是同一条记录 */}
-                <span className="text-[10px] font-mono text-zinc-400 truncate">
-                  {(d.device_ids?.length ? d.device_ids : [d.device_id]).filter(Boolean).join(' · ')}
-                </span>
-                {(d.today_calls > 0 || d.today_errors > 0) && (
-                  <span className="text-xs text-zinc-400 shrink-0">
-                    {t('profile.todayCalls', { n: d.today_calls })}
-                    {d.today_errors > 0 && <span className="text-red-400 ml-1">{t('profile.todayErrors', { n: d.today_errors })}</span>}
-                  </span>
-                )}
-              </div>
-            </div>
-            <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${
-              d.online
-                ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
-                : 'bg-zinc-100 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400'
-            }`}>
-              {d.online ? t('profile.online') : t('profile.offline')}
-            </span>
-            {renaming?.key !== key && (
-              <button type="button" onClick={() => setRenaming({ key, id: d.device_id, self, draft: '', error: '', saving: false })}
-                className="shrink-0 text-xs text-blue-600 dark:text-blue-400 hover:underline px-1">
-                {t('dashboard.rename')}
-              </button>
+        <div className="tb-soft-tile rounded-xl px-3 py-3 space-y-2 overflow-x-auto">
+          <DeviceConnectionMap
+            devices={devices}
+            isSelf={(d) => isCurrentDevice(d, currentId)}
+            titleOf={formatDeviceTitle}
+            renderSelf={(d, { serving }) => (
+              <DeviceCard d={d} title={t('profile.thisDevice')} self serving={serving} t={t}
+                editing={!!d && renaming?.key === d.device_id}
+                onRename={d ? () => setRenaming({ key: d.device_id, id: d.device_id, self: true, title: formatDeviceTitle(d), draft: '', error: '', saving: false }) : null} />
             )}
-            {!d.online && !self && (
-              <button onClick={() => handleRemove(d)} title={t('dashboard.removeDevice')}
-                className="shrink-0 text-xs text-zinc-400 hover:text-red-500 dark:hover:text-red-400 transition-colors px-1">
-                {t('dashboard.removeDevice')}
-              </button>
+            renderCard={(r) => (
+              <DeviceCard d={r.device} title={r.title} online={r.online} t={t}
+                editing={!!r.device && renaming?.key === r.key}
+                onRename={r.device ? () => setRenaming({ key: r.key, id: r.device.device_id, self: false, title: r.title, draft: '', error: '', saving: false }) : null}
+                onRemove={r.device && !r.online ? () => handleRemove(r.device) : null} />
             )}
-          </div>
-          {renaming?.key === key && (
-            <form className="mt-2 flex flex-wrap items-center gap-2" onSubmit={saveRename}>
+          />
+          {renaming && (
+            <form className="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-100 dark:border-white/[0.06]" onSubmit={saveRename}>
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">{t('profile.renameOf', { name: renaming.title || '' })}</span>
               <input autoFocus value={renaming.draft} placeholder={t('dashboard.renamePh')}
                 onChange={(e) => setRenaming({ ...renaming, draft: e.target.value, error: '' })}
                 onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null); }}
@@ -819,10 +818,7 @@ function DevicesSection() {
               </span>
             </form>
           )}
-          </div>
-          );
-        })}
-      </div>
+        </div>
       )}
     </section>
   );
