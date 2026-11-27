@@ -17,7 +17,7 @@ const { defaultServerUrlFromEnv } = require('../shared/default-server-url');
 const deviceIdentity = require('../shared/device-identity');
 const { ensureDeviceId } = require('../shared/device-id');
 const { refreshGatewayPeerModels } = require('../shared/peer-models-sync');
-const { bindClaudeRoutesToKeyScene } = require('../shared/route-binding');
+const { bindClaudeRoutesToKeyScene, bindClaudeCliRouteToKeyScene, bindRouteToKeyScene } = require('../shared/route-binding');
 const { localStats } = require('../shared/telemetry');
 const billingConfig = require('../electron/billing-config');
 const catalogSync = require('../electron/catalog-sync');
@@ -497,6 +497,7 @@ function syncGateway(lc) {
 
   const appControls = [];
   const keyScene = {};
+  let claudeShimScene = null;
   for (const app of apps) {
     const ctrl = { app_id: app.id, app_name: app.name };
     if ((app.link_method === 'api-key' || app.link_method === 'manual') && app.api_key) {
@@ -514,10 +515,28 @@ function syncGateway(lc) {
     } else if (app.link_method === 'shim' && app.agent_id) {
       const p = PROTOCOL_PATH[toolProto[app.agent_id]];
       if (p) appControls.push({ ...ctrl, match: { path: p } });
+      // Claude Code（anthropic shim）：选的模型/路由要绑到它会发的【所有】claude-* 名上，外加 '*' 兜底。
+      // 和桌面版 syncGatewayFromConfig 一致；原来这里漏了，网页上选了 glm 之类，Claude Code 仍按自己的默认名
+      // （比如 claude-opus-5-5）直发，报「模型不存在」
+      if (toolProto[app.agent_id] === 'anthropic') {
+        const appRouteIds = (Array.isArray(app.route_ids) && app.route_ids.length)
+          ? app.route_ids : (app.route_id ? [app.route_id] : []);
+        if (appRouteIds.length) {
+          const tmp = {};
+          bindRouteToKeyScene(tmp, '_shim', appRouteIds[0], routes);
+          claudeShimScene = tmp._shim || null;
+          if (app.api_key) {
+            appControls.push({ ...ctrl, match: { key: app.api_key } });
+            const cms = (() => { try { return configLoader.claudeModels(); } catch { return []; } })();
+            bindClaudeCliRouteToKeyScene(keyScene, app.api_key, appRouteIds[0], routes, cms);
+          }
+        }
+      }
     }
   }
   _gateway.setAppControls(appControls);
   _gateway.setKeySceneMap(keyScene);
+  if (typeof _gateway.setClaudeShimScene === 'function') _gateway.setClaudeShimScene(claudeShimScene);
   applyAgentApiKey(lc);
   // Claude Desktop 透明 mask 名（与 Electron syncGatewayFromConfig 一致）
   try { _gateway.setClaudeModels(configLoader.claudeModels()); } catch {}
@@ -1413,4 +1432,4 @@ function stop() {
   }
 }
 
-module.exports = { start, stop };
+module.exports = { start, stop, _syncGatewayForTests: (lc, gw) => { _gateway = gw; syncGateway(lc); } };
