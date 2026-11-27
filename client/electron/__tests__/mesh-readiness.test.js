@@ -48,3 +48,23 @@ test('本机项目目录在那台设备上找同名工作区；找不到在默�
   assert.match(miss.note, /macmini 上没有「tokenbank」工作区，在它的默认工作区里跑/);
   assert.deepEqual(mapWorkspace(dev, ''), { workspace: null, note: '' });
 });
+
+test('续聊时上一轮的设备离线：说清楚，列出还能接着做的设备（新会话，上下文带不过去）', () => {
+  const { prevOfflineError } = require('../mesh/glue');
+  const desc = (apps) => ({ apps: apps.map((id) => ({ id, name: id })) });
+  const devices = [
+    { device_id: 'self', self: true, online: true, name: 'mbp', descriptor: desc(['codex']) },
+    { device_id: 'd-mini', online: false, name: 'mini', descriptor: desc(['codex']) },
+    { device_id: 'd-nas', online: true, name: 'nas', descriptor: desc(['codex']) },
+    { device_id: 'd-pi', online: true, name: 'pi', descriptor: desc(['cursor']) },
+  ];
+  const e = prevOfflineError({ kind: 'app', id: 'codex', device: null }, devices[1], devices);
+  assert.equal(e.code, 'mesh_prev_offline');
+  assert.equal(e.device, 'mini');
+  assert.deepEqual(e.alternatives.map((a) => a.harnessId), ['codex', 'mine:codex@nas'], '本机和 nas 能做，pi 没装');
+  assert.match(e.message, /mini 现在离线/);
+  assert.match(e.message, /上下文带不过去/);
+  const none = prevOfflineError({ kind: 'app', id: 'codex', device: null }, devices[1], [devices[1], devices[3]]);
+  assert.deepEqual(none.alternatives, []);
+  assert.match(none.message, /等它上线/);
+});

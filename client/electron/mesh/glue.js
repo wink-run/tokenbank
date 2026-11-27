@@ -685,6 +685,11 @@ async function routeAgentCreate({ harnessId, body, req, res, extraMeta }) {
   const prev = parseMeshTaskId(body.previous_response_id);
   if (prev && target) {
     const d = node.directory.get(prev.deviceId);
+    if (d && !d.self && !d.online) {
+      const e = prevOfflineError(target, d);
+      sendJson(res, 409, { error: { message: e.message, type: e.code, device: e.device, alternatives: e.alternatives } });
+      return { handled: true, ok: false, error: e.message };
+    }
     if (d) target.device = d.name;
   }
   const picked = scheduler.pickDevice({ target, workspace: meta.workspace, devices: node.directory.list() });
@@ -747,6 +752,29 @@ function mapWorkspace(dev, localDir) {
   return { workspace: null, note: `${label} 上没有「${dirName}」工作区，在它的默认工作区里跑。要对上，在那台设备「我的设备 → 工作区」里加一个同名的` };
 }
 
+/**
+ * 上一轮在哪台设备，这一轮就去哪台；那台离线了不硬等：报清楚，并列出还能接着做的设备。
+ * 换设备是新会话，之前的对话上下文带不过去，由调用方跟用户说明。
+ */
+function prevOfflineError(target, prevDev, devices = node ? node.directory.list() : []) {
+  const label = deviceLabel(prevDev);
+  const alternatives = [];
+  for (const d of devices) {
+    if (d.device_id === prevDev.device_id || !(d.self || d.online)) continue;
+    const name = d.self ? null : deviceLabel(d);
+    const ok = scheduler.pickDevice({ target: { ...target, device: d.self ? null : name }, devices: d.self ? [d] : devices });
+    if (ok.device && ok.device.device_id === d.device_id) {
+      alternatives.push({ device: d.self ? '本机' : name, self: !!d.self, harnessId: d.self ? target.id : `mine:${target.id}@${name}` });
+    }
+  }
+  const tail = alternatives.length
+    ? `可以换到 ${alternatives.map((a) => a.device).join('、')} 接着做，但那是新会话，之前的对话上下文带不过去`
+    : '现在没有别的在线设备能做，等它上线再接着聊';
+  return Object.assign(new Error(`上一轮在 ${label} 上跑，${label} 现在离线。${tail}`), {
+    status: 409, code: 'mesh_prev_offline', device: label, alternatives,
+  });
+}
+
 async function submitAgentTask({ harnessId, input, metadata = {}, previousResponseId, idempotencyKey, localDir } = {}) {
   if (!node) throw Object.assign(new Error('设备网络没有启动'), { status: 503 });
   const target = scheduler.parseMineHarness(harnessId);
@@ -754,6 +782,7 @@ async function submitAgentTask({ harnessId, input, metadata = {}, previousRespon
   const prev = parseMeshTaskId(previousResponseId);
   if (prev) {
     const d = node.directory.get(prev.deviceId);
+    if (d && !d.self && !d.online) throw prevOfflineError(target, d);
     if (d) target.device = d.name;
   }
   const picked = scheduler.pickDevice({ target, workspace: metadata.workspace, devices: node.directory.list() });
@@ -1167,7 +1196,7 @@ module.exports = {
   fetchAgentTask,
   parseMeshTaskId,
   startFromConfig, stop, getNode,
-  isMeshKey, isMeshRequest, isHop, checkIncoming, mapWorkspace, pullFile, pullInputs, selfDeviceId,
+  isMeshKey, isMeshRequest, isHop, checkIncoming, mapWorkspace, prevOfflineError, pullFile, pullInputs, selfDeviceId,
   devicesView, extraModels, extraHarnesses,
   routeChat, routeAgentCreate, routeAgentById, resolveWorkspace, setName, setSelfName,
   _internal: { sseRewriter, rewriteResponse, parseMeshTaskId, describeSelf },

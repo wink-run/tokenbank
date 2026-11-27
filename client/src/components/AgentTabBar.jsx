@@ -339,10 +339,11 @@ export default function AgentTabBar({
           // 所在设备：本机的标「本机」，其他设备上的（mine:…@设备）标那台设备；离线的压暗、不能点
           const remote = agent.mesh?.device || null;
           const remoteOff = !!remote && !remote.online;
+          const remoteBlocked = !!remote && remote.online && !!agent.mesh?.why;
           const deviceTag = meshDevices && groupOf(agent) !== 'hired'
             ? (remote || { label: '', self: true, online: true, device_id: 'self' })
             : null;
-          const dimmed = (missing && !cursorNeedCli) || cursorNeedLogin || remoteOff;
+          const dimmed = (missing && !cursorNeedCli) || cursorNeedLogin || remoteOff || remoteBlocked;
           const versionLabel = !missing && !cursorNeedLogin && !isCommunity && !isCustom && agent.version
             ? `v${agent.version}`
             : '';
@@ -350,6 +351,8 @@ export default function AgentTabBar({
             ? (cursorNeedCli ? t('debug.tabs.cursorNeedCli') : t('debug.tabs.notInstalled'))
             : cursorNeedLogin
               ? t('debug.tabs.cursorNeedLogin')
+            : remoteBlocked
+              ? agent.mesh.why
             : isCommunity
               ? t('debug.tabs.communityRemote')
               : (isCustom && agent.runtimeName)
@@ -369,6 +372,8 @@ export default function AgentTabBar({
                       : t('debug.tabs.notInstalledHint', { name: agent.name }))
                     : cursorNeedLogin
                     ? t('debug.tabs.cursorNeedLoginHint')
+                    : remoteBlocked
+                    ? t('debug.tabs.meshBlocked', { device: remote.label, why: agent.mesh.why })
                     : isCommunity
                     ? (agent.description || t('debug.tabs.communityHint'))
                     : isCustom && agent.runtimeName

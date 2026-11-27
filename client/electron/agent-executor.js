@@ -1300,10 +1300,9 @@ class AgentExecutor extends EventEmitter {
       previousTaskId: options.previousTaskId || null,
       response: r.response,
     });
-    // 在哪个工作区跑：写成任务的第一步，游乐场和 Trace 里都看得到
-    if (r.workspaceNote) {
-      try { this._emitSingleStep(r.id, -1, { stepType: 'system_event', content: r.workspaceNote }, null); } catch { /* 只是说明 */ }
-    }
+    // 在哪台设备、哪个工作区跑：写成任务的第一步，游乐场和 Trace 里都看得到
+    const where = r.workspaceNote || `交给 ${r.device} 执行`;
+    try { this._emitSingleStep(r.id, -1, { stepType: 'system_event', content: where }, null); } catch { /* 只是说明 */ }
     return { taskId: r.id, device: r.device, workspaceNote: r.workspaceNote || '' };
   }
 

@@ -193,8 +193,9 @@ export function withMeshAgents(localAgents, devices) {
         type: kind === 'apps' ? 'cli' : kind === 'externals' ? 'external' : 'assistant',
         custom: kind === 'assistants' ? true : undefined,
         installed: true,
-        mesh: { base: x.id, device },
-        description: '',
+        // 那台设备报了跑不了（缺技能、应用不可用、外部智能体不在线）：派之前就说原因
+        mesh: { base: x.id, device, ...(x.ready === false ? { why: x.why || '' } : {}) },
+        description: x.ready === false ? (x.why || '') : '',
       };
       if (list.some((a) => a.id === entry.id)) return;
       // 紧跟在同一个东西（本机那项或别的设备那项）后面

@@ -102,7 +102,12 @@ function registerAgentHandlers() {
       return { success: true, ...result };
     } catch (error) {
       console.error('[IPC] agent:execute error:', error);
-      return { success: false, error: error.message };
+      // 续聊时上一轮的设备离线：带上能换的设备，游乐场据此问要不要换
+      return {
+        success: false, error: error.message,
+        ...(error.code ? { code: error.code } : {}),
+        ...(Array.isArray(error.alternatives) ? { alternatives: error.alternatives, device: error.device } : {}),
+      };
     }
   });
 

@@ -2588,6 +2588,26 @@ export default function Debug() {
       }
       return;
     }
+    // 其他设备上的：派之前先说清能不能跑
+    if (activeAgent.mesh?.device && !activeAgent.mesh.device.online) {
+      // 同一个智能体在别的在线设备（或本机）上有：问要不要换过去接着做
+      const base = activeAgent.mesh.base;
+      const alt = playAgents.find((x) => x.id === base && !x.mesh && x.installed !== false)
+        || playAgents.find((x) => x.mesh?.base === base && x.mesh.device?.online && !x.mesh.why);
+      const label = activeAgent.mesh.device.label;
+      if (alt && window.confirm(t('debug.mesh.switchAsk', { device: label, alt: alt.mesh?.device?.label || t('debug.mesh.self') }))) {
+        patchStoreSession(agentSessionKey(alt), { agentPrompt: prompt });
+        switchAgent(alt);
+        setAgentPrompt(prompt);
+        return;
+      }
+      if (!alt) alert(t('debug.mesh.offline', { device: label }));
+      return;
+    }
+    if (activeAgent.mesh?.why) {
+      alert(t('debug.tabs.meshBlocked', { device: activeAgent.mesh.device?.label || '', why: activeAgent.mesh.why }));
+      return;
+    }
     const execKey = agentSessionKey(selectedAgent);
     if (autoContinue && getStoreSession(execKey).executing) return;
     const workDir = normalizeWorkingDir(
@@ -2732,6 +2752,15 @@ export default function Debug() {
       } else {
         patchSession(execKey, { executing: false });
         setExecuting(false);
+        // 续聊时上一轮的设备离线：问要不要换一台接着做（新会话，之前的上下文带不过去）
+        const alt = result.code === 'mesh_prev_offline' && (result.alternatives || [])
+          .map((a) => playAgents.find((x) => x.id === a.harnessId)).find(Boolean);
+        if (alt && window.confirm(t('debug.mesh.switchAsk', { device: result.device, alt: alt.mesh?.device?.label || t('debug.mesh.self') }))) {
+          patchStoreSession(agentSessionKey(alt), { agentPrompt: prompt });
+          switchAgent(alt);
+          setAgentPrompt(prompt);
+          return;
+        }
         alert(t('debug.agent.execFailed', { msg: result.error || t('debug.agent.unknownError') }));
       }
     } catch (error) {
