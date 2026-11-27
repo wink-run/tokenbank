@@ -3668,6 +3668,15 @@ async function proxyViaMesh(provider, reqPath, body, attemptModel, res) {
 async function route(model, reqPath, body, res, callerKey, skipP2P = false, userAgent = '', extra = {}) {
   // 每条明细都带上是谁、哪个应用、这句话开头。后面的 pushLog 实际走 logRoute。
   const logCtx = routeLogContext(callerKey, reqPath, body, userAgent);
+  // 智能管家设的改道：应用要的模型用不了时转到能用的（guardian/model-heal.js，用户可撤销），明细里记下原名
+  try {
+    const to = require('./model-redirects').resolve(model);
+    if (to && to !== model) {
+      logCtx.redirected_from = model;
+      model = to;
+      if (body && typeof body === 'object') body = { ...body, model: to };
+    }
+  } catch { /* 改道表读不了就按原名 */ }
   // 设备网络（E2-3）：别的设备转来的记下「从哪台来」；交给别的设备做的记下「在哪台做」
   if (extra.meshFrom) logCtx.from_device = extra.meshFrom;
   const logRoute = (entry) => pushLog({
@@ -4336,6 +4345,8 @@ function pushLog(entry) {
       providerId: entry.via || entry.provider_id,
       providerLabel: entry.via_label,
       model: entry.model || entry.requested_model,
+      requestedModel: entry.requested_model || null,
+      redirectedFrom: entry.redirected_from || null,
       status: entry.status_code || entry.http_status || entry.upstream_status,
       message: entry.error || '',
     });
@@ -5115,6 +5126,7 @@ function setLocalConfigReader(fn) {
 
 module.exports = {
   _providerHasModel: providerHasModel,
+  claudeSubscriptionToken,
   start, stop, restart, setStrategy, getStatus, getLog, recordAgentRouteLog, setGuardianListener, localModelNames, localProviderSummary,
   setKeySceneMap, setClaudeShimScene, setCodexGptFallback, setRouterModelMap, setPeerModels, setBackendConfig, setUserAuth,
   setStatsRecorder, setLocalStats, setLocalConfigReader, setAppControls, setAgentApiKey,

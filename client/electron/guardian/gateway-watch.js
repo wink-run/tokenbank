@@ -145,6 +145,8 @@ function attach(gatewayModule) {
   guardian.on('gateway:request-failed', (info) => handleFailure('request-failed', info));
   guardian.on('gateway:attempt-failed', (info) => handleFailure('attempt-failed', info));
   guardian.on('gateway:request-ok', (info) => noteSuccess(info));
+  // 应用要的模型用不了：刷新列表或改道到同一系列能用的（guardian/model-heal.js）
+  try { require('./model-heal').attach(); } catch (e) { console.warn('[guardian] model-heal attach:', e.message); }
   return true;
 }
 
