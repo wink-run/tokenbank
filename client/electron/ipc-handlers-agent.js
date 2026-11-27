@@ -333,6 +333,15 @@ function registerAgentHandlers() {
     }
   });
 
+  // 跑在其他设备上的任务：大的产出文件点了再拉回本机
+  ipcMain.handle('agent:pullMeshFile', async (_event, { taskId, token } = {}) => {
+    try {
+      return { success: true, ...(await agentExecutor.pullMeshTaskFile(taskId, token)) };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('agent:listRecentTasks', async (_event, { agentId, limit } = {}) => {
     try {
       const tasks = await agentExecutor.listRecentTasksForAgent(agentId, limit || 3);

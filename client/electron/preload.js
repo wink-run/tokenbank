@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listActiveTasks: () => ipcRenderer.invoke('agent:listActiveTasks'),
     listRecentTasks: (opts) => ipcRenderer.invoke('agent:listRecentTasks', opts),
     listTodayTasks: (opts) => ipcRenderer.invoke('agent:listTodayTasks', opts || {}),
+    pullMeshFile: (opts) => ipcRenderer.invoke('agent:pullMeshFile', opts || {}),
     taskStats: () => ipcRenderer.invoke('agent:taskStats'),
     listBlocked: () => ipcRenderer.invoke('agent:listBlocked'),
     taskMessages: (taskIds, opts) => ipcRenderer.invoke('agent:taskMessages', taskIds, opts),

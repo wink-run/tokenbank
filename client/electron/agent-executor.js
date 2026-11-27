@@ -1260,6 +1260,12 @@ class AgentExecutor extends EventEmitter {
     const glue = require('./mesh/glue');
     const metadata = {};
     if (options.workspace) metadata.workspace = options.workspace;
+    // 带的图片、附件：登记成清单，那台设备开工前经设备通道拉过去（不走云存储）
+    const inputs = await this._offerMeshInputs(options);
+    if (inputs.length) {
+      metadata.mesh_inputs = inputs;
+      metadata.mesh_from = glue.selfDeviceId();
+    }
     let prevMesh = isMeshTaskId(options.previousTaskId) ? options.previousTaskId : undefined;
     // 游乐场「接着聊」：同一个会话里上一轮派到其他设备的任务，就接着那台设备上的会话
     if (!prevMesh && options.continueSession) {
@@ -1299,6 +1305,94 @@ class AgentExecutor extends EventEmitter {
       try { this._emitSingleStep(r.id, -1, { stepType: 'system_event', content: r.workspaceNote }, null); } catch { /* 只是说明 */ }
     }
     return { taskId: r.id, device: r.device, workspaceNote: r.workspaceNote || '' };
+  }
+
+  /** 往任务结果里补几项（不动状态） */
+  setTaskResultExtra(taskId, extra = {}) {
+    const db = this._getDb();
+    const row = db.prepare('SELECT result FROM agent_tasks WHERE id = ?').get(taskId);
+    if (!row) return false;
+    let prev = {};
+    try { prev = row.result ? JSON.parse(row.result) : {}; } catch { prev = {}; }
+    db.prepare('UPDATE agent_tasks SET result = ? WHERE id = ?').run(JSON.stringify({ ...prev, ...extra }), taskId);
+    return true;
+  }
+
+  /**
+   * 跑在别的设备上的任务做完了：产出文件 10MB 以内自动经设备通道拉回本机，大的列着等点了再拉。
+   * 拉到的写进结果的 files（name、size、path），没拉的标 pending 或写原因。
+   */
+  async _pullMeshOutputs(taskId) {
+    const files = require('./mesh/files');
+    const glue = require('./mesh/glue');
+    const parsed = glue.parseMeshTaskId(taskId);
+    if (!parsed) return;
+    const row = this._getDb().prepare('SELECT result FROM agent_tasks WHERE id = ?').get(taskId);
+    let result = {};
+    try { result = row?.result ? JSON.parse(row.result) : {}; } catch { result = {}; }
+    const remote = Array.isArray(result.remoteFiles) ? result.remoteFiles : [];
+    if (!remote.length) return;
+    const have = new Map((result.files || []).map((f) => [f.token, f]));
+    const out = [];
+    for (const entry of remote) {
+      const cur = have.get(entry.token) || { token: entry.token, name: entry.name, size: entry.size, rel: entry.rel || '' };
+      if (!cur.path && Number(entry.size) <= files.AUTO_PULL_BYTES) {
+        try {
+          const got = await glue.pullFile({ deviceId: parsed.deviceId, entry, destDir: files.inboxDir(taskId) });
+          cur.path = got.path; delete cur.error; delete cur.pending;
+        } catch (e) { cur.error = e.message; }
+      } else if (!cur.path) {
+        cur.pending = true;   // 大文件：点了再拉
+      }
+      out.push(cur);
+    }
+    // 输出末尾写一段「产出文件」：游乐场、父任务、tb_task_status 拿到的结果里都能看到文件在哪
+    const mb = (n) => `${(Number(n) / 1048576).toFixed(1)}MB`;
+    const lines = out.map((f) => (f.path ? `- ${f.name} → ${f.path}`
+      : f.pending ? `- ${f.name}（${mb(f.size)}，还在那台设备上，任务详情里点「下载到本机」）`
+        : `- ${f.name}：没拉回来（${f.error || '原因不明'}）`));
+    const note = `\n\n产出文件（从 ${glue.parseMeshTaskId(taskId)?.deviceId ? (result.device || '那台设备') : '那台设备'} 拉回本机）：\n${lines.join('\n')}`;
+    const base = String(result.output || '').split('\n\n产出文件（')[0];
+    this.setTaskResultExtra(taskId, { files: out, output: base + note, summary: base + note });
+    return out;
+  }
+
+  /** 手动拉一个大的产出文件（界面上点「下载到本机」） */
+  async pullMeshTaskFile(taskId, token) {
+    const files = require('./mesh/files');
+    const glue = require('./mesh/glue');
+    const parsed = glue.parseMeshTaskId(taskId);
+    if (!parsed) throw new Error('不是跑在其他设备上的任务');
+    const row = this._getDb().prepare('SELECT result FROM agent_tasks WHERE id = ?').get(taskId);
+    let result = {};
+    try { result = row?.result ? JSON.parse(row.result) : {}; } catch { result = {}; }
+    const entry = (result.remoteFiles || []).find((f) => f.token === token);
+    if (!entry) throw new Error('没有这个文件');
+    const got = await glue.pullFile({ deviceId: parsed.deviceId, entry, destDir: files.inboxDir(taskId) });
+    const list = (result.files || []).map((f) => (f.token === token ? { ...f, path: got.path, pending: false, error: undefined } : f));
+    this.setTaskResultExtra(taskId, { files: list });
+    return { path: got.path, size: got.size };
+  }
+
+  /** 派到其他设备时带的图片、附件 → 登记成清单（mesh/files.js） */
+  async _offerMeshInputs(options = {}) {
+    const files = require('./mesh/files');
+    const out = [];
+    const items = [
+      ...(Array.isArray(options.images) ? options.images.map((x, i) => ({ x, def: `image-${i + 1}` })) : []),
+      ...(Array.isArray(options.files) ? options.files.map((x, i) => ({ x, def: `file-${i + 1}` })) : []),
+    ];
+    for (const { x, def } of items) {
+      try {
+        const dataUrl = typeof x === 'string' ? x : (x?.dataUrl || '');
+        const name = (x && typeof x === 'object' && x.name) || def;
+        if (dataUrl.startsWith('data:')) out.push(await files.offerDataUrl(dataUrl, name));
+        else if (x && typeof x === 'object' && x.path && fs.existsSync(x.path)) out.push(await files.offerFile(x.path, { name }));
+      } catch (e) {
+        console.warn('[mesh] 附件登记失败：', e.message);
+      }
+    }
+    return out;
   }
 
   /**
@@ -1369,6 +1463,8 @@ class AgentExecutor extends EventEmitter {
       device: (resp.metadata?.mesh_device || resp.metadata?.device) || prev.device || null,
       remoteHarness: resp.metadata?.harness_id || prev.remoteHarness || null,
       remoteSteps: Number.isFinite(resp.step_count) ? resp.step_count : (prev.remoteSteps ?? null),
+      // 那台设备的产出文件清单（文件还在那台，按需拉）
+      ...(Array.isArray(resp.metadata?.mesh_files) ? { remoteFiles: resp.metadata.mesh_files } : {}),
     };
     if (TERMINAL.includes(status)) {
       const error = status === 'completed' ? null : (resp.error?.message || text || status);
@@ -1432,6 +1528,8 @@ class AgentExecutor extends EventEmitter {
         lastError = e.message || lastError;
       }
       if (terminal) {
+        // 产出文件：小的先拉回本机，再通知（等着它的父任务拿到的结果里就有本机路径）
+        try { await this._pullMeshOutputs(taskId); } catch (e) { console.warn('[mesh] 拉产出文件失败：', e.message); }
         try { this._notifyTaskTerminal(taskId, await this.getTaskStatus(taskId)); } catch { /* 行没了 */ }
         stop();
         return;
@@ -2970,25 +3068,33 @@ class AgentExecutor extends EventEmitter {
     let rows = [];
     try {
       rows = this._getDb().prepare(`
-        SELECT id, prompt, status, error, created_at, started_at, completed_at, result
+        SELECT id, agent_id, prompt, status, error, created_at, started_at, completed_at, result
         FROM agent_tasks
-        WHERE agent_id = ? AND created_at >= ?
+        WHERE (agent_id = ? OR agent_id LIKE ?) AND created_at >= ?
         ORDER BY created_at DESC
         LIMIT ?
-      `).all(id, since, n);
+      `).all(id, `mine:${id}@%`, since, n);
     } catch {
       return [];
     }
-    return rows.map((r) => ({
-      id: r.id,
-      prompt: r.prompt,
-      status: r.status,
-      error: r.error || '',
-      created_at: r.created_at,
-      started_at: r.started_at || null,
-      completed_at: r.completed_at || null,
-      output: taskResultText(r.result),
-    }));
+    // 派到我其他设备上跑的（mine:<它>@<设备>）也算它的任务，标上设备，带产出文件
+    return rows.map((r) => {
+      let result = {};
+      try { result = r.result ? JSON.parse(r.result) : {}; } catch { result = {}; }
+      const mesh = String(r.agent_id || '').startsWith('mine:');
+      return {
+        id: r.id,
+        prompt: r.prompt,
+        status: r.status,
+        error: r.error || '',
+        created_at: r.created_at,
+        started_at: r.started_at || null,
+        completed_at: r.completed_at || null,
+        output: taskResultText(r.result),
+        ...(mesh ? { device: result.device || String(r.agent_id).split('@').pop() || null } : {}),
+        ...(Array.isArray(result.files) && result.files.length ? { files: result.files.map((f) => ({ token: f.token, name: f.name, size: f.size, path: f.path || null, pending: !!f.pending, error: f.error || '' })) } : {}),
+      };
+    });
   }
 
   async getTaskStatus(taskId) {

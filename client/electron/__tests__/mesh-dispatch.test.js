@@ -235,3 +235,36 @@ test('远端任务失联：标失联并写原因；那台设备回来后用真�
     executor._pollMeshTask = pollerOrig;
   }
 }));
+
+test('跑在其他设备上的任务做完：小文件自动拉回、大文件等点了再拉，输出里写清文件在哪', () => withDb(async () => {
+  const glue = require('../mesh/glue');
+  const pollerOrig = executor._pollMeshTask;
+  const pullOrig = glue.pullFile;
+  executor._pollMeshTask = () => {};
+  const pulled = [];
+  glue.pullFile = async ({ entry, destDir }) => { pulled.push(entry.name); return { path: `${destDir}/${entry.name}`, size: entry.size }; };
+  try {
+    executor.trackMeshTask('mesh:dev-e:t1', { agentId: 'mine:claude-code@mini', device: 'mini', prompt: '出图' });
+    executor._applyMeshResponse('mesh:dev-e:t1', {
+      status: 'completed', metadata: { mesh_device: 'mini', mesh_files: [
+        { token: 'aaaaaaaaaa', name: 'cover.png', size: 1024, sha256: 'x' },
+        { token: 'bbbbbbbbbb', name: 'film.mp4', size: 80 * 1048576, sha256: 'y' },
+      ] },
+      output: [{ type: 'message', content: [{ type: 'output_text', text: '做好了' }] }],
+    });
+    await executor._pullMeshOutputs('mesh:dev-e:t1');
+    assert.deepEqual(pulled, ['cover.png'], '只自动拉小的');
+    let row = await executor.getTaskStatus('mesh:dev-e:t1');
+    assert.match(row.result.output, /cover\.png → .*cover\.png/);
+    assert.match(row.result.output, /film\.mp4（80\.0MB，还在那台设备上/);
+    const listed = executor.listTodayTasks('claude-code');
+    assert.equal(listed[0].device, 'mini');
+    assert.equal(listed[0].files.find((f) => f.name === 'film.mp4').pending, true);
+    await executor.pullMeshTaskFile('mesh:dev-e:t1', 'bbbbbbbbbb');
+    row = await executor.getTaskStatus('mesh:dev-e:t1');
+    assert.ok(row.result.files.find((f) => f.name === 'film.mp4').path, '点了再拉之后有本机路径');
+  } finally {
+    executor._pollMeshTask = pollerOrig;
+    glue.pullFile = pullOrig;
+  }
+}));

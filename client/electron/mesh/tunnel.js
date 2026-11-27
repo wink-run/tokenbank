@@ -18,6 +18,8 @@ const ALLOWED = [
   ['GET', /^\/v1\/agent\/responses\/[^/]+$/],
   ['POST', /^\/v1\/agent\/responses\/[^/]+\/cancel$/],
   ['PUT', /^\/v1\/devices\/self\/name$/],
+  // 个人设备之间传文件：凭登记的凭证拉（mesh/files.js）
+  ['GET', /^\/v1\/mesh\/files\/[A-Za-z0-9_-]{8,64}$/],
 ];
 
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'proxy-connection', 'te', 'trailer']);

@@ -109,6 +109,39 @@ function outputStreamEvent(prev, step) {
   return { prev: text, event: 'response.output_text.snapshot', data: { text } };
 }
 
+/**
+ * 其他设备派来的任务：做完后把工作目录里新增、改过的文件登记成清单（mesh/files.js），派活方按需拉。
+ * 清单准备好之前，对外仍报「进行中」，免得派活方以为做完了就不再来取清单。
+ */
+const meshOutputsPending = new Set();
+function collectMeshOutputs(executor, taskId, workingDir, before) {
+  meshOutputsPending.add(taskId);
+  const started = Date.now();
+  const tick = async () => {
+    let task = null;
+    try { task = await executor.getTaskStatus(taskId); } catch { task = null; }
+    const done = task && ['completed', 'failed', 'cancelled'].includes(task.status);
+    if (!done && Date.now() - started < 48 * 3600 * 1000) { const t = setTimeout(tick, 2000); t.unref?.(); return; }
+    try {
+      if (done) {
+        const files = require('./mesh/files');
+        const changed = require('./contribute-session').listChangedFiles(workingDir, before, { max: 50 });
+        const list = [];
+        for (const f of changed) {
+          try { list.push({ ...(await files.offerFile(f.path, { taskId })), rel: path.relative(workingDir, f.path) }); } catch { /* 读不了就跳过 */ }
+        }
+        if (list.length) executor.setTaskResultExtra(taskId, { mesh_files: list });
+      }
+    } catch (e) {
+      console.warn('[mesh] 整理产出文件失败：', e.message);
+    } finally {
+      meshOutputsPending.delete(taskId);
+    }
+  };
+  const t = setTimeout(tick, 2000);
+  t.unref?.();
+}
+
 function taskToResponse(task) {
   const statusMap = {
     pending: 'in_progress',
@@ -125,10 +158,14 @@ function taskToResponse(task) {
   if (ctx.parentTaskId) metadata.parent_id = ctx.parentTaskId;
   const device = task?.result?.device || ctx.meshDevice;
   if (device) metadata.mesh_device = device;
+  // 产出文件清单：派活方按需经设备通道拉
+  if (Array.isArray(task?.result?.mesh_files) && task.result.mesh_files.length) metadata.mesh_files = task.result.mesh_files;
+  const finishing = meshOutputsPending.has(task?.id) && ['completed', 'failed', 'cancelled'].includes(task?.status);
   const response = {
     id: task.id,
     object: 'response',
-    status: statusMap[task.status] || task.status || 'in_progress',
+    // 清单还在整理：先别报完成
+    status: finishing ? 'in_progress' : (statusMap[task.status] || task.status || 'in_progress'),
     metadata,
     output: text
       ? [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: String(text).slice(0, 20000) }] }]
@@ -652,8 +689,28 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
         return true;
       }
     }
+    // 其他设备派来的：先把它带的图片、附件拉过来；记下开工前的工作目录，做完把新产生的文件列成清单
+    let meshImages;
+    let meshBefore = null;
+    if (fromMesh) {
+      const inputs = Array.isArray(body.metadata?.mesh_inputs) ? body.metadata.mesh_inputs : [];
+      if (inputs.length) {
+        try {
+          const fromDev = String(req.headers['x-tb-mesh-from'] || body.metadata?.mesh_from || '');
+          const got = await meshGlue.pullInputs({ deviceId: fromDev, inputs, workingDir });
+          if (got.images.length) meshImages = got.images;
+          if (got.note) prompt = `${prompt}${got.note}`;
+        } catch (e) {
+          report({ ok: false, error: e.message, prompt, harnessId });
+          sendJson(res, 409, { error: { message: `附件没拉过来：${e.message}`, type: 'mesh_input_failed' } });
+          return true;
+        }
+      }
+      try { meshBefore = require('./contribute-session').snapshotWorkspace(workingDir); } catch { meshBefore = null; }
+    }
     const { taskId } = await executor.execute(resolved.agentId, prompt, {
       ...resolved.options,
+      ...(meshImages ? { images: [...(resolved.options.images || []), ...meshImages] } : {}),
       continueSession,
       cliSessionId: cliSessionId || undefined,
       workingDir,
@@ -665,6 +722,7 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
     });
     // 等结果之前就记住键，连接断开后同样的请求接上这一单
     rememberIdempotency(idem, raw, null, taskId);
+    if (fromMesh && workingDir && meshBefore) collectMeshOutputs(executor, taskId, workingDir, meshBefore);
 
     const finishResponse = async (task) => {
       const response = taskToResponse(task);

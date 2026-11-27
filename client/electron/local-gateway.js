@@ -4621,6 +4621,17 @@ function handleRequest(req, res) {
     return;
   }
 
+  // 个人设备之间传文件：只给经设备通道来的（本人名下的设备），凭登记过的凭证取
+  if (method === 'GET' && cleanPath.startsWith('/v1/mesh/files/')) {
+    if (!require('./mesh/glue').isMeshRequest(req.headers)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'only my own devices can fetch files', type: 'forbidden' } }));
+      return;
+    }
+    require('./mesh/files').serve(decodeURIComponent(cleanPath.slice('/v1/mesh/files/'.length)), res);
+    return;
+  }
+
   // 设备网络：本人所有设备的在线状态和能力
   if (method === 'GET' && cleanPath === '/v1/devices') {
     const view = require('./mesh/glue').devicesView();

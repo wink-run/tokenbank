@@ -131,6 +131,7 @@ const agent = {
   listActiveTasks: call0('agent:listActiveTasks'),
   listRecentTasks: (opts) => invoke('agent:listRecentTasks', opts),
   listTodayTasks: (opts) => invoke('agent:listTodayTasks', opts || {}),
+  pullMeshFile: (opts) => invoke('agent:pullMeshFile', opts || {}),
   taskStats: call0('agent:taskStats'),
   listBlocked: call0('agent:listBlocked'),
   taskMessages: (taskIds, opts) => invoke('agent:taskMessages', taskIds, opts),

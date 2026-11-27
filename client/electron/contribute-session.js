@@ -299,7 +299,29 @@ function collectWorkspaceArtifacts(workingDir, text, startedAt = 0, before = nul
   return picked;
 }
 
+/**
+ * 开工快照之后新增或改过的文件（只看工作目录里，深度、跳过规则和快照一致）。
+ * @param {string} workingDir
+ * @param {Map} before snapshotWorkspace 的结果
+ * @param {{ max?: number, skip?: (abs: string) => boolean }} [opts]
+ * @returns {{ path: string, name: string, size: number, mtimeMs: number }[]} 新的在前
+ */
+function listChangedFiles(workingDir, before, { max = 50, skip } = {}) {
+  if (!workingDir || !fs.existsSync(workingDir) || !(before instanceof Map)) return [];
+  let rootReal;
+  try { rootReal = fs.realpathSync(workingDir); } catch { return []; }
+  const out = [];
+  visitWorkspaceFiles(rootReal, rootReal, 0, (info) => {
+    if (before.get(info.real) === fileStamp(info)) return;
+    if (typeof skip === 'function' && skip(info.real)) return;
+    out.push({ path: info.real, name: info.name, size: info.size, mtimeMs: info.mtimeMs });
+  });
+  out.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return out.slice(0, max);
+}
+
 module.exports = {
+  listChangedFiles,
   CONTRIBUTE_SESSION_PREFIX,
   WORKSPACE_ROOT,
   safeSegment,

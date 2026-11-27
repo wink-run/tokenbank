@@ -822,6 +822,46 @@ async function fetchAgentTask(id, op = 'get', { stepsAfter } = {}) {
   }
 }
 
+/**
+ * 从另一台设备拉一个登记过的文件（mesh/files.js）。只能经官方中继时，大文件按上限拒绝。
+ * @returns {Promise<{ path: string, size: number }>}
+ */
+async function pullFile({ deviceId, entry, destDir }) {
+  if (!node) throw new Error('设备网络没有启动');
+  const dev = node.directory.get(deviceId);
+  if (!dev || !dev.online) throw new Error(`${dev ? deviceLabel(dev) : '那台设备'}不在线，文件还在它那里，等它上线再拉`);
+  const p = dev.path || {};
+  const viaOfficialRelay = p.kind === 'relay' && p.relay_kind === 'official';
+  return require('./files').pull({ proxy: (id, r) => node.proxy(id, r), deviceId, entry, destDir, viaOfficialRelay });
+}
+
+/**
+ * 接活方：开工前把派活方带来的图片、附件拉过来。图片交给智能体（dataUrl），其它附件放进工作目录，路径写进任务说明。
+ * @returns {Promise<{ images: string[], note: string, dir: string }>}
+ */
+async function pullInputs({ deviceId, inputs, workingDir }) {
+  const files = require('./files');
+  const fsx = require('fs');
+  const sub = require('crypto').randomBytes(6).toString('hex');
+  const dir = workingDir && fsx.existsSync(workingDir) ? path.join(workingDir, '.tokenbank-uploads', sub) : files.inboxDir(`in-${sub}`);
+  const images = [];
+  const others = [];
+  for (const entry of inputs || []) {
+    const got = await pullFile({ deviceId, entry, destDir: dir });
+    const mime = String(entry.mime || files.mimeOf(got.path));
+    if (mime.startsWith('image/') && !mime.includes('svg') && got.size <= 20 * 1024 * 1024) {
+      images.push(`data:${mime};base64,${fsx.readFileSync(got.path).toString('base64')}`);
+    } else {
+      others.push(got.path);
+    }
+  }
+  const note = others.length ? `\n\n附件已放在这台设备上：\n${others.map((p) => `- ${p}`).join('\n')}` : '';
+  return { images, note, dir };
+}
+
+/** 本机的设备号（文件清单里写「在哪台」） */
+function selfDeviceId() { return node ? node.deviceId : ''; }
+
 /** GET /v1/agent/responses/mesh:<设备>:<任务号>（以及 /cancel）转到那台设备 */
 async function routeAgentById({ id, op, res }) {
   if (!parseMeshTaskId(id)) return false;
@@ -1127,7 +1167,7 @@ module.exports = {
   fetchAgentTask,
   parseMeshTaskId,
   startFromConfig, stop, getNode,
-  isMeshKey, isMeshRequest, isHop, checkIncoming, mapWorkspace,
+  isMeshKey, isMeshRequest, isHop, checkIncoming, mapWorkspace, pullFile, pullInputs, selfDeviceId,
   devicesView, extraModels, extraHarnesses,
   routeChat, routeAgentCreate, routeAgentById, resolveWorkspace, setName, setSelfName,
   _internal: { sseRewriter, rewriteResponse, parseMeshTaskId, describeSelf },

@@ -253,6 +253,44 @@ function TodayCell({ st, onOpen, t }) {
 }
 
 /** 和用量明细一样的小节标题 */
+/** 跑在其他设备上的任务的产出文件：小的已经拉回本机，大的点了再拉 */
+function TaskFiles({ taskId, files, device, t }) {
+  const [state, setState] = useState({});   // token → { busy, path, error }
+  const mb = (n) => `${(Number(n || 0) / 1048576).toFixed(1)}MB`;
+  const pull = async (f) => {
+    setState((m) => ({ ...m, [f.token]: { busy: true } }));
+    const r = await agentApi().pullMeshFile?.({ taskId, token: f.token }).catch((e) => ({ success: false, error: e.message }));
+    setState((m) => ({ ...m, [f.token]: r?.success ? { path: r.path } : { error: r?.error || t('gw2.files.failed') } }));
+  };
+  return (
+    <div>
+      <div className="text-zinc-400 mb-1">{t('gw2.files.title', { device: device || '' })}</div>
+      <ul className="m-0 p-0 list-none space-y-1">
+        {files.map((f) => {
+          const st = state[f.token] || {};
+          const local = st.path || f.path;
+          return (
+            <li key={f.token} className="flex items-center gap-2 min-w-0">
+              <span className="truncate text-zinc-700 dark:text-zinc-200" title={local || f.name}>{f.name}</span>
+              <span className="shrink-0 text-zinc-400 tabular-nums">{mb(f.size)}</span>
+              {local ? (
+                <span className="truncate text-emerald-700 dark:text-emerald-400 font-mono text-[10px]" title={local}>{local}</span>
+              ) : st.busy ? (
+                <span className="shrink-0 text-zinc-400">{t('gw2.files.pulling')}</span>
+              ) : (
+                <>
+                  <button type="button" className={BTN} onClick={() => pull(f)}>{t('gw2.files.pull')}</button>
+                  {(st.error || f.error) && <span className="truncate text-red-500" title={st.error || f.error}>{st.error || f.error}</span>}
+                </>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function TaskSection({ n, title, hint, children }) {
   return (
     <section>
@@ -369,7 +407,10 @@ function TodayTaskList({ agentId, name, onClose, t }) {
                     return (
                       <div key={task.id || task.created_at}>
                         <div className={`${GRID} px-3 py-2 text-xs items-center ${open ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300 truncate min-w-0" title={task.prompt}>{task.prompt || '—'}</span>
+                          <span className="font-medium text-zinc-700 dark:text-zinc-300 truncate min-w-0" title={task.prompt}>
+                            {task.device && <span className="mr-1 text-[10px] px-1 rounded bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">@{task.device}</span>}
+                            {task.prompt || '—'}
+                          </span>
                           <span className={`px-1 rounded w-fit ${TASK_PILL[task.status] || TASK_PILL.cancelled}`}>{statusText(task.status)}</span>
                           <span className="text-zinc-400 tabular-nums">{when(task.started_at || task.created_at)}</span>
                           <span className="text-zinc-400 tabular-nums">{when(task.completed_at)}</span>
@@ -391,6 +432,7 @@ function TodayTaskList({ agentId, name, onClose, t }) {
                               <div className="text-zinc-400 mb-1">{t('gw2.task.output')}</div>
                               <div className="whitespace-pre-wrap break-words max-h-48 overflow-y-auto text-zinc-700 dark:text-zinc-200">{result}</div>
                             </div>
+                            {Array.isArray(task.files) && task.files.length > 0 && <TaskFiles taskId={task.id} files={task.files} device={task.device} t={t} />}
                             <div className="text-zinc-400 break-all">
                               {t('gw2.task.start')} {when(task.started_at || task.created_at)}
                               <span className="mx-1.5">·</span>
