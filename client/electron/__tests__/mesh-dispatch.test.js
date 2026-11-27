@@ -268,3 +268,18 @@ test('跑在其他设备上的任务做完：小文件自动拉回、大文件�
     glue.pullFile = pullOrig;
   }
 }));
+
+test('今天的任务数：派到其他设备上跑的算回它自己，另记几个在其他设备', () => withDb(async () => {
+  const pollerOrig = executor._pollMeshTask;
+  executor._pollMeshTask = () => {};
+  try {
+    executor.trackMeshTask('mesh:dev-f:t1', { agentId: 'mine:assistant:r1@mini', device: 'mini', prompt: 'a' });
+    executor.trackMeshTask('mesh:dev-f:t2', { agentId: 'mine:assistant:r1@nas', device: 'nas', prompt: 'b' });
+    const st = executor.todayTaskStats().by_agent['assistant:r1'];
+    assert.strictEqual(st.tasks, 2);
+    assert.strictEqual(st.remote, 2);
+    assert.strictEqual(executor.listTodayTasks('assistant:r1').length, 2, '任务列表里也有');
+  } finally {
+    executor._pollMeshTask = pollerOrig;
+  }
+}));

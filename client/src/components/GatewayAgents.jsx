@@ -240,7 +240,9 @@ const TASK_PILL = {
 
 /** 「今天」那一列：有任务才能点，点开弹窗（同通用智能体点用量） */
 function TodayCell({ st, onOpen, t }) {
-  const text = st.tasks ? t('gw2.tasks', { n: st.tasks, ok: st.ok || 0 }) : t('gw2.noTasks');
+  const text = st.tasks
+    ? `${t('gw2.tasks', { n: st.tasks, ok: st.ok || 0 })}${st.remote ? t('gw2.tasksRemote', { n: st.remote }) : ''}`
+    : t('gw2.noTasks');
   const cls = 'text-xs tabular-nums whitespace-nowrap';
   if (!st.tasks) return <span className={`${cls} text-zinc-600 dark:text-zinc-300`}>{text}</span>;
   return (
@@ -252,7 +254,6 @@ function TodayCell({ st, onOpen, t }) {
   );
 }
 
-/** 和用量明细一样的小节标题 */
 /** 跑在其他设备上的任务的产出文件：小的已经拉回本机，大的点了再拉 */
 function TaskFiles({ taskId, files, device, t }) {
   const [state, setState] = useState({});   // token → { busy, path, error }
@@ -291,6 +292,7 @@ function TaskFiles({ taskId, files, device, t }) {
   );
 }
 
+/** 和用量明细一样的小节标题 */
 function TaskSection({ n, title, hint, children }) {
   return (
     <section>
@@ -839,7 +841,7 @@ export function ProfessionalAgents() {
                     <NameCell name={ra.name} />
                     <span className="min-w-0">{anyOnline ? <Status tone="ok">{t('mesh.statusRemote')}</Status> : <Status tone="off">{t('mesh.statusOffline')}</Status>}</span>
                     <span className="min-w-0"><DeviceChips devices={ra.devices} /></span>
-                    <span className={META}>—</span>
+                    <span className="min-w-0"><TodayCell st={stats[ra.id] || {}} onOpen={() => setTasksFor({ id: ra.id, name: ra.name })} t={t} /></span>
                     <span className={META}>{t('mesh.routeOnDevice')}</span>
                     <span className="flex gap-2 md:justify-end [&>*]:flex-1 md:[&>*]:flex-none">
                       <button type="button" className={BTN} disabled={!anyOnline} onClick={() => navigate('/debug', { state: { agentId: target } })}>{t('gw2.pro.tryPlay')}</button>

@@ -2515,6 +2515,8 @@ function AppDetailModal({ app, onClose }) {
         ) : (
           <div className="p-5 space-y-6">
 
+            {/* 只在其他设备上的应用：本机没有它的用量，只列派过去的任务 */}
+            {!app.remoteOnly && (<>
             {/* 1. 数据来源 */}
             <DetailSection n="1" title={t('gateway.detail.dataSource')}>
               <div className="text-xs text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-800/40 rounded-lg px-3 py-2.5">
@@ -2556,9 +2558,10 @@ function AppDetailModal({ app, onClose }) {
               </div>
               <p className="text-xs text-zinc-400 mt-2">{t('gateway.detail.costHint')}</p>
             </DetailSection>
+            </>)}
 
             {/* 3. 按模型统计（无 model 字段的应用不展示） */}
-            {showModelStats && (
+            {showModelStats && !app.remoteOnly && (
             <DetailSection n="3" title={t('gateway.detail.byModel')} hint={modelFilter ? t('gateway.detail.filterActive', { model: modelFilter }) : t('gateway.detail.filterHint')}>
               <div className="border border-zinc-100 dark:border-zinc-800 rounded-lg divide-y divide-zinc-100 dark:divide-zinc-800">
                 {data.byModel.map(m => (
@@ -2579,8 +2582,8 @@ function AppDetailModal({ app, onClose }) {
             )}
 
             {/* 4. 按会话历史（trace 或用量导入） */}
-            {(hasSessionTrace || hasUsageImport || (data?.meshActivity?.length > 0)) && (
-            <DetailSection n={secSession} title={t('gateway.detail.bySession')} hint={canTrace ? t('gateway.detail.traceHint') : undefined}>
+            {(hasSessionTrace || hasUsageImport || (data?.meshActivity?.length > 0) || app.remoteOnly) && (
+            <DetailSection n={app.remoteOnly ? 1 : secSession} title={t('gateway.detail.bySession')} hint={canTrace ? t('gateway.detail.traceHint') : undefined}>
               {sessionHistoryRows.length === 0 ? (
                 <div className="text-xs text-zinc-400 px-1">{t('gateway.detail.noSessions')}</div>
               ) : (
@@ -2636,7 +2639,7 @@ function AppDetailModal({ app, onClose }) {
             )}
 
             {/* 5. 调用明细（无 model 的应用不展示） */}
-            {showCallDetails && (
+            {showCallDetails && !app.remoteOnly && (
             <DetailSection n={secCalls} title={showModelStats ? t('gateway.detail.byModelCalls') : t('gateway.detail.callDetails')} hint={t('gateway.detail.recentCount', { n: recentSorted.length })}>
               {recentSorted.length === 0 ? (
                 <div className="text-xs text-zinc-400 px-1">—</div>
@@ -3672,7 +3675,11 @@ function AppManager({ externalRoutes, availableModels = [], onActivity }) {
                       </div>
                       <div className="min-w-0" data-label={t('mesh.colDevice')}><DeviceChips devices={ra.devices} /></div>
                       <div className="min-w-0 tb-table-cell-meta truncate text-center" data-label={t('gateway.apps.colLink')}>{linkMethodLabel('shim', t)}</div>
-                      <div className="text-center tb-table-cell-meta" data-label={t('gateway.apps.colCalls')}>—</div>
+                      {/* 只在其他设备上的应用：点开看本机派过去的任务和 Trace（用同步回来的步骤） */}
+                      <div className="text-center tb-table-cell-meta rounded hover:bg-zinc-500/[0.06] dark:hover:bg-white/[0.06] cursor-pointer" data-label={t('gateway.apps.colCalls')}
+                        title={t('mesh.remoteTasksTitle')} onClick={() => setDetailApp({ id: `mesh-${ra.id}`, agent_id: ra.id, name: ra.name, remoteOnly: true })}>
+                        {t('mesh.remoteTasks')}
+                      </div>
                       <div className="text-center tb-table-cell-meta" data-label={t('gateway.apps.colLastUsed')}>—</div>
                       <div className="tb-app-route min-w-0 text-xs text-zinc-400 truncate" title={t('mesh.routeOnDeviceTitle')}>{t('mesh.routeOnDevice')}</div>
                       <div className="flex justify-end">

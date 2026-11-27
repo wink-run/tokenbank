@@ -3038,10 +3038,18 @@ class AgentExecutor extends EventEmitter {
       };
     };
     // 应用列表里每个智能体一行「今天几个任务、成功几个、平均多久」
+    // 派到我其他设备上跑的（mine:<它>@<设备>）算回它自己，另记几个在其他设备上
+    const baseOf = (id) => {
+      const m = /^mine:(.+?)(?:@.*)?$/.exec(String(id || ''));
+      return m ? m[1] : id;
+    };
     const groups = {};
-    for (const r of rows) (groups[r.agent_id] = groups[r.agent_id] || []).push(r);
+    for (const r of rows) (groups[baseOf(r.agent_id)] = groups[baseOf(r.agent_id)] || []).push(r);
     const byAgent = {};
-    for (const [id, list] of Object.entries(groups)) byAgent[id] = sum(list);
+    for (const [id, list] of Object.entries(groups)) {
+      const remote = list.filter((r) => String(r.agent_id || '').startsWith('mine:')).length;
+      byAgent[id] = { ...sum(list), ...(remote ? { remote } : {}) };
+    }
     const all = sum(rows);
     return {
       tasks: all.tasks,
