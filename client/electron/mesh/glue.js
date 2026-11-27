@@ -417,6 +417,10 @@ async function startFromConfig({ gatewayPort, log } = {}) {
   attachHireHandlers(node);
   // 接着跟上次没做完的远端任务
   try { require('../agent-executor').resumeMeshTasks(); } catch { /* 执行器没就绪 */ }
+  // 某台设备重新上线：它身上没做完的、标过失联的任务再查一次
+  node.on('peer', ({ device_id: id }) => {
+    try { require('../agent-executor').resumeMeshTasks(id); } catch { /* 执行器没就绪 */ }
+  });
   if (cloud?.ready) startCloudSync();
   // 连上官方中继后，出租时告诉云端「本机能接设备通道的雇佣」
   const t = setTimeout(() => { try { require('../agent-worker').refreshMeshHireCap(); } catch { /* 没开出租 */ } }, 3000);

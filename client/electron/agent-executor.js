@@ -489,6 +489,10 @@ function invalidateAgentListCache() {
 
 const TERMINAL = ['completed', 'failed', 'cancelled'];
 /** 远端响应状态 → 本机任务状态 */
+/** 连续这么久连不上执行它的设备，就标失联（设备回来再补） */
+const MESH_LOST_AFTER_MS = 30 * 60 * 1000;
+/** 跟了这么久还没做完，也先停下标失联 */
+const MESH_TRACK_MAX_MS = 48 * 3600 * 1000;
 const MESH_STATUS = { in_progress: 'running', queued: 'pending', completed: 'completed', failed: 'failed', cancelled: 'cancelled' };
 function isMeshTarget(id) { return String(id || '').trim().startsWith('mine:'); }
 function isMeshTaskId(id) { return String(id || '').startsWith('mesh:'); }
@@ -1347,9 +1351,11 @@ class AgentExecutor extends EventEmitter {
     const db = this._getDb();
     const row = db.prepare('SELECT status, result FROM agent_tasks WHERE id = ?').get(taskId);
     if (!row) return true;
-    if (TERMINAL.includes(row.status)) return true;
     let prev = {};
     try { prev = row.result ? JSON.parse(row.result) : {}; } catch { prev = {}; }
+    // 标过「失联」的：那台设备回来了，用真实结果补上；其它终态不再改
+    if (TERMINAL.includes(row.status) && !prev.lost) return true;
+    if (prev.lost) { delete prev.lost; delete prev.lostReason; }
     const result = {
       ...prev,
       output: text,
@@ -1368,11 +1374,31 @@ class AgentExecutor extends EventEmitter {
     return false;
   }
 
-  /** 每秒查一次远端，连不上时慢慢放宽；最多跟 6 小时 */
+  /**
+   * 远端任务标「失联」：连续一段时间连不上那台设备，或跟了太久还没做完。
+   * 不是最终结果：那台设备回来（重新上线、设备网络重连、应用重启）时会再查，用真实结果补上。
+   */
+  _markMeshLost(taskId, reason) {
+    const db = this._getDb();
+    const row = db.prepare('SELECT status, result FROM agent_tasks WHERE id = ?').get(taskId);
+    if (!row) return false;
+    let prev = {};
+    try { prev = row.result ? JSON.parse(row.result) : {}; } catch { prev = {}; }
+    if (TERMINAL.includes(row.status) && !prev.lost) return false;
+    const already = !!prev.lost;
+    const result = { ...prev, lost: true, lostReason: reason };
+    db.prepare("UPDATE agent_tasks SET status = 'failed', result = ?, error = ?, completed_at = COALESCE(completed_at, ?) WHERE id = ?")
+      .run(JSON.stringify(result), reason, Date.now(), taskId);
+    return !already;
+  }
+
+  /** 每秒查一次远端，连不上时慢慢放宽；连续 30 分钟连不上或跟了 48 小时还没完就标失联，设备回来再补 */
   _pollMeshTask(taskId) {
     if (this._meshPollers.has(taskId)) return;
     const glue = require('./mesh/glue');
     const started = Date.now();
+    let unreachableSince = 0;
+    let lastError = '';
     let delay = 1000;
     let timer = null;
     let stopped = false;
@@ -1386,15 +1412,30 @@ class AgentExecutor extends EventEmitter {
         const resp = await glue.fetchAgentTask(taskId, 'get', { stepsAfter: have });
         if (resp.status === 'unreachable') {
           delay = Math.min(delay * 2, 15000);
+          unreachableSince = unreachableSince || Date.now();
+          lastError = resp.error?.message || lastError;
         } else {
           delay = 1000;
+          unreachableSince = 0;
           terminal = this._applyMeshResponse(taskId, resp);
         }
       } catch (e) {
         delay = Math.min(delay * 2, 15000);
+        unreachableSince = unreachableSince || Date.now();
+        lastError = e.message || lastError;
       }
-      if (terminal || Date.now() - started > 6 * 3600 * 1000) {
-        if (terminal) {
+      if (terminal) {
+        try { this._notifyTaskTerminal(taskId, await this.getTaskStatus(taskId)); } catch { /* 行没了 */ }
+        stop();
+        return;
+      }
+      const now = Date.now();
+      const lostFor = unreachableSince ? now - unreachableSince : 0;
+      if (lostFor > MESH_LOST_AFTER_MS || now - started > MESH_TRACK_MAX_MS) {
+        const reason = lostFor > MESH_LOST_AFTER_MS
+          ? `失联：${Math.round(lostFor / 60000)} 分钟连不上执行它的设备${lastError ? `（${lastError}）` : ''}。那台设备回来后会自动补上结果`
+          : '失联：跟了 48 小时还没做完，先停下。那台设备回来后会再查一次';
+        if (this._markMeshLost(taskId, reason)) {
           try { this._notifyTaskTerminal(taskId, await this.getTaskStatus(taskId)); } catch { /* 行没了 */ }
         }
         stop();
@@ -1408,12 +1449,20 @@ class AgentExecutor extends EventEmitter {
     timer.unref?.();
   }
 
-  /** 应用重启或设备网络重新连上后，接着跟还没做完的远端任务 */
-  resumeMeshTasks() {
+  /**
+   * 应用重启、设备网络重新连上、或某台设备重新上线后，接着跟还没做完的远端任务；
+   * 最近 7 天标过失联的也再查一次，用真实结果补上。
+   * @param {string} [deviceId] 只看这台设备上的
+   */
+  resumeMeshTasks(deviceId) {
     try {
+      const since = Date.now() - 7 * 24 * 3600 * 1000;
+      const prefix = deviceId ? `mesh:${deviceId}:%` : 'mesh:%';
       const rows = this._getDb().prepare(`
-        SELECT id FROM agent_tasks WHERE id LIKE 'mesh:%' AND status IN ('pending', 'running')
-      `).all();
+        SELECT id FROM agent_tasks
+        WHERE id LIKE ? AND (status IN ('pending', 'running')
+          OR (status = 'failed' AND json_extract(result, '$.lost') = 1 AND created_at >= ?))
+      `).all(prefix, since);
       for (const r of rows) this._pollMeshTask(r.id);
       return rows.length;
     } catch {

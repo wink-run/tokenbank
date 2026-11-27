@@ -199,3 +199,39 @@ test('同一个模型：本机的源 → 我的设备 → 免费 → 社区 → 
   ]).map((p) => p.id);
   assert.deepStrictEqual(order, ['sub', 'ollama', 'mesh:dev-b', 'free-cloud', 'paid', 'p2p']);
 });
+
+test('远端任务失联：标失联并写原因；那台设备回来后用真实结果补上；重新跟踪能查回失联的', () => withDb(async () => {
+  const pollerOrig = executor._pollMeshTask;
+  const polled = [];
+  executor._pollMeshTask = (id) => { polled.push(id); };
+  try {
+    executor.trackMeshTask('mesh:dev-c:t1', { agentId: 'mine:codex@pc', device: 'pc', prompt: '跑测试' });
+    executor.trackMeshTask('mesh:dev-d:t2', { agentId: 'mine:codex@nas', device: 'nas', prompt: '备份' });
+    assert.strictEqual(executor._markMeshLost('mesh:dev-c:t1', '失联：31 分钟连不上执行它的设备'), true, '第一次标记要通知');
+    assert.strictEqual(executor._markMeshLost('mesh:dev-c:t1', '失联：又一次'), false, '重复标记不再通知');
+    let row = await executor.getTaskStatus('mesh:dev-c:t1');
+    assert.strictEqual(row.status, 'failed');
+    assert.strictEqual(row.result.lost, true);
+    assert.match(row.error, /失联/);
+
+    // 只重新跟这台设备的：失联的也算
+    polled.length = 0;
+    executor.resumeMeshTasks('dev-c');
+    assert.deepStrictEqual(polled, ['mesh:dev-c:t1']);
+
+    // 设备回来，真实结果补上
+    const done = executor._applyMeshResponse('mesh:dev-c:t1', {
+      status: 'completed', metadata: { mesh_device: 'pc' },
+      output: [{ type: 'message', content: [{ type: 'output_text', text: '全部通过' }] }],
+    });
+    assert.strictEqual(done, true);
+    row = await executor.getTaskStatus('mesh:dev-c:t1');
+    assert.strictEqual(row.status, 'completed');
+    assert.strictEqual(row.result.output, '全部通过');
+    assert.strictEqual(row.result.lost, undefined);
+    // 真实终态之后不再标失联
+    assert.strictEqual(executor._markMeshLost('mesh:dev-c:t1', 'x'), false);
+  } finally {
+    executor._pollMeshTask = pollerOrig;
+  }
+}));
