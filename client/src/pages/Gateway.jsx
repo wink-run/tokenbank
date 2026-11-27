@@ -2465,7 +2465,10 @@ function AppDetailModal({ app, onClose }) {
     ...r,
     project: shortProjectName(r),
     project_path: projectPathTooltip(r),
-  }));
+  }))
+    // 派到我其他设备上跑的任务（会话在那台设备上）：用同步回来的步骤，也能看 Trace
+    .concat((data?.meshActivity || []).map(r => ({ ...r })))
+    .sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
   const traceAgentId = traceAgentIdForApp(app);
   const canTrace = !!traceAgentId;
   // Cursor 等无真实 model 的应用：不展示「按模型统计」；有 model 配置则展示调用明细
@@ -2483,8 +2486,8 @@ function AppDetailModal({ app, onClose }) {
 
   return createPortal(
     <>
-      {traceSid && canTrace && (
-        <SessionTraceModal app={app} sessionId={traceSid} traceAgentId={traceAgentId} onClose={() => setTraceSid(null)} />
+      {traceSid && (canTrace || String(traceSid).startsWith('mesh:')) && (
+        <SessionTraceModal app={app} sessionId={traceSid} traceAgentId={traceAgentId || app?.agent_id || 'mesh'} onClose={() => setTraceSid(null)} />
       )}
     <div className="electron-no-drag fixed inset-0 z-[80] flex items-center justify-center bg-black/40" onClick={onClose}>
       <div className="bg-white dark:bg-zinc-800 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-700 w-full max-w-3xl mx-4 max-h-[92vh] overflow-y-auto flex flex-col"
@@ -2576,7 +2579,7 @@ function AppDetailModal({ app, onClose }) {
             )}
 
             {/* 4. 按会话历史（trace 或用量导入） */}
-            {(hasSessionTrace || hasUsageImport) && (
+            {(hasSessionTrace || hasUsageImport || (data?.meshActivity?.length > 0)) && (
             <DetailSection n={secSession} title={t('gateway.detail.bySession')} hint={canTrace ? t('gateway.detail.traceHint') : undefined}>
               {sessionHistoryRows.length === 0 ? (
                 <div className="text-xs text-zinc-400 px-1">{t('gateway.detail.noSessions')}</div>
@@ -2591,13 +2594,15 @@ function AppDetailModal({ app, onClose }) {
                       <div key={`${row.session_id || 'sess'}-${ri}`}>
                         <div
                           className={`grid grid-cols-[minmax(5.5rem,1.15fr)_minmax(0,2fr)_3.5rem_3.5rem_4.5rem_3.5rem] gap-2 px-3 py-2 text-xs items-center hover:bg-zinc-50 dark:hover:bg-zinc-800/40 ${selectedSid === row.session_id ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300 truncate min-w-0" title={projectPathTooltip(row)}>{row.project}</span>
+                          <span className="font-medium text-zinc-700 dark:text-zinc-300 truncate min-w-0" title={row.mesh ? row.project_path : projectPathTooltip(row)}>
+                            {row.mesh ? <span className="text-violet-600 dark:text-violet-300">{row.project}</span> : row.project}
+                          </span>
                           <span className="text-zinc-600 dark:text-zinc-400 truncate" title={row.context}>{row.context || '—'}</span>
                           <span className="text-zinc-500 text-right">{row.calls || 0}</span>
                           <span className="text-zinc-700 dark:text-zinc-300 text-right font-medium">{fmtN(row.tokens)}</span>
                           <span className="text-zinc-400 text-right text-xs">{fmtTime(row.lastTs)}</span>
                           <span className="text-right">
-                            {canTrace ? (
+                            {(canTrace || row.mesh) ? (
                               <button type="button" onClick={() => setTraceSid(row.session_id)}
                                 className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400">
                                 Trace

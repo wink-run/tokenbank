@@ -82,6 +82,8 @@ function getAppDetail(localStats, app, days) {
   detail.hasModelStats = configLoader.agentHasModelStats(
     app?.activity_agent_id || app?.agent_id || app?.preset_id,
   );
+  // 派到我其他设备上跑的任务：会话文件在那台设备上，这里用同步回来的步骤列出来，也能看 Trace
+  try { detail.meshActivity = require('../electron/mesh-task-trace').listActivity([aid, activityAgentId], days || 30); } catch { detail.meshActivity = []; }
   return detail;
 }
 
@@ -121,6 +123,11 @@ function getAppStats(localStats, appList) {
 /** Session trace（与 Electron apps:sessionTrace 一致） */
 function getSessionTrace(localStats, agent_id, session_id) {
   if (!agent_id || !session_id) return { error: 'missing_params', steps: [] };
+  // 跨设备执行的任务：用同步回来的步骤拼 Trace
+  try {
+    const meshTrace = require('../electron/mesh-task-trace');
+    if (meshTrace.isMeshSession(session_id)) return meshTrace.getTrace(session_id);
+  } catch { /* 没有就照常 */ }
   const ent = configLoader.appEntityById(agent_id);
   const trace = ent
     ? sessionBrowser.getTraceForEntity(ent, session_id)

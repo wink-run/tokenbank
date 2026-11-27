@@ -5549,6 +5549,8 @@ function registerIPC() {
     detail.hasModelStats = configLoader.agentHasModelStats(
       app?.activity_agent_id || app?.agent_id || app?.preset_id,
     );
+    // 派到我其他设备上跑的任务：会话文件在那台设备上，这里用同步回来的步骤列出来，也能看 Trace
+    try { detail.meshActivity = require('./mesh-task-trace').listActivity([aid, activityAgentId], days || 30); } catch { detail.meshActivity = []; }
     return detail;
   });
 
@@ -5558,6 +5560,8 @@ function registerIPC() {
 
   ipcMain.handle('apps:sessionTrace', (_e, { agent_id, session_id } = {}) => {
     if (!agent_id || !session_id) return { error: 'missing_params', steps: [] };
+    // 跨设备执行的任务：用同步回来的步骤拼 Trace
+    if (require('./mesh-task-trace').isMeshSession(session_id)) return require('./mesh-task-trace').getTrace(session_id);
     const ent = configLoader.appEntityById(agent_id);
     const trace = ent
       ? sessionBrowser.getTraceForEntity(ent, session_id)
