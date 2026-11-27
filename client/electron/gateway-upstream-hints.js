@@ -230,6 +230,20 @@ function parseBodyConstraintError(err) {
     if (m[1] && !strip.includes(m[1])) strip.push(m[1]);
   }
 
+  // 新模型不收采样参数：「temperature is not supported / deprecated / cannot be set for this model」之类
+  const reSampling = /\b(temperature|top_p|top_k)\b[^\n]{0,80}?\b(not\s+supported|unsupported|deprecated|not\s+allowed|no\s+longer|removed|cannot\s+be|can\s*not\s+be|may\s+not\s+be)/gi;
+  while ((m = reSampling.exec(text))) {
+    if (!strip.includes(m[1])) strip.push(m[1]);
+  }
+  // 关不掉思考 / 不收 budget_tokens：换成自适应思考
+  if (/\bthinking\b/i.test(text) && /(disabled|budget_tokens|type\s*[:=]?\s*["']?enabled)/i.test(text)
+    && /(not\s+supported|unsupported|cannot|can\s*not|must|only|not\s+allowed|deprecated|invalid)/i.test(text)) {
+    set.thinking = { type: 'adaptive' };
+  }
+  // max_tokens: 200000 > 128000, which is the maximum allowed number of output tokens for …
+  const mt = /max_tokens\D{0,10}(\d+)\s*>\s*(\d+)[^\n]{0,40}maximum/i.exec(text);
+  if (mt && Number(mt[2]) > 0) set.max_tokens = Number(mt[2]);
+
   const out = {};
   if (Object.keys(set).length) out.set = set;
   if (strip.length) out.strip = strip;

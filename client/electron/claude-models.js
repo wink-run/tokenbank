@@ -5,7 +5,9 @@
 // https://platform.claude.com/docs/en/about-claude/model-deprecations
 // A catalog entry is not a guarantee of OAuth plan entitlement. Invitation-only
 // Mythos models and retired models are deliberately not added to defaults.
+// 内置目录：拿不到 Anthropic 模型列表时的兜底，以及已知模型的请求约束（adaptiveOnly 等）。
 // 新的在前：withClaudeOAuthModels 靠这个顺序判断哪些是用户保存清单之后才发布的。
+// 新模型不用加在这里：claude-live-models 每天从 Anthropic 拿列表，约束由网关按上游报错自动学。
 const DEFINITIONS = Object.freeze([
   // 2026-11：Claude Code 默认已经是 claude-opus-5-5。这几个都关不掉思考（Sonnet 5.5 的 disabled 也会 400），
   // 采样参数一律 400
@@ -26,15 +28,54 @@ const DEFINITIONS = Object.freeze([
   { name: 'claude-sonnet-4-5-20250929', context_window: 200000, max_output_tokens: 64000 },
 ].map(Object.freeze));
 
-function claudeModelInfo(name) {
-  const id = String(name || '').toLowerCase();
+function live() { return require('./claude-live-models'); }
+
+function staticInfo(id) {
   return DEFINITIONS.find((m) => m.name === id || m.name.replace(/-\d{8}$/, '') === id) || null;
 }
 
+/**
+ * 模型信息：内置目录有就用（带上已知的请求约束）；没有就用 Anthropic 模型列表里的上下文和最大输出。
+ * 内置目录没收录的新模型，请求约束（不收采样参数、关不掉思考）由网关按上游 400 自动学（gateway-upstream-hints）。
+ */
+function claudeModelInfo(name) {
+  const id = String(name || '').toLowerCase();
+  const known = staticInfo(id);
+  const fetched = live().get(id) || live().get(id.replace(/-\d{8}$/, ''));
+  if (known) {
+    if (!fetched) return known;
+    return {
+      ...known,
+      context_window: fetched.max_input_tokens || known.context_window,
+      max_output_tokens: fetched.max_tokens || known.max_output_tokens,
+    };
+  }
+  if (!fetched) return null;
+  return {
+    name: fetched.id,
+    context_window: fetched.max_input_tokens || 200000,
+    max_output_tokens: fetched.max_tokens || 64000,
+  };
+}
+
+/**
+ * 订阅能用的模型，新的在前：拿到过 Anthropic 的列表就按它（发布时间排），没拿到就用内置目录。
+ * 内置目录里有、列表里没有的（列表不全或账号看不到）排在后面，照样能用。
+ */
+function catalogNames() {
+  const fetched = live().list().map((m) => String(m.id).toLowerCase());
+  const out = [...fetched];
+  for (const d of DEFINITIONS) {
+    if (!out.includes(d.name) && !out.includes(d.name.replace(/-\d{8}$/, ''))) out.push(d.name);
+  }
+  return out;
+}
+
 function claudeOAuthModels() {
-  return DEFINITIONS.map(({ name, context_window, max_output_tokens }) => ({
-    name, type: 'chat', vision: true, context_window, max_output_tokens,
-  }));
+  return catalogNames().map((name) => {
+    const info = claudeModelInfo(name) || {};
+    return { name, type: 'chat', vision: true, context_window: info.context_window, max_output_tokens: info.max_output_tokens };
+  });
 }
 
 function isClaudeOAuthProvider(provider) {
@@ -53,11 +94,12 @@ function withClaudeOAuthModels(provider) {
   if (!Array.isArray(provider.models) || !provider.models.length) return { ...provider, models: claudeOAuthModels() };
   const nameOf = (m) => String(typeof m === 'string' ? m : (m && (m.name || m.id)) || '').toLowerCase();
   const have = new Set(provider.models.map(nameOf));
-  const known = DEFINITIONS.map((d, i) => ({ i, hit: have.has(d.name) || have.has(d.name.replace(/-\d{8}$/, '')) }))
+  const names = catalogNames();
+  const known = names.map((n, i) => ({ i, hit: have.has(n) || have.has(n.replace(/-\d{8}$/, '')) }))
     .filter((x) => x.hit).map((x) => x.i);
   if (!known.length) return provider;   // 清单里没有官方目录里的名字：是用户自定义的，不动
   const newest = Math.min(...known);
-  if (known.length * 2 < DEFINITIONS.length - newest) return provider;
+  if (known.length * 2 < names.length - newest) return provider;
   const fresh = claudeOAuthModels().slice(0, newest);
   return fresh.length ? { ...provider, models: [...fresh, ...provider.models] } : provider;
 }
