@@ -1396,6 +1396,13 @@ function RouteEditor({ route, agents, onSave, onCancel, t }) {
   const [picked, setPicked] = useState(new Set(route.candidates || []));
   const [allowHired, setAllowHired] = useState(!!route.allowHired);
   const [whenNone, setWhenNone] = useState(route.whenNone || 'self');
+  // 验收：命令 或 审查智能体（二选一），不过最多返工几次；预算：最多派几次、雇几次（0 = 不限）
+  const [verifyKind, setVerifyKind] = useState(route.verify?.command ? 'command' : (route.verify?.reviewer ? 'reviewer' : 'none'));
+  const [verifyCmd, setVerifyCmd] = useState(route.verify?.command || '');
+  const [reviewer, setReviewer] = useState(route.verify?.reviewer || '');
+  const [maxRework, setMaxRework] = useState(route.verify?.maxRework ?? 1);
+  const [maxDispatches, setMaxDispatches] = useState(route.budget?.maxDispatches || 0);
+  const [maxHires, setMaxHires] = useState(route.budget?.maxHires || 0);
   const [saving, setSaving] = useState(false);
   const pickable = agents.filter(a => a && !a.guardian && a.id !== 'assistant:tb-guardian' && a.type !== 'community' && !(a.type === 'cli' && a.installed === false));
   const kindOf = (a) => (a.type === 'assistant' ? t('gw2.kind.pro') : a.type === 'external' ? t('gw2.kind.ext') : t('gw2.kind.app'));
@@ -1403,7 +1410,15 @@ function RouteEditor({ route, agents, onSave, onCancel, t }) {
   const save = async () => {
     setSaving(true);
     try {
-      await onSave({ ...route, name: name.trim() || route.name, mainAgentId, rules, candidates: all ? null : [...picked], allowHired, whenNone });
+      await onSave({
+        ...route, name: name.trim() || route.name, mainAgentId, rules, candidates: all ? null : [...picked], allowHired, whenNone,
+        verify: {
+          command: verifyKind === 'command' ? verifyCmd.trim() : '',
+          reviewer: verifyKind === 'reviewer' ? reviewer : '',
+          maxRework: Number(maxRework) || 0,
+        },
+        budget: { maxDispatches: Number(maxDispatches) || 0, maxHires: Number(maxHires) || 0 },
+      });
     } finally { setSaving(false); }
   };
   const label = 'block text-xs font-semibold text-zinc-700 dark:text-zinc-200';
@@ -1475,6 +1490,44 @@ function RouteEditor({ route, agents, onSave, onCancel, t }) {
         <label className="flex items-center gap-2 min-h-[44px] md:min-h-[28px]"><input type="radio" className="w-[18px] h-[18px] md:w-4 md:h-4" checked={whenNone === 'error'} onChange={() => setWhenNone('error')} />{t('gw2.route.noneError')}</label>
       </div>
 
+      <div className="space-y-1.5">
+        <span className={label}>{t('gw2.route.verify')} <span className="font-normal text-zinc-500">{t('gw2.route.verifyHint')}</span></span>
+        <div className="flex flex-col md:flex-row md:flex-wrap md:items-center gap-1 md:gap-3 text-zinc-700 dark:text-zinc-200">
+          {['none', 'command', 'reviewer'].map(k => (
+            <label key={k} className="flex items-center gap-2 min-h-[44px] md:min-h-[28px]">
+              <input type="radio" className="w-[18px] h-[18px] md:w-4 md:h-4" checked={verifyKind === k} onChange={() => setVerifyKind(k)} />{t(`gw2.route.verify_${k}`)}
+            </label>
+          ))}
+        </div>
+        {verifyKind === 'command' && (
+          <input value={verifyCmd} onChange={e => setVerifyCmd(e.target.value)} placeholder={t('gw2.route.verifyCmdPh')}
+            className="w-full font-mono min-h-[44px] md:min-h-[32px] px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm md:text-xs text-zinc-900 dark:text-zinc-100" />
+        )}
+        {verifyKind === 'reviewer' && (
+          <select value={reviewer} onChange={e => setReviewer(e.target.value)} className="min-h-[44px] md:min-h-[32px] px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm md:text-xs text-zinc-900 dark:text-zinc-100">
+            <option value="">{t('gw2.route.reviewerPick')}</option>
+            {pickable.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        )}
+        {verifyKind !== 'none' && (
+          <label className="flex items-center gap-2 text-zinc-500">{t('gw2.route.maxRework')}
+            <input type="number" min={0} max={5} value={maxRework} onChange={e => setMaxRework(e.target.value)} className="w-20 min-h-[44px] md:min-h-[32px] px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm md:text-xs text-zinc-900 dark:text-zinc-100" />
+          </label>
+        )}
+      </div>
+
+      <div className="space-y-1.5">
+        <span className={label}>{t('gw2.route.budget')} <span className="font-normal text-zinc-500">{t('gw2.route.budgetHint')}</span></span>
+        <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 text-zinc-500">
+          <label className="flex items-center gap-2">{t('gw2.route.maxDispatches')}
+            <input type="number" min={0} max={500} value={maxDispatches} onChange={e => setMaxDispatches(e.target.value)} className="w-20 min-h-[44px] md:min-h-[32px] px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm md:text-xs text-zinc-900 dark:text-zinc-100" />
+          </label>
+          <label className="flex items-center gap-2">{t('gw2.route.maxHires')}
+            <input type="number" min={0} max={500} value={maxHires} onChange={e => setMaxHires(e.target.value)} className="w-20 min-h-[44px] md:min-h-[32px] px-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm md:text-xs text-zinc-900 dark:text-zinc-100" />
+          </label>
+        </div>
+      </div>
+
       <div className="flex flex-col md:flex-row md:items-center gap-2 pt-2 border-t border-zinc-100 dark:border-white/[0.06]">
         <span className="text-zinc-500 dark:text-zinc-400 md:flex-1">{t('gw2.route.seeInPlay')}</span>
         <div className="flex gap-2 [&>*]:flex-1 md:[&>*]:flex-none">
@@ -1483,6 +1536,162 @@ function RouteEditor({ route, agents, onSave, onCancel, t }) {
         </div>
       </div>
     </div>
+  );
+}
+
+const TEAM_STATUS_CLS = {
+  running: 'text-blue-600 dark:text-blue-400',
+  delivered: 'text-emerald-600 dark:text-emerald-400',
+  failed: 'text-red-600 dark:text-red-400',
+  cancelled: 'text-zinc-500',
+};
+const fmtTime = (ts) => (ts ? new Date(ts).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
+const fmtClock = (ts) => (ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
+
+/** 一条智能体路由最近派过的几批任务 */
+function RouteTeams({ routeId, onOpen, t }) {
+  const [teams, setTeams] = useState(null);
+  useEffect(() => {
+    Promise.resolve(agentApi().teamsList?.({ routeId, limit: 8 }))
+      .then(r => setTeams(r?.success ? r.teams : []))
+      .catch(() => setTeams([]));
+  }, [routeId]);
+  if (teams == null) return <div className="px-4 py-2 text-[11px] text-zinc-400">{t('gw2.task.loading')}</div>;
+  if (!teams.length) return <div className="px-4 py-2 text-[11px] text-zinc-400">{t('gw2.team.empty')}</div>;
+  return (
+    <ul className="m-0 px-2 py-1 list-none space-y-1">
+      {teams.map(tm => (
+        <li key={tm.id}>
+          <button type="button" onClick={() => onOpen(tm.id)}
+            className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left text-xs hover:bg-black/[0.04] dark:hover:bg-white/[0.05]">
+            <span className={`shrink-0 font-medium ${TEAM_STATUS_CLS[tm.status] || ''}`}>{t(`gw2.team.status_${tm.status}`)}</span>
+            <span className="flex-1 min-w-0 truncate text-zinc-700 dark:text-zinc-200">{tm.prompt}</span>
+            {tm.verified != null && <span className={`shrink-0 ${tm.verified ? 'text-emerald-600' : 'text-red-500'}`}>{tm.verified ? t('gw2.team.verifyOk') : t('gw2.team.verifyNo')}</span>}
+            <span className="shrink-0 text-zinc-400 tabular-nums">{t('gw2.team.dispatches', { n: tm.counts?.dispatch || 0 })}</span>
+            <span className="shrink-0 text-zinc-400 tabular-nums">{fmtTime(tm.createdAt)}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** 一批任务的协作过程：任务树、计划、协作区留言、时间线（可回放） */
+function TeamView({ teamId, onClose, t }) {
+  const [team, setTeam] = useState(null);
+  const [err, setErr] = useState('');
+  const [cursor, setCursor] = useState(-1);   // 回放到第几条；-1 = 全部显示
+  const timer = useRef(null);
+  useEffect(() => {
+    Promise.resolve(agentApi().teamView?.(teamId))
+      .then(r => { if (r?.success) setTeam(r.team); else setErr(r?.error || 'error'); })
+      .catch(e => setErr(e.message));
+    return () => clearInterval(timer.current);
+  }, [teamId]);
+  const timeline = team?.timeline || [];
+  const replay = () => {
+    clearInterval(timer.current);
+    setCursor(0);
+    timer.current = setInterval(() => {
+      setCursor(c => {
+        if (c + 1 >= timeline.length) { clearInterval(timer.current); return -1; }
+        return c + 1;
+      });
+    }, 700);
+  };
+  const until = cursor >= 0 ? (timeline[cursor]?.at || 0) : Infinity;
+  const nodeShown = (n) => n.depth === 0 || (n.created_at || 0) <= until;
+  const nodeStatus = (n) => (cursor >= 0 && (!n.completed_at || n.completed_at > until) ? 'running' : n.status);
+  const head = 'text-xs font-semibold text-zinc-700 dark:text-zinc-200 mb-1.5';
+  return createPortal(
+    <div className="electron-no-drag fixed inset-0 z-[80] flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white dark:bg-zinc-800 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-700 w-full max-w-4xl mx-4 max-h-[92vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-zinc-200 dark:border-zinc-700 sticky top-0 bg-white dark:bg-zinc-800 z-10">
+          <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100 flex-1 min-w-0 truncate">{t('gw2.team.title')}</h3>
+          {timeline.length > 1 && <button type="button" className={BTN} onClick={replay}>{cursor >= 0 ? t('gw2.team.replaying', { i: cursor + 1, n: timeline.length }) : t('gw2.team.replay')}</button>}
+          <button type="button" onClick={onClose} className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 text-lg">✕</button>
+        </div>
+        {err ? <div className="py-16 text-center text-xs text-red-600">{err}</div> : !team ? (
+          <div className="py-16 text-center text-xs text-zinc-400">{t('gw2.task.loading')}</div>
+        ) : (
+          <div className="p-5 space-y-5 text-xs">
+            <div className="space-y-1">
+              <p className="m-0 text-zinc-800 dark:text-zinc-100 whitespace-pre-wrap">{team.prompt}</p>
+              <p className="m-0 text-zinc-500 flex flex-wrap gap-x-3">
+                <span className={TEAM_STATUS_CLS[team.status] || ''}>{t(`gw2.team.status_${team.status}`)}</span>
+                <span>{t('gw2.team.dispatches', { n: team.counts?.dispatch || 0 })}{team.counts?.hire ? ` · ${t('gw2.team.hires', { n: team.counts.hire })}` : ''}</span>
+                {team.tokens > 0 && <span>{t('gw2.team.tokens', { n: team.tokens.toLocaleString() })}</span>}
+                <span>{t('gw2.team.rounds', { n: team.attempts?.length || 0 })}</span>
+              </p>
+              {(team.attempts || []).filter(a => a.verify).map((a, i) => (
+                <p key={i} className={`m-0 ${a.verify.ok ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {t('gw2.team.roundVerify', { i: i + 1, how: a.verify.how, ok: a.verify.ok ? t('gw2.team.verifyOk') : t('gw2.team.verifyNo') })}
+                  {!a.verify.ok && a.verify.detail ? <span className="text-zinc-500">：{String(a.verify.detail).slice(0, 200)}</span> : null}
+                </p>
+              ))}
+            </div>
+
+            <section>
+              <div className={head}>{t('gw2.team.tree')}</div>
+              <ul className="m-0 p-0 list-none space-y-1">
+                {team.nodes.filter(nodeShown).map(n => (
+                  <li key={n.id} className="flex items-center gap-2 min-w-0" style={{ paddingLeft: `${n.depth * 20}px` }}>
+                    <span className={`shrink-0 w-2 h-2 rounded-full ${nodeStatus(n) === 'completed' ? 'bg-emerald-500' : nodeStatus(n) === 'running' || nodeStatus(n) === 'pending' ? 'bg-blue-500 animate-pulse' : 'bg-red-400'}`} />
+                    <span className="shrink-0 font-mono text-zinc-700 dark:text-zinc-200">{n.agent_id}</span>
+                    {n.device && <span className="shrink-0 text-violet-600 dark:text-violet-400">@{n.device}</span>}
+                    {n.reviewer && <span className="shrink-0 text-amber-600">{t('gw2.team.reviewer')}</span>}
+                    <span className="flex-1 min-w-0 truncate text-zinc-500" title={n.prompt}>{n.prompt}</span>
+                    <span className="shrink-0 text-zinc-400 tabular-nums">{t('gw2.team.steps', { n: n.steps })}</span>
+                    {n.tokens > 0 && <span className="shrink-0 text-zinc-400 tabular-nums">{n.tokens.toLocaleString()} tok</span>}
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            {team.plan.length > 0 && (
+              <section>
+                <div className={head}>{t('gw2.team.plan')}</div>
+                <ol className="m-0 pl-4 space-y-0.5">
+                  {team.plan.map(s => (
+                    <li key={s.id} className="text-zinc-700 dark:text-zinc-200">
+                      <span className="font-mono text-zinc-400">{s.id}</span> {s.title}
+                      {s.agent && <span className="text-zinc-500"> · {s.agent}</span>}
+                      {s.depends_on?.length > 0 && <span className="text-zinc-400"> · {t('gw2.team.dependsOn', { ids: s.depends_on.join('、') })}</span>}
+                      <span className="text-zinc-400"> · {t(`gw2.team.step_${s.status}`)}</span>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
+
+            <section>
+              <div className={head}>{t('gw2.team.notes')}</div>
+              {team.notes.length === 0 ? <p className="m-0 text-zinc-400">{t('gw2.team.noNotes')}</p> : (
+                <ul className="m-0 p-0 list-none space-y-1">
+                  {team.notes.filter(n => n.at <= until).map((n, i) => (
+                    <li key={i}><span className="text-zinc-400 tabular-nums">{fmtClock(n.at)}</span> <span className="font-medium text-zinc-700 dark:text-zinc-200">{n.from}</span>{n.to ? <span className="text-zinc-500"> → {n.to}</span> : null}：{n.text}</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section>
+              <div className={head}>{t('gw2.team.timeline')}</div>
+              <ol className="m-0 p-0 list-none space-y-0.5">
+                {timeline.map((e, i) => (
+                  <li key={i} className={`flex gap-2 ${cursor >= 0 && i > cursor ? 'opacity-25' : ''} ${cursor === i ? 'font-semibold text-blue-600 dark:text-blue-400' : 'text-zinc-600 dark:text-zinc-300'}`}>
+                    <span className="shrink-0 text-zinc-400 tabular-nums">{fmtClock(e.at)}</span>
+                    <span className="min-w-0">{e.text}</span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1495,6 +1704,8 @@ export function AgentRoutesPanel() {
   const [editing, setEditing] = useState(null);   // 路由 id，或 'new'
   const [err, setErr] = useState('');
   const [apiFor, setApiFor] = useState('');
+  const [teamsFor, setTeamsFor] = useState('');   // 展开看哪条路由最近的几批任务
+  const [teamOpen, setTeamOpen] = useState('');   // 打开哪批任务的协作过程
   const load = useCallback(() => {
     Promise.resolve(agentApi().routesList?.()).then(r => { if (r?.success) setRoutes(r.routes || []); }).catch(() => {});
     Promise.resolve(agentApi().listAgents?.()).then(r => { if (r?.success) setAgents(r.agents || []); }).catch(() => {});
@@ -1570,6 +1781,8 @@ export function AgentRoutesPanel() {
                   <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400 truncate" title={describe(r)}>{describe(r)}</p>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                  <button type="button" className={`${BTN} ${teamsFor === r.id ? '!border-blue-400 !text-blue-500' : ''}`} aria-expanded={teamsFor === r.id}
+                    onClick={() => setTeamsFor(teamsFor === r.id ? '' : r.id)}>{t('gw2.team.recent')}</button>
                   <button type="button" className={`${BTN} hidden sm:inline-flex`} onClick={() => navigate('/debug', { state: { hubRoute: r.id } })}>{t('gw2.route.try')}</button>
                   <button type="button" className={`${BTN} ${apiFor === r.id ? '!border-blue-400 !text-blue-500' : ''}`} aria-expanded={apiFor === r.id}
                     onClick={() => setApiFor(apiFor === r.id ? '' : r.id)}>{apiFor === r.id ? t('gw2.pro.apiClose') : t('gw2.pro.api')}</button>
@@ -1581,6 +1794,7 @@ export function AgentRoutesPanel() {
                   )}
                 </div>
               </div>
+              {teamsFor === r.id && <div className="mt-1 rounded-xl border border-zinc-200 dark:border-zinc-700"><RouteTeams routeId={r.id} onOpen={setTeamOpen} t={t} /></div>}
               {apiFor === r.id && <div className="mt-2"><AgentApiInline harnessId={r.id} note={t('gw2.api.routeNote', { name: r.name })} t={t} /></div>}
               {open && <div className="mt-2"><RouteEditor route={r} agents={agents} t={t} onSave={save} onCancel={() => setEditing(null)} /></div>}
             </div>
@@ -1588,6 +1802,7 @@ export function AgentRoutesPanel() {
         })}
         {routes.length === 0 && <div className="px-5 py-8 text-xs text-zinc-400 text-center">{t('gateway.route.empty')}</div>}
       </div>
+      {teamOpen && <TeamView teamId={teamOpen} onClose={() => setTeamOpen('')} t={t} />}
     </section>
   );
 }

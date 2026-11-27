@@ -252,6 +252,24 @@ function registerAgentHandlers() {
     try { return { success: true, removed: require('./agent-routes').remove(String(id || '')) }; }
     catch (error) { return { success: false, error: error.message }; }
   });
+  // 一批任务（走智能体路由派的活）：列表和协作过程（任务树、计划、留言、时间线）
+  ipcMain.handle('agent:teamsList', async (_event, { routeId, limit } = {}) => {
+    try {
+      const team = require('./agent-team');
+      const teams = team.list({ routeId: routeId || undefined, limit: Math.min(Number(limit) || 10, 50) }).map((t) => ({
+        id: t.id, routeId: t.routeId, status: t.status, prompt: String(t.prompt || '').slice(0, 160),
+        createdAt: t.createdAt, endedAt: t.endedAt || null, counts: t.counts, attempts: (t.attempts || []).length,
+        verified: (t.attempts || []).length ? ((t.attempts[t.attempts.length - 1].verify || {}).ok ?? null) : null,
+      }));
+      return { success: true, teams };
+    } catch (error) { return { success: false, error: error.message }; }
+  });
+  ipcMain.handle('agent:teamView', async (_event, teamId) => {
+    try {
+      const v = require('./agent-team').view(String(teamId || ''));
+      return v ? { success: true, team: v } : { success: false, error: 'not_found' };
+    } catch (error) { return { success: false, error: error.message }; }
+  });
   // 外部智能体（网关页「外部智能体」）：配对码、允许 / 停用 / 移除
   const ext = () => require('./external-agents');
   ipcMain.handle('agent:externalList', async () => {

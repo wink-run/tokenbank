@@ -67,6 +67,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     keyRegenerate: (agentId) => ipcRenderer.invoke('agent:keyRegenerate', agentId),
     setAssistantRuntime: (resourceId, runtimeAgentId) => ipcRenderer.invoke('agent:setAssistantRuntime', { resourceId, runtimeAgentId }),
     routesList: () => ipcRenderer.invoke('agent:routesList'),
+    teamsList: (opts) => ipcRenderer.invoke('agent:teamsList', opts || {}),
+    teamView: (id) => ipcRenderer.invoke('agent:teamView', id),
     routesSave: (route) => ipcRenderer.invoke('agent:routesSave', route),
     routesRemove: (id) => ipcRenderer.invoke('agent:routesRemove', id),
     harnesses: () => ipcRenderer.invoke('agent:harnesses'),

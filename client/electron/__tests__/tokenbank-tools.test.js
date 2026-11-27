@@ -74,15 +74,15 @@ async function withMocks({ rm = mockRm(), relayed = [], plain = [] } = {}, fn) {
 const call = (name, args, ctx = {}) => tools.callTool(name, args, { level: 'full', ...ctx });
 const text = (r) => r.content.map((c) => c.text).join('\n');
 
-test('十一个工具，名字不重复；按权限逐级放开', () => {
+test('十三个工具，名字不重复；按权限逐级放开', () => {
   const names = tools.TOOLS.map((t) => t.name);
-  assert.equal(names.length, 11);
-  assert.equal(new Set(names).size, 11);
+  assert.equal(names.length, 13);
+  assert.equal(new Set(names).size, 13);
   const at = (level) => tools.listTools({ level }).map((t) => t.name);
   assert.deepEqual(at('off'), []);
   assert.ok(at('read').includes('tb_list_resources') && !at('read').includes('tb_dispatch_agent'));
   assert.ok(at('operate').includes('tb_dispatch_agent') && at('operate').includes('tb_chat') && !at('operate').includes('tb_call_mcp'));
-  assert.equal(at('full').length, 11);
+  assert.equal(at('full').length, 13);
   assert.ok(tools.listTools({ level: 'full' }).every((t) => !('level' in t)), '列表里不带内部的 level 字段');
 });
 

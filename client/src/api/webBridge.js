@@ -139,6 +139,8 @@ const agent = {
   keyRegenerate: (agentId) => invoke('agent:keyRegenerate', agentId),
   setAssistantRuntime: (resourceId, runtimeAgentId) => invoke('agent:setAssistantRuntime', { resourceId, runtimeAgentId }),
   routesList: call0('agent:routesList'),
+  teamsList: (opts) => invoke('agent:teamsList', opts || {}),
+  teamView: (id) => invoke('agent:teamView', id),
   routesSave: (route) => invoke('agent:routesSave', route),
   routesRemove: (id) => invoke('agent:routesRemove', id),
   harnesses: call0('agent:harnesses'),

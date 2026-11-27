@@ -83,8 +83,37 @@ const TOOLS = [
         prompt: { type: 'string', description: '要做的事：目标、背景、约束、交付什么（路径或格式），别丢用户给的关键细节' },
         background: { type: 'boolean', description: 'true：不等结果，马上返回任务号' },
         previous_task_id: { type: 'string', description: '接着之前某个子任务的对话继续，比如按反馈再改一版' },
+        plan_step: { type: 'string', description: '可选：对应 tb_plan 里的哪一步（步骤 id），派出后计划里会跟上它的进度' },
       },
       required: ['agent_id', 'prompt'],
+    },
+  },
+  {
+    name: 'tb_plan',
+    level: 'operate',
+    description: '记下或查看这批任务的派发计划（智能体路由派活时用）。带 steps 是写计划；不带就看计划：每步做到哪了、哪些依赖已完成可以派了。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        steps: {
+          type: 'array',
+          description: '计划的步骤：[{ id, title, agent, depends_on: [步骤 id] }]。再写一次会更新，已派出的步骤保留进度',
+          items: { type: 'object' },
+        },
+      },
+    },
+  },
+  {
+    name: 'tb_notes',
+    level: 'operate',
+    description: '一批任务的协作区：成员之间对接口、说阻塞、交代产出。不带 post 是看最近的留言；带 post 是留言，to 写给谁（智能体 id 或「全部」）。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        team: { type: 'string', description: '团队号（派活时提示里给的）；在派活方那边可以不写' },
+        post: { type: 'string', description: '要留的话' },
+        to: { type: 'string', description: '写给谁，可不写' },
+      },
     },
   },
   {
@@ -533,13 +562,23 @@ async function dispatchAgent(args, ctx) {
   if (ctx.selfAgentId && agentId === ctx.selfAgentId) return textResult('不能把任务派给你自己', true);
   try {
     await checkRoute(agentId, (ctx.dispatch || {}).agentRouteId);
+    // 走智能体路由的一批任务：查预算、给子任务补一句协作区、派出后记进计划
+    const team = require('./agent-team');
+    const teamId = team.teamOf((ctx.dispatch || {}).parentTaskId);
+    if (teamId) team.checkBudget(teamId, agentId);
+    const step = String(args.plan_step || '').trim() || undefined;
+    const fullPrompt = teamId ? `${prompt}${team.childPromptSuffix(teamId)}` : prompt;
     const opts = dispatchOpts(ctx, { previousTaskId: String(args.previous_task_id || '').trim() || undefined });
     if (args.background === true || args.background === 'true') {
-      const t = await executor().dispatch(agentId, prompt, opts);
+      const t = await executor().dispatch(agentId, fullPrompt, opts);
+      if (teamId) team.noteDispatch(teamId, { taskId: t.taskId, agentId: t.agentId || agentId, step });
       const where = t.device ? `，在「${t.device}」上执行` : '';
       return textResult(`[${t.agentId || agentId}] 已派出${where}。任务号：${t.taskId}\n用 tb_task_status(ids=["${t.taskId}"], wait="any") 收结果。`);
     }
-    const status = await executor().dispatchAndWait(agentId, prompt, opts);
+    if (teamId) team.noteDispatch(teamId, { taskId: null, agentId, step: undefined });
+    const status = await executor().dispatchAndWait(agentId, fullPrompt, opts);
+    const doneId = status.id || status.task_id;
+    if (teamId && step && doneId) team.linkStep(teamId, step, doneId, agentId);
     const id = status.agent_id || agentId;
     if (status.status === 'completed') {
       const raw = status.result?.output || status.result?.summary || '';
@@ -565,6 +604,37 @@ async function taskStatus(args) {
   }
 }
 
+function teamFor(args, ctx) {
+  const team = require('./agent-team');
+  const given = String(args.team || '').trim();
+  if (given && team.read(given)) return given;
+  return team.teamOf((ctx.dispatch || {}).parentTaskId);
+}
+
+function planTool(args, ctx) {
+  const team = require('./agent-team');
+  const teamId = teamFor(args, ctx);
+  if (!teamId) return textResult('现在不在一批路由任务里（只有走智能体路由派活时才有计划）', true);
+  if (Array.isArray(args.steps)) {
+    if (!args.steps.length) return textResult('steps 是空的', true);
+    team.setPlan(teamId, args.steps);
+  }
+  return textResult(`计划（团队 ${teamId}）：\n${team.planText(team.planView(teamId))}`);
+}
+
+function notesTool(args, ctx) {
+  const team = require('./agent-team');
+  const teamId = teamFor(args, ctx);
+  if (!teamId) return textResult('现在不在一批路由任务里，没有协作区', true);
+  const post = String(args.post || '').trim();
+  if (post) {
+    team.addNote(teamId, { from: ctx.selfAgentId || ctx.clientId || '', to: args.to, text: post });
+  }
+  const list = team.notes(teamId);
+  const fmt = (n) => `- [${new Date(n.at).toLocaleTimeString()}] ${n.from}${n.to ? ` → ${n.to}` : ''}：${n.text}`;
+  return textResult(`${post ? '已留言。\n' : ''}协作区（团队 ${teamId}）：\n${list.length ? list.map(fmt).join('\n') : '（还没有留言）'}`);
+}
+
 async function hireCommunityAgent(args, ctx) {
   const assistantId = String(args.assistant_id || '').trim();
   if (!assistantId) return textResult('缺少 assistant_id', true);
@@ -579,6 +649,9 @@ async function hireCommunityAgent(args, ctx) {
     const prompt = String(args.prompt || '').trim();
     if (!prompt) return textResult(`已雇佣：${entry.id}（${entry.display_name}）。用 tb_dispatch_agent 派活。`);
     await checkRoute(entry.id, (ctx.dispatch || {}).agentRouteId);
+    const team = require('./agent-team');
+    const teamId = team.teamOf((ctx.dispatch || {}).parentTaskId);
+    if (teamId) { team.checkBudget(teamId, entry.id); team.noteDispatch(teamId, { taskId: null, agentId: entry.id }); }
     const status = await executor().dispatchAndWait(entry.id, prompt, dispatchOpts(ctx));
     if (status.status === 'completed') {
       return textResult(`已雇佣并完成 [${entry.id}]:\n${status.result?.summary || status.result?.output || '(无输出)'}`);
@@ -1200,6 +1273,8 @@ async function callTool(name, args, ctx = {}) {
     case 'tb_list_agents': return listAgents(ctx);
     case 'tb_dispatch_agent': return dispatchAgent(a, ctx);
     case 'tb_task_status': return taskStatus(a);
+    case 'tb_plan': return planTool(a, ctx);
+    case 'tb_notes': return notesTool(a, ctx);
     case 'tb_hire_community_agent':
       if (ctx.selfAgentId && String(a.assistant_id || '') === ctx.selfAgentId) return textResult('不能雇你自己', true);
       return hireCommunityAgent(a, ctx);

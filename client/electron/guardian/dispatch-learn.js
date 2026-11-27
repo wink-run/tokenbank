@@ -38,7 +38,7 @@ function orchestratorHints() {
   const lines = [];
   const prefs = Object.entries(t.prefs);
   if (prefs.length) {
-    lines.push('【派发偏好（Token Bank 智能管家根据用户的改派习惯总结，list 里有该智能体时优先）】');
+    lines.push('【派发偏好（Token Bank 智能管家根据用户的改派习惯和交付结果总结，list 里有该智能体时优先）】');
     for (const [topic, p] of prefs) lines.push(`- 「${p.label || topic}」这类子任务优先派给 ${agentName(p.agentId)}（${p.agentId}）。`);
   }
   return lines;
@@ -108,6 +108,64 @@ function feedback(evt = {}) {
   return { ok: true, learned: !!learned };
 }
 
+// ── 按交付结果学（智能体路由的一批任务结束后，agent-team.js 上报）──────────────
+// 每个成员做的哪类活、最后成没成（子任务完成且整体验收通过才算成）。同一类活上，
+// 两个智能体各至少做过 OUTCOME_MIN 次、成功率差距够大时，把这类活优先派给成功率高的那个。
+const OUTCOME_MIN = 3;
+const OUTCOME_GAP = 0.3;
+
+function readOutcomes() {
+  const r = store.readJson('dispatch-outcomes.json', []);
+  return Array.isArray(r) ? r : [];
+}
+
+function learnOutcomes(topic) {
+  const events = readOutcomes().filter(e => e.topic === topic.id).slice(0, 60);
+  const by = {};
+  for (const e of events) {
+    const s = by[e.agentId] || (by[e.agentId] = { n: 0, ok: 0 });
+    s.n += 1; if (e.ok) s.ok += 1;
+  }
+  const rated = Object.entries(by).filter(([, s]) => s.n >= OUTCOME_MIN).map(([id, s]) => ({ id, ...s, rate: s.ok / s.n }));
+  if (rated.length < 2) return null;
+  rated.sort((a, b) => b.rate - a.rate || b.n - a.n);
+  const [best, worst] = [rated[0], rated[rated.length - 1]];
+  if (best.rate - worst.rate < OUTCOME_GAP || best.rate < 0.6) return null;
+  const t = tuning();
+  if (t.prefs[topic.id]?.agentId === best.id) return null;
+  const prev = t.prefs[topic.id] || null;
+  const data = { topic: topic.id, label: topic.label, agentId: best.id };
+  const pct = (x) => `${Math.round(x * 100)}%`;
+  const title = `「${topic.label}」这类任务以后优先派给 ${agentName(best.id)}`;
+  const advice = `看最近的交付结果：这类活 ${agentName(best.id)} 成了 ${best.ok}/${best.n}（${pct(best.rate)}），${agentName(worst.id)} 成了 ${worst.ok}/${worst.n}（${pct(worst.rate)}）。之后智能体路由派这类子任务会优先选 ${agentName(best.id)}。`;
+  const sig = `dispatch-pref|${topic.id}|${best.id}`;
+  if (guardian.modeOf('gateway') === 'auto') {
+    setDispatchPref(data);
+    return guardian.record({
+      category: 'gateway', kind: 'dispatch-pref', status: 'done', title, advice, signature: sig,
+      undo: { type: 'removeDispatchPref', data: { topic: topic.id, prev } },
+      meta: { ...data, from: 'outcomes' },
+    });
+  }
+  return guardian.record({
+    category: 'gateway', kind: 'dispatch-pref', status: 'suggested', title, advice, signature: sig,
+    apply: { type: 'setDispatchPref', data },
+    applyUndo: { type: 'removeDispatchPref', data: { topic: topic.id, prev } },
+    meta: { ...data, from: 'outcomes' },
+  });
+}
+
+/** 一个成员的一次结果。evt: { prompt, agentId, ok, teamId } */
+function noteOutcome(evt = {}) {
+  if (off() || !evt.agentId) return { ok: true, skipped: true };
+  const topic = topicsOf(evt.prompt)[0] || null;
+  if (!topic) return { ok: true, skipped: true };
+  const e = { at: Date.now(), topic: topic.id, agentId: evt.agentId, ok: !!evt.ok, teamId: evt.teamId || null };
+  store.writeJson('dispatch-outcomes.json', [e, ...readOutcomes()].slice(0, MAX_EVENTS));
+  const learned = learnOutcomes(topic);
+  return { ok: true, learned: !!learned };
+}
+
 function register() {
   guardian.registerAction('setDispatchPref', setDispatchPref);
   guardian.registerAction('removeDispatchPref', removeDispatchPref);
@@ -115,4 +173,4 @@ function register() {
   guardian.registerAction('removeSummaryRule', () => ({ ok: true }));
 }
 
-module.exports = { register, feedback, orchestratorHints, _internal: { tuning } };
+module.exports = { register, feedback, noteOutcome, orchestratorHints, _internal: { tuning, readOutcomes } };

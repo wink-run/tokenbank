@@ -1046,6 +1046,9 @@ class AgentExecutor extends EventEmitter {
         // local / owner = 本机，hired = 雇佣。来自请求 metadata.call_context。
         callContext: options.callContext || null,
         previousTaskId: options.previousTaskId || null,
+        // 走智能体路由的一批任务（团队）：agent-team.js
+        agentRouteId: options.agentRouteId || null,
+        teamId: options.teamId || null,
       }),
       Date.now(),
     );
@@ -1065,6 +1068,13 @@ class AgentExecutor extends EventEmitter {
       sessionInstanceId: options.sessionInstanceId || null,
       clientId: options.clientId || null,
     });
+
+    // 智能体路由的一轮：建团队（返工轮次归原团队），后台跟到结束再验收
+    if (mode === 'orchestrator' && options.agentRouteId) {
+      try { require('./agent-team').onRouteTask(this, taskId, { prompt, options: { ...options, sessionKey } }); } catch (e) {
+        console.warn('[AgentExecutor] team:', e.message);
+      }
+    }
 
     return { taskId };
   }

@@ -46,7 +46,7 @@ test('升级：旧的四条内置 MCP 合成一条 tokenbank，投射和中转�
       // 旧的都在（本机装了的应用也会被默认补上）
       assert.ok(meta.sync_clients.includes('codex') && meta.sync_clients.includes('cursor'), meta.sync_clients.join(','));
       assert.deepEqual([...meta.gateway_clients].sort(), ['api', 'trae-work']);
-      assert.equal(meta.tools.length, 11);
+      assert.equal(meta.tools.length, 13);
       assert.ok(synced >= 1, '升级后重写应用配置，清掉旧的四条');
     } finally {
       mcpManager.syncToClients = origSync;
@@ -63,7 +63,7 @@ test('中转：Token Bank 的工具在进程内按应用的权限给；只要 to
     const access = require('../mcp-access');
     const list = async (cid) => (await relay.handleMcpMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, cid, { scope: 'tokenbank' })).result.tools.map((t) => t.name);
     assert.equal(access.appLevel('cursor'), 'full');
-    assert.equal((await list('cursor')).length, 11);
+    assert.equal((await list('cursor')).length, 13);
     access.setAppLevel('cursor', 'read');
     const names = await list('cursor');
     assert.ok(names.includes('tb_list_agents') && !names.includes('tb_dispatch_agent'));

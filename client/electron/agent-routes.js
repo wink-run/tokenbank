@@ -60,8 +60,26 @@ function normalize(r) {
     candidates,
     allowHired: !!r.allowHired,
     whenNone: r.whenNone === 'error' ? 'error' : 'self',
+    // 验收：交付后跑一条命令（退出码 0 算过），或派一个审查型智能体；不过就带着原因返工，最多 maxRework 次
+    verify: normalizeVerify(r.verify),
+    // 预算：这条路由一批任务最多派几次、最多雇几次社区智能体（0 = 不限）
+    budget: normalizeBudget(r.budget),
     updatedAt: Number(r.updatedAt) || 0,
   };
+}
+
+function normalizeVerify(v) {
+  const o = v && typeof v === 'object' ? v : {};
+  const command = String(o.command || '').trim().slice(0, 500);
+  const reviewer = command ? '' : String(o.reviewer || '').trim().slice(0, 120);
+  const n = Number(o.maxRework);
+  return { command, reviewer, maxRework: Number.isFinite(n) ? Math.max(0, Math.min(5, Math.round(n))) : 1 };
+}
+
+function normalizeBudget(b) {
+  const o = b && typeof b === 'object' ? b : {};
+  const num = (x) => { const n = Number(x); return Number.isFinite(n) && n > 0 ? Math.min(500, Math.round(n)) : 0; };
+  return { maxDispatches: num(o.maxDispatches), maxHires: num(o.maxHires) };
 }
 
 function isRouteId(id) {
@@ -138,7 +156,20 @@ function rulesText(route) {
       ? '名单里都不合适时，不要自己做，直接回复「没有合适的智能体」并说明原因。'
       : '名单里都不合适时，你自己完成。'),
   ];
-  return [`【派发规则 · ${route?.name || '默认派发'}】`, ...own, ...builtin].join('\n');
+  const team = [
+    '【协作】',
+    '- 拆完任务先用 tb_plan(steps=[{id, title, agent, depends_on}]) 记下计划；派活时 tb_dispatch_agent 带上 plan_step；随时 tb_plan() 看哪些步骤做完、哪些可以派了（中途断了也能接着做）。',
+    '- 成员之间的留言在协作区：tb_notes() 查看，tb_notes(post=..., to=...) 留言。',
+  ];
+  const b = route?.budget || {};
+  if (b.maxDispatches > 0 || b.maxHires > 0) {
+    team.push(`- 预算：这批任务${b.maxDispatches > 0 ? `最多派 ${b.maxDispatches} 次` : ''}${b.maxDispatches > 0 && b.maxHires > 0 ? '，' : ''}${b.maxHires > 0 ? `最多雇 ${b.maxHires} 次社区智能体` : ''}，省着用，能合并的子任务合并。`);
+  }
+  const v = route?.verify || {};
+  if (v.command || v.reviewer) {
+    team.push(`- 交付后会${v.command ? `跑「${v.command}」` : `请 ${v.reviewer} 审查`}验收，不通过会带着原因让你返工；汇总前自己先检查一遍。`);
+  }
+  return [`【派发规则 · ${route?.name || '默认派发'}】`, ...own, ...builtin, '', ...team].join('\n');
 }
 
 module.exports = {

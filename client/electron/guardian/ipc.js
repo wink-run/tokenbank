@@ -97,6 +97,7 @@ function startGuardian({ gateway, initialDelayMs } = {}) {
   try { require('./judgment').register(); } catch (e) { console.warn('[guardian] judgment:', e.message); }
   try { require('./review-usage').register(); } catch (e) { console.warn('[guardian] review-usage:', e.message); }
   try { require('./task-watch').attach(); } catch (e) { console.warn('[guardian] task-watch:', e.message); }
+  try { require('./team-watch').register(); } catch (e) { console.warn('[guardian] team-watch:', e.message); }
   try { if (gateway) require('./gateway-watch').attach(gateway); } catch (e) { console.warn('[guardian] gateway-watch:', e.message); }
   guardian.start({ initialDelayMs });
   console.log('[guardian] started');
