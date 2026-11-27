@@ -36,3 +36,15 @@ test('诊断：每台试过哪些地址、结果如何，官方中继在不在',
   assert.match(b.attempts[0].error, /超时/);
   assert.equal(d.peers.find((p) => p.name === 'gateway').waiting, true);
 });
+
+test('本机项目目录在那台设备上找同名工作区；找不到在默认工作区跑并说清楚', () => {
+  const { mapWorkspace } = require('../mesh/glue');
+  const dev = { device_id: 'dev-mini', name: 'macmini', descriptor: { workspaces: [{ name: 'Demo' }, { name: 'site' }] } };
+  const hit = mapWorkspace(dev, '/Users/ully/githubprojects/demo/');
+  assert.equal(hit.workspace, 'Demo', '不分大小写');
+  assert.match(hit.note, /macmini 的工作区「Demo」/);
+  const miss = mapWorkspace(dev, '/Users/ully/projects/tokenbank');
+  assert.equal(miss.workspace, null);
+  assert.match(miss.note, /macmini 上没有「tokenbank」工作区，在它的默认工作区里跑/);
+  assert.deepEqual(mapWorkspace(dev, ''), { workspace: null, note: '' });
+});

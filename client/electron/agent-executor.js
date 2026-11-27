@@ -1278,6 +1278,8 @@ class AgentExecutor extends EventEmitter {
       metadata,
       previousResponseId: prevMesh,
       idempotencyKey: options.idempotencyKey,
+      // 续上一轮时那台设备的会话已经在它自己的目录里，不再按本机目录映射
+      localDir: prevMesh ? undefined : (options.workingDir || undefined),
     });
     if (r.local) return { local: r.local };
     this.trackMeshTask(r.id, {
@@ -1292,7 +1294,11 @@ class AgentExecutor extends EventEmitter {
       previousTaskId: options.previousTaskId || null,
       response: r.response,
     });
-    return { taskId: r.id, device: r.device };
+    // 在哪个工作区跑：写成任务的第一步，游乐场和 Trace 里都看得到
+    if (r.workspaceNote) {
+      try { this._emitSingleStep(r.id, -1, { stepType: 'system_event', content: r.workspaceNote }, null); } catch { /* 只是说明 */ }
+    }
+    return { taskId: r.id, device: r.device, workspaceNote: r.workspaceNote || '' };
   }
 
   /**
@@ -1408,7 +1414,8 @@ class AgentExecutor extends EventEmitter {
       let terminal = false;
       try {
         let have = 0;
-        try { have = this._getDb().prepare('SELECT COUNT(*) AS n FROM agent_task_steps WHERE task_id = ?').get(taskId)?.n || 0; } catch { have = 0; }
+        // 第 -1 步是本机加的说明（在哪个工作区跑），不算远端的（远端从第 0 步数起）
+        try { have = this._getDb().prepare('SELECT COUNT(*) AS n FROM agent_task_steps WHERE task_id = ? AND step_number >= 0').get(taskId)?.n || 0; } catch { have = 0; }
         const resp = await glue.fetchAgentTask(taskId, 'get', { stepsAfter: have });
         if (resp.status === 'unreachable') {
           delay = Math.min(delay * 2, 15000);

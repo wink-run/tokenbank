@@ -733,7 +733,21 @@ async function routeAgentCreate({ harnessId, body, req, res, extraMeta }) {
  * 选到本机时返回 { local: '<本机 harness>' }，由调用方照常在本机执行。
  * @returns {Promise<{ id: string, device: string, deviceId: string, response: object } | { local: string }>}
  */
-async function submitAgentTask({ harnessId, input, metadata = {}, previousResponseId, idempotencyKey } = {}) {
+/**
+ * 本机的项目目录在那台设备上对应哪个工作区：按目录名找同名的（不分大小写）。
+ * @returns {{ workspace: string|null, note: string }}
+ */
+function mapWorkspace(dev, localDir) {
+  const label = deviceLabel(dev);
+  const dirName = path.basename(String(localDir || '').replace(/[\\/]+$/, ''));
+  if (!dirName) return { workspace: null, note: '' };
+  const list = (dev.descriptor || {}).workspaces || [];
+  const hit = list.find((w) => String(w.name || '').toLowerCase() === dirName.toLowerCase());
+  if (hit) return { workspace: hit.name, note: `在 ${label} 的工作区「${hit.name}」里跑（对应本机的 ${dirName}）` };
+  return { workspace: null, note: `${label} 上没有「${dirName}」工作区，在它的默认工作区里跑。要对上，在那台设备「我的设备 → 工作区」里加一个同名的` };
+}
+
+async function submitAgentTask({ harnessId, input, metadata = {}, previousResponseId, idempotencyKey, localDir } = {}) {
   if (!node) throw Object.assign(new Error('设备网络没有启动'), { status: 503 });
   const target = scheduler.parseMineHarness(harnessId);
   if (!target) throw Object.assign(new Error(`不是设备网络的目标：${harnessId}`), { status: 400 });
@@ -746,6 +760,13 @@ async function submitAgentTask({ harnessId, input, metadata = {}, previousRespon
   if (!picked.device) throw Object.assign(new Error(picked.reason), { status: 404 });
   if (picked.device.self) return { local: target.id };
   const dev = picked.device;
+  // 本机选的项目目录：那台设备上找同名工作区；找不到就在它的默认工作区里跑，并说清楚
+  let workspaceNote = '';
+  if (!metadata.workspace && localDir) {
+    const mapped = mapWorkspace(dev, localDir);
+    if (mapped.workspace) metadata = { ...metadata, workspace: mapped.workspace };
+    workspaceNote = mapped.note;
+  }
   const forward = {
     input,
     background: true,
@@ -771,7 +792,7 @@ async function submitAgentTask({ harnessId, input, metadata = {}, previousRespon
   }
   console.log(`[mesh] 智能体 ${target.id} → ${deviceLabel(dev)}（后台）`);
   const out = rewriteResponse(obj, dev.device_id, deviceLabel(dev));
-  return { id: out.id, device: deviceLabel(dev), deviceId: dev.device_id, target: target.id, response: out };
+  return { id: out.id, device: deviceLabel(dev), deviceId: dev.device_id, target: target.id, response: out, workspaceNote };
 }
 
 /**
@@ -1106,7 +1127,7 @@ module.exports = {
   fetchAgentTask,
   parseMeshTaskId,
   startFromConfig, stop, getNode,
-  isMeshKey, isMeshRequest, isHop, checkIncoming,
+  isMeshKey, isMeshRequest, isHop, checkIncoming, mapWorkspace,
   devicesView, extraModels, extraHarnesses,
   routeChat, routeAgentCreate, routeAgentById, resolveWorkspace, setName, setSelfName,
   _internal: { sseRewriter, rewriteResponse, parseMeshTaskId, describeSelf },
