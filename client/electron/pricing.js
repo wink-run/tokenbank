@@ -4,6 +4,7 @@
 
 const PRICING = {
   // Anthropic
+  'claude-fable-5-2':  { in: 8.00,  out: 40.00,  cacheRead: 0.20,  cacheWrite: 10.00 },
   'claude-fable-5-1':  { in: 10.00, out: 50.00,  cacheRead: 0.25,  cacheWrite: 12.50 },
   'claude-opus-5-5':   { in: 4.00,  out: 20.00,  cacheRead: 0.20,  cacheWrite: 5.00  },
   'claude-sonnet-5-5': { in: 2.00,  out: 10.00,  cacheRead: 0.10,  cacheWrite: 2.50  },

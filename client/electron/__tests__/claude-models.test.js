@@ -9,12 +9,12 @@ const oauth = require('../oauth');
 test('public active catalog includes latest and legacy models, excluding retired/invitation-only', () => {
   const list = claudeOAuthModels();
   const names = new Set(list.map((m) => m.name));
-  assert.equal(names.size, 11);
-  for (const name of ['claude-opus-5', 'claude-sonnet-5', 'claude-fable-5-1', 'claude-fable-5', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-opus-4-5-20251101', 'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001']) assert.ok(names.has(name), name);
+  assert.equal(names.size, 15);
+  for (const name of ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-2', 'claude-opus-5', 'claude-sonnet-5', 'claude-fable-5-1', 'claude-fable-5', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-opus-4-5-20251101', 'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001']) assert.ok(names.has(name), name);
   assert.ok(list.every((m) => m.vision && m.type === 'chat'));
   assert.ok(list.every((m) => !/mythos|claude-opus-4-2025|claude-sonnet-4-2025/.test(m.name)));
   list[0].name = 'mutated';
-  assert.equal(claudeOAuthModels()[0].name, 'claude-opus-5');
+  assert.equal(claudeOAuthModels()[0].name, 'claude-opus-5-5');
 });
 
 test('empty runtime and registry OAuth lists recover the same catalog; explicit models stay selected', () => {
@@ -29,7 +29,7 @@ test('empty runtime and registry OAuth lists recover the same catalog; explicit 
   const impostor = { auth_type: 'oauth', base_url: 'https://api.anthropic.com.evil.test', models: [] };
   assert.equal(withClaudeOAuthModels(impostor), impostor);
   const legacy = { auth_type: 'oauth', base_url: 'https://api.anthropic.com/v1', models: [] };
-  assert.equal(withClaudeOAuthModels(legacy).models.length, 11);
+  assert.equal(withClaudeOAuthModels(legacy).models.length, 15);
   const doc = mergeRegistryDoc({ providers: [registry] });
   assert.deepEqual(doc.providers.find((p) => p.id === 'claude-code').models, claudeOAuthModels());
 });
@@ -75,4 +75,33 @@ test('legacy and unknown models retain their existing thinking and sampling beha
     const body = { model, max_tokens: 4096, temperature: 0.2, top_p: 0.8, thinking: { type: 'enabled', budget_tokens: 1024 } };
     assert.deepEqual(normalizeClaudeOAuthBody(body), body);
   }
+});
+
+test('整份同步过的旧清单补上之后发布的新模型；只挑了几个的、自定义的不动', () => {
+  const OLD = ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001', 'claude-fable-5-1', 'claude-fable-5', 'claude-opus-4-8',
+    'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-opus-4-5-20251101', 'claude-sonnet-4-5-20250929'];
+  const stale = { oauth_provider: 'claude', models: OLD.map((name) => ({ name })) };
+  const got = withClaudeOAuthModels(stale).models.map((m) => m.name);
+  assert.deepEqual(got.slice(0, 4), ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-2']);
+  assert.deepEqual(got.slice(4), OLD, '原来保存的照旧');
+  // 删掉了几个旧的：不会被加回来
+  const trimmed = { oauth_provider: 'claude', models: OLD.slice(0, 8).map((name) => ({ name })) };
+  assert.ok(!withClaudeOAuthModels(trimmed).models.some((m) => m.name === 'claude-sonnet-4-6'));
+  // 已经是新目录：不重复加
+  const current = { oauth_provider: 'claude', models: claudeOAuthModels() };
+  assert.equal(withClaudeOAuthModels(current), current);
+  const custom = { oauth_provider: 'claude', models: [{ name: 'my-proxy-model' }] };
+  assert.equal(withClaudeOAuthModels(custom), custom);
+});
+
+test('新模型关不掉思考、不收采样参数', () => {
+  for (const model of ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-fable-5-2']) {
+    const out = normalizeClaudeOAuthBody({ model, temperature: 0.2, max_tokens: 200000, thinking: { type: 'disabled' } });
+    assert.equal(out.temperature, undefined, model);
+    assert.equal(out.max_tokens, 128000, model);
+    assert.deepEqual(out.thinking, { type: 'adaptive' }, model);
+  }
+  const haiku = normalizeClaudeOAuthBody({ model: 'claude-haiku-5-5', top_p: 0.9, thinking: { type: 'disabled' } });
+  assert.equal(haiku.top_p, undefined);
+  assert.deepEqual(haiku.thinking, { type: 'disabled' });
 });
