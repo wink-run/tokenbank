@@ -715,26 +715,11 @@ function providerHasModel(provider, model, { strict = false } = {}) {
   if (!Array.isArray(list) || list.length === 0) return strict ? false : true; // 无列表 = 接受任意（付费/免费自定义源）
   if (list.some(m => (typeof m === 'string' ? m : m.name) === model)) return true;
   // Claude 订阅：清单里没有的 claude-* 也交给 Anthropic，由它说能不能用。
-  // 新模型（比如 Claude Code 升级后的默认模型）发布当天就能用，不用等目录更新；顺手提前刷一次模型列表
-  if (/^claude-/i.test(String(model || '')) && isClaudeOAuthProvider(provider)) {
-    try { require('./claude-live-models').noteUnknown(model, claudeSubscriptionToken); } catch { /* 只是提前刷新 */ }
-    return true;
-  }
+  // 新模型（比如 Claude Code 升级后的默认模型）发布当天就能用，不用等目录更新；参数约束按上游报错自动改（gateway-upstream-hints）
+  if (/^claude-/i.test(String(model || '')) && isClaudeOAuthProvider(provider)) return true;
   return false;
 }
 
-/** 订阅的 access_token（给拿模型列表用）：先用供给源里的（会刷新），再用 Claude Code 自己的登录 */
-async function claudeSubscriptionToken() {
-  for (const p of enabledProviders()) {
-    if (!isClaudeOAuthProvider(p)) continue;
-    try {
-      const prepared = await oauth.prepare(p, _getConfig, _saveConfig);
-      const token = prepared?.credentials?.access_token;
-      if (token) return token;
-    } catch { /* 换下一个 */ }
-  }
-  return null;
-}
 
 // 源整体失效级错误（配额/鉴权/限流）：该源的其它模型也会同样失败，failover 时应跳过整个源，
 // 避免把一个 429 的源的 5-6 个模型都试一遍白白拖几秒（导致 Codex 等客户端超时"没返回"）。
@@ -4981,10 +4966,6 @@ function start(port, getConfig, saveConfig, bindHost = '127.0.0.1', onListenErro
     console.log(`[gateway] listening on ${bindHost}:${_port}`);
     // 内置 MCP 中转挂到网关端口上：应用配置里的中转地址都换成这个端口
     try { require('./mcp-gateway-server').attachToGateway({ port: _port }); } catch (e) { console.warn('[mcp] attach:', e.message); }
-    // Claude 订阅能用的模型：启动时和之后每天从 Anthropic 拿一次，新模型不用改代码
-    const refreshClaudeModels = () => require('./claude-live-models').refresh({ getToken: claudeSubscriptionToken }).catch(() => {});
-    setTimeout(refreshClaudeModels, 5000).unref?.();
-    setInterval(refreshClaudeModels, 6 * 60 * 60 * 1000).unref?.();
   });
   _server.on('error', (err) => {
     console.error('[gateway] server error:', err.message);
@@ -5131,7 +5112,6 @@ function setLocalConfigReader(fn) {
 
 module.exports = {
   _providerHasModel: providerHasModel,
-  claudeSubscriptionToken,
   start, stop, restart, setStrategy, getStatus, getLog, recordAgentRouteLog, setGuardianListener, localModelNames, localProviderSummary,
   setKeySceneMap, setClaudeShimScene, setCodexGptFallback, setRouterModelMap, setPeerModels, setBackendConfig, setUserAuth,
   setStatsRecorder, setLocalStats, setLocalConfigReader, setAppControls, setAgentApiKey,

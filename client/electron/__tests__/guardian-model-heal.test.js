@@ -16,10 +16,6 @@ const redirects = require('../model-redirects');
 
 const missing = (model, extra = {}) => ({ providerId: 'claude-sub', model, requestedModel: model, status: 404, message: `HTTP_404: Model '${model}' is not available`, ...extra });
 
-function fakeLive(models = []) {
-  const have = new Set(models);
-  return { refreshed: 0, async refresh() { this.refreshed++; return true; }, get: (m) => (have.has(m) ? { id: m } : null), add(m) { have.add(m); } };
-}
 
 test('同一系列：Claude 按 opus/sonnet/haiku，其他按去掉版本号的前缀', () => {
   assert.equal(heal.familyOf('claude-opus-5-5'), 'claude:opus');
@@ -29,19 +25,9 @@ test('同一系列：Claude 按 opus/sonnet/haiku，其他按去掉版本号的�
   assert.equal(heal.pickReplacement('claude-opus-9', ['gpt-5.5']), null);
 });
 
-test('Claude 新模型：刷新列表后认识了，就不改道，只告诉用户再发一次', async () => {
+test('改道到同一系列能用的最新一个，记录可撤销；撤销后不再自动改', async () => {
   heal._reset(); redirects._reset();
-  const live = fakeLive();
-  live.refresh = async function () { this.refreshed++; live.add('claude-opus-6'); return true; };
-  const r = await heal.heal(missing('claude-opus-6'), { live, gateway: { claudeSubscriptionToken: async () => 'tk', localModelNames: () => [] } });
-  assert.equal(r.action, 'refreshed');
-  assert.equal(live.refreshed, 1);
-  assert.equal(redirects.get('claude-opus-6'), null);
-});
-
-test('刷新后还是没有：改道到同一系列能用的最新一个，记录可撤销；撤销后不再自动改', async () => {
-  heal._reset(); redirects._reset();
-  const deps = { live: fakeLive(), gateway: { claudeSubscriptionToken: async () => 'tk', localModelNames: () => ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-opus-5'] } };
+  const deps = { gateway: { localModelNames: () => ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-opus-5'] } };
   const r = await heal.heal(missing('claude-opus-9'), deps);
   assert.deepEqual(r, { action: 'redirected', target: 'claude-opus-5-5' });
   assert.equal(redirects.resolve('claude-opus-9'), 'claude-opus-5-5');
@@ -59,7 +45,7 @@ test('刷新后还是没有：改道到同一系列能用的最新一个，记�
 
 test('找不到能顶上的：告诉用户；应用绑了别的模型、或已经是改道后的请求，不动', async () => {
   heal._reset(); redirects._reset();
-  const deps = { live: fakeLive(), gateway: { claudeSubscriptionToken: async () => null, localModelNames: () => ['gpt-5.5'] } };
+  const deps = { gateway: { localModelNames: () => ['gpt-5.5'] } };
   assert.equal((await heal.heal(missing('claude-haiku-9'), deps)).action, 'told');
   // 要用户动手的不进记录列表，由智能管家在对话里说一句
   assert.equal(redirects.get('claude-haiku-9'), null);

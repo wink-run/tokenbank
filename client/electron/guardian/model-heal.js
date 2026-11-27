@@ -1,9 +1,9 @@
 // client/electron/guardian/model-heal.js
 // 应用要的模型用不了（请求最终失败，报「没有这个模型 / 不可用」）：智能管家自己处理，不让用户对着报错发愣。
-//   1. Claude 的模型先刷新一次 Anthropic 的模型列表：刚发布的新模型，刷新后就认识了
-//   2. 还是没有：在能用的模型里找同一系列最新的（Opus 找 Opus、Sonnet 找 Sonnet、gpt 找 gpt），
+//   1. 在能用的模型里找同一系列最新的（Opus 找 Opus、Sonnet 找 Sonnet、gpt 找 gpt），
 //      把这个名字改道过去（model-redirects），记一条可撤销的记录
-//   3. 找不到能顶上的：告诉用户，带去模型页
+//   2. 找不到能顶上的：告诉用户，带去模型页
+// 不去 Anthropic 拉模型列表（不一定连得上）；网关本来就把没见过的 claude-* 交给订阅试。
 // 只看已经发生的失败，不重试那次请求；同一个模型名 10 分钟内只处理一次。
 'use strict';
 
@@ -57,22 +57,7 @@ async function heal(info = {}, deps = {}) {
   if (guardian.wasUndone(sig)) return null;   // 用户撤销过：不再自动改道这个名字
 
   const gateway = deps.gateway || require('../local-gateway');
-  // 1. Claude：先刷新模型列表，可能只是刚发布、本机还不认识
-  if (/^claude-/i.test(model)) {
-    const live = deps.live || require('../claude-live-models');
-    try { await live.refresh({ getToken: gateway.claudeSubscriptionToken, force: true }); } catch { /* 刷不了照样往下 */ }
-    if (live.get(model)) {
-      guardian.record({
-        category: 'gateway', kind: 'model-refreshed', status: 'done',
-        title: `${model} 刚才没认出来，我刷新了 Claude 的模型列表，现在有了。再发一次就行`,
-        signature: `model-refreshed|${model}`,
-        meta: { model },
-      });
-      return { action: 'refreshed' };
-    }
-  }
-
-  // 2. 找同一系列能用的
+  // 1. 找同一系列能用的
   let available = [];
   try { available = gateway.localModelNames(); } catch { available = []; }
   const target = pickReplacement(model, available);
@@ -90,7 +75,7 @@ async function heal(info = {}, deps = {}) {
     return { action: 'redirected', target };
   }
 
-  // 3. 顶不上：告诉用户
+  // 2. 顶不上：告诉用户
   guardian.record({
     category: 'gateway', kind: 'model-missing', status: 'info', needsUser: true,
     title: `应用要的 ${model} 用不了，也没找到同一系列能顶上的模型`,

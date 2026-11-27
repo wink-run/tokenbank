@@ -105,3 +105,21 @@ test('新模型关不掉思考、不收采样参数', () => {
   assert.equal(haiku.top_p, undefined);
   assert.deepEqual(haiku.thinking, { type: 'disabled' });
 });
+
+test('Claude 订阅：清单里没有的 claude-* 也交给它试，别的源不受影响（不去拉模型列表）', () => {
+  const { _providerHasModel } = require('../local-gateway');
+  const sub = { oauth_provider: 'claude', models: [{ name: 'claude-opus-5' }] };
+  assert.equal(_providerHasModel(sub, 'claude-opus-7'), true);
+  assert.equal(_providerHasModel(sub, 'gpt-5.5'), false);
+  const paid = { type: 'paid', base_url: 'https://x', models: [{ name: 'claude-opus-5' }] };
+  assert.equal(_providerHasModel(paid, 'claude-opus-7'), false);
+});
+
+test('上游报新模型的约束：去掉采样参数、换自适应思考、按上限截 max_tokens', () => {
+  const hints = require('../gateway-upstream-hints');
+  assert.deepEqual(hints.parseBodyConstraintError({ status: 400, message: 'HTTP_400: temperature is not supported for this model' }).strip, ['temperature']);
+  assert.deepEqual(hints.parseBodyConstraintError({ status: 400, message: 'HTTP_400: `top_p` is deprecated for this model' }).strip, ['top_p']);
+  assert.deepEqual(hints.parseBodyConstraintError({ status: 400, message: 'HTTP_400: thinking type "disabled" is not supported for this model' }).set.thinking, { type: 'adaptive' });
+  assert.equal(hints.parseBodyConstraintError({ status: 400, message: 'HTTP_400: max_tokens: 200000 > 128000, which is the maximum allowed number of output tokens for claude-x' }).set.max_tokens, 128000);
+  assert.equal(hints.parseBodyConstraintError({ status: 429, message: 'HTTP_429: rate limited' }), null);
+});
