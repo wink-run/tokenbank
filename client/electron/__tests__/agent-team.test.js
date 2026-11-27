@@ -177,3 +177,48 @@ test('工具入口：派活方写计划、留言；子任务凭团队号看留�
   assert.equal(over.isError, true);
   assert.match(over.content[0].text, /上限/);
 });
+
+test('@ 提及：在干活的下次调用工具时收到；已经做完的被叫醒接着原来的会话；派活方知道新任务号', async () => {
+  routes.save({ id: 'agent-router-at', name: 'at' });
+  addTask('root-at', {});
+  const ex = fakeExecutor();
+  const dispatched = [];
+  ex.dispatch = async (agent, prompt, opts) => { dispatched.push({ agent, prompt, opts }); return { taskId: `wake-${dispatched.length}` }; };
+  team.onRouteTask(ex, 'root-at', { prompt: '做个下单页', options: { agentRouteId: 'agent-router-at' } });
+  addTask('w-cursor', { parentTaskId: 'root-at', workingDir: HOME }, 'running', 'cursor', '写前端');
+  addTask('w-codex', { parentTaskId: 'root-at', workingDir: HOME }, 'completed', 'mine:codex@mini', '写接口');
+
+  assert.deepEqual(team.mentionsOf('', '@mine:codex@mini 少个字段，@派活方 知悉'), ['mine:codex@mini', '派活方']);
+
+  // cursor 在 @ codex（已做完）和派活方
+  const note = team.addNote('root-at', { from: 'cursor', text: '@codex /orders 少一个 status 字段，能加吗？@派活方 前端在等这个' });
+  const r = await team.deliver(ex, 'root-at', note);
+  assert.deepEqual(r.notified, ['派活方']);
+  assert.deepEqual(r.woke.map((w) => w.agent), ['mine:codex@mini'], '按基础名 codex 认出 mine:codex@mini');
+  assert.equal(dispatched[0].opts.previousTaskId, 'w-codex', '接着原来的会话');
+  assert.equal(dispatched[0].opts.parentTaskId, 'root-at');
+  assert.match(dispatched[0].prompt, /cursor @ 了你/);
+  assert.equal(team.read('root-at').counts.dispatch, 1, '叫醒算一次派发');
+  const forLead = team.takeInbox('root-at');
+  assert.equal(forLead.length, 2);
+  assert.match(team.inboxText(forLead), /前端在等这个/);
+  assert.match(team.inboxText(forLead), /已叫醒 mine:codex@mini.*wake-1/);
+  assert.deepEqual(team.takeInbox('root-at'), [], '取过就清空');
+
+  // codex 回 @cursor（还在干活）：进 cursor 的收件箱，cursor 调任何工具时带上
+  const back = team.addNote('root-at', { from: 'mine:codex@mini', to: 'cursor', text: '加好了，status 取值 paid/unpaid' });
+  const r2 = await team.deliver(ex, 'root-at', back);
+  assert.deepEqual(r2.notified, ['cursor']);
+  const tools = require('../tokenbank-tools');
+  const res = await tools.callTool('tb_plan', {}, { level: 'full', dispatch: { parentTaskId: 'w-cursor' } });
+  assert.match(res.content[0].text, /mine:codex@mini @ 你：加好了/);
+  const again = await tools.callTool('tb_plan', {}, { level: 'full', dispatch: { parentTaskId: 'w-cursor' } });
+  assert.doesNotMatch(again.content[0].text, /@ 你/, '只送一次');
+
+  // 自己 @ 自己不算；叫醒有上限
+  assert.deepEqual(team.recipients('root-at', { from: 'cursor', text: '@cursor 自言自语' }), []);
+  team.update('root-at', (t) => { t.wakes = team.MAX_WAKES; });
+  db.prepare("UPDATE agent_tasks SET status = 'completed' WHERE id = 'w-cursor'").run();
+  const r3 = await team.deliver(ex, 'root-at', team.addNote('root-at', { from: 'mine:codex@mini', text: '@cursor 再看一下' }));
+  assert.deepEqual(r3.skipped, ['cursor']);
+});

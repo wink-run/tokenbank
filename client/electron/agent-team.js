@@ -171,6 +171,134 @@ function notes(teamId, { limit = 30 } = {}) {
   return (read(teamId)?.notes || []).slice(-limit);
 }
 
+// ── @ 提及：送到、叫醒 ─────────────────────────────────────────────────────
+// 留言里 @ 了谁（to 字段，或正文里的 @名字）：
+//   · 还在干活的：放进它的收件箱，它下次调用任何 Token Bank 工具时结果里会带上
+//   · 已经做完的：叫醒它，接着原来的会话处理这条留言（算一次派发，受预算约束；每批最多叫醒 MAX_WAKES 次）
+//   · @派活方 / @路由：放进当前这一轮路由任务的收件箱
+const MAX_WAKES = 5;
+const ALL = new Set(['all', '全部', '所有人', 'everyone']);
+const DISPATCHER = new Set(['派活方', '路由', 'router', 'dispatcher', 'lead']);
+
+function baseName(id) { return String(id || '').toLowerCase().replace(/^mine:/, '').replace(/@.*$/, ''); }
+
+/** 这批里的成员：每个智能体最新的那个子任务；再加上当前这一轮的路由任务（派活方） */
+function members(teamId) {
+  const nodes = tree(teamId);
+  const latest = new Map();
+  for (const n of nodes) {
+    if (n.depth === 0 || n.reviewer) continue;
+    const cur = latest.get(n.agent_id);
+    if (!cur || (n.created_at || 0) >= (cur.created_at || 0)) latest.set(n.agent_id, n);
+  }
+  const rounds = nodes.filter((n) => n.depth === 0).sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+  return { workers: [...latest.values()], dispatcher: rounds[0] || null };
+}
+
+function mentionsOf(to, text) {
+  const out = new Set();
+  for (const x of String(to || '').split(/[,，\s]+/)) if (x.trim()) out.add(x.trim().replace(/^@/, ''));
+  // @ 前面不能是字母数字汉字（排除邮箱这类）；名字里可以带 mine:codex@mini 这种设备后缀
+  const re = /(?:^|[^A-Za-z0-9_\u4e00-\u9fff])@([A-Za-z0-9_\u4e00-\u9fff:.\-]+(?:@[A-Za-z0-9_.\-]+)?)/g;
+  let m;
+  while ((m = re.exec(String(text || '')))) out.add(m[1]);
+  return [...out];
+}
+
+/** 留言要送给谁：[{ kind: 'worker'|'dispatcher', node }] */
+function recipients(teamId, note) {
+  const { workers, dispatcher } = members(teamId);
+  const picked = new Map();
+  for (const name of mentionsOf(note.to, note.text)) {
+    const key = name.toLowerCase();
+    if (ALL.has(key)) {
+      for (const w of workers) picked.set(w.id, { kind: 'worker', node: w });
+      continue;
+    }
+    if (DISPATCHER.has(key)) { if (dispatcher) picked.set(dispatcher.id, { kind: 'dispatcher', node: dispatcher }); continue; }
+    const hit = workers.find((w) => String(w.agent_id).toLowerCase() === key) || workers.find((w) => baseName(w.agent_id) === baseName(key));
+    if (hit) picked.set(hit.id, { kind: 'worker', node: hit });
+  }
+  // 发留言的人自己不算
+  const from = String(note.from || '').toLowerCase();
+  return [...picked.values()].filter((r) => r.kind === 'dispatcher' || (String(r.node.agent_id).toLowerCase() !== from && baseName(r.node.agent_id) !== baseName(from)));
+}
+
+function pushInbox(teamId, taskId, item) {
+  update(teamId, (t) => {
+    t.inbox = t.inbox || {};
+    t.inbox[taskId] = [...(t.inbox[taskId] || []), item].slice(-20);
+  });
+}
+
+/** 这个任务没看过的 @：取出来并清空 */
+function takeInbox(taskId) {
+  const teamId = teamOf(taskId);
+  if (!teamId) return [];
+  let items = [];
+  update(teamId, (t) => {
+    items = (t.inbox && t.inbox[taskId]) || [];
+    if (t.inbox) delete t.inbox[taskId];
+  });
+  return items;
+}
+
+function inboxText(items) {
+  if (!items || !items.length) return '';
+  const lines = items.map((n) => n.type === 'woke'
+    ? `- 已叫醒 ${n.agent} 处理留言，任务号 ${n.taskId}（用 tb_task_status 收它的结果）`
+    : `- ${n.from} @ 你：${n.text}`);
+  return `\n\n[协作区] 有新消息：\n${lines.join('\n')}`;
+}
+
+/**
+ * 把一条留言送到被 @ 的人手里。返回 { notified: [智能体], woke: [{ agent, taskId }] }
+ * @param {object} executor agent-executor
+ */
+async function deliver(executor, teamId, note) {
+  const team = read(teamId);
+  const out = { notified: [], woke: [], skipped: [] };
+  if (!team) return out;
+  const item = { at: note.at, from: note.from, text: note.text };
+  for (const r of recipients(teamId, note)) {
+    const n = r.node;
+    if (r.kind === 'dispatcher' || !TERMINAL.includes(n.status)) {
+      pushInbox(teamId, n.id, item);
+      out.notified.push(r.kind === 'dispatcher' ? '派活方' : n.agent_id);
+      continue;
+    }
+    // 已经做完的成员：叫醒它，接着原来的会话
+    const cur = read(teamId);
+    if (cur.status !== 'running' || (cur.wakes || 0) >= MAX_WAKES) { out.skipped.push(n.agent_id); continue; }
+    try { checkBudget(teamId, n.agent_id); } catch { out.skipped.push(n.agent_id); continue; }
+    const ctx = parseJson(taskRow(n.id)?.context);
+    const prompt = [
+      `协作区里 ${note.from} @ 了你：`, note.text, '',
+      '请接着你之前的工作处理这条留言（需要改就改），处理完用 tb_notes 回复对方，并简短说明你做了什么。',
+    ].join('\n') + childPromptSuffix(teamId);
+    try {
+      const t = await executor.dispatch(n.agent_id, prompt, {
+        previousTaskId: n.id, parentTaskId: ctx.parentTaskId || undefined,
+        workingDir: ctx.workingDir || undefined, mode: 'worker', teamId,
+      });
+      update(teamId, (x) => {
+        x.wakes = (x.wakes || 0) + 1;
+        x.counts = x.counts || { dispatch: 0, hire: 0 };
+        x.counts.dispatch += 1;
+        x.events.push({ at: Date.now(), type: 'wake', text: `${note.from} @ 了 ${n.agent_id}，已叫醒它接着处理`, taskId: t.taskId });
+      });
+      out.woke.push({ agent: n.agent_id, taskId: t.taskId });
+      // 派活方要知道多了一个在跑的，好收结果
+      const { dispatcher } = members(teamId);
+      if (dispatcher) pushInbox(teamId, dispatcher.id, { at: Date.now(), type: 'woke', agent: n.agent_id, taskId: t.taskId });
+    } catch (e) {
+      out.skipped.push(n.agent_id);
+      update(teamId, (x) => x.events.push({ at: Date.now(), type: 'wake-failed', text: `叫醒 ${n.agent_id} 没成：${e.message}` }));
+    }
+  }
+  return out;
+}
+
 // ── 预算 ──────────────────────────────────────────────────────────────────
 
 /** 派之前查预算；超了抛错（说清楚是哪条限制） */
@@ -199,7 +327,7 @@ function noteDispatch(teamId, { taskId, agentId, step }) {
 
 /** 派给子任务的提示里补一句：有协作区可以用 */
 function childPromptSuffix(teamId) {
-  return `\n\n[协作区] 你是一批任务里的一员（团队 ${teamId}）。需要和其他成员对接口、说明阻塞或交代产出时，用 tb_notes(team="${teamId}") 留言或查看；别人 @ 你的消息也在那里。`;
+  return `\n\n[协作区] 你是一批任务里的一员（团队 ${teamId}）。需要和其他成员对接口、说明阻塞或交代产出时，用 tb_notes(team="${teamId}", post=..., to=对方智能体id) 留言，对方会收到；@派活方 可以直接找派活的一方。别人 @ 你的消息会附在你调用 Token Bank 工具的结果里，也可以用 tb_notes(team="${teamId}") 查看。`;
 }
 
 // ── 路由任务：开始、跟进、验收、返工 ─────────────────────────────────────────
@@ -447,6 +575,7 @@ function lastActivity(teamId) {
 
 module.exports = {
   read, list, teamOf, setPlan, planView, planText, linkStep, addNote, notes, checkBudget, noteDispatch,
+  deliver, takeInbox, inboxText, recipients, mentionsOf, MAX_WAKES,
   childPromptSuffix, onRouteTask, tree, view, lastActivity, parseVerdict, update,
   _internal: { finish, verify, write, dir },
 };

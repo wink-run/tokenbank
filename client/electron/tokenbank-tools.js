@@ -106,13 +106,13 @@ const TOOLS = [
   {
     name: 'tb_notes',
     level: 'operate',
-    description: '一批任务的协作区：成员之间对接口、说阻塞、交代产出。不带 post 是看最近的留言；带 post 是留言，to 写给谁（智能体 id 或「全部」）。',
+    description: '一批任务的协作区：成员之间对接口、说阻塞、交代产出。不带 post 是看最近的留言；带 post 是留言。@ 谁（to 或正文里写 @智能体id，也可以 @派活方、@全部）：还在干活的会在下次调用工具时收到，已经做完的会被叫醒接着处理。',
     inputSchema: {
       type: 'object',
       properties: {
         team: { type: 'string', description: '团队号（派活时提示里给的）；在派活方那边可以不写' },
         post: { type: 'string', description: '要留的话' },
-        to: { type: 'string', description: '写给谁，可不写' },
+        to: { type: 'string', description: '@ 谁：智能体 id（如 codex、mine:codex@mini），或「派活方」「全部」；也可以直接在正文里写 @名字' },
       },
     },
   },
@@ -622,17 +622,25 @@ function planTool(args, ctx) {
   return textResult(`计划（团队 ${teamId}）：\n${team.planText(team.planView(teamId))}`);
 }
 
-function notesTool(args, ctx) {
+async function notesTool(args, ctx) {
   const team = require('./agent-team');
   const teamId = teamFor(args, ctx);
   if (!teamId) return textResult('现在不在一批路由任务里，没有协作区', true);
   const post = String(args.post || '').trim();
+  let sent = '';
   if (post) {
-    team.addNote(teamId, { from: ctx.selfAgentId || ctx.clientId || '', to: args.to, text: post });
+    const note = team.addNote(teamId, { from: ctx.selfAgentId || ctx.clientId || '', to: args.to, text: post });
+    // 被 @ 的人：在干活的下次调用工具时收到；已经做完的叫醒它接着处理
+    const r = note ? await team.deliver(executor(), teamId, note) : { notified: [], woke: [], skipped: [] };
+    const bits = ['已留言'];
+    if (r.notified.length) bits.push(`已通知 ${r.notified.join('、')}`);
+    if (r.woke.length) bits.push(`已叫醒 ${r.woke.map((w) => `${w.agent}（任务 ${w.taskId}）`).join('、')}`);
+    if (r.skipped.length) bits.push(`${r.skipped.join('、')} 没叫醒（这批已结束、到了叫醒上限或预算）`);
+    sent = `${bits.join('；')}。\n`;
   }
   const list = team.notes(teamId);
   const fmt = (n) => `- [${new Date(n.at).toLocaleTimeString()}] ${n.from}${n.to ? ` → ${n.to}` : ''}：${n.text}`;
-  return textResult(`${post ? '已留言。\n' : ''}协作区（团队 ${teamId}）：\n${list.length ? list.map(fmt).join('\n') : '（还没有留言）'}`);
+  return textResult(`${sent}协作区（团队 ${teamId}）：\n${list.length ? list.map(fmt).join('\n') : '（还没有留言）'}`);
 }
 
 async function hireCommunityAgent(args, ctx) {
@@ -1266,6 +1274,27 @@ async function callTool(name, args, ctx = {}) {
   if (!allowedNames(ctx.level).has(name)) {
     return textResult(`没有权限用 ${name}：请用户在 Token Bank「资产 → 工具 → TokenBank 内置」里给你更高的权限`, true);
   }
+  const result = await runTool(name, a, ctx);
+  return withInbox(result, ctx);
+}
+
+/** 一批路由任务里的成员调用任何工具：结果后面带上别人 @ 它、还没看过的留言 */
+function withInbox(result, ctx) {
+  try {
+    const d = ctx.dispatch || dispatchContext(ctx.clientId || '');
+    if (!d.parentTaskId || !result || !Array.isArray(result.content)) return result;
+    const team = require('./agent-team');
+    const extra = team.inboxText(team.takeInbox(d.parentTaskId));
+    if (!extra) return result;
+    const content = [...result.content];
+    const i = content.findIndex((c) => c && c.type === 'text');
+    if (i >= 0) content[i] = { ...content[i], text: `${content[i].text}${extra}` };
+    else content.push({ type: 'text', text: extra.trim() });
+    return { ...result, content };
+  } catch { return result; }
+}
+
+async function runTool(name, a, ctx) {
   switch (name) {
     case 'tb_capabilities': return capabilities(ctx);
     case 'tb_list_resources': return listResources(a, ctx);

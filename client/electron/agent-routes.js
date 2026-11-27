@@ -159,7 +159,7 @@ function rulesText(route) {
   const team = [
     '【协作】',
     '- 拆完任务先用 tb_plan(steps=[{id, title, agent, depends_on}]) 记下计划；派活时 tb_dispatch_agent 带上 plan_step；随时 tb_plan() 看哪些步骤做完、哪些可以派了（中途断了也能接着做）。',
-    '- 成员之间的留言在协作区：tb_notes() 查看，tb_notes(post=..., to=...) 留言。',
+    '- 成员之间的留言在协作区：tb_notes() 查看，tb_notes(post=..., to=...) 留言。成员 @ 你（派活方）的消息会附在你下次调用工具的结果里；被叫醒的成员也会在那里告诉你任务号，记得收它的结果。',
   ];
   const b = route?.budget || {};
   if (b.maxDispatches > 0 || b.maxHires > 0) {
