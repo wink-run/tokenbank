@@ -46,11 +46,19 @@ function matchesDevice(dev, wanted) {
     || aliases.some((a) => sameName(a, wanted));
 }
 
+/** 设备描述里的这一项：没有返回 null；ready:false 表示列着但现在跑不了 */
+function targetItem(dev, target) {
+  const d = dev.descriptor || {};
+  const list = target.kind === 'app' ? d.apps : target.kind === 'assistant' ? d.assistants : target.kind === 'external' ? d.externals : null;
+  return list ? (list || []).find((a) => a.id === target.id) || null : null;
+}
+
 function hasTarget(dev, target) {
   const d = dev.descriptor || {};
-  if (target.kind === 'app') return (d.apps || []).some((a) => a.id === target.id);
-  if (target.kind === 'assistant') return (d.assistants || []).some((a) => a.id === target.id);
-  if (target.kind === 'external') return (d.externals || []).some((a) => a.id === target.id);
+  if (target.kind === 'app' || target.kind === 'assistant' || target.kind === 'external') {
+    const it = targetItem(dev, target);
+    return !!it && it.ready !== false;
+  }
   if (target.kind === 'session') return (d.sessions || []).some((s) => `session:${s.agent}:${s.id}` === target.id);
   return false;
 }
@@ -83,6 +91,9 @@ function pickDevice({ target, workspace, devices, priorities = {} }) {
   }
   const capable = pool.filter((d) => hasTarget(d, target));
   if (!capable.length) {
+    // 有设备列着它但现在跑不了：说出哪台、为什么，不说成「没装」
+    const stuck = pool.map((d) => ({ d, it: targetItem(d, target) })).find((x) => x.it && x.it.ready === false);
+    if (stuck) return { device: null, reason: `${stuck.it.name || target.id} 在 ${stuck.d.name || stuck.d.device_id} 上暂时跑不了：${stuck.it.why || '原因不明'}` };
     return { device: null, reason: target.device ? `${target.device} 上没有 ${target.id}` : `没有在线设备装了 ${target.id}` };
   }
   const withWs = capable.filter((d) => hasWorkspace(d, workspace));

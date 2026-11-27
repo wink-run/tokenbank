@@ -45,14 +45,25 @@ function selfLoad() {
 async function describeSelf() {
   const out = { platform: process.platform, apps: [], assistants: [], externals: [], models: [], workspaces: [], sessions: [], load: selfLoad() };
   try { out.version = require('../../package.json').version; } catch { out.version = ''; }
+  // 先确认能不能跑再报：跑不起来的照样列出，标上 ready:false 和原因，别的设备不会往这儿派（借鉴 agentmesh 发布前先探活）
   try {
-    const agents = await require('../agent-executor').listAvailableAgents();
+    const executor = require('../agent-executor');
+    const agents = await executor.listAvailableAgents();
+    let blocked = new Map();
+    try { blocked = new Map((executor.listBlockedAssistants() || []).map((b) => [b.id, b])); } catch { /* 查不了就都当能跑 */ }
     for (const a of agents || []) {
       if (!a || a.guardian) continue;
       if (a.type === 'cli' && a.installed) out.apps.push({ id: a.id, name: a.name || a.id });
-      else if (a.type === 'assistant') out.assistants.push({ id: a.id, name: a.name || a.id });
+      else if (a.type === 'assistant') {
+        const b = blocked.get(a.id);
+        out.assistants.push(b
+          ? { id: a.id, name: a.name || a.id, ready: false, why: b.reason === 'skills' ? `缺技能：${(b.missing || []).join('、')}` : `运行它的应用不可用：${(b.missing || []).join('、')}` }
+          : { id: a.id, name: a.name || a.id });
+      }
       // 外部智能体接在这台设备的网关上：别的设备派给它也要经这台
-      else if (a.type === 'external' || String(a.id || '').startsWith('external:')) out.externals.push({ id: a.id, name: a.name || a.id });
+      else if (a.type === 'external' || String(a.id || '').startsWith('external:')) {
+        out.externals.push(a.online === false ? { id: a.id, name: a.name || a.id, ready: false, why: '它现在不在线' } : { id: a.id, name: a.name || a.id });
+      }
     }
   } catch { /* 执行器不可用时只报模型 */ }
   const accepts = { agent_tasks: cfg?.accept_agent_tasks !== false, model_requests: !!cfg?.accept_model_requests };
@@ -428,13 +439,28 @@ function isMeshRequest(headers) { return !!node && node.isMeshRequest(headers ||
 function isHop(headers) { return !!(headers && headers['x-tb-mesh-hop']); }
 
 /** /v1/devices */
+/** 离线超过这么久的设备不再列出（重装、重建留下的旧记录）；它再上线会自动回来 */
+const STALE_MS = 30 * 24 * 60 * 60 * 1000;
+
 function devicesView() {
   if (!node) return { enabled: false, devices: [] };
   const now = Date.now();
+  // 连不上的原因：每台试过哪些直连地址、结果如何，官方中继的情况（借鉴 agentmesh 失败时说清楚每条路）
+  let diag = { official: null, peers: [] };
+  try { diag = node.diagnose(); } catch { /* 老节点没有诊断 */ }
+  const diagOf = (d) => diag.peers.find((p) => (p.device_id && p.device_id === d.device_id) || (p.endpoint_id && p.endpoint_id === d.endpoint_id)) || null;
+  const listed = node.directory.list().filter((d) => d.self || d.online || !d.lastSeen || now - d.lastSeen < STALE_MS);
+  const known = new Set(listed.map((d) => d.device_id));
+  const knownEp = new Set(listed.map((d) => d.endpoint_id).filter(Boolean));
   return {
     enabled: true,
     relay: node.relayInfo(),
-    devices: node.directory.list().map((d) => ({
+    official: diag.official ? { configured: diag.official.configured, connected: diag.official.connected } : null,
+    // 地址簿里有、但从来没连上过的设备（还不在目录里）：给界面说明为什么没连上
+    unreached: diag.peers
+      .filter((p) => !(p.device_id && known.has(p.device_id)) && !(p.endpoint_id && knownEp.has(p.endpoint_id)))
+      .map((p) => ({ name: p.name, device_id: p.device_id, waiting: p.waiting, attempts: p.attempts, on_official: !!(p.device_id && diag.official?.peers.includes(p.device_id)) })),
+    devices: listed.map((d) => ({
       device_id: d.device_id,
       name: d.name,
       aliases: d.descriptor?.aliases || [],
@@ -449,6 +475,10 @@ function devicesView() {
       rtt_ms: d.path && Number.isFinite(d.path.rttMs) ? d.path.rttMs : null,
       // 这台在当中继：正在替哪些设备转发（界面标「中继 · N」）
       relay: relayView(d),
+      ...(d.self || (d.online && d.path) ? {} : (() => {
+        const p = diagOf(d);
+        return { diag: { waiting: !!p?.waiting, attempts: p?.attempts || [], on_official: !!(diag.official?.peers || []).includes(d.device_id) } };
+      })()),
       platform: d.descriptor?.platform || '',
       version: d.descriptor?.version || '',
       apps: d.descriptor?.apps || [],
@@ -601,6 +631,35 @@ function sseRewriter(deviceId, deviceName) {
   };
   fn.flush = () => (carry ? Buffer.from(fix(carry)) : null);
   return fn;
+}
+
+/**
+ * 别的设备派来的活：执行前在本机再核实一次（设备描述只是线索，可能已经过时）。
+ * 目标应用没装、智能体跑不起来、外部智能体不在线、工作区不在，直接说原因，不跑到一半才失败。
+ * @returns {Promise<{ ok: true } | { ok: false, message: string }>}
+ */
+async function checkIncoming({ harnessId, workspace } = {}) {
+  const id = String(harnessId || '').trim();
+  if (workspace) {
+    try {
+      if (!resolveWorkspace(String(workspace))) return { ok: false, message: `这台设备上没有工作区「${workspace}」` };
+    } catch (e) {
+      // 工作区没配、目录被删了：resolve 会抛出带原因的错
+      if (e && e.status) return { ok: false, message: e.message };
+    }
+  }
+  if (!id || id.startsWith('session:') || id.startsWith('mine:')) return { ok: true };
+  try {
+    const self = await describeSelf();
+    const all = [...self.apps, ...self.assistants, ...self.externals];
+    const hit = all.find((a) => a.id === id);
+    if (!hit) {
+      if (!self.accepts?.agent_tasks) return { ok: false, message: '这台设备没打开「接我其他设备派来的活」' };
+      return { ok: false, message: `这台设备上没有 ${id}（没装或已经删了）` };
+    }
+    if (hit.ready === false) return { ok: false, message: `${hit.name} 在这台设备上暂时跑不了：${hit.why}` };
+  } catch { /* 查不了就不拦，照常执行 */ }
+  return { ok: true };
 }
 
 /**
@@ -1043,7 +1102,7 @@ module.exports = {
   fetchAgentTask,
   parseMeshTaskId,
   startFromConfig, stop, getNode,
-  isMeshKey, isMeshRequest, isHop,
+  isMeshKey, isMeshRequest, isHop, checkIncoming,
   devicesView, extraModels, extraHarnesses,
   routeChat, routeAgentCreate, routeAgentById, resolveWorkspace, setName, setSelfName,
   _internal: { sseRewriter, rewriteResponse, parseMeshTaskId, describeSelf },

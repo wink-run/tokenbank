@@ -509,6 +509,16 @@ async function handle(req, res, { method, cleanPath, knownKey, onCall }) {
         return true;
       }
     }
+    // 其他设备派来的：执行前再核实一次目标在不在、能不能跑（对方看到的设备描述可能已经过时）
+    if (fromMesh && !replay) {
+      const meta = body.metadata && typeof body.metadata === 'object' ? body.metadata : {};
+      const check = await meshGlue.checkIncoming({ harnessId, workspace: meta.workspace });
+      if (!check.ok) {
+        report({ ok: false, error: check.message, prompt, harnessId });
+        sendJson(res, 409, { error: { message: check.message, type: 'mesh_not_ready' } });
+        return true;
+      }
+    }
     if (boundAgent) {
       if (!harnessId) harnessId = boundAgent;   // 用智能体自己的 Key 可以不写 harness_id
       if (harnessId !== boundAgent) {

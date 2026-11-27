@@ -787,6 +787,7 @@ function DevicesSection() {
             devices={devices}
             isSelf={(d) => isCurrentDevice(d, currentId)}
             titleOf={formatDeviceTitle}
+            onCleanStale={async (list) => { for (const d of list) await handleRemove(d); }}
             renderSelf={(d, { serving }) => (
               <DeviceCard d={d} title={t('profile.thisDevice')} self serving={serving} t={t}
                 editing={!!d && renaming?.key === d.device_id}

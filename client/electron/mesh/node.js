@@ -25,6 +25,19 @@ const { RelayHub } = require('./relay');
 const { HireChannel } = require('./hire');
 
 const DEFAULT_PORT = 41750;
+
+/** 直连失败的原因，换成用户看得懂的话 */
+function friendlyDialError(e) {
+  const code = String(e?.code || e?.cause?.code || '');
+  const msg = String(e?.message || e || '');
+  if (code === 'ECONNREFUSED' || /ECONNREFUSED/.test(msg)) return '对方没在这个地址等连接（设备网络没开，或端口变了）';
+  if (/ETIMEDOUT|timeout|超时/i.test(code + msg)) return '超时：不在同一个网络，或被防火墙挡住了';
+  if (/EHOSTUNREACH|ENETUNREACH|EADDRNOTAVAIL/.test(code + msg)) return '网络不通：这个地址从这里到不了';
+  if (/ENOTFOUND|EAI_AGAIN/.test(code + msg)) return '地址解析不出来';
+  if (/cert|证书|unauthor|401|403|revoked|expired/i.test(msg)) return `对方不认这台的证书（${msg.slice(0, 60)}）`;
+  if (/不是另一台设备/.test(msg)) return '这个地址连到的是本机自己';
+  return msg.slice(0, 80) || '连不上';
+}
 const WS_PATH = '/mesh/ws';
 const DIAL_RETRY_MS = 10000;
 const FALLBACK_DIAL_AFTER_MS = 8000;
@@ -405,17 +418,57 @@ class MeshNode extends EventEmitter {
       const linked = entry.device_id && (this.links.has(entry.device_id) || this.inbound.has(entry.device_id));
       // 两边同时连会建两条：约定 endpoint_id 小的一方连；对方迟迟不来时再自己连
       const mine = !entry.endpoint_id || this.key.endpointId < entry.endpoint_id || Date.now() - entry.firstSeen > FALLBACK_DIAL_AFTER_MS;
-      if (!linked && mine) {
+      // 每条路试的结果记下来：连不上时界面能说清楚试过哪些、各卡在哪
+      entry.attempts = entry.attempts || {};
+      if (linked) {
+        entry.waiting = false;
+      } else if (mine) {
+        entry.waiting = false;
         for (const addr of entry.direct_addrs) {
-          const link = await this._dial(addr).catch(() => null);
-          if (link) { entry.device_id = link.info.device_id; break; }
+          try {
+            const link = await this._dial(addr);
+            entry.device_id = link.info.device_id;
+            entry.attempts[addr] = { ok: true, at: Date.now() };
+            break;
+          } catch (e) {
+            entry.attempts[addr] = { ok: false, error: friendlyDialError(e), at: Date.now() };
+          }
         }
+      } else {
+        // 约定由对方先连：还没等到
+        entry.waiting = true;
       }
       const t = setTimeout(attempt, DIAL_RETRY_MS);
       t.unref?.();
       this.timers.push(t);
     };
     attempt();
+  }
+
+  /**
+   * 连不上时的诊断：每台已知设备试过哪些直连地址、各自的结果，和官方中继的情况。
+   * @returns {{ official: { configured: boolean, connected: boolean, peers: string[] }, peers: object[] }}
+   */
+  diagnose() {
+    const official = {
+      configured: (this.opts.relayUrls || []).length > 0,
+      connected: !!(this.official && !this.official.closed),
+      peers: this.official ? [...this.official.peers] : [],
+    };
+    const peers = [];
+    for (const [key, e] of this.knownPeers) {
+      peers.push({
+        key,
+        device_id: e.device_id || null,
+        endpoint_id: e.endpoint_id || null,
+        name: e.name || '',
+        source: e.source,
+        waiting: !!e.waiting,
+        attempts: Object.entries(e.attempts || {}).map(([addr, a]) => ({ addr, ...a })),
+        addrs: [...(e.direct_addrs || [])],
+      });
+    }
+    return { official, peers };
   }
 
   /** 直连一个地址；连上的是本账号的另一台设备才留下 */
@@ -830,4 +883,4 @@ class MeshNode extends EventEmitter {
   }
 }
 
-module.exports = { MeshNode, Link, localAddrs, addrKind, wsUrl, DEFAULT_PORT };
+module.exports = { MeshNode, Link, localAddrs, addrKind, wsUrl, DEFAULT_PORT, friendlyDialError };

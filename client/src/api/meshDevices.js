@@ -32,14 +32,21 @@ async function gatewayJson(method, path, body) {
 export async function fetchDevices() {
   try {
     const json = await gatewayJson('GET', '/devices');
-    return { enabled: !!json?.enabled, devices: Array.isArray(json?.data) ? json.data : [], relay: json?.relay || null };
+    return {
+      enabled: !!json?.enabled,
+      devices: Array.isArray(json?.data) ? json.data : [],
+      relay: json?.relay || null,
+      // 连不上时的诊断：官方中继的情况、地址簿里还没连上过的设备各试过什么
+      official: json?.official || null,
+      unreached: Array.isArray(json?.unreached) ? json.unreached : [],
+    };
   } catch {
-    return { enabled: false, devices: [], relay: null };
+    return { enabled: false, devices: [], relay: null, official: null, unreached: [] };
   }
 }
 
 // 几个页面同时用：共享一份，10 秒刷新一次
-let cache = { enabled: false, devices: [], relay: null };
+let cache = { enabled: false, devices: [], relay: null, official: null, unreached: [] };
 let loadedAt = 0;
 let inflight = null;
 const listeners = new Set();
@@ -79,6 +86,8 @@ export function useMeshDevices({ intervalMs = 10000 } = {}) {
     self: devices.find((d) => d.self) || null,
     others: devices.filter((d) => !d.self),
     relay: state.relay || null,
+    official: state.official || null,
+    unreached: state.unreached || [],
     refresh,
   };
 }
