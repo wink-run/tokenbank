@@ -215,7 +215,7 @@ test.describe('gateway does not send subscription fable to the catch-all provide
     gateway.stop();
   });
 
-  function post(model) {
+  function post(model, { hop = true } = {}) {
     const data = Buffer.from(JSON.stringify({
       model,
       messages: [{ role: 'user', content: 'ping' }],
@@ -229,7 +229,7 @@ test.describe('gateway does not send subscription fable to the catch-all provide
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': data.length,
-          'x-p2p-hop': '1',
+          ...(hop ? { 'x-p2p-hop': '1' } : {}),
         },
       }, (res) => {
         const chunks = [];
@@ -256,6 +256,15 @@ test.describe('gateway does not send subscription fable to the catch-all provide
   test('订阅源未提供的 claude 名仍走显式兜底路由', async () => {
     requests = [];
     const res = await post('claude-3-5-haiku-20241022');
+    assert.equal(res.status, 200, res.raw);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].body.model, 'minimax-m2.7');
+    assert.match(requests[0].url, /api\.minimax\.test/);
+  });
+
+  test('本机应用的请求：选什么走什么，订阅里有同名模型也按选的走', async () => {
+    requests = [];
+    const res = await post('claude-fable-5', { hop: false });
     assert.equal(res.status, 200, res.raw);
     assert.equal(requests.length, 1);
     assert.equal(requests[0].body.model, 'minimax-m2.7');

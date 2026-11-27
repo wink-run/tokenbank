@@ -3736,7 +3736,12 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
   // 否则社区转发和无钥匙请求会被收成 Claude Code 的兜底路由（例如 minimax）。
   const isClaudeClientName = /^claude-/i.test(origModel);
   const isApiKeyCaller = !!(callerKey && _appKeys.has(callerKey));
-  const servedByClaudeSubscription = claudeSubscriptionServesModel(origModel, enabledProviders());
+  // 选什么走什么：本机应用（Claude Code、Claude Desktop…）的请求只按给它选的路由走，选了官方订阅才走订阅，
+  // 不因为订阅里恰好有这个模型就绕开用户的选择。
+  // 只有别人转来的请求（社区转发 x-p2p-hop、我的其他设备转来的）才让订阅自己的模型优先，
+  // 免得被本机 Claude Code 的整表改写收走（那些请求不是 Claude Code 发的）。
+  const foreignRequest = !!skipP2P || !!extra.meshFrom;
+  const servedByClaudeSubscription = foreignRequest && claudeSubscriptionServesModel(origModel, enabledProviders());
   const shimClaudeScene = (!servedByClaudeSubscription && !isApiKeyCaller && isClaudeClientName)
     ? _claudeShimScene
     : null;
