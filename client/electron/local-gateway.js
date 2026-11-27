@@ -3668,8 +3668,9 @@ async function proxyViaMesh(provider, reqPath, body, attemptModel, res) {
 async function route(model, reqPath, body, res, callerKey, skipP2P = false, userAgent = '', extra = {}) {
   // 每条明细都带上是谁、哪个应用、这句话开头。后面的 pushLog 实际走 logRoute。
   const logCtx = routeLogContext(callerKey, reqPath, body, userAgent);
-  // 智能管家设的改道：应用要的模型用不了时转到能用的（guardian/model-heal.js，用户可撤销），明细里记下原名
-  try {
+  // 智能管家设的改道：应用要的模型用不了时转到能用的（guardian/model-heal.js，用户可撤销），明细里记下原名。
+  // 只管本机应用的请求；社区和其他设备转来的要什么就是什么
+  if (!skipP2P && !extra.meshFrom) try {
     const to = require('./model-redirects').resolve(model);
     if (to && to !== model) {
       logCtx.redirected_from = model;
@@ -3736,13 +3737,12 @@ async function route(model, reqPath, body, res, callerKey, skipP2P = false, user
   // 否则社区转发和无钥匙请求会被收成 Claude Code 的兜底路由（例如 minimax）。
   const isClaudeClientName = /^claude-/i.test(origModel);
   const isApiKeyCaller = !!(callerKey && _appKeys.has(callerKey));
-  // 选什么走什么：本机应用（Claude Code、Claude Desktop…）的请求只按给它选的路由走，选了官方订阅才走订阅，
-  // 不因为订阅里恰好有这个模型就绕开用户的选择。
-  // 只有别人转来的请求（社区转发 x-p2p-hop、我的其他设备转来的）才让订阅自己的模型优先，
-  // 免得被本机 Claude Code 的整表改写收走（那些请求不是 Claude Code 发的）。
+  // 选什么走什么：本机应用（Claude Code、Claude Desktop…）的请求只按给它选的路由走，选了官方订阅才走订阅。
+  // 别人转来的请求（社区转发 x-p2p-hop、我的其他设备转来的）不是本机应用发的：
+  // 出租者分享的是模型本身，请求要什么就用分享的那个模型，不套本机应用的改写（Claude Code 的整表绑定等）。
   const foreignRequest = !!skipP2P || !!extra.meshFrom;
-  const servedByClaudeSubscription = foreignRequest && claudeSubscriptionServesModel(origModel, enabledProviders());
-  const shimClaudeScene = (!servedByClaudeSubscription && !isApiKeyCaller && isClaudeClientName)
+  const servedByClaudeSubscription = false;
+  const shimClaudeScene = (!foreignRequest && !isApiKeyCaller && isClaudeClientName)
     ? _claudeShimScene
     : null;
   // 先解析绑定，再决定是否标记 Claude 透明改写（见下 claudeFrom）

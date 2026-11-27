@@ -253,11 +253,16 @@ test.describe('gateway does not send subscription fable to the catch-all provide
     assert.match(requests[0].url, /api\.anthropic\.com/);
   });
 
-  test('订阅源未提供的 claude 名仍走显式兜底路由', async () => {
+  test('社区转发：要什么就用出租者分享的那个模型，不套出租者本机 Claude Code 的兜底改写', async () => {
     requests = [];
-    const res = await post('claude-3-5-haiku-20241022');
+    const res = await post('claude-fable-5-1');
     assert.equal(res.status, 200, res.raw);
     assert.equal(requests.length, 1);
+    assert.equal(requests[0].body.model, 'claude-fable-5-1');
+    assert.match(requests[0].url, /api\.anthropic\.com/);
+    requests = [];
+    const mini = await post('minimax-m2.7');
+    assert.equal(mini.status, 200, mini.raw);
     assert.equal(requests[0].body.model, 'minimax-m2.7');
     assert.match(requests[0].url, /api\.minimax\.test/);
   });
