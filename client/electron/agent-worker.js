@@ -915,8 +915,30 @@ async function collectAgentCardsForRegister(cfg) {
   }
 }
 
+/**
+ * 本轮的产出。经云端转发时先试 COS：不读进内存，直传后交引用（单个 500MB 以内）；
+ * 服务端没配 COS、或结果送回雇佣方设备（设备通道）时，照旧 base64。传失败的记进缺失。
+ * @returns {Promise<{ artifacts: object[], failed: string[] }>}
+ */
+async function collectDeliverables(workingDir, text, started, before, { viaCloud }) {
+  if (viaCloud) {
+    try {
+      const cloudFiles = require('./cloud-files');
+      const files = collectWorkspaceArtifacts(workingDir, text, started, before, { asFiles: true, maxBytes: cloudFiles.MAX_BYTES });
+      if (!files.length) return { artifacts: [], failed: [] };
+      const up = await cloudFiles.uploadArtifacts(files, { log });
+      if (up) return up;
+    } catch (e) {
+      log(`[agent] artifacts via COS failed, fall back: ${e.message}`);
+    }
+  }
+  return { artifacts: collectWorkspaceArtifacts(workingDir, text, started, before), failed: [] };
+}
+
 /** 清单先于字节。服务端哈希到齐才算完成。读不出内容的文件记入缺失。 */
 function artifactSha256(item) {
+  // COS 引用：上传时已经算好
+  if (item && item.cos_key && /^[0-9a-f]{64}$/.test(String(item.sha256 || ''))) return String(item.sha256);
   const raw = String(item && item.dataUrl || '');
   const comma = raw.indexOf(',');
   if (comma < 0 || !raw.startsWith('data:')) return '';
@@ -927,9 +949,9 @@ function artifactSha256(item) {
   }
 }
 
-function commitAgentOutput(send, taskId, payload, artifacts) {
+function commitAgentOutput(send, taskId, payload, artifacts, failed = []) {
   const files = [];
-  const missing = [];
+  const missing = [...(failed || [])];
   const packed = [];
   for (const item of artifacts || []) {
     if (!item || typeof item !== 'object') continue;
@@ -1029,6 +1051,16 @@ async function handleAgentTask(msg, cfg, sink) {
   const sessionDirKey = resolveSessionDirKey(msg);
   const sessionKey = contributeSessionKey(assistantId, consumerKey, sessionDirKey);
   const workingDir = ensureContributeWorkspace(assistantId, consumerKey, sessionDirKey);
+  // 经云端转发来的大附件是 COS 下载地址：先拉到本机（校验大小和 sha256），审查和执行都用本机这份
+  let inputs = { images: msg.images, files: msg.files, dir: '' };
+  try {
+    inputs = await require('./cloud-files').fetchInputs(msg.images, msg.files);
+  } catch (e) {
+    noteRoute(false, e.message);
+    send({ type: 'agent_task_result', task_id: taskId, status: 'rejected', error: e.message });
+    return;
+  }
+  msg = { ...msg, images: inputs.images, files: inputs.files };
   // 智能管家：别人下发的任务先过安全审查，危险的不执行（规则见 guardian/hire-guard.js）
   const hireGuard = require('./guardian/hire-guard');
   let guardVerdict;
@@ -1280,8 +1312,9 @@ async function handleAgentTask(msg, cfg, sink) {
       pushProgress({ force: true });
       const partial = String(textAcc || '').slice(0, 200_000);
       let artifacts = [];
+      let failedArtifacts = [];
       try {
-        artifacts = collectWorkspaceArtifacts(workingDir, deliveryText(partial, parts), started, beforeWorkspace);
+        ({ artifacts, failed: failedArtifacts } = await collectDeliverables(workingDir, deliveryText(partial, parts), started, beforeWorkspace, { viaCloud: !sink }));
       } catch (e) {
         log(`[agent] timeout artifacts failed: ${e.message}`);
       }
@@ -1291,7 +1324,7 @@ async function handleAgentTask(msg, cfg, sink) {
         error: `Agent task timeout (${Math.round(localTimeoutMs / 1000)}s)`,
         output: partial,
         usage: { duration_ms: Date.now() - started },
-      }, artifacts);
+      }, artifacts, failedArtifacts);
       noteRoute(false, `Agent task timeout (${Math.round(localTimeoutMs / 1000)}s)`);
       return;
     }
@@ -1319,8 +1352,9 @@ async function handleAgentTask(msg, cfg, sink) {
     const finalBody = String(textAcc || output || '');
     // 工作目录里本轮写出的图片和文件，回传给网页展示或下载
     let artifacts = [];
+    let failedArtifacts = [];
     try {
-      artifacts = collectWorkspaceArtifacts(workingDir, deliveryText(finalBody, parts), started, beforeWorkspace);
+      ({ artifacts, failed: failedArtifacts } = await collectDeliverables(workingDir, deliveryText(finalBody, parts), started, beforeWorkspace, { viaCloud: !sink }));
     } catch (e) {
       log(`[agent] collect artifacts failed: ${e.message}`);
     }
@@ -1334,7 +1368,7 @@ async function handleAgentTask(msg, cfg, sink) {
       error: ok ? null : hireGuard.redact(status?.error || status?.result?.output || 'failed', { workingDir }),
       usage: { duration_ms: Date.now() - started },
       cli_session_id: cliSessionId || undefined,
-    }, artifacts);
+    }, artifacts, failedArtifacts);
     noteRoute(ok, ok ? undefined : (status?.error || status?.result?.output || 'failed'));
   } catch (e) {
     noteRoute(false, e.message);

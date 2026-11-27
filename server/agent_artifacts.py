@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import base64
 import os
+import secrets
 import re
 import time
 import unicodedata
 from pathlib import Path
 
 AGENT_MEDIA_DIR = Path(__file__).resolve().parent / "data" / "agent_media"
-# 中转成品默认留 3 天，可用 AGENT_MEDIA_TTL_DAYS 覆盖
-_DEFAULT_TTL_DAYS = 3
+# 中转成品默认留 7 天，可用 AGENT_MEDIA_TTL_DAYS 覆盖
+_DEFAULT_TTL_DAYS = 7
 # 一批图常见十几张。上限太小会把后面的文件留在出租方磁盘上，正文里就只剩本机文件名。
 _ARTIFACT_MAX = 16
 _ARTIFACT_MAX_CHARS = 64_000_000
@@ -56,7 +57,7 @@ def drop_if_expired(path: Path, *, now: float | None = None, ttl_sec: float | No
 
 
 def cleanup_agent_media(media_dir: Path | None = None, *, now: float | None = None, ttl_sec: float | None = None) -> int:
-    """清掉超过保留期的成品。只删目录里的普通文件，默认 3 天。"""
+    """清掉超过保留期的成品。只删目录里的普通文件，默认 7 天。"""
     root = Path(media_dir) if media_dir is not None else AGENT_MEDIA_DIR
     if not root.is_dir():
         return 0
@@ -153,6 +154,7 @@ def publish_agent_artifacts(
     media_dir: Path | None = None,
     origin: str | None = None,
     uploader=None,
+    ref_resolver=None,
 ) -> list:
     """校验并落盘。返回项含 url；local 只给改写正文用，不要发给调用方。
 
@@ -180,6 +182,12 @@ def publish_agent_artifacts(
             break
         if not isinstance(item, dict):
             continue
+        # 出租方已经传到 COS 的大文件：只换下载地址，不经本服务再传一道
+        if item.get("cos_key") and not item.get("dataUrl"):
+            ref = _artifact_from_ref(item, ref_resolver)
+            if ref:
+                out.append(ref)
+            continue
         data_url = str(item.get("dataUrl") or "").strip()
         if len(data_url) > _ARTIFACT_MAX_CHARS or total + len(data_url) > _ARTIFACT_MAX_CHARS:
             continue
@@ -204,7 +212,8 @@ def publish_agent_artifacts(
         cos_url = ""
         if cos_put is not None:
             try:
-                cos_url = str(cos_put(f"agent-media/{safe_task}/{candidate}", blob, mime) or "")
+                # 对象私有，路径带随机段：知道任务号也猜不到地址
+                cos_url = str(cos_put(f"agent-media/{safe_task}/{secrets.token_urlsafe(12)}/{candidate}", blob, mime) or "")
             except Exception:
                 cos_url = ""
         if not cos_url:
@@ -228,6 +237,26 @@ def publish_agent_artifacts(
         })
         total += len(data_url)
     return out
+
+
+def _artifact_from_ref(item: dict, resolver=None) -> dict | None:
+    try:
+        if resolver is None:
+            from hire_files import resolve_ref as resolver
+        got = resolver(item)
+    except ValueError:
+        return None
+    mime = got.get("mime") or "application/octet-stream"
+    kind = "image" if mime.startswith("image/") and "svg" not in mime else "file"
+    return {
+        "name": str(item.get("name") or got.get("name") or "file")[:120],
+        "mime": mime,
+        "kind": kind,
+        "url": got["url"],
+        "size": got.get("size"),
+        "dataUrl": "",
+        "local": str(item.get("localPath") or "").strip(),
+    }
 
 
 # 文件名两侧。斜杠也算，避免把已经写进中转地址里的文件名再换一次。
@@ -353,10 +382,13 @@ def public_artifacts(artifacts: list) -> list:
         if not isinstance(art, dict) or not art.get("url"):
             continue
         # 只给中转地址。data URL 留在服务端落盘，避免再把大包塞进给调用方的响应
-        view.append({
+        entry = {
             "name": art.get("name"),
             "mime": art.get("mime"),
             "kind": art.get("kind"),
             "url": art.get("url"),
-        })
+        }
+        if art.get("size"):
+            entry["size"] = art.get("size")
+        view.append(entry)
     return view

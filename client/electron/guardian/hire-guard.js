@@ -329,7 +329,7 @@ function textOfFiles(files) {
   const out = [];
   for (const f of Array.isArray(files) ? files : []) {
     out.push(String(f?.name || ''));
-    const data = String(f?.data || f?.url || '');
+    const data = String(f?.data || f?.dataUrl || f?.url || '');
     // 文本类附件（data URL）解出来一起审；二进制只看文件名
     const m = data.match(/^data:(text\/[^;,]*|application\/(?:json|x-sh|javascript|x-yaml))[^,]*;base64,(.*)$/i);
     if (m) { try { out.push(Buffer.from(m[2], 'base64').toString('utf8').slice(0, 200000)); } catch { /* ignore */ } }
@@ -365,7 +365,7 @@ function screenTask({ prompt, files, consumer, workingDir, name, agent, taskId }
 function attachmentsOf(files) {
   const out = [];
   for (const f of Array.isArray(files) ? files : []) {
-    const data = String(f?.data || f?.url || '');
+    const data = String(f?.data || f?.dataUrl || f?.url || '');
     const m = data.match(/^data:(text\/[^;,]*|application\/(?:json|x-sh|javascript|x-yaml|x-python))[^,]*;base64,(.*)$/i);
     if (m) { try { out.push({ name: String(f?.name || ''), text: Buffer.from(m[2], 'base64').toString('utf8').slice(0, 500000) }); } catch { /* ignore */ } }
   }

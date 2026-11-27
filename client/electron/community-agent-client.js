@@ -341,6 +341,12 @@ async function runCommunityAgentTask({ assistantId, prompt, owner, timeoutMs, im
   }
   if (!base) throw new Error('未配置 Token Bank 服务地址');
   if (!token) throw new Error('请先登录并启用转发 Key（与模型社区源同一套 cloud_config.token）');
+  // 经云端转发：图片、附件先直传 COS，任务里只带引用（私有、7 天后删）。服务端没配 COS 时照旧带 base64
+  if (taskBody.images || taskBody.files) {
+    const cloudFiles = require('./cloud-files');
+    if (taskBody.images) taskBody.images = await cloudFiles.uploadInputs(taskBody.images, { base, token });
+    if (taskBody.files) taskBody.files = await cloudFiles.uploadInputs(taskBody.files, { base, token });
+  }
   const data = wantStream
     ? await postAgentTask(base, { token, timeoutMs: waitMs, onProgress, body: taskBody })
     : (await httpJson('POST', `${base}/api/agent-tasks`, { token, timeoutMs: waitMs, body: taskBody })).data;

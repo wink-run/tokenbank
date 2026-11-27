@@ -92,9 +92,11 @@ def test_publish_uploads_to_cos_when_given():
         origin="https://tokenbank.wink.run",
         uploader=uploader,
     )
-    url = "https://demo.cos.ap-guangzhou.myqcloud.com/agent-media/task_abc/pelican_bicycle.png"
+    # 路径里带随机段：知道任务号也猜不到
+    import re
+    assert re.fullmatch(r"agent-media/task_abc/[A-Za-z0-9_-]{16}/pelican_bicycle\.png", seen["key"])
+    url = f"https://demo.cos.ap-guangzhou.myqcloud.com/{seen['key']}"
     assert stored[0]["url"] == url
-    assert seen["key"] == "agent-media/task_abc/pelican_bicycle.png"
     assert seen["type"] == "image/png"
     assert seen["n"] > 0
     # 已经在 COS 上的文件不再写一份到本机
@@ -251,3 +253,30 @@ def test_cleanup_keeps_files_for_three_days():
     assert not old.exists()
     assert not old.parent.exists()
     assert new.is_file()
+
+
+def test_publish_takes_cos_refs_without_reupload(tmp_path):
+    """出租方已经传到 COS 的产出：只换下载地址，不落本机、不再上传。"""
+    calls = []
+
+    def resolver(item):
+        calls.append(item["cos_key"])
+        return {"name": "film.mp4", "mime": "video/mp4", "size": 300 * 1024 * 1024, "url": "https://cos.example/signed"}
+
+    def uploader(*_a):
+        raise AssertionError("不该再上传")
+
+    stored = publish_agent_artifacts(
+        "task_ref",
+        [{"name": "成片.mp4", "mime": "video/mp4", "cos_key": "agent-media/hire/abcdefghijklmnopqrstuvwx/film.mp4",
+          "sha256": "a" * 64, "localPath": "/Users/x/work/成片.mp4"}],
+        media_dir=tmp_path,
+        uploader=uploader,
+        ref_resolver=resolver,
+    )
+    assert calls == ["agent-media/hire/abcdefghijklmnopqrstuvwx/film.mp4"]
+    assert stored[0]["url"] == "https://cos.example/signed"
+    assert stored[0]["name"] == "成片.mp4"
+    assert stored[0]["kind"] == "file"
+    assert not any(tmp_path.iterdir())
+    assert public_artifacts(stored)[0]["size"] == 300 * 1024 * 1024

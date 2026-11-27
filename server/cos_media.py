@@ -46,13 +46,13 @@ def public_base() -> str:
 
 
 def _ttl_sec() -> int:
-    raw = os.getenv("AGENT_MEDIA_TTL_DAYS", "3").strip() or "3"
+    raw = os.getenv("AGENT_MEDIA_TTL_DAYS", "7").strip() or "7"
     try:
         days = float(raw)
     except ValueError:
-        days = 3
+        days = 7
     if days <= 0:
-        days = 3
+        days = 7
     # 预签名最长按 7 天签，和成品保留期对齐
     return int(min(days, 7) * 86400)
 
@@ -109,7 +109,16 @@ def _ensure_lifecycle(client, bucket: str) -> None:
                 _lifecycle_ready = True
                 return
         by_id = {str(r.get("ID") or ""): r for r in existing}
-        if all(rule_id in by_id for rule_id, _prefix in _LIFECYCLE_RULES):
+
+        def _same(rule_id: str) -> bool:
+            # 保留期改过（比如 3 天改成 7 天）要重写规则
+            cur = by_id.get(rule_id) or {}
+            try:
+                return int((cur.get("Expiration") or {}).get("Days") or 0) == days
+            except (TypeError, ValueError):
+                return False
+
+        if all(_same(rule_id) for rule_id, _prefix in _LIFECYCLE_RULES):
             _lifecycle_ready = True
             return
         merged = [r for r in existing if str(r.get("ID") or "") not in wanted]
@@ -125,7 +134,10 @@ def _ensure_lifecycle(client, bucket: str) -> None:
 
 
 def put_bytes(key: str, body: bytes, content_type: str) -> str | None:
-    """上传一份临时对象，返回浏览器能打开的地址。失败返回 None。"""
+    """上传一份临时对象，返回下载地址。失败返回 None。
+
+    对象一律私有，只发和保留期一样长的预签名地址；路径里由调用方带随机段，猜不到。
+    """
     client, cfg = _client()
     if client is None or cfg is None:
         return None
@@ -136,31 +148,50 @@ def put_bytes(key: str, body: bytes, content_type: str) -> str | None:
             Body=body,
             Key=key,
             ContentType=mime,
-            ACL="public-read",
-            CacheControl="public, max-age=86400",
+            CacheControl="private, max-age=86400",
         )
         _ensure_lifecycle(client, cfg["bucket"])
-        return f"{public_base()}/{key}"
+        return presign_get(key)
     except Exception as err:
-        if not _acl_rejected(err):
-            log.warning("COS upload failed: %s", err)
-            return None
-    # 桶不允许公开读时，对象保持私有，发一个和保留期一样长的下载地址
+        log.warning("COS upload failed: %s", err)
+        return None
+
+
+def presign_get(key: str) -> str | None:
+    """私有对象的下载地址，有效期和保留期一样长。"""
+    client, cfg = _client()
+    if client is None or cfg is None:
+        return None
     try:
-        client.put_object(
-            Bucket=cfg["bucket"],
-            Body=body,
-            Key=key,
-            ContentType=mime,
-            CacheControl="public, max-age=86400",
-        )
+        return client.get_presigned_url(Bucket=cfg["bucket"], Key=key, Method="GET", Expired=_ttl_sec())
+    except Exception as err:
+        log.warning("COS presign get failed: %s", err)
+        return None
+
+
+def presign_put(key: str, content_type: str, expires_sec: int = 3600) -> str | None:
+    """让客户端直接把文件传到 COS（不经本服务转一道）。地址一小时内有效。"""
+    client, cfg = _client()
+    if client is None or cfg is None:
+        return None
+    try:
         _ensure_lifecycle(client, cfg["bucket"])
         return client.get_presigned_url(
-            Bucket=cfg["bucket"],
-            Key=key,
-            Method="GET",
-            Expired=_ttl_sec(),
+            Bucket=cfg["bucket"], Key=key, Method="PUT", Expired=int(expires_sec),
+            Headers={"Content-Type": content_type or "application/octet-stream"},
         )
     except Exception as err:
-        log.warning("COS private upload failed: %s", err)
+        log.warning("COS presign put failed: %s", err)
+        return None
+
+
+def object_size(key: str) -> int | None:
+    """对象在不在、多大。不在或查不了返回 None。"""
+    client, cfg = _client()
+    if client is None or cfg is None:
+        return None
+    try:
+        head = client.head_object(Bucket=cfg["bucket"], Key=key) or {}
+        return int(head.get("Content-Length") or head.get("content-length") or 0)
+    except Exception:
         return None

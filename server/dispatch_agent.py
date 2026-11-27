@@ -543,6 +543,10 @@ async def _prepare_agent_task(
     try:
         img_list = normalize_agent_images(images)
         file_list = normalize_agent_files(files)
+        # 已传到 COS 的文件：核对对象在、没超上限，换成对方能下载的地址（消息里不再塞整份文件）
+        from hire_files import resolve_refs
+        img_list = resolve_refs(img_list)
+        file_list = resolve_refs(file_list)
     except ValueError as e:
         return None, {"ok": False, "error": str(e), "status": "rejected"}
     if not text and file_list:

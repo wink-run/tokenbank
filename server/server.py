@@ -1203,6 +1203,28 @@ class AgentTaskBody(BaseModel):
     caller_device_id: Optional[str] = None
 
 
+class AgentFileUploadBody(BaseModel):
+    name: str
+    size: int
+    mime: Optional[str] = None
+
+
+@app.post("/api/agent-files/upload")
+async def agent_file_upload(body: AgentFileUploadBody, uid: int = Depends(auth_api_key_or_jwt)):
+    """雇佣任务的文件（雇佣方的输入、出租方的产出）先传到 COS，任务里只带引用。
+
+    返回直传地址；没配 COS 时回 503 cos_unavailable，调用方照旧带 base64。单个文件 500MB 以内，7 天后删除。
+    """
+    from hire_files import CosUnavailable, new_upload
+
+    try:
+        return new_upload(body.name, body.size, body.mime or "")
+    except ValueError as e:
+        raise HTTPException(413 if "too large" in str(e) else 400, str(e)) from e
+    except CosUnavailable:
+        raise HTTPException(503, detail={"error": "cos_unavailable"}) from None
+
+
 @app.post("/api/agent-tasks")
 async def create_agent_task(
     body: AgentTaskBody,
@@ -1732,7 +1754,7 @@ async def serve_agent_media(task_id: str, filename: str):
     if not path.is_file() or path.parent != root:
         raise HTTPException(404, "Not found")
     from agent_artifacts import drop_if_expired
-    # 超过默认 3 天的成品不再提供
+    # 超过保留期（默认 7 天）的成品不再提供
     if drop_if_expired(path):
         raise HTTPException(404, "Not found")
     from agent_artifacts import media_type_for_name

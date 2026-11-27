@@ -135,6 +135,19 @@ function materializeAttachedFiles(files, { taskId, workingDir, uploadDir } = {})
   const paths = [];
   for (let i = 0; i < list.length; i++) {
     const item = list[i];
+    // 已经在本机的文件（雇佣任务从 COS 拉下来的）：挪进上传目录，不再走 base64
+    if (item && typeof item === 'object' && item.path && !item.dataUrl) {
+      const base = safeUploadName(item.name || path.basename(String(item.path)), i + 1);
+      let fp = path.join(baseDir, base);
+      if (fs.existsSync(fp)) fp = path.join(baseDir, `${path.basename(base, path.extname(base))}-${i + 1}${path.extname(base)}`);
+      try {
+        try { fs.renameSync(item.path, fp); } catch { fs.copyFileSync(item.path, fp); fs.rmSync(item.path, { force: true }); }
+        paths.push(fp);
+      } catch (e) {
+        console.warn('[AgentExecutor] attach file move failed:', e.message);
+      }
+      continue;
+    }
     const dataUrl = typeof item === 'string' ? item : (item?.dataUrl || '');
     const mm = /^data:[^;]*;base64,(.+)$/s.exec(String(dataUrl || ''));
     if (!mm) continue;

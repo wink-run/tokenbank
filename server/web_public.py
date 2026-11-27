@@ -228,6 +228,25 @@ def validate_web_chat_body(model: str, messages: Any, sharer: Optional[str] = No
     return {"model": m, "messages": cleaned, "sharer": sh}
 
 
+def _cos_ref(item: dict, fallback: str) -> Optional[dict]:
+    """已传到 COS 的文件引用：{cos_key, name, mime, size}。转发前由 hire_files 换成下载地址。"""
+    key = str(item.get("cos_key") or "").strip()
+    if not key or item.get("dataUrl"):
+        return None
+    if not key.startswith("agent-media/hire/") or len(key) > 240:
+        raise ValueError("invalid file reference")
+    name = str(item.get("name") or fallback).replace("\\", "/").split("/")[-1][:120] or fallback
+    ref = {"cos_key": key, "name": name, "mime": str(item.get("mime") or "")[:80]}
+    try:
+        ref["size"] = int(item.get("size") or 0)
+    except (TypeError, ValueError):
+        ref["size"] = 0
+    sha = str(item.get("sha256") or "").strip().lower()
+    if len(sha) == 64:
+        ref["sha256"] = sha
+    return ref
+
+
 def normalize_agent_images(raw: Any) -> list[dict]:
     """智能体任务附图：[{dataUrl, name?}]，仅 data:image/…。"""
     if raw is None:
@@ -239,6 +258,12 @@ def normalize_agent_images(raw: Any) -> list[dict]:
         if isinstance(item, str):
             url, name = item.strip(), f"image-{i + 1}"
         elif isinstance(item, dict):
+            ref = _cos_ref(item, f"image-{i + 1}")
+            if ref:
+                out.append(ref)
+                if len(out) > WEB_AGENT_MAX_IMAGES:
+                    raise ValueError(f"at most {WEB_AGENT_MAX_IMAGES} images")
+                continue
             url = str(item.get("dataUrl") or item.get("url") or "").strip()
             name = str(item.get("name") or f"image-{i + 1}").strip() or f"image-{i + 1}"
         else:
@@ -266,6 +291,12 @@ def normalize_agent_files(raw: Any) -> list[dict]:
         if isinstance(item, str):
             url, name = item.strip(), f"file-{i + 1}"
         elif isinstance(item, dict):
+            ref = _cos_ref(item, f"file-{i + 1}")
+            if ref:
+                out.append(ref)
+                if len(out) > WEB_AGENT_MAX_FILES:
+                    raise ValueError(f"at most {WEB_AGENT_MAX_FILES} files")
+                continue
             url = str(item.get("dataUrl") or "").strip()
             name = str(item.get("name") or f"file-{i + 1}").strip() or f"file-{i + 1}"
         else:

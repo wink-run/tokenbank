@@ -249,7 +249,12 @@ function snapshotWorkspace(workingDir) {
  * 收集本轮成品。正文点名的文件优先；有开工快照时，多出来或改过的文件都算交付。
  * 没有快照时仍按修改时间。不读工作目录以外的路径。
  */
-function collectWorkspaceArtifacts(workingDir, text, startedAt = 0, before = null) {
+/**
+ * opts.asFiles：不读进内存转 base64，只给本机路径和大小（交给 COS 直传），单个上限 opts.maxBytes
+ */
+function collectWorkspaceArtifacts(workingDir, text, startedAt = 0, before = null, opts = {}) {
+  const asFiles = !!opts.asFiles;
+  const maxBytes = asFiles ? Number(opts.maxBytes) || ARTIFACT_MAX_BYTES : ARTIFACT_MAX_BYTES;
   if (!workingDir || !fs.existsSync(workingDir)) return [];
   let rootReal;
   try { rootReal = fs.realpathSync(workingDir); } catch { return []; }
@@ -265,7 +270,16 @@ function collectWorkspaceArtifacts(workingDir, text, startedAt = 0, before = nul
     const ext = path.extname(info.name).toLowerCase();
     const mime = ARTIFACT_MIME[ext];
     if (!mime) return;
-    if (info.size <= 0 || info.size > ARTIFACT_MAX_BYTES) return;
+    if (info.size <= 0 || info.size > maxBytes) return;
+    if (asFiles) {
+      seen.add(info.real);
+      picked.push({
+        name: info.name.normalize('NFC').slice(0, 120), mime,
+        kind: mime.startsWith('image/') && ext !== '.svg' ? 'image' : 'file',
+        path: info.real, size: info.size, localPath: info.real,
+      });
+      return;
+    }
     const dataUrl = `data:${mime};base64,${fs.readFileSync(info.real).toString('base64')}`;
     if (totalChars + dataUrl.length > ARTIFACT_TOTAL_CHARS) return;
     seen.add(info.real);
