@@ -93,7 +93,26 @@ const cloudState = { lastSync: 0, error: '', peers: 0, awaitingApproval: false, 
 let approvalTimer = null;
 const CLOUD_SYNC_MS = 60 * 1000;
 
-function logLine(m) { (saved.log || ((x) => console.log(x)))(m); }
+function logLine(m) {
+  (saved.log || ((x) => console.log(x)))(m);
+  // 桌面应用的控制台不容易打开，同一行再落到文件里，卡住时直接看这个
+  try {
+    const file = path.join(os.homedir(), '.tokenbank', 'mesh.log');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFile(file, `${new Date().toISOString()} ${m}\n`, () => {});
+  } catch { /* 写日志失败不影响调用 */ }
+}
+
+/** 目录里看到的通路，用来对照「发出去时实际走的那条」 */
+function reachNote(dev) {
+  if (!dev) return '不在目录里';
+  if (!dev.online && !dev.self) return '目录里标成离线';
+  const p = dev.path;
+  if (!p) return '在线，还没有通路';
+  if (p.kind === 'relay') return `在线，经${p.via || '中继'}`;
+  if (p.kind === 'direct') return '在线，直连';
+  return '在线';
+}
 
 /** 证书内容（不校验签名，只看要不要续） */
 function certClaims(cert) {
@@ -694,6 +713,7 @@ async function routeAgentCreate({ harnessId, body, req, res, extraMeta }) {
   }
   const picked = scheduler.pickDevice({ target, workspace: meta.workspace, devices: node.directory.list() });
   if (!picked.device) {
+    logLine(`[mesh] 调不到 ${harnessId}：${picked.reason}`);
     sendJson(res, 404, { error: { message: picked.reason, type: 'mesh_no_device' } });
     return { handled: true, ok: false, error: picked.reason };
   }
@@ -707,12 +727,14 @@ async function routeAgentCreate({ harnessId, body, req, res, extraMeta }) {
   if (prev) forward.previous_response_id = prev.id;
   const headers = { 'content-type': 'application/json' };
   if (req.headers['idempotency-key']) headers['idempotency-key'] = req.headers['idempotency-key'];
+  logLine(`[mesh] 调用 ${target.id} → ${deviceLabel(dev)}（${reachNote(dev)}）`);
   try {
     const resp = await node.proxy(dev.device_id, {
       method: 'POST', path: '/v1/agent/responses', headers, body: Buffer.from(JSON.stringify(forward)),
     });
-    console.log(`[mesh] 智能体 ${target.id} → ${deviceLabel(dev)}`);
-    if (body.stream && !body.background && String(resp.headers['content-type'] || '').includes('event-stream')) {
+    const streaming = body.stream && !body.background && String(resp.headers['content-type'] || '').includes('event-stream');
+    logLine(`[mesh] ${deviceLabel(dev)} 应答 HTTP ${resp.status}${streaming ? '，流式' : ''}（${target.id}）`);
+    if (streaming) {
       const rw = sseRewriter(dev.device_id, deviceLabel(dev));
       await tunnel.pipeTo(resp, res, rw);
       return { handled: true, ok: true, device: deviceLabel(dev), taskId: rw.taskId, target: target.id };
@@ -723,9 +745,12 @@ async function routeAgentCreate({ harnessId, body, req, res, extraMeta }) {
     if (!obj) { res.writeHead(resp.status, { 'Content-Type': 'application/json' }); res.end(text); return { handled: true, ok: resp.status < 400, device: deviceLabel(dev) }; }
     const out = rewriteResponse(obj, dev.device_id, deviceLabel(dev));
     if (extraMeta && out.metadata && typeof out.metadata === 'object') Object.assign(out.metadata, extraMeta);
+    const replyLen = require('../agent-executor').meshOutputText(out).length;
+    logLine(`[mesh] ${deviceLabel(dev)} 这次返回正文 ${replyLen} 字（${target.id}，HTTP ${resp.status}）`);
     sendJson(res, resp.status, out);
     return { handled: true, ok: resp.status < 400, error: obj.error?.message, device: deviceLabel(dev), taskId: resp.status < 400 ? out.id : undefined, status: out.status, target: target.id, response: out };
   } catch (e) {
+    logLine(`[mesh] 调用 ${target.id} → ${deviceLabel(dev)} 失败：${e.message}`);
     sendJson(res, e.status || 502, { error: { message: `${deviceLabel(dev)}：${e.message}`, type: 'mesh_error' } });
     return { handled: true, ok: false, error: e.message };
   }
@@ -786,7 +811,10 @@ async function submitAgentTask({ harnessId, input, metadata = {}, previousRespon
     if (d) target.device = d.name;
   }
   const picked = scheduler.pickDevice({ target, workspace: metadata.workspace, devices: node.directory.list() });
-  if (!picked.device) throw Object.assign(new Error(picked.reason), { status: 404 });
+  if (!picked.device) {
+    logLine(`[mesh] 调不到 ${harnessId}：${picked.reason}`);
+    throw Object.assign(new Error(picked.reason), { status: 404 });
+  }
   if (picked.device.self) return { local: target.id };
   const dev = picked.device;
   // 本机选的项目目录：那台设备上找同名工作区；找不到就在它的默认工作区里跑，并说清楚
@@ -804,12 +832,14 @@ async function submitAgentTask({ harnessId, input, metadata = {}, previousRespon
   if (prev) forward.previous_response_id = prev.id;
   const headers = { 'content-type': 'application/json' };
   if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
+  logLine(`[mesh] 后台调用 ${target.id} → ${deviceLabel(dev)}（${reachNote(dev)}）`);
   let resp;
   try {
     resp = await node.proxy(dev.device_id, {
       method: 'POST', path: '/v1/agent/responses', headers, body: Buffer.from(JSON.stringify(forward)),
     });
   } catch (e) {
+    logLine(`[mesh] 后台调用 ${target.id} → ${deviceLabel(dev)} 失败：${e.message}`);
     throw Object.assign(new Error(`${deviceLabel(dev)}：${e.message}`), { status: e.status || 502 });
   }
   const text = (await tunnel.readAll(resp)).toString('utf8');
@@ -817,10 +847,12 @@ async function submitAgentTask({ harnessId, input, metadata = {}, previousRespon
   try { obj = JSON.parse(text); } catch { /* 下面报错 */ }
   if (!obj || resp.status >= 400 || !obj.id) {
     const msg = obj?.error?.message || text.slice(0, 200) || `HTTP ${resp.status}`;
+    logLine(`[mesh] 后台调用 ${target.id} → ${deviceLabel(dev)} 失败：HTTP ${resp.status} ${msg}`);
     throw Object.assign(new Error(`${deviceLabel(dev)}：${msg}`), { status: resp.status >= 400 ? resp.status : 502 });
   }
-  console.log(`[mesh] 智能体 ${target.id} → ${deviceLabel(dev)}（后台）`);
   const out = rewriteResponse(obj, dev.device_id, deviceLabel(dev));
+  const replyLen = require('../agent-executor').meshOutputText(out).length;
+  logLine(`[mesh] 后台任务已交给 ${deviceLabel(dev)}（${target.id}，HTTP ${resp.status}，正文 ${replyLen} 字）`);
   return { id: out.id, device: deviceLabel(dev), deviceId: dev.device_id, target: target.id, response: out, workspaceNote };
 }
 
@@ -1195,7 +1227,7 @@ module.exports = {
   submitAgentTask,
   fetchAgentTask,
   parseMeshTaskId,
-  startFromConfig, stop, getNode,
+  startFromConfig, stop, getNode, logLine,
   isMeshKey, isMeshRequest, isHop, checkIncoming, mapWorkspace, prevOfflineError, pullFile, pullInputs, selfDeviceId,
   devicesView, extraModels, extraHarnesses,
   routeChat, routeAgentCreate, routeAgentById, resolveWorkspace, setName, setSelfName,

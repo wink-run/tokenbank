@@ -688,12 +688,22 @@ class MeshNode extends EventEmitter {
   async proxy(deviceId, req) {
     const id = String(deviceId);
     const reqId = rid();
+    const method = String(req.method || 'GET').toUpperCase();
+    const pathOnly = String(req.path || '').split('?')[0];
+    // 只详细记「派一个智能体任务」。后面每秒查进度不在这里打，避免刷屏
+    const agentPost = method === 'POST' && pathOnly === '/v1/agent/responses';
+    const route = this._route(id);
+    const via = !route ? '没有通路' : route.official ? '经官方中继' : route.kind === 'relay' ? '经设备中继' : '直连';
+    if (agentPost) this.log(`[mesh] 发出智能体任务 → ${this._label(id)}（${via}）`);
+    const started = Date.now();
+    let p;
     const queue = [];
     let wake = null;
     let ended = false;
     let failure = null;
     const notify = () => { const w = wake; wake = null; w?.(); };
-    const p = await new Promise((resolve, reject) => {
+    try {
+      p = await new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.pending.delete(reqId); reject(Object.assign(new Error(`${this._label(id)} 没有响应`), { status: 504 })); }, HEAD_TIMEOUT_MS);
       timer.unref?.();
       const entry = {
@@ -720,7 +730,13 @@ class MeshNode extends EventEmitter {
       const body = req.body ? Buffer.from(req.body) : Buffer.alloc(0);
       this._send(id, { type: 'http_request', req_id: reqId, method: req.method, path: req.path, headers: req.headers || {}, body: keys.b64u(body) })
         .catch((e) => entry.fail(e));
-    });
+      });
+    } catch (e) {
+      // 查询进度失败由跟任务的那一侧记「状态变了才打」；派任务失败在这里记一次
+      if (agentPost) this.log(`[mesh] 智能体任务没送到 ${this._label(id)}（${Date.now() - started}ms，${via}）：${e.message}`);
+      throw e;
+    }
+    if (agentPost) this.log(`[mesh] ${this._label(id)} 已应答 HTTP ${p.status}（${Date.now() - started}ms，${via}）`);
     return p;
   }
 

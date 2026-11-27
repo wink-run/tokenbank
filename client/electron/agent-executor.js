@@ -510,15 +510,32 @@ const MESH_STATUS = { in_progress: 'running', queued: 'pending', completed: 'com
 function isMeshTarget(id) { return String(id || '').trim().startsWith('mine:'); }
 function isMeshTaskId(id) { return String(id || '').startsWith('mesh:'); }
 function safeJson(text, fallback) { try { return JSON.parse(text); } catch { return fallback; } }
-/** 远端响应里的正文 */
+/** 远端响应里的正文。output 为空时，用带回来的 output 步骤拼（增量接上，全文快照盖过增量） */
 function meshOutputText(resp) {
   const parts = [];
   for (const item of Array.isArray(resp?.output) ? resp.output : []) {
     for (const c of Array.isArray(item?.content) ? item.content : []) {
-      if (typeof c?.text === 'string') parts.push(c.text);
+      if (typeof c?.text === 'string' && c.text) parts.push(c.text);
     }
+    if (typeof item?.text === 'string' && item.text) parts.push(item.text);
   }
-  return parts.join('\n');
+  const fromOutput = parts.join('\n').trim();
+  if (fromOutput) return fromOutput;
+  return textFromMeshSteps(resp?.steps);
+}
+
+function textFromMeshSteps(steps) {
+  let acc = '';
+  for (const st of Array.isArray(steps) ? steps : []) {
+    const type = st?.step_type || st?.stepType || '';
+    if (type !== 'output') continue;
+    const b = String(st?.content || '');
+    if (!b.trim()) continue;
+    if (!acc || b.startsWith(acc) || b.includes(acc)) acc = b;
+    else if (acc.startsWith(b) || acc.includes(b)) continue;
+    else acc += b;
+  }
+  return acc.trim();
 }
 
 function sleep(ms) {
@@ -1451,15 +1468,27 @@ class AgentExecutor extends EventEmitter {
     if (!resp || resp.status === 'unreachable') return false;
     // 那台设备上的执行步骤：照本机步骤一样存下、推给游乐场（边做边看）
     if (Array.isArray(resp.steps)) {
+      // 库里没有增量/快照标记。后一段盖住前一段时当快照，否则当增量，界面才能拼成一句
+      let prevOut = '';
       for (const st of resp.steps) {
+        const stepType = st.step_type || 'output';
+        const content = st.content || '';
+        let is_delta = false;
+        let is_snapshot = false;
+        if ((stepType === 'output' || stepType === 'thinking') && content) {
+          if (prevOut && (content.startsWith(prevOut) || content.includes(prevOut))) is_snapshot = true;
+          else is_delta = true;
+          if (stepType === 'output') prevOut = is_snapshot ? content : prevOut + content;
+        }
         this._emitSingleStep(taskId, Number(st.step_number) || 0, {
-          stepType: st.step_type || 'output', content: st.content || '', tool_name: st.tool_name || undefined,
+          stepType, content, tool_name: st.tool_name || undefined,
           tool_use_id: st.tool_use_id || undefined, is_error: !!st.is_error,
+          is_delta, is_snapshot,
         }, null);
       }
     }
     const status = MESH_STATUS[resp.status] || 'running';
-    const text = meshOutputText(resp);
+    const incoming = meshOutputText(resp);
     const db = this._getDb();
     const row = db.prepare('SELECT status, result FROM agent_tasks WHERE id = ?').get(taskId);
     if (!row) return true;
@@ -1468,6 +1497,9 @@ class AgentExecutor extends EventEmitter {
     // 标过「失联」的：那台设备回来了，用真实结果补上；其它终态不再改
     if (TERMINAL.includes(row.status) && !prev.lost) return true;
     if (prev.lost) { delete prev.lost; delete prev.lostReason; }
+    const prevText = String(prev.summary || prev.output || '');
+    // 这一包没带正文时留着上一包，避免空 output 把已经拼好的回复清掉
+    const text = incoming.trim().length >= prevText.trim().length ? incoming : prevText;
     const result = {
       ...prev,
       output: text,
@@ -1516,6 +1548,14 @@ class AgentExecutor extends EventEmitter {
     let delay = 1000;
     let timer = null;
     let stopped = false;
+    // 每秒查一次，只在状态变了时打一行，卡住时也能看出停在哪
+    let lastNote = '';
+    const noteOnce = (note) => {
+      if (note === lastNote) return;
+      lastNote = note;
+      try { require('./mesh/glue').logLine(`[mesh] 跟任务 ${taskId}：${note}`); } catch { console.log(`[mesh] 跟任务 ${taskId}：${note}`); }
+    };
+    try { require('./mesh/glue').logLine(`[mesh] 开始跟远端任务 ${taskId}`); } catch { console.log(`[mesh] 开始跟远端任务 ${taskId}`); }
     const stop = () => { stopped = true; if (timer) clearTimeout(timer); this._meshPollers.delete(taskId); };
     const tick = async () => {
       if (stopped) return;
@@ -1529,15 +1569,21 @@ class AgentExecutor extends EventEmitter {
           delay = Math.min(delay * 2, 15000);
           unreachableSince = unreachableSince || Date.now();
           lastError = resp.error?.message || lastError;
+          noteOnce(`连不上：${resp.error?.message || '没有响应'}`);
         } else {
           delay = 1000;
           unreachableSince = 0;
+          const steps = Array.isArray(resp.steps) ? resp.steps.length : 0;
+          const reply = meshOutputText(resp);
+          const err = resp.error?.message ? `，${resp.error.message}` : '';
+          noteOnce(`状态 ${resp.status || 'unknown'}${resp.httpStatus ? ` HTTP ${resp.httpStatus}` : ''}${steps ? `，这次带回 ${steps} 步` : ''}${reply.trim() ? `，正文 ${reply.trim().length} 字` : '，正文空'}${err}`);
           terminal = this._applyMeshResponse(taskId, resp);
         }
       } catch (e) {
         delay = Math.min(delay * 2, 15000);
         unreachableSince = unreachableSince || Date.now();
         lastError = e.message || lastError;
+        noteOnce(`查询出错：${e.message}`);
       }
       if (terminal) {
         // 产出文件：小的先拉回本机，再通知（等着它的父任务拿到的结果里就有本机路径）
@@ -1554,6 +1600,8 @@ class AgentExecutor extends EventEmitter {
           : '失联：跟了 48 小时还没做完，先停下。那台设备回来后会再查一次';
         if (this._markMeshLost(taskId, reason)) {
           try { this._notifyTaskTerminal(taskId, await this.getTaskStatus(taskId)); } catch { /* 行没了 */ }
+        } else {
+          noteOnce('超过 6 小时还没结束，停止查询');
         }
         stop();
         return;
@@ -3275,6 +3323,8 @@ module.exports.taskWaitAlive = taskWaitAlive;
 module.exports.taskActivityMark = taskActivityMark;
 module.exports.isMeshTarget = isMeshTarget;
 module.exports.isMeshTaskId = isMeshTaskId;
+module.exports.textFromMeshSteps = textFromMeshSteps;
+module.exports.meshOutputText = meshOutputText;
 module.exports.buildClaudeCodeArgs = buildClaudeCodeArgs;
 module.exports.buildClaudeContinueArgs = buildClaudeContinueArgs;
 module.exports.buildClaudeStreamFlags = buildClaudeStreamFlags;
