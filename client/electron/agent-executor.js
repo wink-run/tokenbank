@@ -1653,7 +1653,8 @@ class AgentExecutor extends EventEmitter {
     }
 
     try {
-      const progress = { text: '', tool: '' };
+      // 只收摘要不落库：进度挂在上级任务下，上级自己的步骤编号不能被插乱
+      const progress = { text: '', tool: '', collect: true, quiet: !options.stream };
       const result = await runCommunityAgentTask({
         assistantId,
         prompt,
@@ -1662,10 +1663,8 @@ class AgentExecutor extends EventEmitter {
         images: options.images,
         files: options.files,
         sessionKey: options.historyThreadId || options.parentSessionKey || '',
-        stream: !!options.stream,
-        onProgress: options.stream
-          ? (ev) => this._noteCommunityProgress(parentTaskId || taskId, ev, progress)
-          : undefined,
+        stream: true,
+        onProgress: (ev) => this._noteCommunityProgress(parentTaskId || taskId, ev, progress),
       });
       const ok = !!result?.ok;
       const artifacts = normalizeCommunityArtifacts(result?.artifacts);
@@ -1677,6 +1676,8 @@ class AgentExecutor extends EventEmitter {
           output: result?.output || '',
           summary: result?.output || '',
           artifacts,
+          // 对方报的进度摘要（做了哪些步骤），回看时用
+          ...(progress.summary?.length ? { progress: progress.summary } : {}),
         },
         usage: result?.usage || null,
       };
@@ -1712,6 +1713,34 @@ class AgentExecutor extends EventEmitter {
     }
   }
 
+  /**
+   * 雇佣任务的一条进度：照常推给界面；对方报的工具调用另记进本任务的步骤，之后回看能看到做了哪些事。
+   * 只记对方发来的进度摘要（工具名、简述、成败），不是对方的完整执行记录；正文快照不落库，终态结果里有。
+   */
+  _communityStep(taskId, state, step) {
+    // quiet：调用方没要实时进度（接口非流式），只收摘要，不往上级任务推步骤
+    if (!state?.quiet) this.emit('task:step', step);
+    if (!state || !(state.persist || state.collect) || (step.stepType !== 'tool_call' && step.stepType !== 'tool_result')) return;
+    if (!state.summary) state.summary = [];
+    const text = String(step.content || '').slice(0, 500);
+    if (step.stepType === 'tool_call') {
+      if (state.summary.length < 100) state.summary.push({ tool: step.tool_name || 'tool', detail: text, at: step.timestamp || Date.now() });
+    } else {
+      const last = [...state.summary].reverse().find((x) => x.tool === (step.tool_name || 'tool') && !x.done);
+      if (last) { last.done = true; if (step.is_error) last.error = true; }
+    }
+    if (!state.persist) return;
+    if (state.stepNo == null) state.stepNo = 0;
+    if (state.stepNo >= 200) return;
+    try {
+      this._getDb().prepare(`
+        INSERT INTO agent_task_steps (id, task_id, step_number, step_type, content, tool_name, tool_use_id, is_error, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(`step_${Date.now()}_${nanoid(8)}`, taskId, state.stepNo++, step.stepType, text || (step.tool_name || ''),
+        step.tool_name || null, step.tool_use_id || null, step.is_error ? 1 : 0, step.is_error ? 'error' : 'completed', Date.now());
+    } catch { /* 库不可用就只推界面 */ }
+  }
+
   /** 把云端进度收成和本地智能体一样的 output / tool_call / tool_result 步骤。 */
   _noteCommunityProgress(taskId, ev, state) {
     if (!taskId || !ev || this._isTaskCancelled(taskId)) return;
@@ -1723,7 +1752,7 @@ class AgentExecutor extends EventEmitter {
     const text = String(ev.text || '');
     if (text && text !== state.text) {
       state.text = text;
-      this.emit('task:step', {
+      this._communityStep(taskId, state, {
         taskId,
         stepType: 'output',
         content: text,
@@ -1735,7 +1764,7 @@ class AgentExecutor extends EventEmitter {
     const tool = String(ev.tool || '').trim();
     if (tool && tool !== state.tool) {
       state.tool = tool;
-      this.emit('task:step', {
+      this._communityStep(taskId, state, {
         taskId,
         stepType: 'tool_call',
         tool_name: tool,
@@ -1761,7 +1790,7 @@ class AgentExecutor extends EventEmitter {
         const text = String(part.text || '');
         if (!text || prev.text === text) return;
         state.partCursor[index] = { text };
-        this.emit('task:step', {
+        this._communityStep(taskId, state, {
           taskId,
           stepType: kind === 'thinking' ? 'thinking' : 'output',
           content: text,
@@ -1776,7 +1805,7 @@ class AgentExecutor extends EventEmitter {
       const detail = String(part.detail || '');
       const id = `cpart-${index}`;
       if (!prev.called) {
-        this.emit('task:step', {
+        this._communityStep(taskId, state, {
           taskId,
           stepType: 'tool_call',
           tool_name: name,
@@ -1794,7 +1823,7 @@ class AgentExecutor extends EventEmitter {
         if (!result && detail && prev.callDetail && detail !== prev.callDetail && detail.startsWith(prev.callDetail)) {
           result = detail.slice(prev.callDetail.length).trim();
         }
-        this.emit('task:step', {
+        this._communityStep(taskId, state, {
           taskId,
           stepType: 'tool_result',
           tool_name: name,
@@ -1827,7 +1856,7 @@ class AgentExecutor extends EventEmitter {
       parsed.owner || hired?.owner || hired?.owner_nickname,
     );
     const harnessId = makeCommunityAgentId(assistantId, owner);
-    const progress = { text: '', tool: '' };
+    const progress = { text: '', tool: '', persist: true };
 
     this.emit('task:step', {
       taskId,
@@ -1848,10 +1877,9 @@ class AgentExecutor extends EventEmitter {
       images: options.images,
       files: options.files,
       sessionKey: options.historyThreadId || '',
-      stream: !!options.stream,
-      onProgress: options.stream
-        ? (ev) => this._noteCommunityProgress(taskId, ev, progress)
-        : undefined,
+      // 总是要进度：界面不实时看，也要留一份摘要回看
+      stream: true,
+      onProgress: (ev) => this._noteCommunityProgress(taskId, ev, progress),
     });
 
     if (this._isTaskCancelled(taskId)) {
@@ -1872,7 +1900,8 @@ class AgentExecutor extends EventEmitter {
         error: errText,
         files: [],
         artifacts,
-        stepCount: 0,
+        stepCount: progress.stepNo || 0,
+        ...(progress.summary?.length ? { progress: progress.summary } : {}),
         usage: result?.usage || null,
       };
       try {
@@ -1905,7 +1934,8 @@ class AgentExecutor extends EventEmitter {
       files: [],
       // 对方工作目录里的成品。本机没有这些路径，用 data URL 展示和下载
       artifacts,
-      stepCount: 0,
+      stepCount: progress.stepNo || 0,
+      ...(progress.summary?.length ? { progress: progress.summary } : {}),
       usage: result.usage || null,
     };
     try {
@@ -3101,6 +3131,8 @@ class AgentExecutor extends EventEmitter {
         output: taskResultText(r.result),
         ...(mesh ? { device: result.device || String(r.agent_id).split('@').pop() || null } : {}),
         ...(Array.isArray(result.files) && result.files.length ? { files: result.files.map((f) => ({ token: f.token, name: f.name, size: f.size, path: f.path || null, pending: !!f.pending, error: f.error || '' })) } : {}),
+        // 雇来的任务：对方报的进度摘要
+        ...(Array.isArray(result.progress) && result.progress.length ? { progress: result.progress.slice(0, 100) } : {}),
       };
     });
   }

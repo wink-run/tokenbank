@@ -292,6 +292,24 @@ function TaskFiles({ taskId, files, device, t }) {
   );
 }
 
+/** 雇来的任务：对方报的进度摘要（做了哪些步骤），不是对方的完整执行记录 */
+function TaskProgress({ items, t }) {
+  return (
+    <div>
+      <div className="text-zinc-400 mb-1">{t('gw2.progress.title')}</div>
+      <ol className="m-0 pl-4 space-y-0.5">
+        {items.map((p, i) => (
+          <li key={i} className={p.error ? 'text-red-500' : 'text-zinc-600 dark:text-zinc-300'}>
+            <span className="font-mono">{p.tool}</span>
+            {p.detail && p.detail !== p.tool && <span className="text-zinc-400"> · {p.detail}</span>}
+            {p.error ? <span> · {t('gw2.progress.failed')}</span> : !p.done ? <span className="text-zinc-400"> · {t('gw2.progress.unfinished')}</span> : null}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 /** 和用量明细一样的小节标题 */
 function TaskSection({ n, title, hint, children }) {
   return (
@@ -434,6 +452,7 @@ function TodayTaskList({ agentId, name, onClose, t }) {
                               <div className="text-zinc-400 mb-1">{t('gw2.task.output')}</div>
                               <div className="whitespace-pre-wrap break-words max-h-48 overflow-y-auto text-zinc-700 dark:text-zinc-200">{result}</div>
                             </div>
+                            {Array.isArray(task.progress) && task.progress.length > 0 && <TaskProgress items={task.progress} t={t} />}
                             {Array.isArray(task.files) && task.files.length > 0 && <TaskFiles taskId={task.id} files={task.files} device={task.device} t={t} />}
                             <div className="text-zinc-400 break-all">
                               {t('gw2.task.start')} {when(task.started_at || task.created_at)}
