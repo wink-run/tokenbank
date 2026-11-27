@@ -31,8 +31,9 @@ test('游乐场雇佣任务：工具进度记进步骤，结果里带摘要', as
     return { ok: true, output: '好了' };
   };
   try {
-    await executor._runCommunityTaskForExecute('t1', 'community:a1@ada', 'x', {});
+    await executor._runCommunityTaskForExecute('t1', 'community:a1@ada', 'x', { model: 'glm-5.3' });
     assert.strictEqual(asked.stream, true, '不管界面要不要实时，都要进度');
+    assert.strictEqual(asked.model, undefined, '雇来的智能体用出租方自己的模型，雇佣方带了也不发过去');
     const steps = db.prepare('SELECT step_type, tool_name FROM agent_task_steps WHERE task_id = ? ORDER BY step_number').all('t1');
     assert.deepStrictEqual(steps.map((s) => `${s.step_type}:${s.tool_name}`),
       ['tool_call:search', 'tool_result:search', 'tool_call:write', 'tool_result:write']);

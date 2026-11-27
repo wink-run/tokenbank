@@ -1928,6 +1928,7 @@ class AgentExecutor extends EventEmitter {
       ...this._taskEventMeta(taskId),
     });
 
+    // 不带模型：雇来的智能体用出租方自己的设置（智能体配的模型、出租方给应用选的路由），雇佣方定不了
     const result = await runCommunityAgentTask({
       assistantId,
       prompt,
