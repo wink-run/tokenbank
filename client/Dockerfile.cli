@@ -3,8 +3,14 @@ FROM node:20-alpine AS builder
 WORKDIR /build
 
 # Install deps (skip electron binary download — not needed for vite build)
+# 默认走 npmmirror；断连时重试，同一层里已下过的包还在缓存里
+ARG NPM_REGISTRY=https://registry.npmmirror.com
 COPY package*.json ./
-RUN npm ci --ignore-scripts
+RUN npm config set registry "$NPM_REGISTRY" \
+  && npm config set fetch-retries 5 \
+  && npm config set fetch-retry-mintimeout 20000 \
+  && npm config set fetch-retry-maxtimeout 120000 \
+  && sh -c 'for attempt in 1 2 3; do echo "npm ci attempt $attempt..."; npm ci --ignore-scripts && exit 0; echo "npm ci failed, retrying..."; sleep 5; done; exit 1'
 
 # Copy only the frontend source needed for vite build
 COPY index.html vite.config.js tailwind.config.js postcss.config.js ./
@@ -18,12 +24,15 @@ RUN npx vite build
 # slim 需补 python3/g++ 作编译回退
 FROM node:22.21-bookworm-slim AS native-deps
 WORKDIR /deps
+ARG NPM_REGISTRY=https://registry.npmmirror.com
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ libsqlite3-dev \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm config set registry "$NPM_REGISTRY" \
   && npm config set fetch-retries 5 \
   && npm config set fetch-retry-mintimeout 20000 \
-  && npm install --omit=dev js-yaml@4.1.1 better-sqlite3@12.10.0 ws@8.20.0 https-proxy-agent@7.0.6 proxy-from-env@2.1.0 fzstd@0.1.1 adm-zip@0.6.0 \
-  && rm -rf /var/lib/apt/lists/*
+  && npm config set fetch-retry-maxtimeout 120000 \
+  && sh -c 'for attempt in 1 2 3; do echo "npm install attempt $attempt..."; npm install --omit=dev js-yaml@4.1.1 better-sqlite3@12.10.0 ws@8.20.0 https-proxy-agent@7.0.6 proxy-from-env@2.1.0 fzstd@0.1.1 adm-zip@0.6.0 && exit 0; echo "npm install failed, retrying..."; sleep 5; done; exit 1'
 
 # ── Stage 3: runtime（与 native-deps 同 Node 版本）────────────────────────────
 FROM node:22.21-bookworm-slim
@@ -56,6 +65,9 @@ ENV LLM_AGENT_CONFIG_DIR=/data/.llm-agent
 # ENV TOKEN_SERVER_URL=https://your-token-server.example.com
 
 # 命令行智能体（Claude Code、pi、Codex…）装在 /data 下：普通用户可写，升级镜像后仍在
+# 容器里再 npm install 也走同一镜像；要官方源：--build-arg NPM_REGISTRY=https://registry.npmjs.org
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+ENV NPM_CONFIG_REGISTRY=$NPM_REGISTRY
 ENV NPM_CONFIG_PREFIX=/data/.npm-global
 ENV PATH=/data/.npm-global/bin:$PATH
 # 智能体默认工作目录：把项目目录挂到 /workspace
