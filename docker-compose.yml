@@ -138,7 +138,7 @@ services:
       context: ./client
       dockerfile: Dockerfile.cli
     ports:
-      - "11430:11430"   # OpenAI-compatible gateway (OPENAI_BASE_URL)
+      - "11430:11430"   # OpenAI 网关；设备网络也走这个端口（/mesh/ws），不再另开端口
       - "11431:11431"   # Admin API + Web UI
     volumes:
       # 整个 /data：命令行智能体（装在 /data/.npm-global）、它们的登录状态（~/.claude、~/.pi…）、资产库
@@ -151,6 +151,8 @@ services:
       - NODE_ENV=production
       - GATEWAY_BIND_HOST=0.0.0.0
       - TOKEN_SERVER_URL=https://tokenbank.wink.run/
+      # 出口 IP 不是要公布的公网地址时再填，例如 203.0.113.5 或 203.0.113.5:11430。不填就用云端看到的出口 IP
+      - MESH_PUBLIC_ADDR=${MESH_PUBLIC_ADDR:-}
       # 容器以普通用户运行（默认 1000）；想让 ./gateway-data、./workspace 归宿主机用户，改成 `id -u` / `id -g`
       # - TOKENBANK_UID=1000
       # - TOKENBANK_GID=1000

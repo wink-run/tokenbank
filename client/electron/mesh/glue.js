@@ -19,6 +19,49 @@ let cfg = null;
 
 function meshDir() { return path.join(os.homedir(), '.tokenbank', 'mesh'); }
 
+function runningInDocker() {
+  try { return fs.existsSync('/.dockerenv'); } catch { return false; }
+}
+
+/**
+ * 容器不另开端口：设备网络挂在网关已有端口上（/mesh/ws、/mesh/ping），和官方中继挂在 API 端口上一样。
+ * 有公网 IP 时云端回拨这个端口，验过就能当中继。172.x 网桥地址不会写进地址簿。局域网组播出不了容器网桥，默认关掉。
+ * 公网地址：MESH_PUBLIC_ADDR 或 config 的 public_addr；不填就用云端看到的出口 IP。
+ */
+function meshRuntimeOpts(cfg, gatewayPort) {
+  const docker = runningInDocker();
+  const lanDiscovery = docker ? cfg.lan_discovery === true : cfg.lan_discovery !== false;
+  if (docker && cfg.listen !== false && gatewayPort) {
+    return { listen: 'shared', lanDiscovery, port: gatewayPort, shareHttp: true };
+  }
+  const listen = cfg.listen === false ? false : (cfg.listen || '::');
+  return { listen, lanDiscovery, port: Number.isInteger(cfg.port) ? cfg.port : 41750, shareHttp: false };
+}
+
+function publicAddrOf(cfg, port) {
+  const raw = String(process.env.MESH_PUBLIC_ADDR || cfg.public_addr || '').trim();
+  if (!raw) return undefined;
+  const p = port || (Number.isInteger(cfg.port) ? cfg.port : 41750);
+  // 只写了 IPv4 时补上入口端口
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(raw)) return `${raw}:${p}`;
+  return raw;
+}
+
+/** 网关已有端口上的探活。容器把设备网络挂在这里，不另开端口 */
+function handleHttp(req, res) {
+  if (!node || typeof node.handleHttp !== 'function') return false;
+  return node.handleHttp(req, res);
+}
+
+/** 网关已有端口上的 /mesh/ws。不是这条路径就不动 */
+function handleUpgrade(req, socket, head) {
+  const path = String(req.url || '').split('?')[0];
+  if (path !== '/mesh/ws') return false;
+  if (node && typeof node.handleUpgrade === 'function' && node.handleUpgrade(req, socket, head)) return true;
+  try { socket.destroy(); } catch { /* 已经断了 */ }
+  return true;
+}
+
 function readConfig() {
   try { return JSON.parse(fs.readFileSync(path.join(meshDir(), 'config.json'), 'utf8')); } catch { return null; }
 }
@@ -176,8 +219,15 @@ async function cloudSync() {
     const errors = [];
     try {
       // 云端回拨验证：从外面真的连得到的地址，才能自动当中继
-      const pub = await cloud.publishAddress({ endpointId: a.endpoint_id, relayUrl: a.relay_url, directAddrs: a.direct_addrs });
+      let pub = await cloud.publishAddress({ endpointId: a.endpoint_id, relayUrl: a.relay_url, directAddrs: a.direct_addrs });
       node.setVerified(pub?.verified || [], pub?.observed_ip || '');
+      // 容器网卡上没有公网地址：云端看到的出口 IP 补进地址簿后再报一次，这一轮就能回拨验证、当中继
+      const again = node.addrInfo();
+      const known = new Set(a.direct_addrs || []);
+      if ((again.direct_addrs || []).some((x) => !known.has(x))) {
+        pub = await cloud.publishAddress({ endpointId: again.endpoint_id, relayUrl: again.relay_url, directAddrs: again.direct_addrs });
+        node.setVerified(pub?.verified || [], pub?.observed_ip || '');
+      }
     } catch (e) { errors.push(`报地址：${e.message}`); }
     // 按密钥吊销：同一台设备重装后换了密钥，旧密钥作废，新的照常
     try {
@@ -395,14 +445,18 @@ async function startFromConfig({ gatewayPort, log } = {}) {
         scheduleApprovalRetry();
         return null;
       }
+      cloudState.error = e.message;
       logLine(`[mesh] 领设备证书失败：${e.message}`);
     }
     cfg = readConfig();
   }
   if (!cfg.cert) {
-    logLine('[mesh] 还没有设备证书：登录后自动领取');
+    if (!cloudState.error) cloudState.error = '还没有设备证书：登录后自动领取';
+    logLine(`[mesh] ${cloudState.error}`);
+    if (cloud?.ready) scheduleApprovalRetry();
     return null;
   }
+  const runtime = meshRuntimeOpts(cfg, saved.gatewayPort);
   const { MeshNode } = require('./node');
   node = new MeshNode({
     dir: meshDir(),
@@ -412,25 +466,30 @@ async function startFromConfig({ gatewayPort, log } = {}) {
     peers: cfg.peers || [],
     revoked: cfg.revoked || [],
     relayUrls: cfg.relay_urls || [],
-    // 入口：默认 [::]:41750；listen: false 表示不开入口、只走中继
-    listen: cfg.listen === false ? false : (cfg.listen || '::'),
-    port: Number.isInteger(cfg.port) ? cfg.port : 41750,
-    publicAddr: cfg.public_addr || undefined,
+    // 桌面默认 [::]:41750。容器 shareHttp：挂在网关端口上，不再另开。listen: false 表示不开入口、只走中继
+    listen: runtime.listen === 'shared' ? '0.0.0.0' : runtime.listen,
+    port: runtime.port,
+    shareHttp: runtime.shareHttp,
+    publicAddr: publicAddrOf(cfg, runtime.port),
     relay: { mode: cfg.relay_mode || 'auto', pref: cfg.relay_pref || 'auto', prefAt: Number(cfg.relay_pref_at) || 0 },
     cloud: !!cloud?.ready,
     relayDumpFile: cfg.relay_dump || undefined,
     gatewayPort: saved.gatewayPort,
     describeSelf,
     presenceMs: cfg.presence_ms || 5000,
-    lanDiscovery: cfg.lan_discovery !== false,
+    lanDiscovery: runtime.lanDiscovery,
     lanPort: cfg.lan_port,
     log: logLine,
   });
   try {
     await node.start();
+    cloudState.error = '';
   } catch (e) {
     logLine(`[mesh] 启动失败：${e.message}`);
+    cloudState.error = e.message;
+    try { await node?.stop(); } catch { /* 没开起来 */ }
     node = null;
+    if (cloud?.ready) scheduleApprovalRetry();
     return null;
   }
   attachHireHandlers(node);
@@ -466,7 +525,11 @@ function isHop(headers) { return !!(headers && headers['x-tb-mesh-hop']); }
 const STALE_MS = 30 * 24 * 60 * 60 * 1000;
 
 function devicesView() {
-  if (!node) return { enabled: false, devices: [] };
+  // 开关开着但节点还没起来（Docker 里常见：入口绑失败、证书还在领）不能当成「没开设备网络」
+  if (!node) {
+    const on = !!(readConfig()?.enabled);
+    return { enabled: on, ready: false, error: on ? (cloudState.error || '') : '', devices: [] };
+  }
   const now = Date.now();
   // 连不上的原因：每台试过哪些直连地址、结果如何，官方中继的情况（借鉴 agentmesh 失败时说清楚每条路）
   let diag = { official: null, peers: [] };
@@ -477,6 +540,7 @@ function devicesView() {
   const knownEp = new Set(listed.map((d) => d.endpoint_id).filter(Boolean));
   return {
     enabled: true,
+    ready: true,
     relay: node.relayInfo(),
     official: diag.official ? { configured: diag.official.configured, connected: diag.official.connected } : null,
     // 地址簿里有、但从来没连上过的设备（还不在目录里）：给界面说明为什么没连上
@@ -1227,7 +1291,7 @@ module.exports = {
   submitAgentTask,
   fetchAgentTask,
   parseMeshTaskId,
-  startFromConfig, stop, getNode, logLine,
+  startFromConfig, stop, getNode, logLine, handleHttp, handleUpgrade,
   isMeshKey, isMeshRequest, isHop, checkIncoming, mapWorkspace, prevOfflineError, pullFile, pullInputs, selfDeviceId,
   devicesView, extraModels, extraHarnesses,
   routeChat, routeAgentCreate, routeAgentById, resolveWorkspace, setName, setSelfName,

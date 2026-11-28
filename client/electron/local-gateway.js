@@ -4528,6 +4528,10 @@ function buildDefaultModelList() {
 }
 
 function handleRequest(req, res) {
+  // 容器里的设备网络挂在这个端口上，不另开 41750
+  try {
+    if (require('./mesh/glue').handleHttp(req, res)) return;
+  } catch { /* 设备网络没挂在这个端口上 */ }
   // CORS preflight
   res.setHeader('Access-Control-Allow-Origin',  '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -4657,7 +4661,7 @@ function handleRequest(req, res) {
   if (method === 'GET' && cleanPath === '/v1/devices') {
     const view = require('./mesh/glue').devicesView();
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ object: 'list', enabled: view.enabled, relay: view.relay || null, official: view.official || null, unreached: view.unreached || [], data: view.devices }));
+    res.end(JSON.stringify({ object: 'list', enabled: view.enabled, ready: view.ready !== false, error: view.error || '', relay: view.relay || null, official: view.official || null, unreached: view.unreached || [], data: view.devices }));
     return;
   }
 
@@ -4959,6 +4963,10 @@ function start(port, getConfig, saveConfig, bindHost = '127.0.0.1', onListenErro
   _getConfig  = getConfig;
   _saveConfig = saveConfig || null;
   _server     = http.createServer(handleRequest);
+  // 设备网络的 WebSocket（仅 /mesh/ws）。桌面版走自己的端口，这里接不住就关掉这条升级
+  _server.on('upgrade', (req, socket, head) => {
+    try { require('./mesh/glue').handleUpgrade(req, socket, head); } catch { try { socket.destroy(); } catch { /* 已经断了 */ } }
+  });
   // 图像生成上游可能 30–120s 无响应字节（内部轮询），放宽服务端超时
   _server.requestTimeout = 600_000;
   _server.headersTimeout = 610_000;

@@ -55,7 +55,6 @@ class LanDiscovery {
   start() {
     const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
     this.sock = sock;
-    sock.on('error', (e) => this.opts.log?.(`[mesh] 局域网发现出错：${e.message}`));
     sock.on('message', (buf, rinfo) => {
       const peer = parseAnnouncement(buf, rinfo, {
         selfEndpointId: this.opts.endpointId,
@@ -74,8 +73,15 @@ class LanDiscovery {
       }
       this.opts.onPeer(peer);
     });
-    return new Promise((resolve) => {
+    // bind 失败要拒绝，不能一直等回调：Docker 里 UDP 端口经常绑不上，否则整个设备网络卡在启动
+    return new Promise((resolve, reject) => {
+      let opened = false;
+      sock.on('error', (e) => {
+        this.opts.log?.(`[mesh] 局域网发现出错：${e.message}`);
+        if (!opened) reject(e);
+      });
       sock.bind(this.port, () => {
+        opened = true;
         try { sock.addMembership(GROUP); } catch (e) { this.opts.log?.(`[mesh] 加入组播失败，只用广播：${e.message}`); }
         try { sock.setMulticastTTL(1); sock.setMulticastLoopback(true); sock.setBroadcast(true); } catch { /* 部分平台不支持 */ }
         this.announce();

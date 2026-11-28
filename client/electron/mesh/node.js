@@ -6,12 +6,13 @@
 //   · 本机连出去：能直接连到对方就直连；连不到就经「我的中继」（我名下的某台设备，或官方中继），消息写上 to。
 //   · 两台设备之间端到端加密（keys.js），中继只看到密文。
 // 一个账号同一时间用同一个中继：手动指定的以最近一次为准，自动时大家挑同一台，都没有就用官方中继。
-// 另外每台都挂着一条到官方中继的空闲连接当「碰头点」：哪怕两台一时选的中继不一样（比如一台还没登录），也总能互相找到；
-// 数据还是先直连、再经我的设备中继，都不通才经官方中继。
+// 另外每台都尝试挂一条到官方中继的空闲连接当「碰头点」：哪怕两台一时选的中继不一样（比如一台还没登录），也总能互相找到。
+// 这条连不上不影响服务：已经有自己的中继时，数据照旧先直连、再经那台设备，都不通才经官方中继。
 // 上层只用 proxy(device, httpRequest)：把一次 HTTP 请求交给那台设备的本机网关，接口和以前一样。
 'use strict';
 
 const crypto = require('crypto');
+const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const EventEmitter = require('events');
@@ -62,12 +63,23 @@ function wsUrl(addr) {
   return `ws://${a}${WS_PATH}`;
 }
 
+/** Docker 网桥地址（172.16.0.0/12）出了容器就没人连得上，不能写进地址簿 */
+function dockerBridge(ip) {
+  return /^172\.(1[6-9]|2\d|3[01])\./.test(String(ip || ''));
+}
+
+function inDocker() {
+  try { return fs.existsSync('/.dockerenv'); } catch { return false; }
+}
+
 /** 本机网卡上的地址（局域网、Tailscale、全局 IPv6），给别的设备直连用 */
 function localAddrs(port) {
+  const docker = inDocker();
   const out = [];
   for (const list of Object.values(os.networkInterfaces() || {})) {
     for (const a of list || []) {
       if (a.internal) continue;
+      if ((a.family === 'IPv4' || a.family === 4) && docker && dockerBridge(a.address)) continue;
       if (a.family === 'IPv4' || a.family === 4) out.push(`${a.address}:${port}`);
       else if ((a.family === 'IPv6' || a.family === 6) && !/^fe80:/i.test(a.address)) out.push(`[${a.address}]:${port}`);
     }
@@ -178,7 +190,13 @@ class MeshNode extends EventEmitter {
     return v.ok ? v.claims : null;
   }
 
-  get port() { return this.server ? this.server.address().port : 0; }
+  get port() {
+    if (this.server) {
+      const a = this.server.address();
+      if (a && typeof a === 'object') return a.port;
+    }
+    return this.sharedPort || 0;
+  }
 
   async start() {
     const claims = this.selfClaims;
@@ -203,10 +221,29 @@ class MeshNode extends EventEmitter {
         onDisconnect: (conn) => this._onInboundClose(conn),
       },
     });
-    if (this.opts.listen !== false) await this._listen();
+    if (this.opts.listen !== false) {
+      try {
+        await this._listen();
+      } catch (e) {
+        // 入口绑不上（Docker 没开 IPv6、端口被占）不能把整网停掉，改成只走中继
+        this.log(`[mesh] 入口开不了（${e.message}），改为只走中继`);
+        try { this.server?.close(); } catch { /* 没听上 */ }
+        this.server = null;
+        this.wss = null;
+        this.opts.listen = false;
+      }
+    }
     await this.refreshSelf();
     for (const p of this.opts.peers || []) this.ensurePeer(p, 'config');
-    if (this.opts.listen !== false && this.opts.lanDiscovery !== false) await this._startLanDiscovery();
+    if (this.opts.listen !== false && this.opts.lanDiscovery !== false) {
+      try {
+        await this._startLanDiscovery();
+      } catch (e) {
+        this.log(`[mesh] 局域网发现没开起来：${e.message}`);
+        try { this.lan?.stop(); } catch { /* 没开起来 */ }
+        this.lan = null;
+      }
+    }
     const every = (ms, fn) => { const t = setInterval(() => { Promise.resolve(fn()).catch((e) => this.log(`[mesh] ${e.message}`)); }, ms); t.unref?.(); this.timers.push(t); };
     every(this.opts.presenceMs || 5000, () => this.tick());
     every(RELAY_CHECK_MS, () => this._evaluateRelay());
@@ -225,23 +262,48 @@ class MeshNode extends EventEmitter {
     this.official?.close();
     this.hub?.close();
     for (const p of this.pending.values()) p.fail(new Error('设备网络已停止'));
-    if (this.server) {
-      this.wss?.close();
+    if (this.wss) { try { this.wss.close(); } catch { /* 已经关了 */ } }
+    // 挂在网关端口上时，这个 server 是网关的，不能关
+    if (this.server && !this.opts.shareHttp) {
       await new Promise((r) => this.server.close(() => r()));
     }
   }
 
+  /** 云端回拨、局域网探活：这个地址后面确实是这台设备 */
+  _pong(req, res) {
+    const path = String(req.url || '').split('?')[0];
+    if (req.method !== 'GET' || path !== '/mesh/ping') return false;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ endpoint_id: this.key.endpointId, device_id: this.deviceId }));
+    return true;
+  }
+
+  /** 容器把探活挂在网关已有端口上 */
+  handleHttp(req, res) {
+    if (!this.opts.shareHttp || this.stopped) return false;
+    return this._pong(req, res);
+  }
+
+  /** 容器把 /mesh/ws 挂在网关已有端口上。接住了返回 true */
+  handleUpgrade(req, socket, head) {
+    if (!this.opts.shareHttp || !this.wss || this.stopped) return false;
+    if (String(req.url || '').split('?')[0] !== WS_PATH) return false;
+    this.wss.handleUpgrade(req, socket, head, (ws) => this.hub.handle(ws, req));
+    return true;
+  }
+
   async _listen() {
+    this.wss = new WebSocket.Server({ noServer: true, maxPayload: 16 * 1024 * 1024 });
+    // 容器：不另开端口，探活和 WebSocket 由网关转过来
+    if (this.opts.shareHttp) {
+      this.sharedPort = this.opts.port;
+      this.log(`[mesh] 入口挂在网关端口 ${this.sharedPort}，不再另开端口`);
+      return;
+    }
     this.server = http.createServer((req, res) => {
-      // 云端回拨验证、局域网探活：证明「这个地址后面确实是这台设备」
-      if (req.method === 'GET' && req.url === '/mesh/ping') {
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ endpoint_id: this.key.endpointId, device_id: this.deviceId }));
-        return;
-      }
+      if (this._pong(req, res)) return;
       res.writeHead(404); res.end();
     });
-    this.wss = new WebSocket.Server({ noServer: true, maxPayload: 16 * 1024 * 1024 });
     this.server.on('upgrade', (req, socket, head) => {
       if (String(req.url || '').split('?')[0] !== WS_PATH) { socket.destroy(); return; }
       this.wss.handleUpgrade(req, socket, head, (ws) => this.hub.handle(ws, req));
@@ -328,13 +390,15 @@ class MeshNode extends EventEmitter {
 
   async _evaluateRelay() {
     if (this.stopped) return;
-    await this._ensureOfficial();
     const pick = this._pickRelay();
     this.relayPick = pick;
+    // 选的是自己的中继：先接上它。官方中继只在后台补连，超时或失败不挡这条路
+    if (pick.target === 'official') await this._ensureOfficial();
+    else this._ensureOfficial().catch(() => {});
     if (pick.target === 'self' || pick.target === 'official') {
       // 本机就是中继（别的设备连进来），或者用官方中继：都不需要再经我的设备
       this._dropUplink();
-      this.uplinkTarget = this.official || pick.target === 'self' ? pick.target : null;
+      this.uplinkTarget = pick.target === 'self' || this.official ? pick.target : null;
       return;
     }
     if (this.uplink && !this.uplink.closed && this.uplinkTarget === pick.target) return;
@@ -346,9 +410,15 @@ class MeshNode extends EventEmitter {
       if (link && link.info?.device_id === pick.target) { this._setUplink(link, pick.target); return; }
       if (link && !this.links.has(link.info?.device_id)) link.close();
     }
-    this.log(`[mesh] 连不上中继 ${this._label(pick.target)}，改用官方中继`);
     this._dropUplink();
-    this.uplinkTarget = this.official ? 'official' : null;
+    if (this.official && !this.official.closed) {
+      this.log(`[mesh] 连不上中继 ${this._label(pick.target)}，改用官方中继`);
+      this.uplinkTarget = 'official';
+      return;
+    }
+    // 官方中继也没连上：留空，下一轮再试自己的中继，不把服务停在官方中继上
+    this.log(`[mesh] 连不上中继 ${this._label(pick.target)}，过一会儿再试`);
+    this.uplinkTarget = null;
   }
 
   /** 不再经我的设备中继；那条连接要是同时是直连就留着 */
@@ -377,7 +447,14 @@ class MeshNode extends EventEmitter {
           for (const id of link.peers) this._greet(id);
           return;
         } catch (e) {
-          this.log(`[mesh] 官方中继连不上：${e.message}`);
+          // 有自己的中继时，官方中继只是碰头点，连不上不重复报成故障
+          const now = Date.now();
+          if (this._officialFailLogAt && now - this._officialFailLogAt < 60000) continue;
+          this._officialFailLogAt = now;
+          const own = this._pickRelay().target !== 'official';
+          this.log(own
+            ? `[mesh] 官方中继连不上（${e.message}）。本账号已有中继，设备之间照常走`
+            : `[mesh] 官方中继连不上：${e.message}`);
         }
       }
     } finally { this._officialBusy = false; }
@@ -789,7 +866,8 @@ class MeshNode extends EventEmitter {
     // 中继选择跟着描述变（谁开了中继、谁改了手动指定）
     const pick = this._pickRelay();
     if (pick.target !== this.uplinkTarget && !(pick.target === 'official' && !this.official)) await this._evaluateRelay();
-    else if ((this.opts.relayUrls || []).length && !this.official) await this._ensureOfficial();
+    else if (pick.target === 'official' && (this.opts.relayUrls || []).length && !this.official) await this._ensureOfficial();
+    else if ((this.opts.relayUrls || []).length && !this.official) this._ensureOfficial().catch(() => {});
   }
 
   _pathFor(id) {

@@ -14,7 +14,7 @@ import { formatDeviceTitle, formatLegacyPlatform, effectiveDeviceType, mergeSame
 import { getReportedDeviceId, requestAccountsHeartbeat } from '../hooks/useDeviceReporter';
 import { renameDevice, deviceNameError } from '../api/deviceName';
 import SelfDeviceSettings from '../components/SelfDeviceSettings';
-import DeviceConnectionMap from '../components/DeviceConnectionMap';
+import DeviceConnectionMap, { DeviceConnectionMapLoading } from '../components/DeviceConnectionMap';
 import { isAppIcon, appIconSvg } from '../lib/appIcons';
 
 /** 从云端拉取各设备聚合盘点；失败时回退本机数据，并合并订阅折算 + 按量费用 */
@@ -780,6 +780,12 @@ function DevicesSection() {
         <p className="m-0 text-xs font-medium text-zinc-600 dark:text-zinc-300">{t('profile.thisDeviceSettings')}</p>
         <SelfDeviceSettings />
       </div>
+      {/* 账号设备还在拉：连接图的位置先显示加载，避免空白一下再冒出来 */}
+      {devices === null && (
+        <div className="tb-soft-tile rounded-xl px-3 py-3">
+          <DeviceConnectionMapLoading />
+        </div>
+      )}
       {/* 我的设备和它们现在怎么连：一张图，不另外列表（卡片上改名 / 移除） */}
       {devices && devices.length > 0 && (
         <div className="tb-soft-tile rounded-xl px-3 py-3 space-y-2 overflow-x-auto">

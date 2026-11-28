@@ -23,6 +23,31 @@ function lastSeenMs(d) {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** 连接图还没拿到设备或通路时占位：左边这台电脑、中间虚线、右边一台设备，中间转圈 */
+export function DeviceConnectionMapLoading() {
+  const { t } = useLang();
+  return (
+    <div className="relative flex items-center min-w-0 min-h-[76px]" role="status" aria-live="polite">
+      <div className="shrink-0 w-56 sm:w-64 h-[60px] rounded-xl bg-zinc-100 dark:bg-zinc-800/80 animate-pulse" />
+      <svg className="hidden sm:block shrink-0 text-zinc-300 dark:text-zinc-600" width="72" height="76" aria-hidden>
+        <path d="M 0 38 C 40 38, 32 22, 72 22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeDasharray="4 4" strokeLinecap="round">
+          <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="0.8s" repeatCount="indefinite" />
+        </path>
+        <path d="M 0 38 C 40 38, 32 54, 72 54" fill="none" stroke="currentColor" strokeWidth="1.6" strokeDasharray="4 4" strokeLinecap="round">
+          <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="0.8s" repeatCount="indefinite" />
+        </path>
+      </svg>
+      <div className="hidden sm:block flex-1 h-[60px] ml-2 rounded-xl bg-zinc-100 dark:bg-zinc-800/80 animate-pulse" />
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="inline-flex items-center gap-2 rounded-full bg-white/90 dark:bg-zinc-900/90 px-3 py-1 text-xs text-zinc-500 dark:text-zinc-400">
+          <span className="w-4 h-4 border-2 border-zinc-300 dark:border-zinc-600 border-t-blue-500 rounded-full animate-spin" aria-hidden />
+          {t('profile.conn.loading')}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 const TONE = {
   direct: { line: 'stroke-emerald-500', dash: undefined, pill: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800', bar: 'border-emerald-500 border-solid' },
   relay: { line: 'stroke-violet-400', dash: '6 5', pill: 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800', bar: 'border-violet-400 border-dashed' },
@@ -41,6 +66,8 @@ export default function DeviceConnectionMap({ devices = [], isSelf = () => false
   const [why, setWhy] = useState('');          // 点开了哪一行「为什么没连上」
   const [showStale, setShowStale] = useState(false);
   const [cleaning, setCleaning] = useState(false);
+  // 设备网络的通路还没回来：先出加载图，避免线闪成「没连上」再改口
+  if (mesh.loading) return <DeviceConnectionMapLoading />;
   const meshOthers = mesh.others || [];
   const self = mesh.self;
 
@@ -77,6 +104,8 @@ export default function DeviceConnectionMap({ devices = [], isSelf = () => false
     if (m && m.online && m.connection === 'relay') return m.via?.kind === 'official' ? 'official' : 'device';
     if (!r.online) return 'offline';
     if (!mesh.enabled) return 'meshOff';
+    // 开关是开的，节点还在连（Docker 走官方中继，不靠容器里的局域网地址）
+    if (mesh.ready === false) return 'starting';
     return 'notConnected';
   };
   const rtt = (r) => (Number.isFinite(r.m?.rtt_ms) ? ` · ${Math.round(r.m.rtt_ms)}ms` : '');
@@ -84,7 +113,8 @@ export default function DeviceConnectionMap({ devices = [], isSelf = () => false
     : k === 'official' ? `${t('profile.conn.official')}${rtt(r)}`
       : k === 'device' ? `${t('profile.conn.viaDevice', { name: r.m?.via?.label || r.m?.via?.device_id || '?' })}${rtt(r)}`
         : k === 'offline' ? t('profile.conn.offline')
-          : k === 'meshOff' ? t('profile.conn.meshOff') : t('profile.conn.notConnected'));
+          : k === 'meshOff' ? t('profile.conn.meshOff')
+            : k === 'starting' ? t('profile.conn.starting') : t('profile.conn.notConnected'));
   const toneOf = (k) => (k === 'direct' ? 'direct' : k === 'official' || k === 'device' ? 'relay' : k === 'offline' ? 'off' : 'warn');
   const serving = Number(self?.relay?.sessions) || 0;
 
@@ -100,14 +130,18 @@ export default function DeviceConnectionMap({ devices = [], isSelf = () => false
       return out;
     }
     if (k === 'meshOff') { out.push(t('profile.conn.whyMeshOff')); return out; }
+    if (k === 'starting') { out.push(mesh.error || t('profile.conn.whyStarting')); return out; }
     const d = r.m?.diag || (mesh.unreached || []).find((u) => (u.device_id && r.m && u.device_id === r.m.device_id) || norm(u.name) === norm(r.title)) || null;
     if (!r.m && !d) out.push(t('profile.conn.whyNotInMesh'));
     if (d?.waiting) out.push(t('profile.conn.whyWaiting'));
     for (const a of d?.attempts || []) out.push(a.ok ? t('profile.conn.whyTriedOk', { addr: a.addr }) : t('profile.conn.whyTried', { addr: a.addr, error: a.error }));
     if (d && !(d.attempts || []).length && !d.waiting) out.push(t('profile.conn.whyNoAddr'));
     const off = mesh.official;
-    if (off && off.configured && !off.connected) out.push(t('profile.conn.whyOfficialDown'));
-    else if (off && off.connected && d && !d.on_official) out.push(t('profile.conn.whyNotOnOfficial'));
+    // 已有自己的中继时，官方中继连不上不代表这条路走不通
+    const ownRelay = (mesh.relay && mesh.relay.using && mesh.relay.using !== 'official')
+      || (mesh.devices || []).some((x) => x.relay?.enabled);
+    if (!ownRelay && off && off.configured && !off.connected) out.push(t('profile.conn.whyOfficialDown'));
+    else if (!ownRelay && off && off.connected && d && !d.on_official) out.push(t('profile.conn.whyNotOnOfficial'));
     return out.length ? out : [t('profile.conn.whyUnknown')];
   };
   const whyRow = shown.find((r) => r.key === why);
@@ -135,7 +169,7 @@ export default function DeviceConnectionMap({ devices = [], isSelf = () => false
             {shown.map((r) => {
               const k = kindOf(r);
               const tone = TONE[toneOf(k)];
-              const canWhy = k === 'notConnected' || k === 'offline' || k === 'meshOff';
+              const canWhy = k === 'notConnected' || k === 'offline' || k === 'meshOff' || k === 'starting';
               return (
                 <div key={r.key} className="flex items-center min-w-0" style={{ height: ROW }}>
                   {/* 标签列定宽：右边卡片对齐；标签两侧的线补满 */}

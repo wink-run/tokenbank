@@ -45,7 +45,7 @@ COPY --from=native-deps /deps/node_modules ./node_modules
 # Pre-built Web UI (served by admin-api on :11431)
 COPY --from=builder /build/dist ./dist
 
-# Gateway :11430  |  Admin UI / API :11431
+# Gateway :11430（含设备网络 /mesh/ws）  |  Admin UI / API :11431
 EXPOSE 11430 11431
 
 # Config lives in /data — mount a volume or bind-mount your config directory here

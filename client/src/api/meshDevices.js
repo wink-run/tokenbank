@@ -34,6 +34,9 @@ export async function fetchDevices() {
     const json = await gatewayJson('GET', '/devices');
     return {
       enabled: !!json?.enabled,
+      // ready：开关开着但本机节点还没连上时为 false，界面不要说成「没开设备网络」
+      ready: json?.ready !== false,
+      error: json?.error || '',
       devices: Array.isArray(json?.data) ? json.data : [],
       relay: json?.relay || null,
       // 连不上时的诊断：官方中继的情况、地址簿里还没连上过的设备各试过什么
@@ -41,12 +44,13 @@ export async function fetchDevices() {
       unreached: Array.isArray(json?.unreached) ? json.unreached : [],
     };
   } catch {
-    return { enabled: false, devices: [], relay: null, official: null, unreached: [] };
+    return { enabled: false, ready: false, error: '', devices: [], relay: null, official: null, unreached: [] };
   }
 }
 
 // 几个页面同时用：共享一份，10 秒刷新一次
-let cache = { enabled: false, devices: [], relay: null, official: null, unreached: [] };
+// loaded：第一次 /devices 回来之前是 false，拓扑图用它显示加载，后台刷新不再变回 false
+let cache = { enabled: false, ready: false, error: '', devices: [], relay: null, official: null, unreached: [], loaded: false };
 let loadedAt = 0;
 let inflight = null;
 const listeners = new Set();
@@ -55,11 +59,11 @@ function load(force = false) {
   if (!force && Date.now() - loadedAt < 5000) return Promise.resolve(cache);
   if (inflight) return inflight;
   inflight = fetchDevices().then((v) => {
-    cache = v;
+    cache = { ...v, loaded: true };
     loadedAt = Date.now();
     inflight = null;
-    listeners.forEach((fn) => fn(v));
-    return v;
+    listeners.forEach((fn) => fn(cache));
+    return cache;
   });
   return inflight;
 }
@@ -82,12 +86,15 @@ export function useMeshDevices({ intervalMs = 10000 } = {}) {
   const devices = state.devices || [];
   return {
     enabled: !!state.enabled,
+    ready: state.ready !== false,
+    error: state.error || '',
     devices,
     self: devices.find((d) => d.self) || null,
     others: devices.filter((d) => !d.self),
     relay: state.relay || null,
     official: state.official || null,
     unreached: state.unreached || [],
+    loading: !state.loaded,
     refresh,
   };
 }
