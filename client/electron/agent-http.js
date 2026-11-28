@@ -403,7 +403,7 @@ async function handleExternal(req, res, method, cleanPath) {
     const m = String(cleanPath).match(/^\/v1\/agent\/external\/tasks\/([^/]+)\/result$/);
     if (method === 'POST' && m) {
       const { body } = await readBody(req);
-      const ok = ext.complete(agent.id, decodeURIComponent(m[1]), { output: body.output, error: body.error });
+      const ok = ext.complete(agent.id, decodeURIComponent(m[1]), { output: body.output, error: body.error, files: body.files });
       sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: { message: 'no such task waiting', type: 'not_found' } });
       return true;
     }

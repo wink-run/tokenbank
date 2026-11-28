@@ -276,13 +276,17 @@ function TaskFiles({ taskId, files, device, t }) {
               <span className="shrink-0 text-zinc-400 tabular-nums">{mb(f.size)}</span>
               {local ? (
                 <span className="truncate text-emerald-700 dark:text-emerald-400 font-mono text-[10px]" title={local}>{local}</span>
-              ) : st.busy ? (
-                <span className="shrink-0 text-zinc-400">{t('gw2.files.pulling')}</span>
+              ) : f.pending ? (
+                st.busy ? (
+                  <span className="shrink-0 text-zinc-400">{t('gw2.files.pulling')}</span>
+                ) : (
+                  <>
+                    <button type="button" className={BTN} onClick={() => pull(f)}>{t('gw2.files.pull')}</button>
+                    {(st.error || f.error) && <span className="truncate text-red-500" title={st.error || f.error}>{st.error || f.error}</span>}
+                  </>
+                )
               ) : (
-                <>
-                  <button type="button" className={BTN} onClick={() => pull(f)}>{t('gw2.files.pull')}</button>
-                  {(st.error || f.error) && <span className="truncate text-red-500" title={st.error || f.error}>{st.error || f.error}</span>}
-                </>
+                (st.error || f.error) && <span className="truncate text-zinc-500" title={st.error || f.error}>{st.error || f.error}</span>
               )}
             </li>
           );

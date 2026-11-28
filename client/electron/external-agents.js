@@ -481,14 +481,17 @@ function queuedCount(agentId) {
   return (queue.get(agentId) || []).length;
 }
 
-/** 外部智能体回传结果 */
-function complete(agentId, taskId, { output, error } = {}) {
+/** 外部智能体回传结果。files 是对方机器能直接打开的地址，拉不拉由执行器按大小决定 */
+function complete(agentId, taskId, { output, error, files } = {}) {
   restore();
   const w = waiting.get(taskId);
   const rec = readTasks().find(x => x.id === taskId);
   // 任务已经结束：再送来的结果当作一条推送
   if (w ? w.agentId !== agentId : (!rec || rec.agentId !== agentId)) return push(agentId, taskId, { output: output || error });
-  const done = finish(taskId, error ? { ok: false, error: String(error).slice(0, 2000), output: String(output || '') } : { ok: true, output: String(output || '') });
+  const okResult = { ok: true, output: String(output || '') };
+  // 没带文件时不改原来的结果形状
+  if (Array.isArray(files) && files.length) okResult.files = files;
+  const done = finish(taskId, error ? { ok: false, error: String(error).slice(0, 2000), output: String(output || '') } : okResult);
   // 它一次只取一个：做完这个后还有排队的，再叫醒一次
   if ((queue.get(agentId) || []).length) wake(agentId);
   return done;

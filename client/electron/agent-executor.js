@@ -1396,12 +1396,12 @@ class AgentExecutor extends EventEmitter {
     return out;
   }
 
-  /** 手动拉一个大的产出文件（界面上点「下载到本机」） */
+  /** 手动拉一个大的产出文件（界面上点「下载到本机」）。跨设备走设备通道，外部智能体走它留下的地址 */
   async pullMeshTaskFile(taskId, token) {
     const files = require('./mesh/files');
     const glue = require('./mesh/glue');
     const parsed = glue.parseMeshTaskId(taskId);
-    if (!parsed) throw new Error('不是跑在其他设备上的任务');
+    if (!parsed) return this._pullExternalTaskFile(taskId, token);
     const row = this._getDb().prepare('SELECT result FROM agent_tasks WHERE id = ?').get(taskId);
     let result = {};
     try { result = row?.result ? JSON.parse(row.result) : {}; } catch { result = {}; }
@@ -1409,6 +1409,20 @@ class AgentExecutor extends EventEmitter {
     if (!entry) throw new Error('没有这个文件');
     const got = await glue.pullFile({ deviceId: parsed.deviceId, entry, destDir: files.inboxDir(taskId) });
     const list = (result.files || []).map((f) => (f.token === token ? { ...f, path: got.path, pending: false, error: undefined } : f));
+    this.setTaskResultExtra(taskId, { files: list });
+    return { path: got.path, size: got.size };
+  }
+
+  /** 外部智能体登记过、当时没拉的大文件：这时才按地址下载 */
+  async _pullExternalTaskFile(taskId, token) {
+    const extFiles = require('./external-files');
+    const row = this._getDb().prepare('SELECT result FROM agent_tasks WHERE id = ?').get(taskId);
+    let result = {};
+    try { result = row?.result ? JSON.parse(row.result) : {}; } catch { result = {}; }
+    const entry = (result.remoteFiles || []).find((f) => f.token === token && f.url);
+    if (!entry) throw new Error('没有这个文件');
+    const got = await extFiles.pullUrl(entry, extFiles.inboxDir(taskId), { maxBytes: extFiles.RELAY_MAX_BYTES });
+    const list = (result.files || []).map((f) => (f.token === token ? { ...f, path: got.path, size: got.size, pending: false, error: undefined } : f));
     this.setTaskResultExtra(taskId, { files: list });
     return { path: got.path, size: got.size };
   }
@@ -2053,11 +2067,55 @@ class AgentExecutor extends EventEmitter {
       timestamp: Date.now(), ...this._taskEventMeta(taskId),
     });
     const result = await require('./external-agents').dispatch(agentId, prompt, { timeoutMs: options.timeoutMs, taskId });
-    this._finishExternalTask(taskId, result);
+    await this._finishExternalTask(taskId, result);
+  }
+
+  /**
+   * 外部智能体交来的文件：和跨设备一样，10MB 以内拉回本机，更大的只登记。
+   * 拉到的路径是这台电脑上的；没拉的等任务详情里点「下载到本机」。
+   */
+  async _takeExternalFiles(taskId, output, rawFiles) {
+    const extFiles = require('./external-files');
+    const remote = extFiles.acceptFiles(rawFiles);
+    if (!remote.length) return { output, files: [], remoteFiles: [] };
+    let who = '外部智能体';
+    try {
+      const row = this._getDb().prepare('SELECT agent_id FROM agent_tasks WHERE id = ?').get(taskId);
+      who = require('./external-agents').get(row?.agent_id)?.name || who;
+    } catch { /* 名字只是说明 */ }
+    const dest = extFiles.inboxDir(taskId);
+    const out = [];
+    for (const entry of remote) {
+      const cur = { token: entry.token, name: entry.name, size: entry.size };
+      const tooBig = Number(entry.size) > extFiles.RELAY_MAX_BYTES;
+      if (tooBig) {
+        // 太大不代拉，地址留在正文里，用户自己打开
+        cur.pending = false;
+        cur.error = `超过 ${Math.round(extFiles.RELAY_MAX_BYTES / 1048576)}MB，不代拉`;
+        cur.url = entry.url;
+      } else if (extFiles.pullNow(entry)) {
+        try {
+          const got = await extFiles.pullUrl(entry, dest, { maxBytes: extFiles.AUTO_PULL_BYTES });
+          cur.path = got.path;
+          cur.size = got.size;
+        } catch (e) { cur.error = e.message; }
+      } else {
+        cur.pending = true;
+      }
+      out.push(cur);
+    }
+    const mb = (n) => (Number.isFinite(Number(n)) ? `${(Number(n) / 1048576).toFixed(1)}MB` : '大小未知');
+    const lines = out.map((f) => (f.path ? `- ${f.name} → ${f.path}`
+      : f.url ? `- ${f.name}（${mb(f.size)}）太大，不代拉，直接打开：${f.url}`
+        : f.pending ? `- ${f.name}（${mb(f.size)}，还在对方那边，任务详情里点「下载到本机」）`
+          : `- ${f.name}：没拉回来（${f.error || '原因不明'}）`));
+    const base = String(output || '').split('\n\n产出文件（')[0];
+    const text = `${base}\n\n产出文件（从 ${who} 拉回本机）：\n${lines.join('\n')}`;
+    return { output: text, files: out, remoteFiles: remote, device: who };
   }
 
   /** 外部智能体回来的结果：派出时在等的、和应用重启后才回来的，都走这里记进任务 */
-  _finishExternalTask(taskId, result) {
+  async _finishExternalTask(taskId, result) {
     if (this._isTaskCancelled(taskId)) { this.taskMetaCache.delete(taskId); return; }
     const db = this._getDb();
     const output = String(result?.output || '');
@@ -2072,13 +2130,17 @@ class AgentExecutor extends EventEmitter {
       this.taskMetaCache.delete(taskId);
       return;
     }
-    const payload = { success: true, summary: output, output, stderr: '', files: [], stepCount: 0 };
+    const handed = await this._takeExternalFiles(taskId, output, result?.files);
+    const payload = {
+      success: true, summary: handed.output, output: handed.output, stderr: '',
+      files: handed.files, remoteFiles: handed.remoteFiles, device: handed.device || null, stepCount: 0,
+    };
     try {
       db.prepare("UPDATE agent_tasks SET status = 'completed', result = ?, completed_at = ? WHERE id = ?")
         .run(JSON.stringify(payload), Date.now(), taskId);
     } catch { /* 记不下结果也照常通知 */ }
     this.emit('task:completed', {
-      taskId, result: { success: true, summary: output, stderr: '', files: [], stepCount: 0 },
+      taskId, result: { success: true, summary: handed.output, stderr: '', files: handed.files, stepCount: 0 },
       status: 'completed', ...this._taskEventMeta(taskId),
     });
     this.taskMetaCache.delete(taskId);
@@ -3191,6 +3253,7 @@ class AgentExecutor extends EventEmitter {
       let result = {};
       try { result = r.result ? JSON.parse(r.result) : {}; } catch { result = {}; }
       const mesh = String(r.agent_id || '').startsWith('mine:');
+      const external = String(r.agent_id || '').startsWith('external:');
       return {
         id: r.id,
         prompt: r.prompt,
@@ -3201,6 +3264,7 @@ class AgentExecutor extends EventEmitter {
         completed_at: r.completed_at || null,
         output: taskResultText(r.result),
         ...(mesh ? { device: result.device || String(r.agent_id).split('@').pop() || null } : {}),
+        ...(external && result.device ? { device: result.device } : {}),
         ...(Array.isArray(result.files) && result.files.length ? { files: result.files.map((f) => ({ token: f.token, name: f.name, size: f.size, path: f.path || null, pending: !!f.pending, error: f.error || '' })) } : {}),
         // 雇来的任务：对方报的进度摘要
         ...(Array.isArray(result.progress) && result.progress.length ? { progress: result.progress.slice(0, 100) } : {}),
