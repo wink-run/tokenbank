@@ -150,7 +150,7 @@ export default function DeviceConnectionMap({ devices = [], isSelf = () => false
     <div className="flex items-stretch min-w-0">
       {/* 这台电脑 */}
       <div className="shrink-0 w-56 sm:w-64 flex items-center" style={{ minHeight: ROW }}>
-        <div className="w-full">{renderSelf?.(selfAcc || null, { serving })}</div>
+        <div className="w-full">{renderSelf?.(selfAcc || null, { serving, ip: self?.ip || '' })}</div>
       </div>
       {shown.length === 0 ? (
         <div className="flex items-center pl-4 text-xs text-zinc-400 dark:text-zinc-500">{t('profile.conn.empty')}</div>

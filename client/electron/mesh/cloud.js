@@ -3,6 +3,63 @@
 // 服务端见 server/mesh_router.py。
 'use strict';
 
+const http = require('http');
+const https = require('https');
+const fs = require('fs');
+
+function inDocker() {
+  try { return fs.existsSync('/.dockerenv'); } catch { return false; }
+}
+
+/**
+ * 不用全局 fetch。Docker 里 undici 常走 HTTP/2 或 IPv6，连不上就报 This operation was aborted。
+ * 和设备注册同一条 HTTP/1.1；容器里只走 IPv4。
+ */
+function nodeFetch(url, init = {}) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const mod = u.protocol === 'https:' ? https : http;
+    const body = init.body ? Buffer.from(init.body) : null;
+    const headers = { ...(init.headers || {}) };
+    if (body) headers['Content-Length'] = Buffer.byteLength(body);
+    let settled = false;
+    const finish = (err, value) => {
+      if (settled) return;
+      settled = true;
+      if (init.signal) init.signal.removeEventListener('abort', onAbort);
+      if (err) reject(err); else resolve(value);
+    };
+    const onAbort = () => { try { req.destroy(); } catch { /* 已经断了 */ } finish(Object.assign(new Error('超时'), { name: 'AbortError' })); };
+    const req = mod.request({
+      hostname: u.hostname,
+      port: u.port || (u.protocol === 'https:' ? 443 : 80),
+      path: `${u.pathname}${u.search}`,
+      method: init.method || 'GET',
+      headers,
+      // 容器里没有 IPv6 出口时，不要先去连一个没有回应的地址
+      family: inDocker() ? 4 : undefined,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        finish(null, {
+          ok: res.statusCode >= 200 && res.statusCode < 300,
+          status: res.statusCode,
+          json: async () => { try { return JSON.parse(text || 'null'); } catch { return null; } },
+        });
+      });
+    });
+    if (init.signal) {
+      if (init.signal.aborted) { onAbort(); return; }
+      init.signal.addEventListener('abort', onAbort);
+    }
+    req.on('error', (e) => finish(e));
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
 class MeshCloud {
   /**
    * @param {{ serverUrl: string, token: string, deviceId: string, fetchImpl?: Function, timeoutMs?: number }} opts
@@ -11,7 +68,7 @@ class MeshCloud {
     this.serverUrl = String(serverUrl || '').replace(/\/+$/, '');
     this.token = token;
     this.deviceId = deviceId;
-    this.fetch = fetchImpl || globalThis.fetch;
+    this.fetch = fetchImpl || nodeFetch;
     this.timeoutMs = timeoutMs;
   }
 
@@ -30,7 +87,8 @@ class MeshCloud {
         signal: ctrl.signal,
       });
     } catch (e) {
-      throw Object.assign(new Error(`连不上云端：${e.message}`), { status: 0 });
+      const msg = e.name === 'AbortError' || /aborted/i.test(String(e.message || '')) ? '超时' : e.message;
+      throw Object.assign(new Error(`连不上云端：${msg}`), { status: 0 });
     } finally {
       clearTimeout(t);
     }

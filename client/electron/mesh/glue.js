@@ -524,6 +524,41 @@ function isHop(headers) { return !!(headers && headers['x-tb-mesh-hop']); }
 /** 离线超过这么久的设备不再列出（重装、重建留下的旧记录）；它再上线会自动回来 */
 const STALE_MS = 30 * 24 * 60 * 60 * 1000;
 
+/** host:port 或 ws://host:port/mesh/ws 里的 IP */
+function hostOf(addr) {
+  let s = String(addr || '').replace(/^wss?:\/\//, '').replace(/\/.*$/, '');
+  if (s.startsWith('[')) {
+    const end = s.indexOf(']');
+    return end > 1 ? s.slice(1, end) : '';
+  }
+  return s.replace(/:\d+$/, '');
+}
+
+/** 卡片上放一个 IP：公网优先，其次局域网 / Tailscale */
+function pickIp(addrs) {
+  const hosts = [];
+  for (const a of addrs || []) {
+    const h = hostOf(a);
+    if (h && !hosts.includes(h)) hosts.push(h);
+  }
+  const pub = hosts.find((h) => /^\d{1,3}(\.\d{1,3}){3}$/.test(h) && !/^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(h));
+  if (pub) return pub;
+  const lan = hosts.find((h) => /^(10\.|192\.168\.|100\.)/.test(h));
+  return lan || hosts[0] || '';
+}
+
+function deviceIp(d) {
+  if (!node || !d) return '';
+  if (d.self) return pickIp([...(node.verifiedAddrs || []), ...(node.addrInfo().direct_addrs || [])]);
+  const known = [];
+  try {
+    for (const p of node.diagnose().peers || []) {
+      if ((p.device_id && p.device_id === d.device_id) || (p.endpoint_id && p.endpoint_id === d.endpoint_id)) known.push(...(p.addrs || []));
+    }
+  } catch { /* 没有诊断 */ }
+  return pickIp([d.path?.addr, ...known, ...(d.descriptor?.relay?.addrs || [])]);
+}
+
 function devicesView() {
   // 开关开着但节点还没起来（Docker 里常见：入口绑失败、证书还在领）不能当成「没开设备网络」
   if (!node) {
@@ -558,6 +593,8 @@ function devicesView() {
       // 连接方式：self / direct（addr_kind：lan、tailscale、ipv6、public）/ relay（via：经哪个中继）
       connection: d.self ? 'self' : !d.online ? 'offline' : (d.path ? d.path.kind : 'unknown'),
       addr_kind: d.path?.addr_kind || null,
+      // 卡片上显示的 IP：直连用正在走的地址，否则用地址簿里的；本机优先公网
+      ip: deviceIp(d),
       via: d.path?.kind === 'relay' ? { kind: d.path.relay_kind, device_id: d.path.relay_device, label: d.path.via } : null,
       rtt_ms: d.path && Number.isFinite(d.path.rttMs) ? d.path.rttMs : null,
       // 这台在当中继：正在替哪些设备转发（界面标「中继 · N」）

@@ -874,7 +874,7 @@ class MeshNode extends EventEmitter {
     const r = this._route(id);
     const s = this.sessions.get(id);
     if (!r) return null;
-    if (r.kind === 'direct') return { kind: 'direct', addr_kind: addrKind(r.addr), rttMs: s?.rttMs ?? r.link?.rttMs ?? null };
+    if (r.kind === 'direct') return { kind: 'direct', addr: r.addr, addr_kind: addrKind(r.addr), rttMs: s?.rttMs ?? r.link?.rttMs ?? null };
     const official = !!r.official;
     const dev = official ? null : r.link?.info?.device_id || this.uplinkTarget;
     return {

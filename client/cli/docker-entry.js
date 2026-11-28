@@ -65,5 +65,7 @@ function prepareAndDropPrivileges() {
 
 prepareAndDropPrivileges();
 try { if (fs.existsSync(WORKSPACE)) process.chdir(WORKSPACE); } catch { /* ignore */ }
+// 容器里 IPv6 经常没有出口，先解析 IPv4，避免连云端一直等到超时
+try { require('dns').setDefaultResultOrder('ipv4first'); } catch { /* 老 Node 没有这个 */ }
 
 require('./gateway.js');

@@ -675,7 +675,7 @@ function isCurrentDevice(device, currentId) {
 }
 
 /** 连接图里的一张设备卡片：名字、版本、系统和设备号、今日调用，带改名 / 移除。高度固定，线才对得上 */
-function DeviceCard({ d, title, online, self = false, serving = 0, editing = false, onRename, onRemove, t }) {
+function DeviceCard({ d, title, online, self = false, serving = 0, ip = '', editing = false, onRename, onRemove, t }) {
   const name = d ? formatDeviceTitle(d) : title;
   const on = d ? (self ? true : (online ?? !!d.online)) : !!online;
   const ids = d ? (d.device_ids?.length ? d.device_ids : [d.device_id]).filter(Boolean).join(' · ') : '';
@@ -691,6 +691,7 @@ function DeviceCard({ d, title, online, self = false, serving = 0, editing = fal
           <span className="text-sm font-medium text-zinc-800 dark:text-zinc-100 truncate">{name}</span>
           {self && <span className="shrink-0 text-[10px] leading-4 px-1.5 rounded-full bg-zinc-200/80 dark:bg-zinc-600 text-zinc-600 dark:text-zinc-200">{t('profile.thisDevice')}</span>}
           {d?.version && <span className="text-[11px] text-zinc-400 shrink-0">v{d.version}</span>}
+          {ip && <span className="font-mono text-[11px] text-zinc-400 shrink-0 truncate" title={ip}>{ip}</span>}
         </div>
         <div className="flex items-center gap-2 mt-0.5 min-w-0 text-[11px] text-zinc-400">
           {d && <span className="truncate shrink-0 max-w-[40%]">{formatLegacyPlatform(d.platform)}</span>}
@@ -794,13 +795,13 @@ function DevicesSection() {
             isSelf={(d) => isCurrentDevice(d, currentId)}
             titleOf={formatDeviceTitle}
             onCleanStale={async (list) => { for (const d of list) await handleRemove(d); }}
-            renderSelf={(d, { serving }) => (
-              <DeviceCard d={d} title={t('profile.thisDevice')} self serving={serving} t={t}
+            renderSelf={(d, { serving, ip }) => (
+              <DeviceCard d={d} title={t('profile.thisDevice')} self serving={serving} ip={ip} t={t}
                 editing={!!d && renaming?.key === d.device_id}
                 onRename={d ? () => setRenaming({ key: d.device_id, id: d.device_id, self: true, title: formatDeviceTitle(d), draft: '', error: '', saving: false }) : null} />
             )}
             renderCard={(r) => (
-              <DeviceCard d={r.device} title={r.title} online={r.online} t={t}
+              <DeviceCard d={r.device} title={r.title} online={r.online} ip={r.m?.ip || ''} t={t}
                 editing={!!r.device && renaming?.key === r.key}
                 onRename={r.device ? () => setRenaming({ key: r.key, id: r.device.device_id, self: false, title: r.title, draft: '', error: '', saving: false }) : null}
                 onRemove={r.device && !r.online ? () => handleRemove(r.device) : null} />
