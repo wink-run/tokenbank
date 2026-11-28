@@ -479,16 +479,19 @@ class MeshNode extends EventEmitter {
 
   /** 记下一个直连候选（配置、云端地址簿、局域网发现、对方描述里的地址），没连着就去连 */
   ensurePeer(peer, source = 'config') {
-    if (!peer || this.stopped || this.opts.listen === false) return;
+    if (!peer || this.stopped) return;
     const key = peer.endpoint_id || peer.device_id || (peer.direct_addrs || []).join(',');
     if (!key || peer.endpoint_id === this.key?.endpointId || peer.device_id === this.deviceId) return;
     const known = this.knownPeers.get(key);
     if (known) {
       known.direct_addrs = [...new Set([...(known.direct_addrs || []), ...(peer.direct_addrs || [])])];
+      if (peer.device_id) known.device_id = peer.device_id;
       return;
     }
     const entry = { ...peer, direct_addrs: [...(peer.direct_addrs || [])], source, firstSeen: Date.now() };
     this.knownPeers.set(key, entry);
+    // 没开入口（或容器没听上）也要记住地址，卡片才能和桌面版一样显示 IP；只是不去拨
+    if (this.opts.listen === false) return;
     if (source === 'lan') this.log(`[mesh] 局域网发现 ${peer.name || key.slice(0, 10)}（${entry.direct_addrs.join(',')}）`);
     const attempt = async () => {
       if (this.stopped) return;

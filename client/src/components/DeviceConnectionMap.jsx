@@ -9,7 +9,7 @@ import React, { useState } from 'react';
 import { useLang } from '../store/lang';
 import { useMeshDevices } from '../api/meshDevices';
 
-const ROW = 76;          // 每台设备一行的高度（卡片高度固定，线才对得上）
+const ROW = 92;          // 每台设备一行的高度（卡片高度固定，线才对得上）
 const LINK_W = 72;       // 这台电脑到标签之间画曲线的宽度
 const ADDR = { lan: 'lan', tailscale: 'tailscale', ipv6: 'ipv6', public: 'public' };
 const norm = (x) => String(x || '').trim().toLowerCase();
@@ -28,7 +28,7 @@ export function DeviceConnectionMapLoading() {
   const { t } = useLang();
   return (
     <div className="relative flex items-center min-w-0 min-h-[76px]" role="status" aria-live="polite">
-      <div className="shrink-0 w-56 sm:w-64 h-[60px] rounded-xl bg-zinc-100 dark:bg-zinc-800/80 animate-pulse" />
+      <div className="shrink-0 w-56 sm:w-64 h-[76px] rounded-xl bg-zinc-100 dark:bg-zinc-800/80 animate-pulse" />
       <svg className="hidden sm:block shrink-0 text-zinc-300 dark:text-zinc-600" width="72" height="76" aria-hidden>
         <path d="M 0 38 C 40 38, 32 22, 72 22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeDasharray="4 4" strokeLinecap="round">
           <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="0.8s" repeatCount="indefinite" />
@@ -37,7 +37,7 @@ export function DeviceConnectionMapLoading() {
           <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="0.8s" repeatCount="indefinite" />
         </path>
       </svg>
-      <div className="hidden sm:block flex-1 h-[60px] ml-2 rounded-xl bg-zinc-100 dark:bg-zinc-800/80 animate-pulse" />
+      <div className="hidden sm:block flex-1 h-[76px] ml-2 rounded-xl bg-zinc-100 dark:bg-zinc-800/80 animate-pulse" />
       <div className="absolute inset-0 flex items-center justify-center">
         <span className="inline-flex items-center gap-2 rounded-full bg-white/90 dark:bg-zinc-900/90 px-3 py-1 text-xs text-zinc-500 dark:text-zinc-400">
           <span className="w-4 h-4 border-2 border-zinc-300 dark:border-zinc-600 border-t-blue-500 rounded-full animate-spin" aria-hidden />

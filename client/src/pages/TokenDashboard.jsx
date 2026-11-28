@@ -680,7 +680,7 @@ function DeviceCard({ d, title, online, self = false, serving = 0, ip = '', edit
   const on = d ? (self ? true : (online ?? !!d.online)) : !!online;
   const ids = d ? (d.device_ids?.length ? d.device_ids : [d.device_id]).filter(Boolean).join(' · ') : '';
   return (
-    <div className={`h-[60px] flex items-center gap-2 px-2.5 rounded-xl border min-w-0 ${self
+    <div className={`h-[76px] flex items-center gap-2 px-2.5 rounded-xl border min-w-0 ${self}
       ? 'bg-blue-50/70 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800'
       : editing ? 'bg-white border-blue-300 dark:bg-zinc-800 dark:border-blue-700'
         : 'bg-white border-zinc-200 dark:bg-zinc-800/60 dark:border-zinc-700'} ${on ? '' : 'opacity-70'}`}>
@@ -691,8 +691,8 @@ function DeviceCard({ d, title, online, self = false, serving = 0, ip = '', edit
           <span className="text-sm font-medium text-zinc-800 dark:text-zinc-100 truncate">{name}</span>
           {self && <span className="shrink-0 text-[10px] leading-4 px-1.5 rounded-full bg-zinc-200/80 dark:bg-zinc-600 text-zinc-600 dark:text-zinc-200">{t('profile.thisDevice')}</span>}
           {d?.version && <span className="text-[11px] text-zinc-400 shrink-0">v{d.version}</span>}
-          {ip && <span className="font-mono text-[11px] text-zinc-400 shrink-0 truncate" title={ip}>{ip}</span>}
         </div>
+        {ip && <div className="font-mono text-[11px] leading-4 text-zinc-400 truncate" title={ip}>{ip}</div>}
         <div className="flex items-center gap-2 mt-0.5 min-w-0 text-[11px] text-zinc-400">
           {d && <span className="truncate shrink-0 max-w-[40%]">{formatLegacyPlatform(d.platform)}</span>}
           {/* 设备号：两台同名 Mac 才能对上是不是同一条记录 */}

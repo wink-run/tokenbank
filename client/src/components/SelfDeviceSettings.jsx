@@ -17,42 +17,48 @@ function Toggle({ on, disabled, onChange, label, hint }) {
 }
 
 /**
- * 中继：本账号用哪个（自动 / 某台设备 / 官方中继，所有设备跟着最近一次的手动指定），本机当不当中继。
- * 下拉里能选的设备：本机，以及描述里开着中继的其他设备。
+ * 中转只留一个选择：自动、某一台（含本机）、官方，或本机不参与。
+ * 「用哪台」和「本机帮不帮忙」合成一次提交，避免两个都叫「自动」的下拉。
  */
 function RelayControls({ s, mesh, busy, t, run }) {
   const relay = s.relay || {};
   const pref = s.relay_pref || 'auto';
+  const mode = s.relay_mode || 'auto';
+  const selfId = mesh.self?.device_id || '';
+  const choice = mode === 'off' ? 'off' : pref;
   const options = [];
-  if (relay.active) options.push({ id: mesh.self?.device_id || 'self', label: t('mesh.self') });
-  for (const d of mesh.others) if (d.relay?.enabled || d.device_id === pref) options.push({ id: d.device_id, label: d.label + (d.online ? '' : ` · ${t('mesh.statusOffline')}`) });
-  if (pref !== 'auto' && pref !== 'official' && !options.some((o) => o.id === pref)) options.push({ id: pref, label: pref });
+  if (selfId) options.push({ id: selfId, label: t('mesh.self') });
+  for (const d of mesh.others) {
+    if (d.device_id === selfId) continue;
+    if (d.relay?.enabled || d.device_id === pref) options.push({ id: d.device_id, label: d.label + (d.online ? '' : ` · ${t('mesh.statusOffline')}`) });
+  }
+  if (choice !== 'auto' && choice !== 'official' && choice !== 'off' && !options.some((o) => o.id === choice)) {
+    options.push({ id: choice, label: choice });
+  }
   const using = relay.using === 'self' ? t('mesh.self') : relay.using_label;
   const serving = (relay.serving || []).length;
+  const apply = (value) => {
+    if (value === 'off') return updateSelfSettings({ relay_mode: 'off', relay_pref: 'auto' });
+    if (value === 'auto') return updateSelfSettings({ relay_mode: 'auto', relay_pref: 'auto' });
+    if (value === 'official') return updateSelfSettings({ relay_mode: 'auto', relay_pref: 'official' });
+    // 点名本机：本机要真的接中转，否则账号选了它却没人转发
+    if (selfId && value === selfId) return updateSelfSettings({ relay_mode: 'on', relay_pref: selfId });
+    return updateSelfSettings({ relay_mode: 'auto', relay_pref: value });
+  };
   return (
-    <>
-      <label className="inline-flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-300" title={t('mesh.settings.relayHint')}>
-        {t('mesh.settings.relay')}
-        <select value={pref} disabled={busy} onChange={(e) => run(() => updateSelfSettings({ relay_pref: e.target.value }))}
-          className="tb-soft-field text-xs px-1.5 py-0.5 rounded-md max-w-[11rem]">
-          <option value="auto">{t('mesh.settings.relayAuto')}</option>
-          {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-          <option value="official">{t('mesh.settings.relayOfficial')}</option>
-        </select>
-        {using && <span className="text-zinc-400 dark:text-zinc-500">{t('mesh.settings.relayUsing', { name: using })}</span>}
-        {relay.unavailable && <span className="text-amber-600 dark:text-amber-400">{t('mesh.settings.relayUnavailable')}</span>}
-      </label>
-      <label className="inline-flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-300" title={t('mesh.settings.relayModeHint')}>
-        {t('mesh.settings.relayMode')}
-        <select value={s.relay_mode || 'auto'} disabled={busy} onChange={(e) => run(() => updateSelfSettings({ relay_mode: e.target.value }))}
-          className="tb-soft-field text-xs px-1.5 py-0.5 rounded-md">
-          <option value="auto">{t('mesh.settings.relayModeAuto')}</option>
-          <option value="on">{t('mesh.settings.relayModeOn')}</option>
-          <option value="off">{t('mesh.settings.relayModeOff')}</option>
-        </select>
-        {serving > 0 && <span className="text-violet-600 dark:text-violet-300">{t('mesh.settings.relayServing', { n: serving })}</span>}
-      </label>
-    </>
+    <label className="inline-flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-300" title={t('mesh.settings.relayHint')}>
+      {t('mesh.settings.relay')}
+      <select value={choice} disabled={busy} onChange={(e) => run(() => apply(e.target.value))}
+        className="tb-soft-field text-xs px-1.5 py-0.5 rounded-md max-w-[11rem]">
+        <option value="auto">{t('mesh.settings.relayAuto')}</option>
+        {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+        <option value="official">{t('mesh.settings.relayOfficial')}</option>
+        <option value="off">{t('mesh.settings.relayOff')}</option>
+      </select>
+      {choice !== 'off' && using && <span className="text-zinc-400 dark:text-zinc-500">{t('mesh.settings.relayUsing', { name: using })}</span>}
+      {relay.unavailable && <span className="text-amber-600 dark:text-amber-400">{t('mesh.settings.relayUnavailable')}</span>}
+      {serving > 0 && <span className="text-violet-600 dark:text-violet-300">{t('mesh.settings.relayServing', { n: serving })}</span>}
+    </label>
   );
 }
 
@@ -123,7 +129,7 @@ export default function SelfDeviceSettings() {
               className="tb-soft-field text-xs px-1.5 py-0.5 rounded-md">
               {[1, 2, 3, 4, 6, 8].map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
-            {s.load ? <span className="text-zinc-400 dark:text-zinc-500">{t('mesh.settings.running', { n: s.load.running })}</span> : null}
+            {s.load?.running > 0 ? <span className="text-zinc-400 dark:text-zinc-500">{t('mesh.settings.running', { n: s.load.running })}</span> : null}
           </label>
         )}
         <Toggle on={s.accept_model_requests} disabled={busy} label={t('mesh.settings.shareModels')} hint={t('mesh.settings.shareModelsHint')}

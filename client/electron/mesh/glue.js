@@ -228,6 +228,7 @@ async function cloudSync() {
         pub = await cloud.publishAddress({ endpointId: again.endpoint_id, relayUrl: again.relay_url, directAddrs: again.direct_addrs });
         node.setVerified(pub?.verified || [], pub?.observed_ip || '');
       }
+      rememberAddrs([node.deviceId, a.endpoint_id], [node.observedIp, ...(node.verifiedAddrs || []), ...(node.addrInfo().direct_addrs || [])]);
     } catch (e) { errors.push(`报地址：${e.message}`); }
     // 按密钥吊销：同一台设备重装后换了密钥，旧密钥作废，新的照常
     try {
@@ -247,8 +248,9 @@ async function cloudSync() {
     try { peers = await cloud.peers(); } catch (e) { errors.push(`地址簿：${e.message}`); }
     let n = 0;
     for (const p of peers) {
+      rememberAddrs([p.device_id, p.endpoint_id], p.direct_addrs || []);
       if (!p.endpoint_id || p.endpoint_id === a.endpoint_id) continue;
-      node.ensurePeer({ endpoint_id: p.endpoint_id, relay_url: p.relay_url, direct_addrs: p.direct_addrs || [], name: p.name }, 'cloud');
+      node.ensurePeer({ endpoint_id: p.endpoint_id, device_id: p.device_id, relay_url: p.relay_url, direct_addrs: p.direct_addrs || [], name: p.name }, 'cloud');
       n += 1;
     }
     Object.assign(cloudState, { lastSync: Date.now(), error: errors.join('；'), peers: n });
@@ -534,6 +536,23 @@ function hostOf(addr) {
   return s.replace(/:\d+$/, '');
 }
 
+// 云端地址簿：device_id / endpoint_id → 地址。经官方中继连上时直连地址不在通路上，卡片仍要显示
+const addrBook = new Map();
+
+function rememberAddrs(ids, addrs) {
+  const list = [...new Set((addrs || []).map((a) => String(a || '').trim()).filter(Boolean))];
+  if (!list.length) return;
+  for (const id of ids) if (id) addrBook.set(String(id), list);
+}
+
+function bookedAddrs(d) {
+  if (!d) return [];
+  return [
+    ...(d.device_id ? addrBook.get(String(d.device_id)) || [] : []),
+    ...(d.endpoint_id ? addrBook.get(String(d.endpoint_id)) || [] : []),
+  ];
+}
+
 /** 卡片上放一个 IP：公网优先，其次局域网 / Tailscale */
 function pickIp(addrs) {
   const hosts = [];
@@ -549,14 +568,15 @@ function pickIp(addrs) {
 
 function deviceIp(d) {
   if (!node || !d) return '';
-  if (d.self) return pickIp([...(node.verifiedAddrs || []), ...(node.addrInfo().direct_addrs || [])]);
   const known = [];
   try {
     for (const p of node.diagnose().peers || []) {
       if ((p.device_id && p.device_id === d.device_id) || (p.endpoint_id && p.endpoint_id === d.endpoint_id)) known.push(...(p.addrs || []));
     }
   } catch { /* 没有诊断 */ }
-  return pickIp([d.path?.addr, ...known, ...(d.descriptor?.relay?.addrs || [])]);
+  // 本机：云端看到的出口 IP（容器网卡只有 172.x，地址簿里才有公网地址）
+  const selfAddrs = d.self ? [node.observedIp, ...(node.verifiedAddrs || []), ...(node.addrInfo().direct_addrs || [])] : [d.path?.addr];
+  return pickIp([...selfAddrs, ...bookedAddrs(d), ...known, ...(d.descriptor?.relay?.addrs || [])]);
 }
 
 function devicesView() {
